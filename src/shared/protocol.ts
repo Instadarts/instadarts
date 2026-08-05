@@ -59,7 +59,8 @@ export interface LeaveGameMessage {
 
 export interface ReconnectMessage {
   type: 'reconnect';
-  gameId: string;
+  gameId?: string;
+  lobbyId?: string;
   playerId: string;
 }
 

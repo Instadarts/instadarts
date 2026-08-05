@@ -1,19 +1,25 @@
-const RECONNECT_URL_KEY = 'instadarts_reconnect';
+const RECONNECT_KEY = 'instadarts_reconnect';
+
+interface ReconnectInfo {
+  lobbyId?: string;
+  gameId?: string;
+  playerId: string;
+}
 
 /**
  * Store reconnect info in sessionStorage so a page refresh can restore state.
  */
-export function saveReconnectInfo(gameId: string, playerId: string): void {
+export function saveReconnectInfo(info: ReconnectInfo): void {
   try {
-    sessionStorage.setItem(RECONNECT_URL_KEY, JSON.stringify({ gameId, playerId }));
+    sessionStorage.setItem(RECONNECT_KEY, JSON.stringify(info));
   } catch {
     // sessionStorage unavailable
   }
 }
 
-export function loadReconnectInfo(): { gameId: string; playerId: string } | null {
+export function loadReconnectInfo(): ReconnectInfo | null {
   try {
-    const raw = sessionStorage.getItem(RECONNECT_URL_KEY);
+    const raw = sessionStorage.getItem(RECONNECT_KEY);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -23,7 +29,7 @@ export function loadReconnectInfo(): { gameId: string; playerId: string } | null
 
 export function clearReconnectInfo(): void {
   try {
-    sessionStorage.removeItem(RECONNECT_URL_KEY);
+    sessionStorage.removeItem(RECONNECT_KEY);
   } catch {
     // ignore
   }

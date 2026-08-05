@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { handleMessage, registerClient, removeClient, handleClientLeave } from './wsHandler';
+import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import { X01Handler } from './modes/x01';
 import { registerModeHandler } from './modes/types';
 
@@ -43,8 +43,11 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('Client disconnected');
-    handleClientLeave(ws);
-    removeClient(ws);
+    // Use a grace period before processing leave, so page reloads can reconnect
+    scheduleDisconnect(ws, () => {
+      handleClientLeave(ws);
+      removeClient(ws);
+    });
   });
 
   ws.send(JSON.stringify({ type: 'connected', message: 'Welcome to InstaDarts!' }));

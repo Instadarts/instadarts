@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
 import type { GameState, Lobby, Player } from '../../shared/types';
 import { useWebSocket } from './useWebSocket';
@@ -12,6 +12,10 @@ export function useGameState() {
   const [isSpectator, setIsSpectator] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
+  // Ref to always have the latest ownPlayerId (avoids stale closure in handleMessage)
+  const ownPlayerIdRef = useRef<string | null>(null);
+  ownPlayerIdRef.current = ownPlayerId;
+
   const handleMessage = useCallback((msg: any) => {
     // Handle connected message (not a ServerMessage type)
     if (msg.type === 'connected' && msg.sessionId) {
@@ -24,13 +28,15 @@ export function useGameState() {
         setLobby(msg.lobby);
         if (msg.yourPlayerId) {
           setOwnPlayerId(msg.yourPlayerId);
+          // Persist for page reload recovery
+          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: msg.yourPlayerId });
         }
         break;
       case 'game_state':
       case 'game_started':
         setGame(msg.game);
         setLobby(null);
-        saveReconnectInfo(msg.game.id, ownPlayerId ?? 'unknown');
+        saveReconnectInfo({ gameId: msg.game.id, playerId: ownPlayerIdRef.current ?? 'unknown' });
         break;
       case 'game_finished':
         setGame(msg.game);
@@ -40,6 +46,7 @@ export function useGameState() {
         setLobby(null);
         setOwnPlayerId(null);
         setIsSpectator(false);
+        clearReconnectInfo();
         break;
       case 'error':
         setError(msg.message);
@@ -51,7 +58,7 @@ export function useGameState() {
         // Handled by lobby_state broadcast
         break;
     }
-  }, [ownPlayerId]);
+  }, []);
 
   const { send, connected } = useWebSocket(handleMessage);
 

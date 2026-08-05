@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { JoinHandler } from './pages/JoinHandler';
+import { loadReconnectInfo } from './lib/ws';
 
 export function App() {
   const {
@@ -42,9 +43,11 @@ export function App() {
     }
   }, [game, navigate]);
 
-  // Navigate to home when lobby is abandoned
+  // Navigate to home when lobby/game is abandoned (skip if page reload with reconnect info)
   useEffect(() => {
     if (!lobby && !game && window.location.pathname !== '/' && !window.location.pathname.startsWith('/lobby/join/')) {
+      // Don't navigate away if we're about to reconnect after a page reload
+      if (loadReconnectInfo()) return;
       navigate('/', { replace: true });
     }
   }, [lobby, game, navigate]);

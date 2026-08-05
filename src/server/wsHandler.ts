@@ -16,6 +16,38 @@ import { canCreateLobby, canCreateGame } from './concurrencyLimit';
 
 const clients = new Map<WebSocket, Client>();
 
+// Pending disconnect timers for page reload recovery
+const DISCONNECT_GRACE_MS = 3000;
+const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
+
+function disconnectKey(client: Client): string | null {
+  if (client.lobbyId && client.playerId) return `lobby:${client.lobbyId}:${client.playerId}`;
+  if (client.gameId && client.playerId) return `game:${client.gameId}:${client.playerId}`;
+  return null;
+}
+
+export function scheduleDisconnect(ws: WebSocket, onTimeout: () => void): void {
+  const client = clients.get(ws);
+  if (!client) { onTimeout(); return; }
+
+  const key = disconnectKey(client);
+  if (!key) { onTimeout(); return; }
+
+  const timer = setTimeout(() => {
+    pendingDisconnects.delete(key);
+    onTimeout();
+  }, DISCONNECT_GRACE_MS);
+  pendingDisconnects.set(key, timer);
+}
+
+function cancelDisconnect(key: string): void {
+  const timer = pendingDisconnects.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    pendingDisconnects.delete(key);
+  }
+}
+
 export function registerClient(ws: WebSocket, client: Client): void {
   clients.set(ws, client);
 }
@@ -493,29 +525,60 @@ function handleSpectate(ws: WebSocket, msg: any): void {
 }
 
 function handleReconnect(ws: WebSocket, msg: any): void {
-  const game = getGame(msg.gameId);
-  if (!game) {
-    send(ws, { type: 'error', message: 'Game not found' });
-    return;
-  }
-
   const client = clients.get(ws);
   if (!client) {
     send(ws, { type: 'error', message: 'Session not found' });
     return;
   }
 
-  // Verify the player belongs to this session
-  const player = game.players.find((p) => p.id === msg.playerId);
-  if (!player || player.sessionId !== client.sessionId) {
-    send(ws, { type: 'error', message: 'Invalid player for this session' });
+  // Lobby reconnection (page reload during lobby phase)
+  if (msg.lobbyId) {
+    // Cancel any pending disconnect for this player (page reload recovery)
+    cancelDisconnect(`lobby:${msg.lobbyId}:${msg.playerId}`);
+
+    const lobby = getLobby(msg.lobbyId);
+    if (!lobby) {
+      send(ws, { type: 'error', message: 'Lobby not found' });
+      return;
+    }
+    const player = lobby.players.find((p) => p.id === msg.playerId);
+    if (!player) {
+      send(ws, { type: 'error', message: 'Player not found in lobby' });
+      return;
+    }
+    // If the reconnecting player is the host, update hostSessionId
+    // (page reload gives a new WebSocket session)
+    if (player.id === lobby.hostPlayerId) {
+      lobby.hostSessionId = client.sessionId;
+    }
+    client.lobbyId = lobby.id;
+    client.playerId = msg.playerId;
+    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: msg.playerId });
     return;
   }
 
-  client.gameId = game.id;
-  client.playerId = msg.playerId;
+  // Game reconnection (page reload during match)
+  if (msg.gameId) {
+    // Cancel any pending disconnect for this player (page reload recovery)
+    cancelDisconnect(`game:${msg.gameId}:${msg.playerId}`);
 
-  send(ws, { type: 'game_state', game: { ...game } });
+    const game = getGame(msg.gameId);
+    if (!game) {
+      send(ws, { type: 'error', message: 'Game not found' });
+      return;
+    }
+    const player = game.players.find((p) => p.id === msg.playerId);
+    if (!player) {
+      send(ws, { type: 'error', message: 'Player not found in game' });
+      return;
+    }
+    client.gameId = game.id;
+    client.playerId = msg.playerId;
+    send(ws, { type: 'game_state', game: { ...game } });
+    return;
+  }
+
+  send(ws, { type: 'error', message: 'No lobby or game ID provided for reconnect' });
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {

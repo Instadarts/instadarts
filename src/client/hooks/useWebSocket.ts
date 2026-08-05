@@ -36,11 +36,12 @@ export function useWebSocket(onMessage: MessageHandler) {
       reconnectAttempt.current = 0;
       flushPending();
 
-      // Check for reconnect info
+      // Check for reconnect info (page reload recovery)
       const info = loadReconnectInfo();
       if (info) {
         ws.send(JSON.stringify({
           type: 'reconnect',
+          lobbyId: info.lobbyId,
           gameId: info.gameId,
           playerId: info.playerId,
         }));

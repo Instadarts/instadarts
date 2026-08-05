@@ -10,7 +10,7 @@ import { getAllLobbies, getAllGames } from './store';
 registerModeHandler('x01', new X01Handler());
 
 // Start garbage collector
-import { startGC } from './gc';
+import { startGC, getGCStats } from './gc';
 startGC();
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -34,6 +34,7 @@ app.get('/server-stats', (_req, res) => {
     runningMatches: runningGames,
     totalGames: games.size,
     connectedClients: wss.clients.size,
+    gc: getGCStats(),
     memory: {
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),

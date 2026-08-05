@@ -98,7 +98,7 @@ describe('Local match behavior', () => {
     expect(game.players[0].sessionId).toBe(game.players[1].sessionId);
   });
 
-  it('local match player leave sets finished with no winner', () => {
+  it('local match: creator disconnects → match cancelled with no winner', () => {
     const game = makeGame({ isLocal: true, status: 'finished', winnerId: null, finishedAt: Date.now() });
     expect(game.status).toBe('finished');
     expect(game.winnerId).toBeNull();
@@ -141,7 +141,7 @@ describe('Game finish scenarios', () => {
     expect(result.game.winnerId).toBe('p1');
   });
 
-  it('online match: player leave declares other winner', () => {
+  it('online match: opponent disconnects → remaining player wins', () => {
     const game = makeGame({
       isLocal: false,
       status: 'finished',

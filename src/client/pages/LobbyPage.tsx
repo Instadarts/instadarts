@@ -76,7 +76,7 @@ export function LobbyPage({
       <p className="text-gray-500 text-sm mb-6">
         {mode === 'local'
           ? 'Add players and configure the game'
-          : 'Invite an opponent or wait for them to join'}
+          : 'Share the code below and wait for your opponent to connect'}
       </p>
 
       {/* Players */}
@@ -207,7 +207,7 @@ export function LobbyPage({
 
       {/* Invite code or opponent status (only creator of online lobby) */}
       {isCreator && mode === 'online' && lobby.inviteCode && (
-        lobby.joinerConnected ? (
+        lobby.remoteConnected ? (
           <div className="w-80 mb-6 text-center">
             <p className="text-green-400 text-sm font-semibold">✓ Opponent connected</p>
           </div>

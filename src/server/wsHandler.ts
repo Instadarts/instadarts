@@ -99,7 +99,7 @@ function broadcastToGame(gameId: string, msg: ServerMessage): void {
 export function handleMessage(ws: WebSocket, raw: string): void {
   // Rate limit
   const client = clients.get(ws);
-  const connId = client?.playerId ?? `anon_${Math.random()}`;
+  const connId = client?.sessionId ?? `anon_${Math.random()}`;
   if (!checkRateLimit(connId)) {
     send(ws, { type: 'error', message: 'Rate limit exceeded' });
     return;
@@ -185,8 +185,8 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
 
-  if (lobby.players.length >= 2 || lobby.joinerConnected) {
-    send(ws, { type: 'error', message: lobby.players.length >= 2 ? 'Lobby is full' : 'A player has already joined this lobby' });
+  if (lobby.players.length >= 2 || lobby.remoteConnected) {
+    send(ws, { type: 'error', message: lobby.players.length >= 2 ? 'Lobby is full' : 'Another user is already in this lobby' });
     return;
   }
 
@@ -196,7 +196,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     client.lobbyId = lobby.id;
     // Mark opponent as connected for the creator
     if (client.sessionId !== lobby.hostSessionId) {
-      lobby.joinerConnected = true;
+      lobby.remoteConnected = true;
     }
   }
 
@@ -480,7 +480,7 @@ export function handleClientLeave(ws: WebSocket): void {
       const leavingPlayerId = client.playerId;
       client.lobbyId = null;
       client.playerId = null;
-      lobby.joinerConnected = false;
+      lobby.remoteConnected = false;
       if (leavingPlayerId) {
         removePlayerFromLobby(lobby.id, leavingPlayerId);
       }

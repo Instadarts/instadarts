@@ -67,6 +67,6 @@ export interface Lobby {
   hostPlayerId: string | null;
   hostSessionId: string | null;
   isLocal: boolean;
-  joinerConnected: boolean;
+  remoteConnected: boolean;
   createdAt: number;
 }

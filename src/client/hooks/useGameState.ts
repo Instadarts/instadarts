@@ -40,7 +40,9 @@ export function useGameState() {
       case 'game_started':
         setGame(msg.game);
         setLobby(null);
-        saveReconnectInfo({ gameId: msg.game.id, playerId: ownPlayerIdRef.current ?? 'unknown' });
+        if (ownPlayerIdRef.current) {
+          saveReconnectInfo({ gameId: msg.game.id, playerId: ownPlayerIdRef.current });
+        }
         break;
       case 'game_finished':
         setGame(msg.game);

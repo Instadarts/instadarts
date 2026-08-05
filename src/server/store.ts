@@ -34,7 +34,7 @@ export function createLobby(): Lobby {
     hostPlayerId: null,
     hostSessionId: null,
     isLocal: true,
-    joinerConnected: false,
+    remoteConnected: false,
     createdAt: Date.now(),
   };
   lobbies.set(id, lobby);

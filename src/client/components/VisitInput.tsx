@@ -19,7 +19,7 @@ export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled }:
         {darts.map((dart, i) => (
           <div
             key={i}
-            className={`px-4 py-1 rounded font-mono text-lg ${
+            className={`w-[105px] py-1 rounded font-mono text-lg text-center ${
               dart.score.points > 0 ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
             }`}
           >
@@ -27,18 +27,16 @@ export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled }:
           </div>
         ))}
         {Array.from({ length: 3 - darts.length }).map((_, i) => (
-          <div key={`empty-${i}`} className="px-4 py-1 rounded bg-gray-800 text-gray-600 font-mono text-lg">
+          <div key={`empty-${i}`} className="w-[105px] py-1 rounded bg-gray-800 text-gray-600 font-mono text-lg text-center">
             --
           </div>
         ))}
       </div>
 
       {/* Visit total */}
-      {darts.length > 0 && (
-        <p className="text-xl font-bold text-yellow-400">
-          Visit: {darts.reduce((s, d) => s + d.score.points, 0)}
-        </p>
-      )}
+      <p className="text-xl font-bold text-yellow-400">
+        Visit: {darts.reduce((s, d) => s + d.score.points, 0)}
+      </p>
 
       {/* Actions */}
       <div className="flex gap-4">

@@ -116,16 +116,25 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
           );
         })}
 
-        {/* Wire lines (sector dividers) */}
+        {/* Bull ring wire (between outer and inner bull, before bull fills) */}
+        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
+
+        {/* Bulls */}
+        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="#4a4" />
+        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="#d44" />
+
+        {/* Spider lines (sector dividers) — start from outer bull to avoid painting over bulls */}
         {SECTOR_ORDER.map((_, i) => {
           const angle = (i * 18 - 9) * Math.PI / 180;
           const x = CENTER + RADII.doubleOuter * Math.sin(angle);
           const y = boardYToSvgY(CENTER + RADII.doubleOuter * Math.cos(angle));
+          const bx = CENTER + RADII.outerBull * Math.sin(angle);
+          const by = boardYToSvgY(CENTER + RADII.outerBull * Math.cos(angle));
           return (
             <line
               key={`wire-${i}`}
-              x1={CENTER}
-              y1={boardYToSvgY(CENTER)}
+              x1={bx}
+              y1={by}
               x2={x}
               y2={y}
               stroke="#333"
@@ -140,11 +149,6 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
         <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleInner} fill="none" stroke="#333" strokeWidth="600" />
         <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleOuter} fill="none" stroke="#333" strokeWidth="600" />
         <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="none" stroke="#333" strokeWidth="500" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
-
-        {/* Bulls (painted over wire lines) */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="#4a4" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="#d44" />
 
         {/* Sector numbers */}
         {SECTOR_ORDER.map((value, i) => {
@@ -169,32 +173,6 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
             </text>
           );
         })}
-
-        {/* Wire lines (sector dividers) */}
-        {SECTOR_ORDER.map((_, i) => {
-          const angle = (i * 18 - 9) * Math.PI / 180;
-          const x = CENTER + RADII.doubleOuter * Math.sin(angle);
-          const y = boardYToSvgY(CENTER + RADII.doubleOuter * Math.cos(angle));
-          return (
-            <line
-              key={`wire-${i}`}
-              x1={CENTER}
-              y1={boardYToSvgY(CENTER)}
-              x2={x}
-              y2={y}
-              stroke="#333"
-              strokeWidth="500"
-            />
-          );
-        })}
-
-        {/* Ring wires */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.doubleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.doubleOuter} fill="none" stroke="#333" strokeWidth="800" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleOuter} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="none" stroke="#333" strokeWidth="500" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
 
         {/* Dart markers */}
         {darts.map((dart, i) => (

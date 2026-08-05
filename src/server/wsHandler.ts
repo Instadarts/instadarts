@@ -343,7 +343,8 @@ function handleStartGame(ws: WebSocket, msg: any): void {
     return;
   }
 
-  if (client.sessionId !== lobby.hostSessionId) {
+  // Only the host can start the game (local lobbies: anyone can)
+  if (!lobby.isLocal && client.sessionId !== lobby.hostSessionId) {
     send(ws, { type: 'error', message: 'Only the match creator can start the game' });
     return;
   }
@@ -547,6 +548,9 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     // Local lobby with no players: just re-associate client with lobby
     if (!msg.playerId) {
       client.lobbyId = lobby.id;
+      if (lobby.isLocal) {
+        lobby.hostSessionId = client.sessionId;
+      }
       send(ws, { type: 'lobby_state', lobby: { ...lobby } });
       return;
     }

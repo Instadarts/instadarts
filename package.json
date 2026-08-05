@@ -9,7 +9,7 @@
     "start": "NODE_ENV=production node --import tsx src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null || true && playwright test"
+    "test:e2e": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; sleep 1; playwright test"
   },
   "dependencies": {
     "express": "^4.21.0",

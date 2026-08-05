@@ -27,6 +27,8 @@ function makeGame(overrides: any = {}) {
     startScore: 501,
     ...(overrides.settings || {}),
   };
+  // Remove settings from overrides to avoid duplicate key
+  const { settings: _, ...rest } = overrides;
   return {
     id: 'test',
     status: 'in_progress' as const,
@@ -40,8 +42,7 @@ function makeGame(overrides: any = {}) {
     winnerId: null,
     createdAt: Date.now(),
     finishedAt: null,
-    ...overrides,
-    settings, // ensure settings override is preserved
+    ...rest,
   };
 }
 

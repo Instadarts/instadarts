@@ -7,15 +7,14 @@ interface GamePageProps {
   onLeave: () => void;
   onSubmitVisit: (visit: { playerId: string; darts: DartThrow[]; bust: boolean }) => void;
   ownPlayerId: string | null;
+  isSpectator: boolean;
 }
 
-export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId }: GamePageProps) {
+export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectator }: GamePageProps) {
   const [darts, setDarts] = useState<DartThrow[]>([]);
 
   const currentPlayer = game.players[game.currentPlayerIndex];
-  // Local multiplayer (ownPlayerId is null): always allow input, server validates turn.
-  // Online: only enable when it's this client's turn.
-  const isMyTurn = game.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
+  const isMyTurn = !isSpectator && game.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
   const getRemaining = useCallback((playerId: string): number => {
     let remaining = game.settings.startScore;
@@ -53,6 +52,7 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId }: GamePage
     <div className="min-h-screen flex flex-col items-center p-4 gap-6">
       <h2 className="text-2xl font-bold text-green-400">
         {game.settings.startScore} — {game.settings.doubleOut ? 'Double Out' : 'Straight Out'}
+        {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}
       </h2>
 
       {/* Score panel */}
@@ -96,8 +96,8 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId }: GamePage
         <p className="text-yellow-400 font-semibold">Double-In required — hit a double to start scoring</p>
       )}
 
-      {/* Dartboard / Visit Input */}
-      {game.status === 'in_progress' && (
+      {/* Dartboard / Visit Input — hidden for spectators */}
+      {!isSpectator && game.status === 'in_progress' && (
         <div className="w-full max-w-[500px]">
           <VisitInput
             darts={darts}

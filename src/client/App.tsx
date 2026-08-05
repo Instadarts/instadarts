@@ -1,10 +1,10 @@
-import { useState, useCallback } from 'react';
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useGameState } from './hooks/useGameState';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
-
-type LobbyMode = 'local' | 'online';
+import { JoinHandler } from './pages/JoinHandler';
 
 export function App() {
   const {
@@ -12,82 +12,155 @@ export function App() {
     game,
     connected,
     ownPlayerId,
+    isSpectator,
     createLobby,
     joinLobby,
     addLocalPlayer,
     removePlayer,
     updateSettings,
-    setPlayerName,
     startGame,
     submitVisit,
     leaveGame,
+    spectate,
   } = useGameState();
 
-  const [lobbyMode, setLobbyMode] = useState<LobbyMode | null>(null);
-  const [isCreator, setIsCreator] = useState(false);
+  const navigate = useNavigate();
 
-  // Home page handlers
-  const handleCreateLocalMatch = useCallback(() => {
-    createLobby(true);
-    setLobbyMode('local');
-    setIsCreator(true);
-  }, [createLobby]);
+  // Navigate when lobby/game state arrives via WebSocket
+  useEffect(() => {
+    if (lobby && window.location.pathname === '/') {
+      navigate(`/lobby/${lobby.id}`, { replace: true });
+    }
+  }, [lobby, navigate]);
 
-  const handleCreateOnlineMatch = useCallback(() => {
-    createLobby(false);
-    setLobbyMode('online');
-    setIsCreator(true);
-  }, [createLobby]);
+  useEffect(() => {
+    if (game && game.status === 'in_progress' && !window.location.pathname.startsWith('/match/')) {
+      navigate(`/match/${game.id}`, { replace: true });
+    }
+  }, [game, navigate]);
 
-  const handleJoinOnlineMatch = useCallback((code: string) => {
-    joinLobby(code, '');
-    setLobbyMode('online');
-    setIsCreator(false);
-  }, [joinLobby]);
+  // Navigate to home when lobby is abandoned
+  useEffect(() => {
+    if (!lobby && !game && window.location.pathname !== '/' && !window.location.pathname.startsWith('/lobby/join/')) {
+      navigate('/', { replace: true });
+    }
+  }, [lobby, game, navigate]);
 
-  const handleLeave = useCallback(() => {
-    leaveGame(lobby?.id ?? game?.id ?? '');
-    setLobbyMode(null);
-    setIsCreator(false);
-  }, [leaveGame, lobby, game]);
+  return (
+    <Routes>
+      <Route path="/" element={
+        <HomePage
+          onCreateLocalMatch={() => { createLobby(true); }}
+          onCreateOnlineMatch={() => { createLobby(false); }}
+          onJoinOnlineMatch={(code) => navigate(`/lobby/join/${code}`)}
+          connected={connected}
+        />
+      } />
 
-  // Lobby
-  if (lobby && lobbyMode) {
+      <Route path="/lobby/join/:code" element={
+        <JoinHandler onJoin={joinLobby} lobby={lobby} />
+      } />
+
+      <Route path="/lobby/:id" element={
+        <LobbyWrapper
+          lobby={lobby}
+          ownPlayerId={ownPlayerId}
+          isSpectator={isSpectator}
+          startGame={startGame}
+          leaveGame={leaveGame}
+          updateSettings={updateSettings}
+          addLocalPlayer={addLocalPlayer}
+          removePlayer={removePlayer}
+          navigate={navigate}
+        />
+      } />
+
+      <Route path="/match/:id" element={
+        <MatchWrapper
+          game={game}
+          ownPlayerId={ownPlayerId}
+          isSpectator={isSpectator}
+          leaveGame={leaveGame}
+          submitVisit={submitVisit}
+          navigate={navigate}
+        />
+      } />
+
+      <Route path="/spectate/:id" element={
+        <SpectateWrapper spectate={spectate} lobby={lobby} game={game} navigate={navigate} />
+      } />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, navigate }: any) {
+  if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
+  return (
+    <LobbyPage
+      lobby={lobby}
+      mode={lobby.isLocal ? 'local' : 'online'}
+      isCreator={ownPlayerId === lobby.hostPlayerId || lobby.isLocal}
+      ownPlayerId={ownPlayerId}
+      isSpectator={isSpectator}
+      onStartGame={() => startGame(lobby.id)}
+      onLeave={() => { leaveGame(lobby.id); navigate('/'); }}
+      onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
+      onAddLocalPlayer={(n: string) => addLocalPlayer(lobby.id, n)}
+      onRemovePlayer={(p: string) => removePlayer(lobby.id, p)}
+    />
+  );
+}
+
+function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, navigate }: any) {
+  if (!game) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading game...</div>;
+  return (
+    <GamePage
+      game={game}
+      ownPlayerId={ownPlayerId}
+      isSpectator={isSpectator}
+      onLeave={() => { leaveGame(game.id); navigate('/'); }}
+      onSubmitVisit={(v: any) => submitVisit(game.id, v)}
+    />
+  );
+}
+
+function SpectateWrapper({ spectate, lobby, game, navigate }: any) {
+  const { id } = useParams<{ id: string }>();
+
+  useEffect(() => {
+    if (id) spectate(id);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (lobby) {
     return (
       <LobbyPage
         lobby={lobby}
-        mode={lobbyMode}
-        isCreator={isCreator}
-        ownPlayerId={ownPlayerId}
-        onStartGame={() => startGame(lobby.id)}
-        onLeave={handleLeave}
-        onUpdateSettings={(settings) => updateSettings(lobby.id, settings)}
-        onSetPlayerName={(playerId, name) => setPlayerName(lobby.id, playerId, name)}
-        onAddLocalPlayer={(name) => addLocalPlayer(lobby.id, name)}
-        onRemovePlayer={(playerId) => removePlayer(lobby.id, playerId)}
+        mode={lobby.isLocal ? 'local' : 'online'}
+        isCreator={false}
+        ownPlayerId={null}
+        isSpectator={true}
+        onStartGame={() => {}}
+        onLeave={() => navigate('/')}
+        onUpdateSettings={() => {}}
+        onAddLocalPlayer={() => {}}
+        onRemovePlayer={() => {}}
       />
     );
   }
 
-  // Game
   if (game) {
     return (
       <GamePage
         game={game}
-        onLeave={handleLeave}
-        onSubmitVisit={(visit) => submitVisit(game.id, visit)}
-        ownPlayerId={ownPlayerId}
+        ownPlayerId={null}
+        isSpectator={true}
+        onLeave={() => navigate('/')}
+        onSubmitVisit={() => {}}
       />
     );
   }
 
-  // Home
-  return (
-    <HomePage
-      onCreateLocalMatch={handleCreateLocalMatch}
-      onCreateOnlineMatch={handleCreateOnlineMatch}
-      onJoinOnlineMatch={handleJoinOnlineMatch}
-      connected={connected}
-    />
-  );
+  return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
 }

@@ -3,4 +3,5 @@ export interface Client {
   gameId: string | null;
   playerId: string | null;
   isHost: boolean;
+  isSpectator: boolean;
 }

@@ -9,6 +9,7 @@ export function useGameState() {
   const [game, setGame] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
+  const [isSpectator, setIsSpectator] = useState(false);
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
@@ -31,6 +32,7 @@ export function useGameState() {
       case 'lobby_abandoned':
         setLobby(null);
         setOwnPlayerId(null);
+        setIsSpectator(false);
         break;
       case 'error':
         setError(msg.message);
@@ -85,7 +87,13 @@ export function useGameState() {
     setGame(null);
     setLobby(null);
     setOwnPlayerId(null);
+    setIsSpectator(false);
     clearReconnectInfo();
+  }, [send]);
+
+  const spectate = useCallback((id: string) => {
+    send({ type: 'spectate', id });
+    setIsSpectator(true);
   }, [send]);
 
   return {
@@ -94,6 +102,7 @@ export function useGameState() {
     error,
     connected,
     ownPlayerId,
+    isSpectator,
     createLobby,
     joinLobby,
     addLocalPlayer,
@@ -103,5 +112,6 @@ export function useGameState() {
     startGame,
     submitVisit,
     leaveGame,
+    spectate,
   };
 }

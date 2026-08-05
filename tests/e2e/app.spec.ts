@@ -101,6 +101,7 @@ async function setupLocalMatch(page: Page, players: string[], startScore = 501) 
 
   // Start match
   await page.click('text=Start Match');
+  await page.waitForURL('**/match/**');
   await expect(page.locator(`text=${startScore}`).first()).toBeVisible();
 }
 
@@ -233,8 +234,9 @@ test.describe('Online multiplayer match', () => {
 
     // Page 1 starts the game (button should now be enabled with 2 players)
     await page1.waitForTimeout(500);
-    await expect(page1.locator('button:has-text("Start Match")')).toBeEnabled({ timeout: 5000 });
     await page1.click('button:has-text("Start Match")');
+    await page1.waitForURL('**/match/**');
+    await page2.waitForURL('**/match/**');
 
     // Both pages should see the game
     await expect(page1.locator('text=501').first()).toBeVisible();
@@ -303,8 +305,10 @@ test.describe('Lobby leave scenarios', () => {
 
     // Creator leaves
     await page1.click('text=Leave');
+    await page1.waitForURL('/');
 
     // Joiner should be back on home screen (lobby abandoned)
+    await page2.waitForURL('/');
     await expect(page2.locator('text=Local Match')).toBeVisible({ timeout: 5000 });
 
     await ctx1.close();
@@ -342,6 +346,7 @@ test.describe('Lobby leave scenarios', () => {
 
     // Joiner leaves
     await page2.click('text=Leave');
+    await page2.waitForURL('/');
 
     // Creator should see Bob removed
     await expect(page1.locator('text=Bob')).not.toBeVisible({ timeout: 5000 });
@@ -383,6 +388,8 @@ test.describe('In-match leave scenarios', () => {
 
     // Start match
     await page1.click('button:has-text("Start Match")');
+    await page1.waitForURL('**/match/**');
+    await page2.waitForURL('**/match/**');
     await expect(page1.locator('text=501').first()).toBeVisible();
     await expect(page2.locator('text=501').first()).toBeVisible();
 
@@ -392,9 +399,92 @@ test.describe('In-match leave scenarios', () => {
 
     // Alice leaves the match
     await page1.click('button:has-text("Leave Game")');
+    await page1.waitForURL('/');
 
     // Bob should be declared winner
     await expect(page2.locator('text=Bob wins!')).toBeVisible({ timeout: 5000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+});
+
+test.describe('Spectator mode', () => {
+  test('/spectate/:id shows a running match as read-only', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    await setupLocalMatch(page1, ['Alice', 'Bob'], 501);
+    const matchId = page1.url().split('/match/')[1];
+    expect(matchId).toBeTruthy();
+
+    await clickT20(page1); await clickT20(page1); await clickT20(page1);
+    await submitVisit(page1);
+
+    await page2.goto(`/spectate/${matchId}`);
+    await page2.waitForTimeout(1000);
+
+    await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+    await expect(page2.locator('text=501').first()).toBeVisible();
+    await expect(page2.locator('text=180').first()).toBeVisible();
+    await expect(page2.locator('button:has-text("Submit Visit")')).not.toBeVisible({ timeout: 3000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('spectator cannot interact with lobby', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const lobbyId = page1.url().split('/lobby/')[1];
+    expect(lobbyId).toBeTruthy();
+
+    await page2.goto(`/spectate/${lobbyId}`);
+    await page2.waitForTimeout(1000);
+
+    await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+    await expect(page2.locator('input[placeholder="New player name"]')).not.toBeVisible({ timeout: 3000 });
+    await expect(page2.locator('button:has-text("Start Match")')).not.toBeVisible({ timeout: 3000 });
+    await expect(page2.locator('text=(read-only)')).toBeVisible();
+    await expect(page2.locator('text=Alice')).toBeVisible();
+    await expect(page2.locator('button[title="Remove player"]')).not.toBeVisible({ timeout: 3000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('spectator leaving has no effect on the lobby', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const lobbyId = page1.url().split('/lobby/')[1];
+
+    await page2.goto(`/spectate/${lobbyId}`);
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+
+    await page2.click('text=Leave');
+    await page2.waitForURL('/');
+
+    await expect(page1.locator('text=Alice')).toBeVisible();
+    await expect(page1.locator('text=Invite Code')).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();

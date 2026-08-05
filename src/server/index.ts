@@ -25,11 +25,15 @@ const wss = new WebSocketServer({
 // Only serve static files in production (dev uses Vite on port 5173)
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static('dist/client'));
+  // SPA fallback: serve index.html for all non-API routes
+  app.get('*', (_req, res) => {
+    res.sendFile('index.html', { root: 'dist/client' });
+  });
 }
 
 wss.on('connection', (ws) => {
   console.log('Client connected');
-  registerClient(ws, { lobbyId: null, gameId: null, playerId: null, isHost: false });
+  registerClient(ws, { lobbyId: null, gameId: null, playerId: null, isHost: false, isSpectator: false });
 
   ws.on('message', (data) => {
     handleMessage(ws, data.toString());

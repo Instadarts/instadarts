@@ -7,10 +7,10 @@ interface LobbyPageProps {
   mode: 'local' | 'online';
   isCreator: boolean;
   ownPlayerId: string | null;
+  isSpectator: boolean;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
-  onSetPlayerName: (playerId: string, name: string) => void;
   onAddLocalPlayer: (name: string) => void;
   onRemovePlayer: (playerId: string) => void;
 }
@@ -20,10 +20,10 @@ export function LobbyPage({
   mode,
   isCreator,
   ownPlayerId,
+  isSpectator,
   onStartGame,
   onLeave,
   onUpdateSettings,
-  onSetPlayerName,
   onAddLocalPlayer,
   onRemovePlayer,
 }: LobbyPageProps) {
@@ -42,7 +42,7 @@ export function LobbyPage({
       ? lobby.players.length >= 1
       : lobby.players.length === 2;
   // Online: only creator can edit settings
-  const canEdit = mode === 'local' || isCreator;
+  const canEdit = !isSpectator && (mode === 'local' || isCreator);
 
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
@@ -64,6 +64,7 @@ export function LobbyPage({
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <h2 className="text-3xl font-bold text-green-400 mb-2">
         {mode === 'local' ? 'Local Match' : 'Online Match'}
+        {isSpectator && <span className="text-yellow-400 text-lg ml-2">(spectating)</span>}
       </h2>
       <p className="text-gray-500 text-sm mb-6">
         {mode === 'local'
@@ -76,12 +77,10 @@ export function LobbyPage({
         <h3 className="text-gray-400 text-sm uppercase mb-2">Players</h3>
 
         {/* Current players */}
-        {lobby.players.map((p) => {
-          const isOwn = mode === 'local' || p.id === ownPlayerId;
-          return (
+        {lobby.players.map((p) => (
             <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
               <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-              {isOwn && (
+              {!isSpectator && (mode === 'local' || p.id === ownPlayerId) && (
                 <button
                   onClick={() => onRemovePlayer(p.id)}
                   className="text-red-400 hover:text-red-300 text-sm px-1"
@@ -91,11 +90,10 @@ export function LobbyPage({
                 </button>
               )}
             </div>
-          );
-        })}
+        ))}
 
         {/* Add player section */}
-        {canAddLocal && (
+        {!isSpectator && canAddLocal && (
           <div className="mt-3 space-y-2">
             {/* Quick-add from saved names */}
             {availableNames.length > 0 && (
@@ -190,7 +188,7 @@ export function LobbyPage({
       {isCreator && mode === 'online' && lobby.inviteCode && (
         <div className="w-80 mb-6 text-center">
           <p className="text-gray-400 text-sm mb-2">Invite Code</p>
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex items-center justify-center gap-2 mb-2">
             <code className="select-text text-2xl font-mono tracking-widest text-green-400 bg-gray-800 px-4 py-2 rounded">
               {lobby.inviteCode}
             </code>
@@ -202,6 +200,21 @@ export function LobbyPage({
               📋
             </button>
           </div>
+          <p className="text-gray-500 text-xs">
+            Or share:{' '}
+            <a
+              href={`/lobby/join/${lobby.inviteCode}`}
+              className="text-blue-400 hover:underline select-text"
+              onClick={(e) => {
+                e.preventDefault();
+                navigator.clipboard.writeText(
+                  `${window.location.origin}/lobby/join/${lobby.inviteCode}`
+                );
+              }}
+            >
+              /lobby/join/{lobby.inviteCode}
+            </a>
+          </p>
         </div>
       )}
 
@@ -216,7 +229,7 @@ export function LobbyPage({
 
       {/* Actions */}
       <div className="flex gap-4">
-        {isCreator && (
+        {!isSpectator && isCreator && (
           <button
             onClick={onStartGame}
             disabled={!canStart}

@@ -10,8 +10,18 @@ export function useWebSocket(onMessage: MessageHandler) {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectAttempt = useRef(0);
   const intentionalClose = useRef(false);
+  const pendingMessages = useRef<object[]>([]);
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
+
+  const flushPending = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    for (const msg of pendingMessages.current) {
+      ws.send(JSON.stringify(msg));
+    }
+    pendingMessages.current = [];
+  }, []);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -24,6 +34,7 @@ export function useWebSocket(onMessage: MessageHandler) {
     ws.onopen = () => {
       setConnected(true);
       reconnectAttempt.current = 0;
+      flushPending();
 
       // Check for reconnect info
       const info = loadReconnectInfo();
@@ -58,6 +69,8 @@ export function useWebSocket(onMessage: MessageHandler) {
   const send = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
+    } else {
+      pendingMessages.current.push(msg);
     }
   }, []);
 

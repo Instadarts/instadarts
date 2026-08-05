@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
@@ -15,6 +16,7 @@ export function HomePage({
 }: HomePageProps) {
   const [showJoin, setShowJoin] = useState(false);
   const [joinCode, setJoinCode] = useState('');
+  const navigate = useNavigate();
 
   if (showJoin) {
     return (
@@ -33,7 +35,7 @@ export function HomePage({
             autoFocus
           />
           <button
-            onClick={() => onJoinOnlineMatch(joinCode.trim().toUpperCase())}
+            onClick={() => navigate(`/lobby/join/${joinCode.trim().toUpperCase()}`)}
             disabled={joinCode.length < 4 || !connected}
             className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
           >

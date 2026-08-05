@@ -110,6 +110,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'reconnect':
       handleReconnect(ws, msg);
       break;
+    case 'spectate':
+      handleSpectate(ws, msg);
+      break;
     default:
       send(ws, { type: 'error', message: `Unknown message type: ${(msg as any).type}` });
   }
@@ -167,6 +170,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
 function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
+  if (client.isSpectator) return;
 
   const name = sanitizeName(msg.playerName);
   if (!name) {
@@ -195,6 +199,11 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   // Track which player this client owns
   client.playerId = player.id;
 
+  // Set host player if this is the first player in an online lobby
+  if (!lobby.hostPlayerId && !lobby.isLocal) {
+    lobby.hostPlayerId = player.id;
+  }
+
   // Broadcast to all; only send yourPlayerId to the requesting client for online lobbies
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
   if (!lobby.isLocal) {
@@ -207,6 +216,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
+  if (client.isSpectator) return;
 
   const lobby = getLobby(client.lobbyId);
   if (!lobby) return;
@@ -228,6 +238,7 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
 function handleUpdateSettings(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
+  if (client.isSpectator) return;
 
   // Only the host can update settings
   if (!client.isHost) {
@@ -265,6 +276,7 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
 function handleStartGame(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
+  if (client.isSpectator) return;
 
   if (!client.isHost) {
     send(ws, { type: 'error', message: 'Only the match creator can start the game' });
@@ -303,6 +315,7 @@ function handleStartGame(ws: WebSocket, msg: any): void {
 function handleSubmitVisit(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.gameId) return;
+  if (client.isSpectator) return;
 
   const game = getGame(client.gameId);
   if (!game) {
@@ -341,6 +354,12 @@ function handleLeaveGame(ws: WebSocket, _msg: any): void {
 export function handleClientLeave(ws: WebSocket): void {
   const client = clients.get(ws);
   if (!client) return;
+
+  // Spectators leaving has no effect
+  if (client.isSpectator) {
+    clients.delete(ws);
+    return;
+  }
 
   // Client is in a game → declare other player winner
   if (client.gameId) {
@@ -394,6 +413,40 @@ export function handleClientLeave(ws: WebSocket): void {
     client.isHost = false;
     return;
   }
+}
+
+function handleSpectate(ws: WebSocket, msg: any): void {
+  const id = msg.id as string;
+  if (!id) {
+    send(ws, { type: 'error', message: 'Invalid spectate ID' });
+    return;
+  }
+
+  // Try to find as lobby first, then as game
+  const lobby = getLobby(id);
+  if (lobby) {
+    const client = clients.get(ws);
+    if (client) {
+      client.lobbyId = lobby.id;
+      client.isSpectator = true;
+      client.isHost = false;
+    }
+    send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+    return;
+  }
+
+  const game = getGame(id);
+  if (game) {
+    const client = clients.get(ws);
+    if (client) {
+      client.gameId = game.id;
+      client.isSpectator = true;
+    }
+    send(ws, { type: 'game_state', game: { ...game } });
+    return;
+  }
+
+  send(ws, { type: 'error', message: 'Lobby or game not found' });
 }
 
 function handleReconnect(ws: WebSocket, msg: any): void {

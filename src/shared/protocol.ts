@@ -63,6 +63,11 @@ export interface ReconnectMessage {
   playerId: string;
 }
 
+export interface SpectateMessage {
+  type: 'spectate';
+  id: string;
+}
+
 export type ClientMessage =
   | CreateLobbyMessage
   | JoinLobbyMessage
@@ -73,7 +78,8 @@ export type ClientMessage =
   | SubmitVisitMessage
   | StartGameMessage
   | LeaveGameMessage
-  | ReconnectMessage;
+  | ReconnectMessage
+  | SpectateMessage;
 
 // ============================================================
 // Server → Client messages

@@ -584,6 +584,8 @@ function handleReconnect(ws: WebSocket, msg: any): void {
       send(ws, { type: 'error', message: 'Player not found in game' });
       return;
     }
+    // Update session reference on reconnect (page reload gives new WebSocket session)
+    player.sessionId = client.sessionId;
     client.gameId = game.id;
     client.playerId = msg.playerId;
     send(ws, { type: 'game_state', game: { ...game } });

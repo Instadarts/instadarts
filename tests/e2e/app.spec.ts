@@ -280,6 +280,23 @@ test.describe('Home screen', () => {
     await page.click('button:has-text("Add")');
     await expect(page.locator('text=Alice')).toBeVisible({ timeout: 5000 });
   });
+
+  test('match survives page reload', async ({ page }) => {
+    await setupLocalMatch(page, ['Alice', 'Bob'], 501);
+
+    // Alice throws one visit
+    await clickT20(page); await clickT20(page); await clickT20(page);
+    await submitVisit(page);
+    await expectVisitTotal(page, 180);
+
+    // Reload
+    await page.reload();
+    await page.waitForTimeout(3000);
+
+    // Should be back in the match with score and visit history
+    await expect(page.locator('text=501').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=180').first()).toBeVisible({ timeout: 5000 });
+  });
 });
 
 test.describe('Local 1-player x01 match', () => {

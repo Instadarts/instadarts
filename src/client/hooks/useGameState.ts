@@ -41,6 +41,9 @@ export function useGameState() {
         setLobby(null);
         if (ownPlayerIdRef.current) {
           saveReconnectInfo({ gameId: msg.game.id, playerId: ownPlayerIdRef.current });
+        } else if (msg.game.isLocal && msg.game.players.length > 0) {
+          // Local game: save reconnect info with any player's ID
+          saveReconnectInfo({ gameId: msg.game.id, playerId: msg.game.players[0].id });
         }
         break;
       case 'game_finished':

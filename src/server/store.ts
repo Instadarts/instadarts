@@ -20,11 +20,11 @@ function generateId(): string {
 // Lobby operations
 // ============================================================
 
-export function createLobby(hostPlayer: Player): Lobby {
+export function createLobby(): Lobby {
   const id = generateId();
   const lobby: Lobby = {
     id,
-    players: [hostPlayer],
+    players: [],
     settings: {
       mode: 'x01',
       doubleIn: false,
@@ -32,7 +32,7 @@ export function createLobby(hostPlayer: Player): Lobby {
       startScore: 501,
     },
     inviteCode: null,
-    hostPlayerId: hostPlayer.id,
+    hostPlayerId: null,
   };
   lobbies.set(id, lobby);
   return lobby;
@@ -51,6 +51,13 @@ export function addPlayerToLobby(lobbyId: string, player: Player): Lobby | null 
   if (!lobby) return null;
   if (lobby.players.length >= 2) return null;
   lobby.players.push(player);
+  return lobby;
+}
+
+export function removePlayerFromLobby(lobbyId: string, playerId: string): Lobby | null {
+  const lobby = lobbies.get(lobbyId);
+  if (!lobby) return null;
+  lobby.players = lobby.players.filter((p) => p.id !== playerId);
   return lobby;
 }
 

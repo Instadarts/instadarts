@@ -60,5 +60,5 @@ export interface Lobby {
   players: Player[];
   settings: GameSettings;
   inviteCode: string | null;
-  hostPlayerId: string;
+  hostPlayerId: string | null;
 }

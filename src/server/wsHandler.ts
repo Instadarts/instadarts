@@ -2,9 +2,10 @@ import type { WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, createGame, getGame, findLobbyByInviteCode, updateGame } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame } from './store';
 import { generatePlayerId } from './player';
 import { processVisit } from './game';
+import { generateInviteCode } from './invite';
 
 // ============================================================
 // Client registry
@@ -69,6 +70,12 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'join_lobby':
       handleJoinLobby(ws, msg);
       break;
+    case 'add_local_player':
+      handleAddLocalPlayer(ws, msg);
+      break;
+    case 'remove_player':
+      handleRemovePlayer(ws, msg);
+      break;
     case 'update_settings':
       handleUpdateSettings(ws, msg);
       break;
@@ -96,19 +103,15 @@ export function handleMessage(ws: WebSocket, raw: string): void {
 // Handlers
 // ============================================================
 
-function handleCreateLobby(ws: WebSocket, msg: any): void {
-  const player = {
-    id: generatePlayerId(),
-    name: msg.playerName || 'Player 1',
-    isRemote: false,
-  };
-
-  const lobby = createLobby(player);
+function handleCreateLobby(ws: WebSocket, _msg: any): void {
+  const lobby = createLobby();
   const client = clients.get(ws);
   if (client) {
     client.lobbyId = lobby.id;
-    client.playerId = player.id;
   }
+
+  // Auto-generate invite code
+  generateInviteCode(lobby.id);
 
   send(ws, { type: 'lobby_state', lobby: { ...lobby } });
 }
@@ -144,6 +147,50 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   // Notify all lobby members
   broadcastToLobby(lobby.id, { type: 'player_joined', lobbyId: lobby.id, player });
   send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+}
+
+function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.lobbyId) return;
+
+  const lobby = getLobby(client.lobbyId);
+  if (!lobby) {
+    send(ws, { type: 'error', message: 'Lobby not found' });
+    return;
+  }
+
+  const player = {
+    id: generatePlayerId(),
+    name: msg.playerName || 'Player 2',
+    isRemote: false,
+  };
+
+  const updated = addPlayerToLobby(lobby.id, player);
+  if (!updated) {
+    send(ws, { type: 'error', message: 'Lobby is full' });
+    return;
+  }
+
+  broadcastToLobby(lobby.id, { type: 'player_joined', lobbyId: lobby.id, player });
+  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+}
+
+function handleRemovePlayer(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.lobbyId) return;
+
+  const lobby = getLobby(client.lobbyId);
+  if (!lobby) return;
+
+  const player = lobby.players.find((p) => p.id === msg.playerId);
+  if (!player) return;
+
+  // Don't allow removing remote players from a local client
+  if (player.isRemote) return;
+
+  removePlayerFromLobby(lobby.id, msg.playerId);
+  broadcastToLobby(lobby.id, { type: 'player_left', lobbyId: lobby.id, playerId: msg.playerId });
+  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
 function handleUpdateSettings(ws: WebSocket, msg: any): void {

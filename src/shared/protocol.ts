@@ -6,13 +6,25 @@ import type { GameSettings, Visit } from './types';
 
 export interface CreateLobbyMessage {
   type: 'create_lobby';
-  playerName: string;
 }
 
 export interface JoinLobbyMessage {
   type: 'join_lobby';
+  lobbyId?: string;
+  inviteCode?: string;
+  playerName: string;
+}
+
+export interface AddLocalPlayerMessage {
+  type: 'add_local_player';
   lobbyId: string;
   playerName: string;
+}
+
+export interface RemovePlayerMessage {
+  type: 'remove_player';
+  lobbyId: string;
+  playerId: string;
 }
 
 export interface UpdateSettingsMessage {
@@ -53,6 +65,8 @@ export interface ReconnectMessage {
 export type ClientMessage =
   | CreateLobbyMessage
   | JoinLobbyMessage
+  | AddLocalPlayerMessage
+  | RemovePlayerMessage
   | UpdateSettingsMessage
   | SetPlayerNameMessage
   | SubmitVisitMessage

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { GameState, Lobby } from '../../shared/types';
+import type { GameState, Lobby, Player } from '../../shared/types';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
@@ -8,6 +8,7 @@ export function useGameState() {
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
@@ -18,7 +19,7 @@ export function useGameState() {
       case 'game_started':
         setGame(msg.game);
         setLobby(null);
-        saveReconnectInfo(msg.game.id, 'unknown'); // playerId set elsewhere
+        saveReconnectInfo(msg.game.id, ownPlayerId ?? 'unknown');
         break;
       case 'game_finished':
         setGame(msg.game);
@@ -28,22 +29,32 @@ export function useGameState() {
         setError(msg.message);
         break;
       case 'player_joined':
+        // Handled by lobby_state broadcast
+        break;
       case 'player_left':
         // Handled by lobby_state broadcast
         break;
     }
-  }, []);
+  }, [ownPlayerId]);
 
   const { send, connected } = useWebSocket(handleMessage);
 
-  const createLobby = useCallback((playerName: string) => {
-    send({ type: 'create_lobby', playerName });
+  const createLobby = useCallback(() => {
+    send({ type: 'create_lobby' });
     setError(null);
   }, [send]);
 
-  const joinLobby = useCallback((lobbyId: string, playerName: string) => {
-    send({ type: 'join_lobby', lobbyId, playerName });
+  const joinLobby = useCallback((inviteCode: string, playerName: string) => {
+    send({ type: 'join_lobby', inviteCode, playerName });
     setError(null);
+  }, [send]);
+
+  const addLocalPlayer = useCallback((lobbyId: string, playerName: string) => {
+    send({ type: 'add_local_player', lobbyId, playerName });
+  }, [send]);
+
+  const removePlayer = useCallback((lobbyId: string, playerId: string) => {
+    send({ type: 'remove_player', lobbyId, playerId });
   }, [send]);
 
   const updateSettings = useCallback((lobbyId: string, settings: any) => {
@@ -66,6 +77,7 @@ export function useGameState() {
     send({ type: 'leave_game', gameId });
     setGame(null);
     setLobby(null);
+    setOwnPlayerId(null);
     clearReconnectInfo();
   }, [send]);
 
@@ -74,8 +86,11 @@ export function useGameState() {
     game,
     error,
     connected,
+    ownPlayerId,
     createLobby,
     joinLobby,
+    addLocalPlayer,
+    removePlayer,
     updateSettings,
     setPlayerName,
     startGame,

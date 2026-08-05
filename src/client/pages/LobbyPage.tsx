@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { Lobby } from '../../shared/types';
 import { storage } from '../lib/storage';
 
@@ -174,10 +174,19 @@ export function LobbyPage({
       {/* Invite code (only creator of online lobby) */}
       {isCreator && mode === 'online' && lobby.inviteCode && (
         <div className="w-80 mb-6 text-center">
-          <p className="text-gray-400 text-sm">Invite Code</p>
-          <p className="text-3xl font-mono tracking-widest text-green-400">
-            {lobby.inviteCode}
-          </p>
+          <p className="text-gray-400 text-sm mb-2">Invite Code</p>
+          <div className="flex items-center justify-center gap-2">
+            <code className="select-text text-2xl font-mono tracking-widest text-green-400 bg-gray-800 px-4 py-2 rounded">
+              {lobby.inviteCode}
+            </code>
+            <button
+              onClick={() => navigator.clipboard.writeText(lobby.inviteCode!)}
+              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
+              title="Copy to clipboard"
+            >
+              📋
+            </button>
+          </div>
         </div>
       )}
 

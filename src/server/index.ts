@@ -18,8 +18,10 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Serve static files from dist/client in production
-app.use(express.static('dist/client'));
+// Only serve static files in production (dev uses Vite on port 5173)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('dist/client'));
+}
 
 wss.on('connection', (ws) => {
   console.log('Client connected');

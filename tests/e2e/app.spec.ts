@@ -263,6 +263,23 @@ test.describe('Home screen', () => {
     await expect(page.locator('h2')).toContainText('Local Match', { timeout: 10000 });
     await expect(page.locator('text=Alice')).toBeVisible({ timeout: 5000 });
   });
+
+  test('local lobby without players survives page reload', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+    await expect(page.locator('h2')).toContainText('Local Match');
+
+    // Reload without adding any players
+    await page.reload();
+    await page.waitForTimeout(3000);
+
+    // Should still be in the empty lobby
+    await expect(page.locator('h2')).toContainText('Local Match', { timeout: 10000 });
+    // Should be able to add a player after reload
+    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.click('button:has-text("Add")');
+    await expect(page.locator('text=Alice')).toBeVisible({ timeout: 5000 });
+  });
 });
 
 test.describe('Local 1-player x01 match', () => {

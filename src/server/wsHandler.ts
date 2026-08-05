@@ -22,6 +22,7 @@ const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
 
 function disconnectKey(client: Client): string | null {
   if (client.lobbyId && client.playerId) return `lobby:${client.lobbyId}:${client.playerId}`;
+  if (client.lobbyId) return `lobby:${client.lobbyId}:`;
   if (client.gameId && client.playerId) return `game:${client.gameId}:${client.playerId}`;
   return null;
 }
@@ -269,8 +270,8 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // Only allow removing your own session's player
-  if (player.sessionId !== client.sessionId) {
+  // Only allow removing your own session's player (local lobbies: one user controls all)
+  if (!lobby.isLocal && player.sessionId !== client.sessionId) {
     send(ws, { type: 'error', message: 'You can only remove your own player' });
     return;
   }
@@ -315,8 +316,8 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // Only allow renaming your own session's player
-  if (player.sessionId !== client.sessionId) {
+  // Only allow renaming your own session's player (local lobbies: one user controls all)
+  if (!lobby.isLocal && player.sessionId !== client.sessionId) {
     send(ws, { type: 'error', message: 'You can only rename your own player' });
     return;
   }
@@ -534,26 +535,37 @@ function handleReconnect(ws: WebSocket, msg: any): void {
   // Lobby reconnection (page reload during lobby phase)
   if (msg.lobbyId) {
     // Cancel any pending disconnect for this player (page reload recovery)
-    cancelDisconnect(`lobby:${msg.lobbyId}:${msg.playerId}`);
+    const discoKey = msg.playerId ? `lobby:${msg.lobbyId}:${msg.playerId}` : `lobby:${msg.lobbyId}:`;
+    cancelDisconnect(discoKey);
 
     const lobby = getLobby(msg.lobbyId);
     if (!lobby) {
       send(ws, { type: 'error', message: 'Lobby not found' });
       return;
     }
+
+    // Local lobby with no players: just re-associate client with lobby
+    if (!msg.playerId) {
+      client.lobbyId = lobby.id;
+      send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+      return;
+    }
+
     const player = lobby.players.find((p) => p.id === msg.playerId);
     if (!player) {
       send(ws, { type: 'error', message: 'Player not found in lobby' });
       return;
     }
-    // If the reconnecting player is the host, update hostSessionId
-    // (page reload gives a new WebSocket session)
-    if (player.id === lobby.hostPlayerId) {
+
+    // Update session references on reconnect (page reload gives new WebSocket session)
+    player.sessionId = client.sessionId;
+    if (player.id === lobby.hostPlayerId || lobby.isLocal) {
       lobby.hostSessionId = client.sessionId;
     }
+
     client.lobbyId = lobby.id;
     client.playerId = msg.playerId;
-    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: msg.playerId });
+    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: lobby.isLocal ? undefined : msg.playerId });
     return;
   }
 

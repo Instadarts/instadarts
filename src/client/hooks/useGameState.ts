@@ -28,12 +28,11 @@ export function useGameState() {
         setLobby(msg.lobby);
         if (msg.yourPlayerId) {
           setOwnPlayerId(msg.yourPlayerId);
-          // Persist for page reload recovery
           saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: msg.yourPlayerId });
-        } else if (msg.lobby.isLocal && msg.lobby.players.length > 0) {
-          // Local lobby: save reconnect info with the last added player
-          const lastPlayer = msg.lobby.players[msg.lobby.players.length - 1];
-          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: lastPlayer.id });
+        } else if (msg.lobby.isLocal) {
+          // Local lobby: save reconnect info (with or without players)
+          const pid = msg.lobby.players.length > 0 ? msg.lobby.players[msg.lobby.players.length - 1].id : '';
+          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: pid });
         }
         break;
       case 'game_state':

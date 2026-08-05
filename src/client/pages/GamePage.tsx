@@ -13,7 +13,9 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId }: GamePage
   const [darts, setDarts] = useState<DartThrow[]>([]);
 
   const currentPlayer = game.players[game.currentPlayerIndex];
-  const isMyTurn = game.status === 'in_progress' && currentPlayer.id === ownPlayerId;
+  // Local multiplayer (ownPlayerId is null): always allow input, server validates turn.
+  // Online: only enable when it's this client's turn.
+  const isMyTurn = game.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
   const getRemaining = useCallback((playerId: string): number => {
     let remaining = game.settings.startScore;

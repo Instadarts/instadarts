@@ -4,12 +4,13 @@
 const MM_TO_BOARD = 0.5 / 225.5 * 1_000_000;
 
 export const RADII = {
-  doubleOuter: 170.0 * MM_TO_BOARD,   // ~376,935
-  doubleInner: 160.0 * MM_TO_BOARD,   // ~354,767
-  tripleOuter: 107.0 * MM_TO_BOARD,   // ~237,251
-  tripleInner: 97.0 * MM_TO_BOARD,    // ~215,078
-  outerBull: (32.0 / 2.0) * MM_TO_BOARD,  // ~35,477
-  innerBull: (13.0 / 2.0) * MM_TO_BOARD,  // ~14,412
+  boardOuter: 225.0 * MM_TO_BOARD,         // ~498,891 — full board including miss area
+  doubleOuter: 170.0 * MM_TO_BOARD,        // ~376,935
+  doubleInner: 160.0 * MM_TO_BOARD,        // ~354,767
+  tripleOuter: 107.0 * MM_TO_BOARD,        // ~237,251
+  tripleInner: 97.0 * MM_TO_BOARD,         // ~215,078
+  outerBull: (32.0 / 2.0) * MM_TO_BOARD,   // ~35,477
+  innerBull: (13.0 / 2.0) * MM_TO_BOARD,   // ~14,412
 };
 
 export const CENTER = 500_000;

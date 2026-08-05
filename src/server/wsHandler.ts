@@ -306,6 +306,7 @@ export function handleClientLeave(ws: WebSocket): void {
       if (otherPlayer && game.players.length === 2) {
         game.status = 'finished';
         game.winnerId = otherPlayer.id;
+        game.finishedAt = Date.now();
         broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
       }
     }

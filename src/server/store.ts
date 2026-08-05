@@ -34,6 +34,7 @@ export function createLobby(): Lobby {
     inviteCode: null,
     hostPlayerId: null,
     isLocal: true,
+    createdAt: Date.now(),
   };
   lobbies.set(id, lobby);
   return lobby;
@@ -91,6 +92,8 @@ export function createGame(lobby: Lobby): GameState {
     visits: [],
     currentPlayerIndex: 0,
     winnerId: null,
+    createdAt: Date.now(),
+    finishedAt: null,
   };
   games.set(id, game);
   return game;

@@ -73,6 +73,7 @@ export class X01Handler implements GameModeHandler {
     if (won) {
       newGame.status = 'finished';
       newGame.winnerId = playerId;
+      newGame.finishedAt = Date.now();
     } else {
       // Advance to next player
       newGame.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
@@ -152,6 +153,7 @@ export class X01Handler implements GameModeHandler {
     if (won) {
       newGame.status = 'finished';
       newGame.winnerId = playerId;
+      newGame.finishedAt = Date.now();
     } else {
       newGame.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
     }

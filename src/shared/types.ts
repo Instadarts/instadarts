@@ -51,6 +51,8 @@ export interface GameState {
   visits: Visit[];
   currentPlayerIndex: number;
   winnerId: string | null;
+  createdAt: number;
+  finishedAt: number | null;
 }
 
 // --- Lobby ---
@@ -62,4 +64,5 @@ export interface Lobby {
   inviteCode: string | null;
   hostPlayerId: string | null;
   isLocal: boolean;
+  createdAt: number;
 }

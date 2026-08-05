@@ -1,11 +1,14 @@
 import type { WebSocket } from 'ws';
-import type { ClientMessage, ServerMessage } from '../shared/protocol';
+import type { ServerMessage } from '../shared/protocol';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
 import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame } from './store';
 import { generatePlayerId } from './player';
 import { processVisit } from './game';
 import { generateInviteCode } from './invite';
+import { sanitizeName, validateSettings, validateVisit } from './validation';
+import { checkRateLimit, removeRateLimitBucket } from './rateLimit';
+import { canCreateLobby, canCreateGame } from './concurrencyLimit';
 
 // ============================================================
 // Client registry
@@ -22,6 +25,11 @@ export function getClient(ws: WebSocket): Client | undefined {
 }
 
 export function removeClient(ws: WebSocket): void {
+  // Clean up rate limit bucket
+  const client = clients.get(ws);
+  if (client) {
+    removeRateLimitBucket(client.playerId ?? '');
+  }
   clients.delete(ws);
 }
 
@@ -57,6 +65,14 @@ function broadcastToGame(gameId: string, msg: ServerMessage): void {
 // ============================================================
 
 export function handleMessage(ws: WebSocket, raw: string): void {
+  // Rate limit
+  const client = clients.get(ws);
+  const connId = client?.playerId ?? `anon_${Math.random()}`;
+  if (!checkRateLimit(connId)) {
+    send(ws, { type: 'error', message: 'Rate limit exceeded' });
+    return;
+  }
+
   const msg = parseMessage(raw);
   if (!msg) {
     send(ws, { type: 'error', message: 'Invalid message format' });
@@ -104,6 +120,11 @@ export function handleMessage(ws: WebSocket, raw: string): void {
 // ============================================================
 
 function handleCreateLobby(ws: WebSocket, msg: any): void {
+  if (!canCreateLobby()) {
+    send(ws, { type: 'error', message: 'Server is full, try again later' });
+    return;
+  }
+
   const lobby = createLobby();
   lobby.isLocal = msg.isLocal !== false; // default to local for safety
   const client = clients.get(ws);
@@ -147,6 +168,12 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
 
+  const name = sanitizeName(msg.playerName);
+  if (!name) {
+    send(ws, { type: 'error', message: 'Invalid player name (1-20 characters)' });
+    return;
+  }
+
   const lobby = getLobby(client.lobbyId);
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
@@ -155,7 +182,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
 
   const player = {
     id: generatePlayerId(),
-    name: msg.playerName || 'Player 2',
+    name,
     isRemote: false,
   };
 
@@ -211,7 +238,13 @@ function handleUpdateSettings(ws: WebSocket, msg: any): void {
   const lobby = getLobby(client.lobbyId);
   if (!lobby) return;
 
-  lobby.settings = { ...lobby.settings, ...msg.settings };
+  const validated = validateSettings(msg.settings);
+  if (!validated) {
+    send(ws, { type: 'error', message: 'Invalid settings' });
+    return;
+  }
+
+  lobby.settings = { ...lobby.settings, ...validated };
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
@@ -233,9 +266,13 @@ function handleStartGame(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
 
-  // Only host can start
   if (!client.isHost) {
     send(ws, { type: 'error', message: 'Only the match creator can start the game' });
+    return;
+  }
+
+  if (!canCreateGame()) {
+    send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }
 
@@ -273,8 +310,15 @@ function handleSubmitVisit(ws: WebSocket, msg: any): void {
     return;
   }
 
+  // Validate visit structure and re-compute scores from coordinates
+  const validatedVisit = validateVisit(msg.visit);
+  if (!validatedVisit) {
+    send(ws, { type: 'error', message: 'Invalid visit (1-3 darts with valid coordinates required)' });
+    return;
+  }
+
   const result = processVisit(game, {
-    ...msg.visit,
+    ...validatedVisit,
     visitNumber: 0,
   });
 

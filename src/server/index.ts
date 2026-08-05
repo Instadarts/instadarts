@@ -16,7 +16,11 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: 16 * 1024, // 16KB max message size
+});
 
 // Only serve static files in production (dev uses Vite on port 5173)
 if (process.env.NODE_ENV === 'production') {

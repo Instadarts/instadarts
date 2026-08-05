@@ -212,6 +212,35 @@ test.describe('Home screen', () => {
     await ctx2.close();
     await ctx3.close();
   });
+
+  test('creator can swap player order', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+
+    // Add two players
+    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.click('button:has-text("Add")');
+    await page.fill('input[placeholder="New player name"]', 'Bob');
+    await page.click('button:has-text("Add")');
+
+    // Verify swap button is visible
+    await expect(page.locator('button:has-text("Swap order")')).toBeVisible();
+
+    // Alice should be 1st
+    const aliceRow = page.locator('text=Alice').locator('..');
+    await expect(aliceRow.locator('text=1st')).toBeVisible();
+
+    // Click swap
+    await page.click('button:has-text("Swap order")');
+
+    // Now Bob should be 1st
+    const bobRow = page.locator('text=Bob').locator('..');
+    await expect(bobRow.locator('text=1st')).toBeVisible({ timeout: 3000 });
+
+    // Swap back
+    await page.click('button:has-text("Swap order")');
+    await expect(aliceRow.locator('text=1st')).toBeVisible({ timeout: 3000 });
+  });
 });
 
 test.describe('Local 1-player x01 match', () => {

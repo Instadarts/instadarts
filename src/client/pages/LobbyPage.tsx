@@ -14,6 +14,7 @@ interface LobbyPageProps {
   onUpdateSettings: (settings: any) => void;
   onAddLocalPlayer: (name: string) => void;
   onRemovePlayer: (playerId: string) => void;
+  onSwapPlayers: () => void;
 }
 
 export function LobbyPage({
@@ -28,6 +29,7 @@ export function LobbyPage({
   onUpdateSettings,
   onAddLocalPlayer,
   onRemovePlayer,
+  onSwapPlayers,
 }: LobbyPageProps) {
   const settings = lobby.settings;
   const [newName, setNewName] = useState('');
@@ -82,8 +84,9 @@ export function LobbyPage({
         <h3 className="text-gray-400 text-sm uppercase mb-2">Players</h3>
 
         {/* Current players */}
-        {lobby.players.map((p) => (
+        {lobby.players.map((p, i) => (
             <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
+              <span className="text-gray-500 text-xs w-6">{i === 0 ? '1st' : '2nd'}</span>
               <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
               {!isSpectator && (mode === 'local' || p.sessionId === sessionId) && (
                 <button
@@ -96,6 +99,19 @@ export function LobbyPage({
               )}
             </div>
         ))}
+
+        {/* Swap player order — creator only, when 2 players */}
+        {!isSpectator && isCreator && lobby.players.length === 2 && (
+          <div className="mt-2 text-center">
+            <button
+              onClick={onSwapPlayers}
+              className="px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              title="Swap player order"
+            >
+              ⇅ Swap order
+            </button>
+          </div>
+        )}
 
         {/* Add player section */}
         {!isSpectator && canAddLocal && (

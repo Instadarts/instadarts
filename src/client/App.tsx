@@ -24,6 +24,7 @@ export function App() {
     submitVisit,
     leaveGame,
     spectate,
+    swapPlayers,
   } = useGameState();
 
   const navigate = useNavigate();
@@ -74,6 +75,7 @@ export function App() {
           updateSettings={updateSettings}
           addLocalPlayer={addLocalPlayer}
           removePlayer={removePlayer}
+          swapPlayers={swapPlayers}
           navigate={navigate}
         />
       } />
@@ -98,7 +100,7 @@ export function App() {
   );
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, navigate }: any) {
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate }: any) {
   if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
   return (
     <LobbyPage
@@ -113,6 +115,7 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
       onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
       onAddLocalPlayer={(n: string) => addLocalPlayer(lobby.id, n)}
       onRemovePlayer={(p: string) => removePlayer(lobby.id, p)}
+      onSwapPlayers={() => swapPlayers(lobby.id)}
     />
   );
 }
@@ -156,6 +159,7 @@ function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: any) {
         onUpdateSettings={() => {}}
         onAddLocalPlayer={() => {}}
         onRemovePlayer={() => {}}
+        onSwapPlayers={() => {}}
       />
     );
   }

@@ -68,6 +68,11 @@ export interface SpectateMessage {
   id: string;
 }
 
+export interface SwapPlayersMessage {
+  type: 'swap_players';
+  lobbyId: string;
+}
+
 export type ClientMessage =
   | CreateLobbyMessage
   | JoinLobbyMessage
@@ -79,7 +84,8 @@ export type ClientMessage =
   | StartGameMessage
   | LeaveGameMessage
   | ReconnectMessage
-  | SpectateMessage;
+  | SpectateMessage
+  | SwapPlayersMessage;
 
 // ============================================================
 // Server → Client messages

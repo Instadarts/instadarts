@@ -103,6 +103,10 @@ export function useGameState() {
     setIsSpectator(true);
   }, [send]);
 
+  const swapPlayers = useCallback((lobbyId: string) => {
+    send({ type: 'swap_players', lobbyId });
+  }, [send]);
+
   return {
     lobby,
     game,
@@ -121,5 +125,6 @@ export function useGameState() {
     submitVisit,
     leaveGame,
     spectate,
+    swapPlayers,
   };
 }

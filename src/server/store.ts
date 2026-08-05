@@ -64,6 +64,13 @@ export function removePlayerFromLobby(lobbyId: string, playerId: string): Lobby 
   return lobby;
 }
 
+export function swapLobbyPlayers(lobbyId: string): boolean {
+  const lobby = lobbies.get(lobbyId);
+  if (!lobby || lobby.players.length < 2) return false;
+  [lobby.players[0], lobby.players[1]] = [lobby.players[1], lobby.players[0]];
+  return true;
+}
+
 export function setLobbyInviteCode(lobbyId: string, code: string): boolean {
   const lobby = lobbies.get(lobbyId);
   if (!lobby) return false;

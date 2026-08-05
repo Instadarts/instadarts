@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../shared/protocol';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
 import { processVisit } from './game';
 import { generateInviteCode } from './invite';
@@ -112,6 +112,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'spectate':
       handleSpectate(ws, msg);
+      break;
+    case 'swap_players':
+      handleSwapPlayers(ws, msg);
       break;
     default:
       send(ws, { type: 'error', message: `Unknown message type: ${(msg as any).type}` });
@@ -513,4 +516,26 @@ function handleReconnect(ws: WebSocket, msg: any): void {
   client.playerId = msg.playerId;
 
   send(ws, { type: 'game_state', game: { ...game } });
+}
+
+function handleSwapPlayers(ws: WebSocket, _msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.lobbyId) return;
+  if (client.isSpectator) return;
+
+  const lobby = getLobby(client.lobbyId);
+  if (!lobby) return;
+
+  // Only the host can reorder players
+  if (client.sessionId !== lobby.hostSessionId && !lobby.isLocal) {
+    send(ws, { type: 'error', message: 'Only the match creator can change player order' });
+    return;
+  }
+
+  if (!swapLobbyPlayers(lobby.id)) {
+    send(ws, { type: 'error', message: 'Need two players to swap order' });
+    return;
+  }
+
+  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }

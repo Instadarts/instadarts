@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import { X01Handler } from './modes/x01';
 import { registerModeHandler } from './modes/types';
+import { getAllLobbies, getAllGames } from './store';
 
 // Register game modes
 registerModeHandler('x01', new X01Handler());
@@ -20,6 +21,26 @@ const wss = new WebSocketServer({
   server,
   path: '/ws',
   maxPayload: 16 * 1024, // 16KB max message size
+});
+
+// Server stats endpoint
+app.get('/server-stats', (_req, res) => {
+  const lobbies = getAllLobbies();
+  const games = getAllGames();
+  const runningGames = [...games.values()].filter(g => g.status === 'in_progress').length;
+  const mem = process.memoryUsage();
+  res.json({
+    openLobbies: lobbies.size,
+    runningMatches: runningGames,
+    totalGames: games.size,
+    connectedClients: wss.clients.size,
+    memory: {
+      heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+      rssMB: Math.round(mem.rss / 1024 / 1024),
+    },
+    uptimeSeconds: Math.round(process.uptime()),
+  });
 });
 
 // Only serve static files in production (dev uses Vite on port 5173)

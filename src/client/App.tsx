@@ -28,13 +28,13 @@ export function App() {
 
   // Home page handlers
   const handleCreateLocalMatch = useCallback(() => {
-    createLobby();
+    createLobby(true);
     setLobbyMode('local');
     setIsCreator(true);
   }, [createLobby]);
 
   const handleCreateOnlineMatch = useCallback(() => {
-    createLobby();
+    createLobby(false);
     setLobbyMode('online');
     setIsCreator(true);
   }, [createLobby]);
@@ -58,6 +58,7 @@ export function App() {
         lobby={lobby}
         mode={lobbyMode}
         isCreator={isCreator}
+        ownPlayerId={ownPlayerId}
         onStartGame={() => startGame(lobby.id)}
         onLeave={handleLeave}
         onUpdateSettings={(settings) => updateSettings(lobby.id, settings)}

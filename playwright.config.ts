@@ -8,9 +8,10 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: 'npm run dev',
+    command: 'npx concurrently -k --success first "tsx src/server/index.ts" "vite"',
     url: 'http://localhost:5173',
     reuseExistingServer: false,
     timeout: 15000,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 3000 },
   },
 });

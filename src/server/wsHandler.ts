@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame } from './store';
 import { generatePlayerId } from './player';
 import { processVisit } from './game';
 import { generateInviteCode } from './invite';
@@ -103,11 +103,13 @@ export function handleMessage(ws: WebSocket, raw: string): void {
 // Handlers
 // ============================================================
 
-function handleCreateLobby(ws: WebSocket, _msg: any): void {
+function handleCreateLobby(ws: WebSocket, msg: any): void {
   const lobby = createLobby();
+  lobby.isLocal = msg.isLocal !== false; // default to local for safety
   const client = clients.get(ws);
   if (client) {
     client.lobbyId = lobby.id;
+    client.isHost = true;
   }
 
   // Auto-generate invite code
@@ -135,6 +137,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (client) {
     client.lobbyId = lobby.id;
+    client.isHost = false;
   }
 
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
@@ -162,8 +165,16 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
-  broadcastToLobby(lobby.id, { type: 'player_joined', lobbyId: lobby.id, player });
+  // Track which player this client owns
+  client.playerId = player.id;
+
+  // Broadcast to all; only send yourPlayerId to the requesting client for online lobbies
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+  if (!lobby.isLocal) {
+    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: player.id });
+  } else {
+    send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+  }
 }
 
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
@@ -176,17 +187,26 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // Don't allow removing remote players from a local client
-  if (player.isRemote) return;
+  // Only allow removing your own player
+  if (client.playerId !== msg.playerId) {
+    send(ws, { type: 'error', message: 'You can only remove your own player' });
+    return;
+  }
 
+  client.playerId = null;
   removePlayerFromLobby(lobby.id, msg.playerId);
-  broadcastToLobby(lobby.id, { type: 'player_left', lobbyId: lobby.id, playerId: msg.playerId });
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
 function handleUpdateSettings(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
+
+  // Only the host can update settings
+  if (!client.isHost) {
+    send(ws, { type: 'error', message: 'Only the match creator can change settings' });
+    return;
+  }
 
   const lobby = getLobby(client.lobbyId);
   if (!lobby) return;
@@ -213,9 +233,20 @@ function handleStartGame(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
 
+  // Only host can start
+  if (!client.isHost) {
+    send(ws, { type: 'error', message: 'Only the match creator can start the game' });
+    return;
+  }
+
   const lobby = getLobby(client.lobbyId);
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
+    return;
+  }
+
+  if (lobby.players.length < 1) {
+    send(ws, { type: 'error', message: 'Need at least one player to start' });
     return;
   }
 
@@ -256,11 +287,67 @@ function handleSubmitVisit(ws: WebSocket, msg: any): void {
   broadcastToGame(game.id, { type: 'game_state', game: { ...result.game } });
 }
 
-function handleLeaveGame(ws: WebSocket, msg: any): void {
+function handleLeaveGame(ws: WebSocket, _msg: any): void {
+  handleClientLeave(ws);
+}
+
+/**
+ * Called when a client explicitly leaves or disconnects.
+ */
+export function handleClientLeave(ws: WebSocket): void {
   const client = clients.get(ws);
-  if (client) {
+  if (!client) return;
+
+  // Client is in a game → declare other player winner
+  if (client.gameId) {
+    const game = getGame(client.gameId);
+    if (game && game.status === 'in_progress') {
+      const otherPlayer = game.players.find((p) => p.id !== client.playerId);
+      if (otherPlayer && game.players.length === 2) {
+        game.status = 'finished';
+        game.winnerId = otherPlayer.id;
+        broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
+      }
+    }
     client.gameId = null;
+    client.playerId = null;
+    return;
+  }
+
+  // Client is in a lobby
+  if (client.lobbyId) {
+    const lobby = getLobby(client.lobbyId);
+    if (!lobby) {
+      client.lobbyId = null;
+      return;
+    }
+
+    if (client.isHost) {
+      // Host left → abandon lobby, kick everyone
+      broadcastToLobby(lobby.id, { type: 'lobby_abandoned' });
+      // Disconnect all other lobby clients
+      for (const [otherWs, otherClient] of clients) {
+        if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
+          otherClient.lobbyId = null;
+          otherClient.playerId = null;
+          otherClient.isHost = false;
+          // Also close their WebSocket to force cleanup
+        }
+      }
+      deleteLobby(lobby.id);
+    } else {
+      // Non-host left → remove their player, refresh invite code
+      if (client.playerId) {
+        removePlayerFromLobby(lobby.id, client.playerId);
+      }
+      generateInviteCode(lobby.id);
+      broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+    }
+
     client.lobbyId = null;
+    client.playerId = null;
+    client.isHost = false;
+    return;
   }
 }
 

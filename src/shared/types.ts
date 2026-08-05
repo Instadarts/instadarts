@@ -61,4 +61,5 @@ export interface Lobby {
   settings: GameSettings;
   inviteCode: string | null;
   hostPlayerId: string | null;
+  isLocal: boolean;
 }

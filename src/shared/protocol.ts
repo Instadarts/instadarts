@@ -6,6 +6,7 @@ import type { GameSettings, Visit } from './types';
 
 export interface CreateLobbyMessage {
   type: 'create_lobby';
+  isLocal?: boolean;
 }
 
 export interface JoinLobbyMessage {
@@ -81,6 +82,7 @@ export type ClientMessage =
 export interface LobbyStateMessage {
   type: 'lobby_state';
   lobby: import('./types').Lobby;
+  yourPlayerId?: string;
 }
 
 export interface GameStateMessage {
@@ -115,6 +117,10 @@ export interface GameFinishedMessage {
   game: import('./types').GameState;
 }
 
+export interface LobbyAbandonedMessage {
+  type: 'lobby_abandoned';
+}
+
 export type ServerMessage =
   | LobbyStateMessage
   | GameStateMessage
@@ -122,7 +128,8 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | GameStartedMessage
-  | GameFinishedMessage;
+  | GameFinishedMessage
+  | LobbyAbandonedMessage;
 
 // ============================================================
 // Helpers

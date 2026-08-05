@@ -33,6 +33,7 @@ export function createLobby(): Lobby {
     },
     inviteCode: null,
     hostPlayerId: null,
+    isLocal: true,
   };
   lobbies.set(id, lobby);
   return lobby;

@@ -6,6 +6,7 @@ interface LobbyPageProps {
   lobby: Lobby;
   mode: 'local' | 'online';
   isCreator: boolean;
+  ownPlayerId: string | null;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
@@ -18,6 +19,7 @@ export function LobbyPage({
   lobby,
   mode,
   isCreator,
+  ownPlayerId,
   onStartGame,
   onLeave,
   onUpdateSettings,
@@ -39,6 +41,8 @@ export function LobbyPage({
     mode === 'local'
       ? lobby.players.length >= 1
       : lobby.players.length === 2;
+  // Online: only creator can edit settings
+  const canEdit = mode === 'local' || isCreator;
 
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
@@ -72,18 +76,23 @@ export function LobbyPage({
         <h3 className="text-gray-400 text-sm uppercase mb-2">Players</h3>
 
         {/* Current players */}
-        {lobby.players.map((p) => (
-          <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
-            <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-            <button
-              onClick={() => onRemovePlayer(p.id)}
-              className="text-red-400 hover:text-red-300 text-sm px-1"
-              title="Remove player"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+        {lobby.players.map((p) => {
+          const isOwn = mode === 'local' || p.id === ownPlayerId;
+          return (
+            <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
+              <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
+              {isOwn && (
+                <button
+                  onClick={() => onRemovePlayer(p.id)}
+                  className="text-red-400 hover:text-red-300 text-sm px-1"
+                  title="Remove player"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          );
+        })}
 
         {/* Add player section */}
         {canAddLocal && (
@@ -128,7 +137,10 @@ export function LobbyPage({
 
       {/* Game Settings */}
       <div className="w-80 mb-6">
-        <h3 className="text-gray-400 text-sm uppercase mb-2">Settings</h3>
+        <h3 className="text-gray-400 text-sm uppercase mb-2">
+          Settings
+          {!canEdit && <span className="text-gray-600 ml-1">(read-only)</span>}
+        </h3>
         <div className="space-y-3 bg-gray-900 rounded-lg p-4">
           <div>
             <label className="text-gray-400 text-sm">Starting Score</label>
@@ -137,7 +149,8 @@ export function LobbyPage({
               onChange={(e) =>
                 onUpdateSettings({ ...settings, startScore: Number(e.target.value) })
               }
-              className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded"
+              disabled={!canEdit}
+              className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value={301}>301</option>
               <option value={501}>501</option>
@@ -145,26 +158,28 @@ export function LobbyPage({
             </select>
           </div>
 
-          <label className="flex items-center gap-3 cursor-pointer">
+          <label className={`flex items-center gap-3 ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}>
             <input
               type="checkbox"
               checked={settings.doubleIn}
               onChange={(e) =>
                 onUpdateSettings({ ...settings, doubleIn: e.target.checked })
               }
-              className="w-4 h-4 accent-green-500"
+              disabled={!canEdit}
+              className="w-4 h-4 accent-green-500 disabled:opacity-50"
             />
             <span className="text-gray-300">Double In</span>
           </label>
 
-          <label className="flex items-center gap-3 cursor-pointer">
+          <label className={`flex items-center gap-3 ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}>
             <input
               type="checkbox"
               checked={settings.doubleOut}
               onChange={(e) =>
                 onUpdateSettings({ ...settings, doubleOut: e.target.checked })
               }
-              className="w-4 h-4 accent-green-500"
+              disabled={!canEdit}
+              className="w-4 h-4 accent-green-500 disabled:opacity-50"
             />
             <span className="text-gray-300">Double Out</span>
           </label>
@@ -193,7 +208,7 @@ export function LobbyPage({
       {/* Waiting message (online only, not enough players) */}
       {mode === 'online' && lobby.players.length < 2 && (
         <p className="text-yellow-400 text-sm mb-6">
-          {lobby.players.length === 0
+          {!ownPlayerId
             ? 'Add yourself as a player to get started'
             : 'Waiting for opponent to join...'}
         </p>
@@ -201,13 +216,15 @@ export function LobbyPage({
 
       {/* Actions */}
       <div className="flex gap-4">
-        <button
-          onClick={onStartGame}
-          disabled={!canStart}
-          className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
-        >
-          Start Game
-        </button>
+        {isCreator && (
+          <button
+            onClick={onStartGame}
+            disabled={!canStart}
+            className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
+          >
+            Start Match
+          </button>
+        )}
         <button
           onClick={onLeave}
           className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"

@@ -14,6 +14,9 @@ export function useGameState() {
     switch (msg.type) {
       case 'lobby_state':
         setLobby(msg.lobby);
+        if (msg.yourPlayerId) {
+          setOwnPlayerId(msg.yourPlayerId);
+        }
         break;
       case 'game_state':
       case 'game_started':
@@ -24,6 +27,10 @@ export function useGameState() {
       case 'game_finished':
         setGame(msg.game);
         clearReconnectInfo();
+        break;
+      case 'lobby_abandoned':
+        setLobby(null);
+        setOwnPlayerId(null);
         break;
       case 'error':
         setError(msg.message);
@@ -39,8 +46,8 @@ export function useGameState() {
 
   const { send, connected } = useWebSocket(handleMessage);
 
-  const createLobby = useCallback(() => {
-    send({ type: 'create_lobby' });
+  const createLobby = useCallback((isLocal = true) => {
+    send({ type: 'create_lobby', isLocal });
     setError(null);
   }, [send]);
 

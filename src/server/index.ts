@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { handleMessage, registerClient, removeClient } from './wsHandler';
+import { handleMessage, registerClient, removeClient, handleClientLeave } from './wsHandler';
 import { X01Handler } from './modes/x01';
 import { registerModeHandler } from './modes/types';
 
@@ -25,7 +25,7 @@ if (process.env.NODE_ENV === 'production') {
 
 wss.on('connection', (ws) => {
   console.log('Client connected');
-  registerClient(ws, { lobbyId: null, gameId: null, playerId: null });
+  registerClient(ws, { lobbyId: null, gameId: null, playerId: null, isHost: false });
 
   ws.on('message', (data) => {
     handleMessage(ws, data.toString());
@@ -33,6 +33,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     console.log('Client disconnected');
+    handleClientLeave(ws);
     removeClient(ws);
   });
 

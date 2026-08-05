@@ -99,8 +99,8 @@ async function setupLocalMatch(page: Page, players: string[], startScore = 501) 
   if (await diCheckbox.isChecked()) await diCheckbox.uncheck();
   if (!await doCheckbox.isChecked()) await doCheckbox.check();
 
-  // Start game
-  await page.click('text=Start Game');
+  // Start match
+  await page.click('text=Start Match');
   await expect(page.locator(`text=${startScore}`).first()).toBeVisible();
 }
 
@@ -203,7 +203,7 @@ test.describe('Online multiplayer match', () => {
     await page1.click('button:has-text("Add")');
 
     // Read invite code
-    const inviteCodeEl = page1.locator('text=Invite Code').locator('..').locator('p.text-3xl');
+    const inviteCodeEl = page1.locator('text=Invite Code').locator('..').locator('code');
     const inviteCode = await inviteCodeEl.textContent();
     expect(inviteCode).toBeTruthy();
     if (!inviteCode) return;
@@ -233,8 +233,8 @@ test.describe('Online multiplayer match', () => {
 
     // Page 1 starts the game (button should now be enabled with 2 players)
     await page1.waitForTimeout(500);
-    await expect(page1.locator('button:has-text("Start Game")')).toBeEnabled({ timeout: 5000 });
-    await page1.click('button:has-text("Start Game")');
+    await expect(page1.locator('button:has-text("Start Match")')).toBeEnabled({ timeout: 5000 });
+    await page1.click('button:has-text("Start Match")');
 
     // Both pages should see the game
     await expect(page1.locator('text=501').first()).toBeVisible();

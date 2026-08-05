@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+input[type="text"],
+input[type="search"],
+textarea {
+  user-select: text;
+}
+
+select {
+  user-select: none;
+}

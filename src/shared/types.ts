@@ -29,6 +29,12 @@ export interface Visit {
   bust: boolean;
 }
 
+export interface CurrentVisit {
+  playerId: string;
+  darts: DartThrow[];
+  locked: boolean;
+}
+
 // --- Game configuration ---
 
 export type GameMode = 'x01';
@@ -55,6 +61,7 @@ export interface GameState {
   createdAt: number;
   finishedAt: number | null;
   isLocal: boolean;
+  currentVisit?: CurrentVisit;
 }
 
 // --- Lobby ---

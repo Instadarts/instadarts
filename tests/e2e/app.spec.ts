@@ -65,18 +65,20 @@ async function clickD12(page: Page) {
 
 /** Submit the current visit. */
 async function submitVisit(page: Page) {
+  await expect(page.locator('button:has-text("Submit Visit")')).toBeEnabled({ timeout: 5000 });
   await page.click('button:has-text("Submit Visit")');
+  // Brief wait for the server to process and clear currentVisit
+  await page.waitForTimeout(300);
 }
 
 /** Verify a dart label is visible in the current darts row. */
 async function expectDartLabel(page: Page, label: string) {
-  // Labels appear in the VisitInput component as e.g. "T20 (60)"
   await expect(page.locator(`text=${label}`).first()).toBeVisible();
 }
 
 /** Verify visit total appears in history. */
 async function expectVisitTotal(page: Page, total: number) {
-  await expect(page.locator(`text== ${total}`).first()).toBeVisible();
+  await expect(page.getByText(`= ${total}`).first()).toBeVisible();
 }
 
 /** Start a local match with given player names and settings. */

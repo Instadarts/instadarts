@@ -41,10 +41,20 @@ export interface SetPlayerNameMessage {
   name: string;
 }
 
+export interface AddDartMessage {
+  type: 'add_dart';
+  gameId: string;
+  dart: { x: number; y: number; score: import('./types').ScoreResult };
+}
+
+export interface UndoDartMessage {
+  type: 'undo_dart';
+  gameId: string;
+}
+
 export interface SubmitVisitMessage {
   type: 'submit_visit';
   gameId: string;
-  visit: Omit<Visit, 'visitNumber'>;
 }
 
 export interface StartGameMessage {
@@ -81,6 +91,8 @@ export type ClientMessage =
   | RemovePlayerMessage
   | UpdateSettingsMessage
   | SetPlayerNameMessage
+  | AddDartMessage
+  | UndoDartMessage
   | SubmitVisitMessage
   | StartGameMessage
   | LeaveGameMessage

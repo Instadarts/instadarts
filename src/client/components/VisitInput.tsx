@@ -7,12 +7,17 @@ interface VisitInputProps {
   onUndoDart: () => void;
   onSubmit: () => void;
   disabled?: boolean;
+  locked?: boolean;
+  readOnly?: boolean;
+  hideActions?: boolean;
 }
 
-export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled }: VisitInputProps) {
+export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled, locked, readOnly, hideActions }: VisitInputProps) {
+  const boardDisabled = disabled || darts.length >= 3 || (locked ?? false) || (readOnly ?? false);
+
   return (
     <div className="flex flex-col items-center gap-4">
-      <Dartboard darts={darts} onDartClick={onAddDart} disabled={disabled} />
+      <Dartboard darts={darts} onDartClick={onAddDart} disabled={boardDisabled} />
 
       {/* Dart labels and scores */}
       <div className="flex gap-3 min-h-[40px]">
@@ -39,22 +44,24 @@ export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled }:
       </p>
 
       {/* Actions */}
+      {!hideActions && (
       <div className="flex gap-4">
         <button
           onClick={onUndoDart}
-          disabled={darts.length === 0 || disabled}
+          disabled={darts.length === 0 || (readOnly ?? false)}
           className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 rounded transition-colors"
         >
           Undo
         </button>
         <button
           onClick={onSubmit}
-          disabled={disabled}
+          disabled={readOnly ?? false}
           className="px-6 py-2 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded font-semibold transition-colors"
         >
           Submit Visit
         </button>
       </div>
+      )}
     </div>
   );
 }

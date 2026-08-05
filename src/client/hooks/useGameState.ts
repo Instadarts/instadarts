@@ -100,8 +100,18 @@ export function useGameState() {
     send({ type: 'start_game', lobbyId });
   }, [send]);
 
-  const submitVisit = useCallback((gameId: string, visit: any) => {
-    send({ type: 'submit_visit', gameId, visit });
+  const addDart = useCallback((gameId: string, dart: { x: number; y: number; score: any }) => {
+    send({ type: 'add_dart', gameId, dart });
+  }, [send]);
+
+  const undoDart = useCallback((gameId: string) => {
+    send({ type: 'undo_dart', gameId });
+  }, [send]);
+
+  const submitVisit = useCallback((gameId: string) => {
+    send({ type: 'submit_visit', gameId });
+    // Optimistically clear currentVisit so next player can throw immediately
+    setGame((prev) => prev ? { ...prev, currentVisit: undefined } : prev);
   }, [send]);
 
   const leaveGame = useCallback((gameId: string) => {
@@ -137,6 +147,8 @@ export function useGameState() {
     updateSettings,
     setPlayerName,
     startGame,
+    addDart,
+    undoDart,
     submitVisit,
     leaveGame,
     spectate,

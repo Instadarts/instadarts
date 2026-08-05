@@ -1,20 +1,36 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import type { GameState, DartThrow } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
 
 interface GamePageProps {
   game: GameState;
   onLeave: () => void;
-  onSubmitVisit: (visit: { playerId: string; darts: DartThrow[]; bust: boolean }) => void;
+  onAddDart: (gameId: string, dart: DartThrow) => void;
+  onUndoDart: (gameId: string) => void;
+  onSubmitVisit: (gameId: string) => void;
   ownPlayerId: string | null;
   isSpectator: boolean;
 }
 
-export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectator }: GamePageProps) {
-  const [darts, setDarts] = useState<DartThrow[]>([]);
-
+export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, ownPlayerId, isSpectator }: GamePageProps) {
   const currentPlayer = game.players[game.currentPlayerIndex];
   const isMyTurn = !isSpectator && game.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
+
+  const currentDarts = game.currentVisit?.darts ?? [];
+  const visitLocked = game.currentVisit?.locked ?? false;
+  const canAddDart = isMyTurn && !visitLocked && currentDarts.length < 3 && game.status === 'in_progress';
+
+  const handleAddDart = useCallback((dart: DartThrow) => {
+    onAddDart(game.id, dart);
+  }, [game.id, onAddDart]);
+
+  const handleUndo = useCallback(() => {
+    onUndoDart(game.id);
+  }, [game.id, onUndoDart]);
+
+  const handleSubmit = useCallback(() => {
+    onSubmitVisit(game.id);
+  }, [game.id, onSubmitVisit]);
 
   const getRemaining = useCallback((playerId: string): number => {
     let remaining = game.settings.startScore;
@@ -22,31 +38,35 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectato
       if (visit.playerId !== playerId || visit.bust) continue;
       remaining -= visit.darts.reduce((s, d) => s + d.score.points, 0);
     }
+    // Subtract in-progress currentVisit darts for this player
+    if (game.currentVisit && game.currentVisit.playerId === playerId) {
+      remaining -= game.currentVisit.darts.reduce((s, d) => s + d.score.points, 0);
+    }
     return Math.max(0, remaining);
-  }, [game.visits, game.settings.startScore]);
+  }, [game.visits, game.settings.startScore, game.currentVisit]);
 
-  const handleAddDart = useCallback((dart: DartThrow) => {
-    setDarts((prev) => [...prev, dart]);
-  }, []);
-
-  const handleUndo = useCallback(() => {
-    setDarts((prev) => prev.slice(0, -1));
-  }, []);
-
-  const handleSubmit = useCallback(() => {
-    const playerId = ownPlayerId ?? currentPlayer.id;
-    onSubmitVisit({
-      playerId,
-      darts: [...darts],
-      bust: false,
-    });
-    setDarts([]);
-  }, [darts, ownPlayerId, currentPlayer.id, onSubmitVisit]);
-
-  // Check for double-in requirement
   const needsDoubleIn = game.settings.doubleIn && game.visits.filter(
     (v) => v.playerId === currentPlayer.id && !v.bust
   ).length === 0;
+
+  // Detect bust / checkout state from currentVisit
+  const visitState = (() => {
+    if (!game.currentVisit || !game.currentVisit.locked) return 'active';
+    const cv = game.currentVisit;
+    const remainingBefore = game.settings.startScore - game.visits
+      .filter(v => v.playerId === cv.playerId && !v.bust)
+      .reduce((s, v) => s + v.darts.reduce((t, d) => t + d.score.points, 0), 0);
+    const visitTotal = cv.darts.reduce((s, d) => s + d.score.points, 0);
+    const after = remainingBefore - visitTotal;
+    if (after < 0 || after === 1) return 'bust';
+    if (after === 0) {
+      if (!game.settings.doubleOut) return 'checkout';
+      const last = cv.darts[cv.darts.length - 1];
+      if (last.score.mult === 2 || last.score.label === 'DB') return 'checkout';
+      return 'bust';
+    }
+    return 'full'; // 3 darts, no bust/checkout
+  })();
 
   return (
     <div className="min-h-screen flex flex-col items-center p-4 gap-6">
@@ -60,6 +80,8 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectato
         {game.players.map((p, i) => {
           const remaining = getRemaining(p.id);
           const isCurrent = i === game.currentPlayerIndex;
+          const isBust = isCurrent && visitState === 'bust';
+          const isCheckout = isCurrent && visitState === 'checkout';
           return (
             <div
               key={p.id}
@@ -68,9 +90,15 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectato
               }`}
             >
               <p className="text-sm text-gray-400">{p.name}</p>
-              <p className={`text-4xl font-bold font-mono ${isCurrent ? 'text-green-400' : 'text-gray-300'}`}>
-                {remaining}
-              </p>
+              {isBust ? (
+                <p className="text-3xl font-bold text-red-400">Bust!</p>
+              ) : isCheckout ? (
+                <p className="text-3xl font-bold text-yellow-400">Checkout!</p>
+              ) : (
+                <p className={`text-4xl font-bold font-mono ${isCurrent ? 'text-green-400' : 'text-gray-300'}`}>
+                  {remaining}
+                </p>
+              )}
               {isCurrent && game.status === 'in_progress' && (
                 <p className="text-xs text-green-500 mt-1">▶ throwing</p>
               )}
@@ -88,23 +116,22 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId, isSpectato
         </div>
       )}
 
-      {game.status === 'in_progress' && !isMyTurn && (
-        <p className="text-gray-400 text-lg">{currentPlayer.name} is throwing...</p>
-      )}
-
       {needsDoubleIn && isMyTurn && (
         <p className="text-yellow-400 font-semibold">Double-In required — hit a double to start scoring</p>
       )}
 
-      {/* Dartboard / Visit Input — hidden for spectators */}
-      {!isSpectator && game.status === 'in_progress' && (
+      {/* Dartboard / Visit Input */}
+      {game.status === 'in_progress' && (
         <div className="w-full max-w-[500px]">
           <VisitInput
-            darts={darts}
-            onAddDart={handleAddDart}
-            onUndoDart={handleUndo}
-            onSubmit={handleSubmit}
-            disabled={!isMyTurn}
+            darts={currentDarts}
+            onAddDart={isSpectator ? () => {} : handleAddDart}
+            onUndoDart={isSpectator ? () => {} : handleUndo}
+            onSubmit={isSpectator ? () => {} : handleSubmit}
+            disabled={!canAddDart}
+            locked={visitLocked}
+            readOnly={!isMyTurn || isSpectator}
+            hideActions={isSpectator}
           />
         </div>
       )}

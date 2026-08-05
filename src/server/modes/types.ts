@@ -1,4 +1,4 @@
-import type { GameState, Visit } from '../../shared/types';
+import type { GameState, DartThrow } from '../../shared/types';
 
 /**
  * Result of processing a visit.
@@ -15,11 +15,17 @@ export interface VisitResult {
 }
 
 /**
- * A game mode processes visits and determines win conditions.
+ * A game mode processes darts incrementally and finalizes visits.
  */
 export interface GameModeHandler {
-  /** Process a visit: validate, compute new score, check win/bust. */
-  processVisit(game: GameState, visit: Visit): VisitResult;
+  /** Add a dart to the current visit. Returns whether the visit is now locked. */
+  addDart(game: GameState, playerId: string, dart: DartThrow): { game: GameState; locked: boolean };
+
+  /** Remove the last dart from the current visit (LIFO). */
+  undoDart(game: GameState): { game: GameState };
+
+  /** Submit the current visit — finalize it into visits[], advance turn, check win. */
+  submitVisit(game: GameState): VisitResult;
 
   /** Get the remaining score for a player. */
   getRemainingScore(game: GameState, playerId: string): number;

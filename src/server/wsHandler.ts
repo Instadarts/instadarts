@@ -4,9 +4,9 @@ import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
 import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
-import { processVisit } from './game';
+import { addDartToGame, undoDartFromGame, submitVisitToGame } from './game';
 import { generateInviteCode } from './invite';
-import { sanitizeName, validateSettings, validateVisit } from './validation';
+import { sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkRateLimit, removeRateLimitBucket } from './rateLimit';
 import { canCreateLobby, canCreateGame } from './concurrencyLimit';
 
@@ -133,6 +133,12 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'start_game':
       handleStartGame(ws, msg);
+      break;
+    case 'add_dart':
+      handleAddDart(ws, msg);
+      break;
+    case 'undo_dart':
+      handleUndoDart(ws, msg);
       break;
     case 'submit_visit':
       handleSubmitVisit(ws, msg);
@@ -373,42 +379,72 @@ function handleStartGame(ws: WebSocket, msg: any): void {
   broadcastToGame(game.id, { type: 'game_started', game: { ...game } });
 }
 
-function handleSubmitVisit(ws: WebSocket, msg: any): void {
+function handleAddDart(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.gameId) return;
   if (client.isSpectator) return;
 
   const game = getGame(client.gameId);
-  if (!game) {
-    send(ws, { type: 'error', message: 'Game not found' });
+  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+
+  const dart = validateDartThrow(msg.dart);
+  if (!dart) { send(ws, { type: 'error', message: 'Invalid dart coordinates' }); return; }
+
+  const playerId = game.isLocal ? game.players[game.currentPlayerIndex].id : client.playerId;
+  if (!playerId) { send(ws, { type: 'error', message: 'No player associated' }); return; }
+  if (!game.isLocal && playerId !== client.playerId) {
+    send(ws, { type: 'error', message: 'You can only throw darts for your own player' });
     return;
   }
 
-  // Validate visit structure and re-compute scores from coordinates
-  const validatedVisit = validateVisit(msg.visit);
-  if (!validatedVisit) {
-    send(ws, { type: 'error', message: 'Invalid visit (1-3 darts with valid coordinates required)' });
-    return;
-  }
-
-  // Verify the visit belongs to this client's player (online only; local matches share one client)
-  if (!game.isLocal && validatedVisit.playerId !== client.playerId) {
-    send(ws, { type: 'error', message: 'You can only submit visits for your own player' });
-    return;
-  }
-
-  const result = processVisit(game, {
-    ...validatedVisit,
-    visitNumber: 0,
-  });
-
-  if (!result.success) {
-    send(ws, { type: 'error', message: result.error });
-    return;
-  }
+  const result = addDartToGame(game, playerId, dart);
+  if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
   updateGame(game.id, result.game);
   broadcastToGame(game.id, { type: 'game_state', game: { ...result.game } });
+}
+
+function handleUndoDart(ws: WebSocket, _msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.gameId) return;
+  if (client.isSpectator) return;
+
+  const game = getGame(client.gameId);
+  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+
+  const cv = game.currentVisit;
+  if (!cv || cv.darts.length === 0) { send(ws, { type: 'error', message: 'No darts to undo' }); return; }
+  if (!game.isLocal && cv.playerId !== client.playerId) {
+    send(ws, { type: 'error', message: 'You can only undo your own darts' });
+    return;
+  }
+
+  const result = undoDartFromGame(game);
+  if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
+
+  updateGame(game.id, result.game);
+  broadcastToGame(game.id, { type: 'game_state', game: { ...result.game } });
+}
+
+function handleSubmitVisit(ws: WebSocket, _msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.gameId) return;
+  if (client.isSpectator) return;
+
+  const game = getGame(client.gameId);
+  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+
+  const cv = game.currentVisit;
+  if (cv && !game.isLocal && cv.playerId !== client.playerId) {
+    send(ws, { type: 'error', message: 'You can only submit your own visit' });
+    return;
+  }
+
+  const submitResult = submitVisitToGame(game);
+  if (!submitResult.success) { send(ws, { type: 'error', message: submitResult.error }); return; }
+
+  updateGame(game.id, submitResult.result.game);
+  broadcastToGame(game.id, { type: 'game_state', game: { ...submitResult.result.game } });
 }
 
 function handleLeaveGame(ws: WebSocket, _msg: any): void {

@@ -1,29 +1,37 @@
-import type { GameState, Visit } from '../shared/types';
+import type { GameState, DartThrow } from '../shared/types';
 import { getModeHandler } from './modes/types';
+import type { VisitResult } from './modes/types';
 
-/**
- * Process a visit submission for the current game.
- * Returns the updated game state or an error message.
- */
-export function processVisit(
+export function addDartToGame(
   game: GameState,
-  visit: Visit,
-): { success: true; game: GameState } | { success: false; error: string } {
-  if (game.status !== 'in_progress') {
-    return { success: false, error: 'Game is not in progress' };
-  }
-
+  playerId: string,
+  dart: DartThrow,
+): { success: true; game: GameState; locked: boolean } | { success: false; error: string } {
+  if (game.status !== 'in_progress') return { success: false, error: 'Game is not in progress' };
   const handler = getModeHandler(game.settings.mode);
-  if (!handler) {
-    return { success: false, error: `Unknown game mode: ${game.settings.mode}` };
-  }
-
-  // Verify it's this player's turn
+  if (!handler) return { success: false, error: `Unknown game mode: ${game.settings.mode}` };
   const currentPlayer = game.players[game.currentPlayerIndex];
-  if (visit.playerId !== currentPlayer.id) {
-    return { success: false, error: 'Not your turn' };
-  }
+  if (playerId !== currentPlayer.id) return { success: false, error: 'Not your turn' };
+  const result = handler.addDart(game, playerId, dart);
+  return { success: true, game: result.game, locked: result.locked };
+}
 
-  const result = handler.processVisit(game, visit);
+export function undoDartFromGame(
+  game: GameState,
+): { success: true; game: GameState } | { success: false; error: string } {
+  if (game.status !== 'in_progress') return { success: false, error: 'Game is not in progress' };
+  const handler = getModeHandler(game.settings.mode);
+  if (!handler) return { success: false, error: `Unknown game mode: ${game.settings.mode}` };
+  const result = handler.undoDart(game);
   return { success: true, game: result.game };
+}
+
+export function submitVisitToGame(
+  game: GameState,
+): { success: true; result: VisitResult } | { success: false; error: string } {
+  if (game.status !== 'in_progress') return { success: false, error: 'Game is not in progress' };
+  const handler = getModeHandler(game.settings.mode);
+  if (!handler) return { success: false, error: `Unknown game mode: ${game.settings.mode}` };
+  const result = handler.submitVisit(game);
+  return { success: true, result };
 }

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { X01Handler } from '../../src/server/modes/x01';
-import type { GameState, Visit, ScoreResult } from '../../src/shared/types';
+import type { GameState, ScoreResult } from '../../src/shared/types';
 
-function makeDart(label: string, x = 500_000, y = 500_000): { x: number; y: number; score: ScoreResult } {
+function makeDart(label: string, x = 500_000, y = 500_000) {
   const darts: Record<string, ScoreResult> = {
     'T20': { label: 'T20', points: 60, mult: 3, base: 20 },
     'T19': { label: 'T19', points: 57, mult: 3, base: 19 },
@@ -31,30 +31,29 @@ function makeGame(overrides: Partial<GameState> = {}): GameState {
   return {
     id: 'test-game',
     status: 'in_progress',
-    settings: {
-      mode: 'x01',
-      doubleIn: false,
-      doubleOut: true,
-      startScore: 501,
-    },
+    settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 501 },
     players: [
-      { id: 'p1', name: 'Alice', isRemote: false },
-      { id: 'p2', name: 'Bob', isRemote: false },
+      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' },
+      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's2' },
     ],
     visits: [],
     currentPlayerIndex: 0,
     winnerId: null,
+    createdAt: 0,
+    finishedAt: null,
+    isLocal: false,
     ...overrides,
   };
 }
 
-function makeVisit(playerId: string, darts: string[]): Visit {
-  return {
-    playerId,
-    darts: darts.map((d) => makeDart(d)),
-    visitNumber: 0,
-    bust: false,
-  };
+/** Add darts one by one then submit. */
+function doVisit(handler: X01Handler, game: GameState, playerId: string, labels: string[]) {
+  let g = game;
+  for (const label of labels) {
+    const r = handler.addDart(g, playerId, makeDart(label));
+    g = r.game;
+  }
+  return handler.submitVisit(g);
 }
 
 describe('X01Handler', () => {
@@ -67,30 +66,22 @@ describe('X01Handler', () => {
   describe('basic scoring', () => {
     it('subtracts visit total from starting score', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 501 } });
-      const visit = makeVisit('p1', ['T20', 'T20', 'T20']); // 180
-      const result = handler.processVisit(game, visit);
-
+      const result = doVisit(handler, game, 'p1', ['T20', 'T20', 'T20']); // 180
       expect(result.valid).toBe(true);
       expect(result.remainingScore).toBe(321);
       expect(result.won).toBe(false);
-      expect(result.game.currentPlayerIndex).toBe(1); // next player
+      expect(result.game.currentPlayerIndex).toBe(1);
     });
 
     it('accumulates multiple visits', () => {
       let game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 301 } });
-
-      // Alice: 100
-      let result = handler.processVisit(game, makeVisit('p1', ['T20', 'S20', 'miss'])); // 80
+      let result = doVisit(handler, game, 'p1', ['T20', 'S20', 'miss']); // 80
       game = result.game;
       expect(result.remainingScore).toBe(221);
-
-      // Bob: 60
-      result = handler.processVisit(game, makeVisit('p2', ['S20', 'S20', 'S20'])); // 60
+      result = doVisit(handler, game, 'p2', ['S20', 'S20', 'S20']); // 60
       game = result.game;
       expect(result.remainingScore).toBe(241);
-
-      // Alice: another 100 → 121 remaining
-      result = handler.processVisit(game, makeVisit('p1', ['T20', 'S20', 'S20'])); // 100
+      result = doVisit(handler, game, 'p1', ['T20', 'S20', 'S20']); // 100
       expect(result.remainingScore).toBe(121);
     });
   });
@@ -98,17 +89,15 @@ describe('X01Handler', () => {
   describe('bust rules', () => {
     it('bust when score exceeds remaining', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 40 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['T20'])); // 60 > 40
-
+      const result = doVisit(handler, game, 'p1', ['T20']); // 60 > 40
       expect(result.valid).toBe(false);
-      expect(result.remainingScore).toBe(40); // score reverts
-      expect(result.game.currentPlayerIndex).toBe(1); // next player
+      expect(result.remainingScore).toBe(40);
+      expect(result.game.currentPlayerIndex).toBe(1);
     });
 
     it('bust when score equals 1', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 20 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['S19'])); // 19, leaves 1
-
+      const result = doVisit(handler, game, 'p1', ['S19']); // 19, leaves 1
       expect(result.valid).toBe(false);
       expect(result.remainingScore).toBe(20);
     });
@@ -117,8 +106,7 @@ describe('X01Handler', () => {
   describe('double-out', () => {
     it('wins with a double checkout', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 32 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['D16'])); // 32
-
+      const result = doVisit(handler, game, 'p1', ['D16']); // 32
       expect(result.valid).toBe(true);
       expect(result.won).toBe(true);
       expect(result.game.status).toBe('finished');
@@ -127,23 +115,20 @@ describe('X01Handler', () => {
 
     it('bust when finishing on a single with 0 remaining', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 20 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['S20'])); // 20, but not a double
-
+      const result = doVisit(handler, game, 'p1', ['S20']); // 20, but not a double
       expect(result.valid).toBe(false);
       expect(result.remainingScore).toBe(20);
     });
 
     it('wins with double bull checkout', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 50 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['DB']));
-
+      const result = doVisit(handler, game, 'p1', ['DB']);
       expect(result.won).toBe(true);
     });
 
     it('D8 checkout from 16', () => {
       const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 16 } });
-      const result = handler.processVisit(game, makeVisit('p1', ['D8']));
-
+      const result = doVisit(handler, game, 'p1', ['D8']);
       expect(result.won).toBe(true);
     });
   });
@@ -152,23 +137,18 @@ describe('X01Handler', () => {
     it('requires a double to start scoring', () => {
       const handler2 = new X01Handler();
       const game = makeGame({ settings: { mode: 'x01', doubleIn: true, doubleOut: true, startScore: 501 } });
-
-      // First visit: no double → bust
-      let result = handler2.processVisit(game, makeVisit('p1', ['S20', 'T20', 'T20'])); // no double
+      let result = doVisit(handler2, game, 'p1', ['S20', 'T20', 'T20']);
       expect(result.valid).toBe(false);
       expect(result.remainingScore).toBe(501);
-
-      // Second visit: hit a double → score from that dart onward
-      result = handler2.processVisit(result.game, makeVisit('p1', ['S20', 'D20', 'T20'])); // D20(40) + T20(60) = 100
+      result = doVisit(handler2, result.game, 'p1', ['S20', 'D20', 'T20']); // 40+60=100
       expect(result.valid).toBe(true);
-      expect(result.remainingScore).toBe(401); // 501 - 100
+      expect(result.remainingScore).toBe(401);
     });
 
     it('first dart being a double counts all subsequent darts', () => {
       const handler2 = new X01Handler();
       const game = makeGame({ settings: { mode: 'x01', doubleIn: true, doubleOut: false, startScore: 501 } });
-
-      const result = handler2.processVisit(game, makeVisit('p1', ['D20', 'T20', 'T20'])); // 40 + 60 + 60 = 160
+      const result = doVisit(handler2, game, 'p1', ['D20', 'T20', 'T20']); // 160
       expect(result.valid).toBe(true);
       expect(result.remainingScore).toBe(341);
     });
@@ -176,8 +156,7 @@ describe('X01Handler', () => {
     it('all three darts can count if first is a double', () => {
       const handler2 = new X01Handler();
       const game = makeGame({ settings: { mode: 'x01', doubleIn: true, doubleOut: false, startScore: 501 } });
-
-      const result = handler2.processVisit(game, makeVisit('p1', ['D16', 'T20', 'T20'])); // 32 + 60 + 60 = 152
+      const result = doVisit(handler2, game, 'p1', ['D16', 'T20', 'T20']); // 152
       expect(result.valid).toBe(true);
       expect(result.remainingScore).toBe(349);
     });
@@ -191,12 +170,67 @@ describe('X01Handler', () => {
 
     it('returns correct remaining after multiple visits', () => {
       let game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: false, startScore: 501 } });
-      let result = handler.processVisit(game, makeVisit('p1', ['T20', 'T20', 'T20']));
+      let result = doVisit(handler, game, 'p1', ['T20', 'T20', 'T20']);
       game = result.game;
-      result = handler.processVisit(game, makeVisit('p1', ['T20', 'T20', 'T20']));
+      result = doVisit(handler, game, 'p1', ['T20', 'T20', 'T20']);
       game = result.game;
-
       expect(handler.getRemainingScore(game, 'p1')).toBe(141); // 501 - 360
+    });
+  });
+
+  describe('per-dart operations', () => {
+    it('addDart builds up currentVisit', () => {
+      const game = makeGame();
+      const r1 = handler.addDart(game, 'p1', makeDart('T20'));
+      expect(r1.game.currentVisit?.darts).toHaveLength(1);
+      expect(r1.locked).toBe(false);
+      const r2 = handler.addDart(r1.game, 'p1', makeDart('T20'));
+      expect(r2.game.currentVisit?.darts).toHaveLength(2);
+    });
+
+    it('addDart locks after 3 darts', () => {
+      const game = makeGame();
+      let r = handler.addDart(game, 'p1', makeDart('T20'));
+      r = handler.addDart(r.game, 'p1', makeDart('T20'));
+      r = handler.addDart(r.game, 'p1', makeDart('T20'));
+      expect(r.locked).toBe(true);
+    });
+
+    it('addDart locks on bust', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 40 } });
+      const r = handler.addDart(game, 'p1', makeDart('T20')); // 60 > 40
+      expect(r.locked).toBe(true);
+    });
+
+    it('undoDart removes last dart (LIFO)', () => {
+      const game = makeGame();
+      let r = handler.addDart(game, 'p1', makeDart('T20'));
+      r = handler.addDart(r.game, 'p1', makeDart('S20'));
+      expect(r.game.currentVisit?.darts).toHaveLength(2);
+      const undo = handler.undoDart(r.game);
+      expect(undo.game.currentVisit?.darts).toHaveLength(1);
+      expect(undo.game.currentVisit!.darts[0].score.label).toBe('T20');
+    });
+
+    it('undoDart unlocks a locked visit', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 40 } });
+      let r = handler.addDart(game, 'p1', makeDart('T20')); // bust, locked
+      expect(r.locked).toBe(true);
+      const undo = handler.undoDart(r.game);
+      expect(undo.game.currentVisit).toBeUndefined();
+      // Can add again
+      const r2 = handler.addDart(undo.game, 'p1', makeDart('S20'));
+      expect(r2.locked).toBe(false);
+    });
+
+    it('submitVisit clears currentVisit', () => {
+      const game = makeGame();
+      let r = handler.addDart(game, 'p1', makeDart('T20'));
+      r = handler.addDart(r.game, 'p1', makeDart('T20'));
+      r = handler.addDart(r.game, 'p1', makeDart('T20'));
+      const result = handler.submitVisit(r.game);
+      expect(result.game.currentVisit).toBeUndefined();
+      expect(result.game.visits).toHaveLength(1);
     });
   });
 });

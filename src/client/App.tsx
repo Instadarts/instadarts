@@ -26,6 +26,8 @@ export function App() {
     leaveGame,
     spectate,
     swapPlayers,
+    addDart,
+    undoDart,
   } = useGameState();
 
   const navigate = useNavigate();
@@ -90,6 +92,8 @@ export function App() {
           ownPlayerId={ownPlayerId}
           isSpectator={isSpectator}
           leaveGame={leaveGame}
+          addDart={addDart}
+          undoDart={undoDart}
           submitVisit={submitVisit}
           navigate={navigate}
           error={error}
@@ -149,7 +153,7 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
   );
 }
 
-function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, navigate, error }: any) {
+function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undoDart, submitVisit, navigate, error }: any) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const navigatedRef = useRef(false);
 
@@ -181,7 +185,9 @@ function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, 
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
       onLeave={() => { leaveGame(game.id); navigate('/'); }}
-      onSubmitVisit={(v: any) => submitVisit(game.id, v)}
+      onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
+      onUndoDart={() => undoDart(game.id)}
+      onSubmitVisit={() => submitVisit(game.id)}
     />
   );
 }
@@ -224,6 +230,8 @@ function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: any) {
         ownPlayerId={null}
         isSpectator={true}
         onLeave={() => navigate('/')}
+        onAddDart={() => {}}
+        onUndoDart={() => {}}
         onSubmitVisit={() => {}}
       />
     );

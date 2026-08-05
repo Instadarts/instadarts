@@ -126,27 +126,18 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const player = {
-    id: generatePlayerId(),
-    name: msg.playerName || 'Player 2',
-    isRemote: true,
-  };
-
-  const updated = addPlayerToLobby(lobby.id, player);
-  if (!updated) {
+  if (lobby.players.length >= 2) {
     send(ws, { type: 'error', message: 'Lobby is full' });
     return;
   }
 
+  // Associate client with lobby — player is added manually via add_local_player
   const client = clients.get(ws);
   if (client) {
     client.lobbyId = lobby.id;
-    client.playerId = player.id;
   }
 
-  // Notify all lobby members
-  broadcastToLobby(lobby.id, { type: 'player_joined', lobbyId: lobby.id, player });
-  send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
 function handleAddLocalPlayer(ws: WebSocket, msg: any): void {

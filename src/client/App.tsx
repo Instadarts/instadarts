@@ -3,7 +3,6 @@ import { useGameState } from './hooks/useGameState';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
-import { storage } from './lib/storage';
 
 type LobbyMode = 'local' | 'online';
 
@@ -25,27 +24,31 @@ export function App() {
   } = useGameState();
 
   const [lobbyMode, setLobbyMode] = useState<LobbyMode | null>(null);
+  const [isCreator, setIsCreator] = useState(false);
 
   // Home page handlers
   const handleCreateLocalMatch = useCallback(() => {
     createLobby();
     setLobbyMode('local');
+    setIsCreator(true);
   }, [createLobby]);
 
   const handleCreateOnlineMatch = useCallback(() => {
     createLobby();
     setLobbyMode('online');
+    setIsCreator(true);
   }, [createLobby]);
 
   const handleJoinOnlineMatch = useCallback((code: string) => {
-    const name = storage.getPlayerNames()[0] ?? 'Player 1';
-    joinLobby(code, name);
+    joinLobby(code, '');
     setLobbyMode('online');
+    setIsCreator(false);
   }, [joinLobby]);
 
   const handleLeave = useCallback(() => {
     leaveGame(lobby?.id ?? game?.id ?? '');
     setLobbyMode(null);
+    setIsCreator(false);
   }, [leaveGame, lobby, game]);
 
   // Lobby
@@ -54,6 +57,7 @@ export function App() {
       <LobbyPage
         lobby={lobby}
         mode={lobbyMode}
+        isCreator={isCreator}
         onStartGame={() => startGame(lobby.id)}
         onLeave={handleLeave}
         onUpdateSettings={(settings) => updateSettings(lobby.id, settings)}

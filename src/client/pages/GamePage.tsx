@@ -35,14 +35,14 @@ export function GamePage({ game, onLeave, onSubmitVisit, ownPlayerId }: GamePage
   }, []);
 
   const handleSubmit = useCallback(() => {
-    if (!ownPlayerId) return;
+    const playerId = ownPlayerId ?? currentPlayer.id;
     onSubmitVisit({
-      playerId: ownPlayerId,
+      playerId,
       darts: [...darts],
       bust: false,
     });
     setDarts([]);
-  }, [darts, ownPlayerId, onSubmitVisit]);
+  }, [darts, ownPlayerId, currentPlayer.id, onSubmitVisit]);
 
   // Check for double-in requirement
   const needsDoubleIn = game.settings.doubleIn && game.visits.filter(

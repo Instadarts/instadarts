@@ -5,6 +5,7 @@ import { storage } from '../lib/storage';
 interface LobbyPageProps {
   lobby: Lobby;
   mode: 'local' | 'online';
+  isCreator: boolean;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
@@ -16,6 +17,7 @@ interface LobbyPageProps {
 export function LobbyPage({
   lobby,
   mode,
+  isCreator,
   onStartGame,
   onLeave,
   onUpdateSettings,
@@ -31,9 +33,8 @@ export function LobbyPage({
   const usedNames = new Set(lobby.players.map((p) => p.name.toLowerCase()));
   const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
 
-  const localPlayers = lobby.players.filter((p) => !p.isRemote);
-  const remotePlayers = lobby.players.filter((p) => p.isRemote);
-  const canAddLocal = mode === 'local' || (mode === 'online' && localPlayers.length === 0);
+  // Online: each client can add 1 player, total max 2. Local: unlimited (but store caps at 2).
+  const canAddLocal = mode === 'local' || lobby.players.length < 2;
   const canStart =
     mode === 'local'
       ? lobby.players.length >= 1
@@ -74,18 +75,13 @@ export function LobbyPage({
         {lobby.players.map((p) => (
           <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
             <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-            <span className="text-xs text-gray-500 w-12 text-right">
-              {p.isRemote ? 'remote' : 'local'}
-            </span>
-            {!p.isRemote && (
-              <button
-                onClick={() => onRemovePlayer(p.id)}
-                className="text-red-400 hover:text-red-300 text-sm px-1"
-                title="Remove player"
-              >
-                ✕
-              </button>
-            )}
+            <button
+              onClick={() => onRemovePlayer(p.id)}
+              className="text-red-400 hover:text-red-300 text-sm px-1"
+              title="Remove player"
+            >
+              ✕
+            </button>
           </div>
         ))}
 
@@ -175,8 +171,8 @@ export function LobbyPage({
         </div>
       </div>
 
-      {/* Invite code (online only) */}
-      {mode === 'online' && lobby.inviteCode && (
+      {/* Invite code (only creator of online lobby) */}
+      {isCreator && mode === 'online' && lobby.inviteCode && (
         <div className="w-80 mb-6 text-center">
           <p className="text-gray-400 text-sm">Invite Code</p>
           <p className="text-3xl font-mono tracking-widest text-green-400">
@@ -185,10 +181,12 @@ export function LobbyPage({
         </div>
       )}
 
-      {/* Waiting message */}
+      {/* Waiting message (online only, not enough players) */}
       {mode === 'online' && lobby.players.length < 2 && (
         <p className="text-yellow-400 text-sm mb-6">
-          Waiting for opponent to join...
+          {lobby.players.length === 0
+            ? 'Add yourself as a player to get started'
+            : 'Waiting for opponent to join...'}
         </p>
       )}
 

@@ -7,10 +7,5 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     headless: true,
   },
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: false,
-    timeout: 30000,
-  },
+  // Server managed by test:e2e npm script
 });

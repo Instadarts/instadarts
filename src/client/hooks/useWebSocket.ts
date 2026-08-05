@@ -9,12 +9,15 @@ export function useWebSocket(onMessage: MessageHandler) {
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectAttempt = useRef(0);
+  const intentionalClose = useRef(false);
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
+    intentionalClose.current = false;
     const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
@@ -44,14 +47,11 @@ export function useWebSocket(onMessage: MessageHandler) {
 
     ws.onclose = () => {
       setConnected(false);
+      if (intentionalClose.current) return;
       // Auto-reconnect with exponential backoff
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 10000);
       reconnectAttempt.current++;
       reconnectTimer.current = setTimeout(connect, delay);
-    };
-
-    ws.onerror = () => {
-      ws.close();
     };
   }, []);
 
@@ -64,6 +64,7 @@ export function useWebSocket(onMessage: MessageHandler) {
   useEffect(() => {
     connect();
     return () => {
+      intentionalClose.current = true;
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };

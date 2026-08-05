@@ -30,6 +30,10 @@ export function useGameState() {
           setOwnPlayerId(msg.yourPlayerId);
           // Persist for page reload recovery
           saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: msg.yourPlayerId });
+        } else if (msg.lobby.isLocal && msg.lobby.players.length > 0) {
+          // Local lobby: save reconnect info with the last added player
+          const lastPlayer = msg.lobby.players[msg.lobby.players.length - 1];
+          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: lastPlayer.id });
         }
         break;
       case 'game_state':

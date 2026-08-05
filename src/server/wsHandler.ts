@@ -249,7 +249,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     lobby.hostPlayerId = player.id;
   }
 
-  // Broadcast to all; only send yourPlayerId to the requesting client for online lobbies
+  // Broadcast to all; send yourPlayerId for online so client knows which player it owns
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
   if (!lobby.isLocal) {
     send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: player.id });

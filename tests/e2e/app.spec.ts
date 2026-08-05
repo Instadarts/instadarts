@@ -241,6 +241,28 @@ test.describe('Home screen', () => {
     await page.click('button:has-text("Swap order")');
     await expect(aliceRow.locator('text=1st')).toBeVisible({ timeout: 3000 });
   });
+  test('local lobby survives page reload', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+
+    // Add a player
+    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.click('button:has-text("Add")');
+    await expect(page.locator('text=Alice')).toBeVisible();
+    await page.waitForTimeout(300);
+
+    // Verify reconnect info is in sessionStorage
+    const saved = await page.evaluate(() => sessionStorage.getItem('instadarts_reconnect'));
+    expect(saved).toBeTruthy();
+
+    // Reload
+    await page.reload();
+    await page.waitForTimeout(3000);
+
+    // Should still be in the lobby with Alice visible
+    await expect(page.locator('h2')).toContainText('Local Match', { timeout: 10000 });
+    await expect(page.locator('text=Alice')).toBeVisible({ timeout: 5000 });
+  });
 });
 
 test.describe('Local 1-player x01 match', () => {

@@ -125,6 +125,93 @@ test.describe('Home screen', () => {
     await page.click('text=Back');
     await expect(page.locator('text=Local Match')).toBeVisible();
   });
+
+  test('invalid invite code redirects to home', async ({ page }) => {
+    await page.goto('/lobby/join/DOESNOTEXIST');
+    // Should briefly show "Joining lobby..." then redirect to home
+    await page.waitForURL('/', { timeout: 10000 });
+    await expect(page.locator('text=InstaDarts')).toBeVisible();
+  });
+
+  test('joining a full lobby redirects to home', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const ctx3 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+    const page3 = await ctx3.newPage();
+
+    // Creator creates online match and adds both players
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    expect(code).toBeTruthy();
+
+    // Second player joins and adds themselves (fills the lobby)
+    await page2.goto('/');
+    await page2.waitForTimeout(1000);
+    await page2.click('text=Join Online Match');
+    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.click('button:has-text("Join Match")');
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
+    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.click('button:has-text("Add")');
+    await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
+
+    // Third player tries to join the full lobby
+    await page3.goto(`/lobby/join/${code!.trim()}`);
+    // Should redirect to home because lobby is full
+    await page3.waitForURL('/', { timeout: 10000 });
+    await expect(page3.locator('text=InstaDarts')).toBeVisible();
+
+    await ctx1.close();
+    await ctx2.close();
+    await ctx3.close();
+  });
+
+  test('only one joiner can connect to a lobby', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const ctx3 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+    const page3 = await ctx3.newPage();
+
+    // Creator creates online match and adds self
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    expect(code).toBeTruthy();
+
+    // First joiner joins the lobby (does NOT add a player yet)
+    await page2.goto('/');
+    await page2.waitForTimeout(1000);
+    await page2.click('text=Join Online Match');
+    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.click('button:has-text("Join Match")');
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
+
+    // Creator should see opponent connected
+    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
+
+    // Second joiner tries to join the same lobby — should be rejected
+    await page3.goto(`/lobby/join/${code!.trim()}`);
+    // Should redirect to home because a joiner is already connected
+    await page3.waitForURL('/', { timeout: 10000 });
+    await expect(page3.locator('text=InstaDarts')).toBeVisible();
+
+    await ctx1.close();
+    await ctx2.close();
+    await ctx3.close();
+  });
 });
 
 test.describe('Local 1-player x01 match', () => {
@@ -356,6 +443,47 @@ test.describe('Lobby leave scenarios', () => {
     await ctx1.close();
     await ctx2.close();
   });
+
+  test('joiner leaves → stays on home screen (no stale lobby_state rebind)', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    // Creator creates online match and adds self
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    expect(code).toBeTruthy();
+
+    // Joiner joins
+    await page2.goto('/');
+    await page2.waitForTimeout(1000);
+    await page2.click('text=Join Online Match');
+    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.click('button:has-text("Join Match")');
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
+
+    // Joiner adds themselves
+    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.click('button:has-text("Add")');
+
+    // Joiner leaves — should go to home
+    await page2.click('text=Leave');
+    await page2.waitForURL('/');
+    await expect(page2.locator('text=InstaDarts')).toBeVisible({ timeout: 5000 });
+
+    // Verify joiner STAYS on home (no stale lobby_state re-navigation)
+    await page2.waitForTimeout(1500);
+    await expect(page2.locator('text=InstaDarts')).toBeVisible();
+
+    await ctx1.close();
+    await ctx2.close();
+  });
 });
 
 test.describe('In-match leave scenarios', () => {
@@ -485,6 +613,123 @@ test.describe('Spectator mode', () => {
 
     await expect(page1.locator('text=Alice')).toBeVisible();
     await expect(page1.locator('text=Invite Code')).toBeVisible();
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('spectator does not see "add yourself as a player" prompt', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    // Creator creates online match and adds self
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const lobbyId = page1.url().split('/lobby/')[1];
+    expect(lobbyId).toBeTruthy();
+
+    // Spectator views lobby
+    await page2.goto(`/spectate/${lobbyId}`);
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+
+    // Should NOT see "Add yourself as a player" prompt
+    await expect(page2.locator('text=Add yourself as a player to get started')).not.toBeVisible({ timeout: 3000 });
+    // Should NOT see "Waiting for opponent to join..."
+    await expect(page2.locator('text=Waiting for opponent to join...')).not.toBeVisible({ timeout: 3000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('spectator can rejoin lobby after leaving', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    // Creator creates online match and adds self
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const inviteCodeEl = page1.locator('text=Invite Code').locator('..').locator('code');
+    const inviteCode = await inviteCodeEl.textContent();
+    expect(inviteCode).toBeTruthy();
+
+    const lobbyId = page1.url().split('/lobby/')[1];
+
+    // Spectator views lobby
+    await page2.goto(`/spectate/${lobbyId}`);
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+
+    // Spectator leaves
+    await page2.click('text=Leave');
+    await page2.waitForURL('/');
+    await expect(page2.locator('text=InstaDarts')).toBeVisible({ timeout: 5000 });
+
+    // Spectator tries to join same lobby via invite code — should not hang
+    await page2.click('text=Join Online Match');
+    await page2.fill('input[placeholder="Invite code"]', inviteCode!.trim());
+    await page2.click('button:has-text("Join Match")');
+    await page2.waitForTimeout(1000);
+
+    // Should reach the lobby (not stuck on "Joining lobby...")
+    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('"Opponent connected" shows as soon as joiner enters lobby', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    // Creator creates online match and adds self
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const inviteCodeEl = page1.locator('text=Invite Code').locator('..').locator('code');
+    const inviteCode = await inviteCodeEl.textContent();
+    expect(inviteCode).toBeTruthy();
+
+    // Invite code should be visible before anyone joins
+    await expect(page1.locator('text=Invite Code')).toBeVisible();
+
+    // Joiner joins the lobby (does NOT add a player yet)
+    await page2.goto('/');
+    await page2.waitForTimeout(1000);
+    await page2.click('text=Join Online Match');
+    await page2.fill('input[placeholder="Invite code"]', inviteCode!.trim());
+    await page2.click('button:has-text("Join Match")');
+    await page2.waitForTimeout(1000);
+    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
+
+    // Creator should see "Opponent connected" instead of invite code
+    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
+    await expect(page1.locator('text=Invite Code')).not.toBeVisible({ timeout: 3000 });
+
+    // Joiner should see the "Add yourself" prompt (they haven't added a player yet)
+    await expect(page2.locator('text=Add yourself as a player to get started')).toBeVisible({ timeout: 5000 });
+
+    // Joiner now adds themselves
+    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.click('button:has-text("Add")');
+    await expect(page2.locator('text=Bob')).toBeVisible();
+
+    // Creator still sees opponent connected
+    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
 
     await ctx1.close();
     await ctx2.close();

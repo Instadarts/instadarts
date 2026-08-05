@@ -33,7 +33,9 @@ if (process.env.NODE_ENV === 'production') {
 
 wss.on('connection', (ws) => {
   console.log('Client connected');
-  registerClient(ws, { lobbyId: null, gameId: null, playerId: null, isHost: false, isSpectator: false });
+  const sessionId = crypto.randomUUID();
+  registerClient(ws, { sessionId, lobbyId: null, gameId: null, playerId: null, isHost: false, isSpectator: false });
+  ws.send(JSON.stringify({ type: 'connected', sessionId }));
 
   ws.on('message', (data) => {
     handleMessage(ws, data.toString());

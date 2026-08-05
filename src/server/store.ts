@@ -11,9 +11,8 @@ const games = new Map<string, GameState>();
 // ID generation
 // ============================================================
 
-let nextId = 1;
 function generateId(): string {
-  return (nextId++).toString(36);
+  return crypto.randomUUID();
 }
 
 // ============================================================
@@ -33,7 +32,9 @@ export function createLobby(): Lobby {
     },
     inviteCode: null,
     hostPlayerId: null,
+    hostSessionId: null,
     isLocal: true,
+    joinerConnected: false,
     createdAt: Date.now(),
   };
   lobbies.set(id, lobby);
@@ -94,6 +95,7 @@ export function createGame(lobby: Lobby): GameState {
     winnerId: null,
     createdAt: Date.now(),
     finishedAt: null,
+    isLocal: lobby.isLocal,
   };
   games.set(id, game);
   return game;

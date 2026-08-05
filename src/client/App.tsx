@@ -10,9 +10,11 @@ export function App() {
   const {
     lobby,
     game,
+    error,
     connected,
     ownPlayerId,
     isSpectator,
+    sessionId,
     createLobby,
     joinLobby,
     addLocalPlayer,
@@ -58,7 +60,7 @@ export function App() {
       } />
 
       <Route path="/lobby/join/:code" element={
-        <JoinHandler onJoin={joinLobby} lobby={lobby} />
+        <JoinHandler onJoin={joinLobby} lobby={lobby} error={error} />
       } />
 
       <Route path="/lobby/:id" element={
@@ -66,6 +68,7 @@ export function App() {
           lobby={lobby}
           ownPlayerId={ownPlayerId}
           isSpectator={isSpectator}
+          sessionId={sessionId}
           startGame={startGame}
           leaveGame={leaveGame}
           updateSettings={updateSettings}
@@ -87,7 +90,7 @@ export function App() {
       } />
 
       <Route path="/spectate/:id" element={
-        <SpectateWrapper spectate={spectate} lobby={lobby} game={game} navigate={navigate} />
+        <SpectateWrapper spectate={spectate} lobby={lobby} game={game} leaveGame={leaveGame} navigate={navigate} />
       } />
 
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -95,15 +98,16 @@ export function App() {
   );
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, navigate }: any) {
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, navigate }: any) {
   if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
   return (
     <LobbyPage
       lobby={lobby}
       mode={lobby.isLocal ? 'local' : 'online'}
-      isCreator={ownPlayerId === lobby.hostPlayerId || lobby.isLocal}
+      isCreator={sessionId === lobby.hostSessionId || lobby.isLocal}
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
+      sessionId={sessionId}
       onStartGame={() => startGame(lobby.id)}
       onLeave={() => { leaveGame(lobby.id); navigate('/'); }}
       onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
@@ -126,12 +130,17 @@ function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, 
   );
 }
 
-function SpectateWrapper({ spectate, lobby, game, navigate }: any) {
+function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: any) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
     if (id) spectate(id);
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const handleLeave = () => {
+    leaveGame(lobby?.id ?? game?.id ?? '');
+    navigate('/');
+  };
 
   if (lobby) {
     return (
@@ -141,8 +150,9 @@ function SpectateWrapper({ spectate, lobby, game, navigate }: any) {
         isCreator={false}
         ownPlayerId={null}
         isSpectator={true}
+        sessionId={null}
         onStartGame={() => {}}
-        onLeave={() => navigate('/')}
+        onLeave={handleLeave}
         onUpdateSettings={() => {}}
         onAddLocalPlayer={() => {}}
         onRemovePlayer={() => {}}

@@ -10,8 +10,15 @@ export function useGameState() {
   const [error, setError] = useState<string | null>(null);
   const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
-  const handleMessage = useCallback((msg: ServerMessage) => {
+  const handleMessage = useCallback((msg: any) => {
+    // Handle connected message (not a ServerMessage type)
+    if (msg.type === 'connected' && msg.sessionId) {
+      setSessionId(msg.sessionId);
+      return;
+    }
+
     switch (msg.type) {
       case 'lobby_state':
         setLobby(msg.lobby);
@@ -103,6 +110,7 @@ export function useGameState() {
     connected,
     ownPlayerId,
     isSpectator,
+    sessionId,
     createLobby,
     joinLobby,
     addLocalPlayer,

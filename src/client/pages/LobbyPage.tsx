@@ -8,6 +8,7 @@ interface LobbyPageProps {
   isCreator: boolean;
   ownPlayerId: string | null;
   isSpectator: boolean;
+  sessionId: string | null;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
@@ -21,6 +22,7 @@ export function LobbyPage({
   isCreator,
   ownPlayerId,
   isSpectator,
+  sessionId,
   onStartGame,
   onLeave,
   onUpdateSettings,
@@ -35,8 +37,11 @@ export function LobbyPage({
   const usedNames = new Set(lobby.players.map((p) => p.name.toLowerCase()));
   const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
 
-  // Online: each client can add 1 player, total max 2. Local: unlimited (but store caps at 2).
-  const canAddLocal = mode === 'local' || lobby.players.length < 2;
+  // Online: each client can add 1 player, total max 2.
+  // Local: can add multiple (store caps at 2).
+  const canAddLocal = mode === 'local'
+    ? lobby.players.length < 2
+    : lobby.players.length < 2 && !lobby.players.some((p) => p.sessionId === sessionId);
   const canStart =
     mode === 'local'
       ? lobby.players.length >= 1
@@ -80,7 +85,7 @@ export function LobbyPage({
         {lobby.players.map((p) => (
             <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
               <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-              {!isSpectator && (mode === 'local' || p.id === ownPlayerId) && (
+              {!isSpectator && (mode === 'local' || p.sessionId === sessionId) && (
                 <button
                   onClick={() => onRemovePlayer(p.id)}
                   className="text-red-400 hover:text-red-300 text-sm px-1"
@@ -184,42 +189,48 @@ export function LobbyPage({
         </div>
       </div>
 
-      {/* Invite code (only creator of online lobby) */}
+      {/* Invite code or opponent status (only creator of online lobby) */}
       {isCreator && mode === 'online' && lobby.inviteCode && (
-        <div className="w-80 mb-6 text-center">
-          <p className="text-gray-400 text-sm mb-2">Invite Code</p>
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <code className="select-text text-2xl font-mono tracking-widest text-green-400 bg-gray-800 px-4 py-2 rounded">
-              {lobby.inviteCode}
-            </code>
-            <button
-              onClick={() => navigator.clipboard.writeText(lobby.inviteCode!)}
-              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
-              title="Copy to clipboard"
-            >
-              📋
-            </button>
+        lobby.joinerConnected ? (
+          <div className="w-80 mb-6 text-center">
+            <p className="text-green-400 text-sm font-semibold">✓ Opponent connected</p>
           </div>
-          <p className="text-gray-500 text-xs">
-            Or share:{' '}
-            <a
-              href={`/lobby/join/${lobby.inviteCode}`}
-              className="text-blue-400 hover:underline select-text"
-              onClick={(e) => {
-                e.preventDefault();
-                navigator.clipboard.writeText(
-                  `${window.location.origin}/lobby/join/${lobby.inviteCode}`
-                );
-              }}
-            >
-              /lobby/join/{lobby.inviteCode}
-            </a>
-          </p>
-        </div>
+        ) : (
+          <div className="w-80 mb-6 text-center">
+            <p className="text-gray-400 text-sm mb-2">Invite Code</p>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <code className="select-text text-2xl font-mono tracking-widest text-green-400 bg-gray-800 px-4 py-2 rounded">
+                {lobby.inviteCode}
+              </code>
+              <button
+                onClick={() => navigator.clipboard.writeText(lobby.inviteCode!)}
+                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
+                title="Copy to clipboard"
+              >
+                📋
+              </button>
+            </div>
+            <p className="text-gray-500 text-xs">
+              Or share:{' '}
+              <a
+                href={`/lobby/join/${lobby.inviteCode}`}
+                className="text-blue-400 hover:underline select-text"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigator.clipboard.writeText(
+                    `${window.location.origin}/lobby/join/${lobby.inviteCode}`
+                  );
+                }}
+              >
+                /lobby/join/{lobby.inviteCode}
+              </a>
+            </p>
+          </div>
+        )
       )}
 
-      {/* Waiting message (online only, not enough players) */}
-      {mode === 'online' && lobby.players.length < 2 && (
+      {/* Waiting message (online only, not enough players, not spectator) */}
+      {mode === 'online' && !isSpectator && lobby.players.length < 2 && (
         <p className="text-yellow-400 text-sm mb-6">
           {!ownPlayerId
             ? 'Add yourself as a player to get started'

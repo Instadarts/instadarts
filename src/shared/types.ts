@@ -13,6 +13,7 @@ export interface Player {
   id: string;
   name: string;
   isRemote: boolean;
+  sessionId: string;
 }
 
 export interface DartThrow {
@@ -53,6 +54,7 @@ export interface GameState {
   winnerId: string | null;
   createdAt: number;
   finishedAt: number | null;
+  isLocal: boolean;
 }
 
 // --- Lobby ---
@@ -63,6 +65,8 @@ export interface Lobby {
   settings: GameSettings;
   inviteCode: string | null;
   hostPlayerId: string | null;
+  hostSessionId: string | null;
   isLocal: boolean;
+  joinerConnected: boolean;
   createdAt: number;
 }

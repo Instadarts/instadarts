@@ -1,10 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import path from 'path';
 
 export default defineConfig({
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, 'src/shared'),
+      '@shared': new URL('./src/shared', import.meta.url).pathname,
     },
   },
   test: {

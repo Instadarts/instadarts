@@ -12,25 +12,25 @@
     "test:e2e": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; sleep 1; npm run dev & sleep 3; npx playwright test; lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^7.18.2",
-    "ws": "^8.18.0"
+    "express": "^5.2.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0",
+    "ws": "^8.21.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.46.0",
-    "@tailwindcss/vite": "^4.0.0",
-    "@types/express": "^4.17.21",
-    "@types/react": "^18.3.5",
-    "@types/react-dom": "^18.3.0",
-    "@types/ws": "^8.5.12",
-    "@vitejs/plugin-react": "^4.3.1",
-    "concurrently": "^8.2.2",
-    "tailwindcss": "^4.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.5.4",
-    "vite": "^5.4.2",
-    "vitest": "^2.0.5"
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/express": "^5.0.6",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^10.0.4",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.7",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
   }
 }

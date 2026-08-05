@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
 import { useEffect } from 'react';
 import { useGameState } from './hooks/useGameState';
 import { HomePage } from './pages/HomePage';

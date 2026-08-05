@@ -7,7 +7,7 @@ type MessageHandler = (msg: ServerMessage) => void;
 export function useWebSocket(onMessage: MessageHandler) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reconnectAttempt = useRef(0);
   const intentionalClose = useRef(false);
   const pendingMessages = useRef<object[]>([]);

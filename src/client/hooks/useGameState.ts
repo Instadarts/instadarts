@@ -1,0 +1,85 @@
+import { useState, useCallback } from 'react';
+import type { ServerMessage } from '../../shared/protocol';
+import type { GameState, Lobby } from '../../shared/types';
+import { useWebSocket } from './useWebSocket';
+import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
+
+export function useGameState() {
+  const [lobby, setLobby] = useState<Lobby | null>(null);
+  const [game, setGame] = useState<GameState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleMessage = useCallback((msg: ServerMessage) => {
+    switch (msg.type) {
+      case 'lobby_state':
+        setLobby(msg.lobby);
+        break;
+      case 'game_state':
+      case 'game_started':
+        setGame(msg.game);
+        setLobby(null);
+        saveReconnectInfo(msg.game.id, 'unknown'); // playerId set elsewhere
+        break;
+      case 'game_finished':
+        setGame(msg.game);
+        clearReconnectInfo();
+        break;
+      case 'error':
+        setError(msg.message);
+        break;
+      case 'player_joined':
+      case 'player_left':
+        // Handled by lobby_state broadcast
+        break;
+    }
+  }, []);
+
+  const { send, connected } = useWebSocket(handleMessage);
+
+  const createLobby = useCallback((playerName: string) => {
+    send({ type: 'create_lobby', playerName });
+    setError(null);
+  }, [send]);
+
+  const joinLobby = useCallback((lobbyId: string, playerName: string) => {
+    send({ type: 'join_lobby', lobbyId, playerName });
+    setError(null);
+  }, [send]);
+
+  const updateSettings = useCallback((lobbyId: string, settings: any) => {
+    send({ type: 'update_settings', lobbyId, settings });
+  }, [send]);
+
+  const setPlayerName = useCallback((lobbyId: string, playerId: string, name: string) => {
+    send({ type: 'set_player_name', lobbyId, playerId, name });
+  }, [send]);
+
+  const startGame = useCallback((lobbyId: string) => {
+    send({ type: 'start_game', lobbyId });
+  }, [send]);
+
+  const submitVisit = useCallback((gameId: string, visit: any) => {
+    send({ type: 'submit_visit', gameId, visit });
+  }, [send]);
+
+  const leaveGame = useCallback((gameId: string) => {
+    send({ type: 'leave_game', gameId });
+    setGame(null);
+    setLobby(null);
+    clearReconnectInfo();
+  }, [send]);
+
+  return {
+    lobby,
+    game,
+    error,
+    connected,
+    createLobby,
+    joinLobby,
+    updateSettings,
+    setPlayerName,
+    startGame,
+    submitVisit,
+    leaveGame,
+  };
+}

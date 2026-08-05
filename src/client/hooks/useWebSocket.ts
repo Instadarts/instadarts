@@ -1,0 +1,73 @@
+import { useEffect, useRef, useCallback, useState } from 'react';
+import type { ServerMessage } from '../../shared/protocol';
+import { getWsUrl, saveReconnectInfo, loadReconnectInfo, clearReconnectInfo } from '../lib/ws';
+
+type MessageHandler = (msg: ServerMessage) => void;
+
+export function useWebSocket(onMessage: MessageHandler) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const [connected, setConnected] = useState(false);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttempt = useRef(0);
+  const handlerRef = useRef(onMessage);
+  handlerRef.current = onMessage;
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const ws = new WebSocket(getWsUrl());
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      reconnectAttempt.current = 0;
+
+      // Check for reconnect info
+      const info = loadReconnectInfo();
+      if (info) {
+        ws.send(JSON.stringify({
+          type: 'reconnect',
+          gameId: info.gameId,
+          playerId: info.playerId,
+        }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        handlerRef.current(msg);
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      // Auto-reconnect with exponential backoff
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 10000);
+      reconnectAttempt.current++;
+      reconnectTimer.current = setTimeout(connect, delay);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }, []);
+
+  const send = useCallback((msg: object) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  return { send, connected };
+}

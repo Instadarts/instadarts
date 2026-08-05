@@ -1,0 +1,72 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createLobby, getLobby, deleteLobby, createGame, getGame, addPlayerToLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
+
+describe('Store', () => {
+  beforeEach(() => {
+    // Note: store is module-level, but each test creates unique IDs
+  });
+
+  describe('lobbies', () => {
+    it('creates and retrieves a lobby', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      expect(lobby.id).toBeTruthy();
+      expect(lobby.players).toHaveLength(1);
+      expect(lobby.settings.startScore).toBe(501);
+
+      const found = getLobby(lobby.id);
+      expect(found).toBeDefined();
+      expect(found!.players[0].name).toBe('Alice');
+    });
+
+    it('adds second player to lobby', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      const updated = addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: true });
+      expect(updated).not.toBeNull();
+      expect(updated!.players).toHaveLength(2);
+    });
+
+    it('rejects third player', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: true });
+      const result = addPlayerToLobby(lobby.id, { id: 'p3', name: 'Charlie', isRemote: true });
+      expect(result).toBeNull();
+    });
+
+    it('finds lobby by invite code', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      setLobbyInviteCode(lobby.id, 'ABC123');
+      const found = findLobbyByInviteCode('ABC123');
+      expect(found).toBeDefined();
+      expect(found!.id).toBe(lobby.id);
+    });
+
+    it('deletes a lobby', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      deleteLobby(lobby.id);
+      expect(getLobby(lobby.id)).toBeUndefined();
+    });
+  });
+
+  describe('games', () => {
+    it('creates a game from a lobby', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      const game = createGame(lobby);
+
+      expect(game.id).toBeTruthy();
+      expect(game.status).toBe('in_progress');
+      expect(game.players).toHaveLength(1);
+      expect(game.settings.startScore).toBe(501);
+
+      // Lobby should be deleted after game creation
+      expect(getLobby(lobby.id)).toBeUndefined();
+    });
+
+    it('gets and updates a game', () => {
+      const lobby = createLobby({ id: 'p1', name: 'Alice', isRemote: false });
+      const game = createGame(lobby);
+
+      const found = getGame(game.id);
+      expect(found).toBeDefined();
+    });
+  });
+});

@@ -1,0 +1,7 @@
+plans
+tmp
+node_modules
+dist
+.vscode
+test-results
+playwright-report

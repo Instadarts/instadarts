@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useGameState } from './hooks/useGameState';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
@@ -80,6 +80,7 @@ export function App() {
           removePlayer={removePlayer}
           swapPlayers={swapPlayers}
           navigate={navigate}
+          error={error}
         />
       } />
 
@@ -91,6 +92,7 @@ export function App() {
           leaveGame={leaveGame}
           submitVisit={submitVisit}
           navigate={navigate}
+          error={error}
         />
       } />
 
@@ -103,7 +105,31 @@ export function App() {
   );
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate }: any) {
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: any) {
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const navigatedRef = useRef(false);
+
+  useEffect(() => {
+    if (navigatedRef.current) return;
+    if (lobby) {
+      clearTimeout(timerRef.current);
+      return;
+    }
+    if (error) {
+      clearTimeout(timerRef.current);
+      navigatedRef.current = true;
+      navigate('/', { replace: true });
+      return;
+    }
+    timerRef.current = setTimeout(() => {
+      if (!navigatedRef.current) {
+        navigatedRef.current = true;
+        navigate('/', { replace: true });
+      }
+    }, 8000);
+    return () => clearTimeout(timerRef.current);
+  }, [lobby, error]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
   return (
     <LobbyPage
@@ -123,7 +149,31 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
   );
 }
 
-function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, navigate }: any) {
+function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, submitVisit, navigate, error }: any) {
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const navigatedRef = useRef(false);
+
+  useEffect(() => {
+    if (navigatedRef.current) return;
+    if (game) {
+      clearTimeout(timerRef.current);
+      return;
+    }
+    if (error) {
+      clearTimeout(timerRef.current);
+      navigatedRef.current = true;
+      navigate('/', { replace: true });
+      return;
+    }
+    timerRef.current = setTimeout(() => {
+      if (!navigatedRef.current) {
+        navigatedRef.current = true;
+        navigate('/', { replace: true });
+      }
+    }, 8000);
+    return () => clearTimeout(timerRef.current);
+  }, [game, error]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!game) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading game...</div>;
   return (
     <GamePage

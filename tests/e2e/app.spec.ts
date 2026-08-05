@@ -128,7 +128,18 @@ test.describe('Home screen', () => {
 
   test('invalid invite code redirects to home', async ({ page }) => {
     await page.goto('/lobby/join/DOESNOTEXIST');
-    // Should briefly show "Joining lobby..." then redirect to home
+    await page.waitForURL('/', { timeout: 10000 });
+    await expect(page.locator('text=InstaDarts')).toBeVisible();
+  });
+
+  test('non-existent lobby redirects to home', async ({ page }) => {
+    await page.goto('/lobby/nonexistent-id');
+    await page.waitForURL('/', { timeout: 10000 });
+    await expect(page.locator('text=InstaDarts')).toBeVisible();
+  });
+
+  test('non-existent match redirects to home', async ({ page }) => {
+    await page.goto('/match/nonexistent-id');
     await page.waitForURL('/', { timeout: 10000 });
     await expect(page.locator('text=InstaDarts')).toBeVisible();
   });

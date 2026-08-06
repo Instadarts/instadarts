@@ -7,6 +7,7 @@ import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { JoinHandler } from './pages/JoinHandler';
 import { loadReconnectInfo } from './lib/ws';
+import type { Lobby, GameState } from '../shared/types';
 
 export function App() {
   const {
@@ -109,7 +110,22 @@ export function App() {
   );
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: any) {
+interface LobbyWrapperProps {
+  lobby: Lobby | null;
+  ownPlayerId: string | null;
+  isSpectator: boolean;
+  sessionId: string | null;
+  startGame: (lobbyId: string) => void;
+  leaveGame: (gameId: string) => void;
+  updateSettings: (lobbyId: string, settings: any) => void;
+  addLocalPlayer: (lobbyId: string, name: string) => void;
+  removePlayer: (lobbyId: string, playerId: string) => void;
+  swapPlayers: (lobbyId: string) => void;
+  navigate: (path: string, opts?: { replace?: boolean }) => void;
+  error: string | null;
+}
+
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
@@ -131,7 +147,19 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
   );
 }
 
-function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undoDart, submitVisit, navigate, error }: any) {
+interface MatchWrapperProps {
+  game: GameState | null;
+  ownPlayerId: string | null;
+  isSpectator: boolean;
+  leaveGame: (gameId: string) => void;
+  addDart: (gameId: string, dart: any) => void;
+  undoDart: (gameId: string) => void;
+  submitVisit: (gameId: string) => void;
+  navigate: (path: string, opts?: { replace?: boolean }) => void;
+  error: string | null;
+}
+
+function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undoDart, submitVisit, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(game, error, navigate);
 
   if (!game) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading game...</div>;
@@ -148,7 +176,15 @@ function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undo
   );
 }
 
-function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: any) {
+interface SpectateWrapperProps {
+  spectate: (id: string) => void;
+  lobby: Lobby | null;
+  game: GameState | null;
+  leaveGame: (gameId: string) => void;
+  navigate: (path: string, opts?: { replace?: boolean }) => void;
+}
+
+function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {

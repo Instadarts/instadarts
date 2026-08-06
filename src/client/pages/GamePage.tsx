@@ -51,12 +51,10 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
 
   // Detect bust / checkout state from currentVisit
   const visitState = (() => {
-    if (!game.currentVisit || !game.currentVisit.locked) return 'active';
     const cv = game.currentVisit;
-    const remainingBefore = game.settings.startScore - game.visits
-      .filter(v => v.playerId === cv.playerId && !v.bust)
-      .reduce((s, v) => s + v.darts.reduce((t, d) => t + d.score.points, 0), 0);
+    if (!cv || !cv.locked) return 'active';
     const visitTotal = cv.darts.reduce((s, d) => s + d.score.points, 0);
+    const remainingBefore = getRemaining(cv.playerId) + visitTotal;
     const after = remainingBefore - visitTotal;
     if (after < 0 || after === 1) return 'bust';
     if (after === 0) {

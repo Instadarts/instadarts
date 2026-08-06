@@ -23,13 +23,9 @@ export const SECTOR_ORDER = [
 ];
 
 // Colors per sector index (alternating)
-const SINGLE_COLORS = ['#1a1a1a', '#f5e6c8']; // black, cream
-const DOUBLE_TRIPLE_COLORS = ['#d44', '#4a4'];  // red, green (red on black sectors, green on cream? actually traditional: red/green alternate)
-// Traditional: sectors alternate black/cream for singles, red/green for doubles/triples
-// Black sector → triple/double is red, Cream sector → triple/double is green
-// Wait, actually: traditionally doubles and triples are red for black sectors, green for cream sectors
-// But wait, traditional dartboard: black sectors get red doubles/triples, white(cream) get green
-// Let me use: index 0 (black) → red, index 1 (cream) → green
+// Black sectors → red doubles/triples, cream sectors → green doubles/triples
+const SINGLE_COLORS = ['#1a1a1a', '#f5e6c8'];
+const DOUBLE_TRIPLE_COLORS = ['#d44', '#4a4'];
 
 export function getSectorColor(sectorIndex: number): string {
   return SINGLE_COLORS[sectorIndex % 2];

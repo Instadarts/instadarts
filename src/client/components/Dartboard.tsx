@@ -83,7 +83,7 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
         onClick={handleClick}
       >
         {/* Board background — full circle including miss area (225mm outer radius) */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.boardOuter} fill="#000" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.boardOuter} fill="#000" />
 
         {/* Sectors */}
         {SECTOR_ORDER.map((value, i) => {
@@ -117,11 +117,11 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
         })}
 
         {/* Bull ring wire (between outer and inner bull, before bull fills) */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
 
         {/* Bulls */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="#4a4" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.innerBull} fill="#d44" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.outerBull} fill="#4a4" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.innerBull} fill="#d44" />
 
         {/* Spider lines (sector dividers) — start from outer bull to avoid painting over bulls */}
         {SECTOR_ORDER.map((_, i) => {
@@ -144,11 +144,11 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
         })}
 
         {/* Ring wires */}
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.doubleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.doubleOuter} fill="none" stroke="#333" strokeWidth="800" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.tripleOuter} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={boardYToSvgY(CENTER)} r={RADII.outerBull} fill="none" stroke="#333" strokeWidth="500" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.doubleInner} fill="none" stroke="#333" strokeWidth="600" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.doubleOuter} fill="none" stroke="#333" strokeWidth="800" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.tripleInner} fill="none" stroke="#333" strokeWidth="600" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.tripleOuter} fill="none" stroke="#333" strokeWidth="600" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.outerBull} fill="none" stroke="#333" strokeWidth="500" />
 
         {/* Sector numbers */}
         {SECTOR_ORDER.map((value, i) => {

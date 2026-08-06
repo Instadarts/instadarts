@@ -160,13 +160,14 @@ export class X01Handler implements GameModeHandler {
     return this.commitVisit(game, validDarts, playerId, false, remainingAfter);
   }
 
+  private padWithMisses(darts: DartThrow[]): DartThrow[] {
+    const MISS = { x: 0, y: 0, score: { label: 'miss' as const, points: 0, mult: 0, base: 0 } };
+    return [...darts, ...Array.from({ length: Math.max(0, 3 - darts.length) }, () => ({ ...MISS, score: { ...MISS.score } }))];
+  }
+
   private commitVisit(game: GameState, darts: DartThrow[], playerId: string, bust: boolean, remainingScore: number): VisitResult {
     const visitNumber = game.visits.length + 1;
-    // Pad non-bust visits with misses to 3 slots. Zero-dart bust visits also get 3 misses.
-    const MISS = { x: 0, y: 0, score: { label: 'miss', points: 0, mult: 0, base: 0 } as const };
-    const paddedDarts = (!bust || darts.length === 0)
-      ? [...darts, ...Array.from({ length: Math.max(0, 3 - darts.length) }, () => ({ ...MISS, score: { ...MISS.score } }))]
-      : darts;
+    const paddedDarts = (!bust || darts.length === 0) ? this.padWithMisses(darts) : darts;
     const visit: Visit = { playerId, darts: paddedDarts, visitNumber, bust };
     const newGame: GameState = { ...game, visits: [...game.visits, visit], currentVisit: undefined };
 

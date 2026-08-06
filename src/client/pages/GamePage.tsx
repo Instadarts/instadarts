@@ -145,7 +145,7 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
           const total = visit.darts.reduce((s, d) => s + d.score.points, 0);
           return (
             <div
-              key={i}
+              key={visit.visitNumber}
               className={`flex justify-between py-1 px-2 text-sm ${
                 visit.bust ? 'text-red-400' : 'text-gray-300'
               }`}

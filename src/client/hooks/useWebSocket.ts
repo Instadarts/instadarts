@@ -12,7 +12,7 @@ export function useWebSocket(onMessage: MessageHandler) {
   const intentionalClose = useRef(false);
   const pendingMessages = useRef<object[]>([]);
   const handlerRef = useRef(onMessage);
-  handlerRef.current = onMessage;
+  useEffect(() => { handlerRef.current = onMessage; });
 
   const flushPending = useCallback(() => {
     const ws = wsRef.current;

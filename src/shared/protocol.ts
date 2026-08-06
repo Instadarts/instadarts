@@ -1,4 +1,4 @@
-import type { GameSettings, Visit } from './types';
+import type { DartThrow, GameSettings, Visit, ScoreResult, Lobby, GameState } from './types';
 
 // ============================================================
 // Client → Server messages
@@ -44,7 +44,7 @@ export interface SetPlayerNameMessage {
 export interface AddDartMessage {
   type: 'add_dart';
   gameId: string;
-  dart: { x: number; y: number; score: import('./types').ScoreResult };
+  dart: DartThrow;
 }
 
 export interface UndoDartMessage {
@@ -106,13 +106,13 @@ export type ClientMessage =
 
 export interface LobbyStateMessage {
   type: 'lobby_state';
-  lobby: import('./types').Lobby;
+  lobby: Lobby;
   yourPlayerId?: string;
 }
 
 export interface GameStateMessage {
   type: 'game_state';
-  game: import('./types').GameState;
+  game: GameState;
 }
 
 export interface ErrorMessage {
@@ -122,12 +122,12 @@ export interface ErrorMessage {
 
 export interface GameStartedMessage {
   type: 'game_started';
-  game: import('./types').GameState;
+  game: GameState;
 }
 
 export interface GameFinishedMessage {
   type: 'game_finished';
-  game: import('./types').GameState;
+  game: GameState;
 }
 
 export interface LobbyAbandonedMessage {

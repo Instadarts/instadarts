@@ -1,28 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { X01Handler } from '../../src/server/modes/x01';
+import { makeDart, makeGame } from '../helpers';
+import type { GameState } from '../../src/shared/types';
 
-function makeDart(label: string) {
-  const darts: Record<string, any> = {
-    'T20': { label: 'T20', points: 60, mult: 3, base: 20 },
-    'D20': { label: 'D20', points: 40, mult: 2, base: 20 },
-    'S20': { label: 'S20', points: 20, mult: 1, base: 20 },
-    'miss': { label: 'miss', points: 0,  mult: 0, base: 0 },
-  };
-  return { x: 500_000, y: 500_000, score: darts[label] };
-}
-
-function makeGame(overrides: any = {}) {
-  const settings = { mode: 'x01' as const, doubleIn: false, doubleOut: true, startScore: 501, ...(overrides.settings || {}) };
-  const { settings: _, ...rest } = overrides;
-  return {
-    id: 'test', status: 'in_progress' as const, settings,
-    players: [{ id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' }, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's2' }],
-    visits: [], currentPlayerIndex: 0, winnerId: null, createdAt: Date.now(), finishedAt: null, isLocal: false,
-    ...rest,
-  };
-}
-
-function doVisit(handler: X01Handler, game: any, playerId: string, labels: string[]) {
+function doVisit(handler: X01Handler, game: GameState, playerId: string, labels: string[]) {
   let g = game;
   for (const label of labels) { const r = handler.addDart(g, playerId, makeDart(label)); g = r.game; }
   return handler.submitVisit(g);

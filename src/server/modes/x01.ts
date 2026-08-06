@@ -79,6 +79,14 @@ export class X01Handler implements GameModeHandler {
 
   // --- Lock detection ---
 
+  private isBustScore(remainingAfter: number): boolean {
+    return remainingAfter < 0 || remainingAfter === 1;
+  }
+
+  private isNoDoubleCheckout(lastDart: DartThrow, doubleOut: boolean, remainingAfter: number): boolean {
+    return doubleOut && remainingAfter === 0 && lastDart.score.mult !== 2 && lastDart.score.label !== 'DB';
+  }
+
   private checkLock(game: GameState, playerId: string, darts: DartThrow[]): boolean {
     if (darts.length >= MAX_DARTS) return true;
 
@@ -86,9 +94,7 @@ export class X01Handler implements GameModeHandler {
     const effectiveScore = this.computeEffectiveScore(game, playerId, darts);
     const remainingAfter = remainingBefore - effectiveScore;
 
-    if (remainingAfter < 0) return true;
-    if (remainingAfter === 1) return true;
-    if (remainingAfter === 0) return true; // checkout or bust-on-non-double-finish
+    if (remainingAfter <= 0) return true;
 
     return false;
   }
@@ -109,17 +115,12 @@ export class X01Handler implements GameModeHandler {
   // --- Visit finalization ---
 
   private finalizeNormalVisit(game: GameState, darts: DartThrow[], playerId: string, remainingBefore: number): VisitResult {
-    const settings = game.settings;
     const visitTotal = darts.reduce((sum, d) => sum + d.score.points, 0);
     const remainingAfter = remainingBefore - visitTotal;
 
-    if (remainingAfter < 0) return this.commitVisit(game, darts, playerId, true, remainingBefore);
-    if (remainingAfter === 1) return this.commitVisit(game, darts, playerId, true, remainingBefore);
-    if (settings.doubleOut && remainingAfter === 0) {
-      const last = darts[darts.length - 1];
-      if (last.score.mult !== 2 && last.score.label !== 'DB') {
-        return this.commitVisit(game, darts, playerId, true, remainingBefore);
-      }
+    if (this.isBustScore(remainingAfter)) return this.commitVisit(game, darts, playerId, true, remainingBefore);
+    if (this.isNoDoubleCheckout(darts[darts.length - 1], game.settings.doubleOut, remainingAfter)) {
+      return this.commitVisit(game, darts, playerId, true, remainingBefore);
     }
     return this.commitVisit(game, darts, playerId, false, remainingAfter);
   }
@@ -148,14 +149,13 @@ export class X01Handler implements GameModeHandler {
     this.doubleInMet.set(playerId, true);
     const remainingAfter = remainingBefore - scoreAfterDouble;
 
-    if (remainingAfter < 0) { this.doubleInMet.delete(playerId); return this.commitVisit(game, darts, playerId, true, remainingBefore); }
-    if (remainingAfter === 1) { this.doubleInMet.delete(playerId); return this.commitVisit(game, darts, playerId, true, remainingBefore); }
-    if (settings.doubleOut && remainingAfter === 0) {
-      const last = darts[darts.length - 1];
-      if (last.score.mult !== 2 && last.score.label !== 'DB') {
-        this.doubleInMet.delete(playerId);
-        return this.commitVisit(game, darts, playerId, true, remainingBefore);
-      }
+    if (this.isBustScore(remainingAfter)) {
+      this.doubleInMet.delete(playerId);
+      return this.commitVisit(game, darts, playerId, true, remainingBefore);
+    }
+    if (this.isNoDoubleCheckout(darts[darts.length - 1], settings.doubleOut, remainingAfter)) {
+      this.doubleInMet.delete(playerId);
+      return this.commitVisit(game, darts, playerId, true, remainingBefore);
     }
     return this.commitVisit(game, validDarts, playerId, false, remainingAfter);
   }

@@ -1,5 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../shared/protocol';
+import type { GameState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
 import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, swapLobbyPlayers } from './store';
@@ -91,6 +92,30 @@ function broadcastToGame(gameId: string, msg: ServerMessage): void {
       send(ws, msg);
     }
   }
+}
+
+// ============================================================
+// Request guards
+// ============================================================
+
+/** Validates that the client is playing in an active game. Returns client+game or null (error already sent). */
+function requireGame(ws: WebSocket): { client: Client; game: GameState } | null {
+  const client = clients.get(ws);
+  if (!client?.gameId) return null;
+  if (client.isSpectator) return null;
+  const game = getGame(client.gameId);
+  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return null; }
+  return { client, game };
+}
+
+/** Validates that the client is in a lobby. Returns client+lobby or null. Does NOT send errors for silent-return handlers. */
+function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
+  const client = clients.get(ws);
+  if (!client?.lobbyId) return null;
+  if (client.isSpectator) return null;
+  const lobby = getLobby(client.lobbyId);
+  if (!lobby) return null;
+  return { client, lobby };
 }
 
 // ============================================================
@@ -266,12 +291,9 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
 }
 
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
-
-  const lobby = getLobby(client.lobbyId);
-  if (!lobby) return;
+  const req = requireLobby(ws);
+  if (!req) return;
+  const { client, lobby } = req;
 
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
@@ -288,12 +310,9 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
 }
 
 function handleUpdateSettings(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
-
-  const lobby = getLobby(client.lobbyId);
-  if (!lobby) return;
+  const req = requireLobby(ws);
+  if (!req) return;
+  const { client, lobby } = req;
 
   // Only the host session can update settings
   if (client.sessionId !== lobby.hostSessionId) {
@@ -312,12 +331,9 @@ function handleUpdateSettings(ws: WebSocket, msg: any): void {
 }
 
 function handleSetPlayerName(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
-
-  const lobby = getLobby(client.lobbyId);
-  if (!lobby) return;
+  const req = requireLobby(ws);
+  if (!req) return;
+  const { client, lobby } = req;
 
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
@@ -380,12 +396,9 @@ function handleStartGame(ws: WebSocket, msg: any): void {
 }
 
 function handleAddDart(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.gameId) return;
-  if (client.isSpectator) return;
-
-  const game = getGame(client.gameId);
-  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+  const req = requireGame(ws);
+  if (!req) return;
+  const { client, game } = req;
 
   const dart = validateDartThrow(msg.dart);
   if (!dart) { send(ws, { type: 'error', message: 'Invalid dart coordinates' }); return; }
@@ -405,12 +418,9 @@ function handleAddDart(ws: WebSocket, msg: any): void {
 }
 
 function handleUndoDart(ws: WebSocket, _msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.gameId) return;
-  if (client.isSpectator) return;
-
-  const game = getGame(client.gameId);
-  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+  const req = requireGame(ws);
+  if (!req) return;
+  const { client, game } = req;
 
   const cv = game.currentVisit;
   if (!cv || cv.darts.length === 0) { send(ws, { type: 'error', message: 'No darts to undo' }); return; }
@@ -427,12 +437,9 @@ function handleUndoDart(ws: WebSocket, _msg: any): void {
 }
 
 function handleSubmitVisit(ws: WebSocket, _msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.gameId) return;
-  if (client.isSpectator) return;
-
-  const game = getGame(client.gameId);
-  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return; }
+  const req = requireGame(ws);
+  if (!req) return;
+  const { client, game } = req;
 
   const cv = game.currentVisit;
   if (cv && !game.isLocal && cv.playerId !== client.playerId) {
@@ -636,12 +643,9 @@ function handleReconnect(ws: WebSocket, msg: any): void {
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
-
-  const lobby = getLobby(client.lobbyId);
-  if (!lobby) return;
+  const req = requireLobby(ws);
+  if (!req) return;
+  const { client, lobby } = req;
 
   // Only the host can reorder players
   if (client.sessionId !== lobby.hostSessionId && !lobby.isLocal) {

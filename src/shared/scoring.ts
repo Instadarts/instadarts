@@ -26,14 +26,9 @@ const SECTOR_ORDER = Object.freeze([
   3, 19, 7, 16, 8, 11, 14, 9, 12, 5,
 ]);
 
-// --- Types ---
+import type { ScoreResult } from './types';
 
-export interface ScoreResult {
-  label: string;
-  points: number;
-  mult: number;
-  base: number;
-}
+export type { ScoreResult };
 
 // --- Label parsing ---
 

@@ -2,47 +2,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { X01Handler } from '../../src/server/modes/x01';
 import { addDartToGame, submitVisitToGame } from '../../src/server/game';
 import { registerModeHandler } from '../../src/server/modes/types';
+import { makeDart, makeGame } from '../helpers';
 
 // Register the x01 mode handler once for all tests
 beforeAll(() => {
   registerModeHandler('x01', new X01Handler());
 });
-
-function makeDart(label: string) {
-  const darts: Record<string, any> = {
-    'T20': { label: 'T20', points: 60, mult: 3, base: 20 },
-    'D20': { label: 'D20', points: 40, mult: 2, base: 20 },
-    'S20': { label: 'S20', points: 20, mult: 1, base: 20 },
-  };
-  return { x: 500_000, y: 500_000, score: darts[label] };
-}
-
-function makeGame(overrides: any = {}) {
-  const { settings: settingsOverride, ...rest } = overrides;
-  const settings = {
-    mode: 'x01' as const,
-    doubleIn: false,
-    doubleOut: true,
-    startScore: 501,
-    ...(settingsOverride || {}),
-  };
-  return {
-    id: 'test-game',
-    status: 'in_progress' as const,
-    settings,
-    players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
-    ],
-    visits: [],
-    currentPlayerIndex: 0,
-    winnerId: null,
-    createdAt: Date.now(),
-    finishedAt: null,
-    isLocal: false,
-    ...rest,
-  };
-}
 
 /** Add darts one by one then submit via game.ts layer */
 function addAndSubmit(game: any, playerId: string, labels: string[]) {
@@ -65,7 +30,10 @@ describe('Online match player limits', () => {
   });
 
   it('allows up to 2 players (1 per session) in online lobby', () => {
-    const game = makeGame({ isLocal: false });
+    const game = makeGame({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    ] });
     expect(game.players).toHaveLength(2);
     expect(game.players[0].sessionId).toBe('session-a');
     expect(game.players[1].sessionId).toBe('session-b');
@@ -103,7 +71,10 @@ describe('Local match behavior', () => {
 
 describe('Online match role enforcement', () => {
   it('creator sessionId is immutable', () => {
-    const game = makeGame({ isLocal: false });
+    const game = makeGame({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    ] });
     const creatorSession = game.players[0].sessionId;
     expect(creatorSession).toBe('session-a');
     // Creator's sessionId should never change
@@ -170,7 +141,10 @@ describe('Visit submission ownership', () => {
 
 describe('Reconnect session validation', () => {
   it('rejects reconnect with mismatched sessionId', () => {
-    const game = makeGame({ isLocal: false });
+    const game = makeGame({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    ] });
     // p1 has sessionId 'session-a', but reconnecting with session 'session-b'
     const player = game.players.find((p) => p.id === 'p1')!;
     expect(player.sessionId).toBe('session-a');
@@ -179,7 +153,10 @@ describe('Reconnect session validation', () => {
   });
 
   it('allows reconnect with matching sessionId', () => {
-    const game = makeGame({ isLocal: false });
+    const game = makeGame({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    ] });
     const player = game.players.find((p) => p.id === 'p1')!;
     expect(player.sessionId).toBe('session-a');
     // A client with sessionId 'session-a' reconnecting as p1 should succeed

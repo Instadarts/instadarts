@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
 import type { Lobby } from '../../shared/types';
-import { storage } from '../lib/storage';
+import { PlayerList } from '../components/PlayerList';
+import { GameSettingsPanel } from '../components/GameSettingsPanel';
+import { InvitePanel } from '../components/InvitePanel';
 
 interface LobbyPageProps {
   lobby: Lobby;
@@ -31,41 +32,11 @@ export function LobbyPage({
   onRemovePlayer,
   onSwapPlayers,
 }: LobbyPageProps) {
-  const settings = lobby.settings;
-  const [newName, setNewName] = useState('');
-  const savedNames = storage.getPlayerNames();
-
-  // Names already in the lobby (case-insensitive)
-  const usedNames = new Set(lobby.players.map((p) => p.name.toLowerCase()));
-  const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
-
-  // Online: each client can add 1 player, total max 2.
-  // Local: can add multiple (store caps at 2).
-  const canAddLocal = mode === 'local'
-    ? lobby.players.length < 2
-    : lobby.players.length < 2 && !lobby.players.some((p) => p.sessionId === sessionId);
   const canStart =
     mode === 'local'
       ? lobby.players.length >= 1
       : lobby.players.length === 2;
-  // Online: only creator can edit settings
   const canEdit = !isSpectator && (mode === 'local' || isCreator);
-
-  const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
-
-  const handleAdd = () => {
-    const name = newName.trim();
-    if (!name || isDuplicate(name)) return;
-    storage.addPlayerName(name);
-    onAddLocalPlayer(name);
-    setNewName('');
-  };
-
-  const handleQuickAdd = (name: string) => {
-    if (isDuplicate(name)) return;
-    storage.addPlayerName(name);
-    onAddLocalPlayer(name);
-  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -79,173 +50,30 @@ export function LobbyPage({
           : 'Share the code below and wait for your opponent to connect'}
       </p>
 
-      {/* Players */}
-      <div className="w-80 mb-6">
-        <h3 className="text-gray-400 text-sm uppercase mb-2">Players</h3>
+      <PlayerList
+        players={lobby.players}
+        mode={mode}
+        isCreator={isCreator}
+        isSpectator={isSpectator}
+        sessionId={sessionId}
+        onAdd={onAddLocalPlayer}
+        onRemove={onRemovePlayer}
+        onSwap={onSwapPlayers}
+      />
 
-        {/* Current players */}
-        {lobby.players.map((p, i) => (
-            <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
-              <span className="text-gray-500 text-xs w-6">{i === 0 ? '1st' : '2nd'}</span>
-              <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-              {!isSpectator && (mode === 'local' || p.sessionId === sessionId) && (
-                <button
-                  onClick={() => onRemovePlayer(p.id)}
-                  className="text-red-400 hover:text-red-300 text-sm px-1"
-                  title="Remove player"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-        ))}
+      <GameSettingsPanel
+        settings={lobby.settings}
+        canEdit={canEdit}
+        onChange={onUpdateSettings}
+      />
 
-        {/* Swap player order — creator only, when 2 players */}
-        {!isSpectator && isCreator && lobby.players.length === 2 && (
-          <div className="mt-2 text-center">
-            <button
-              onClick={onSwapPlayers}
-              className="px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-gray-400 hover:text-gray-200 transition-colors"
-              title="Swap player order"
-            >
-              ⇅ Swap order
-            </button>
-          </div>
-        )}
-
-        {/* Add player section */}
-        {!isSpectator && canAddLocal && (
-          <div className="mt-3 space-y-2">
-            {/* Quick-add from saved names */}
-            {availableNames.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {availableNames.map((name) => (
-                  <button
-                    key={name}
-                    onClick={() => handleQuickAdd(name)}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-full text-xs text-gray-300 transition-colors"
-                  >
-                    + {name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* New name input */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="New player name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-blue-500"
-                maxLength={20}
-              />
-              <button
-                onClick={handleAdd}
-                disabled={!newName.trim() || isDuplicate(newName)}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 rounded text-sm font-semibold transition-colors"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Game Settings */}
-      <div className="w-80 mb-6">
-        <h3 className="text-gray-400 text-sm uppercase mb-2">
-          Settings
-          {!canEdit && <span className="text-gray-600 ml-1">(read-only)</span>}
-        </h3>
-        <div className="space-y-3 bg-gray-900 rounded-lg p-4">
-          <div>
-            <label className="text-gray-400 text-sm">Starting Score</label>
-            <select
-              value={settings.startScore}
-              onChange={(e) =>
-                onUpdateSettings({ ...settings, startScore: Number(e.target.value) })
-              }
-              disabled={!canEdit}
-              className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value={301}>301</option>
-              <option value={501}>501</option>
-              <option value={701}>701</option>
-            </select>
-          </div>
-
-          <label className={`flex items-center gap-3 ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}>
-            <input
-              type="checkbox"
-              checked={settings.doubleIn}
-              onChange={(e) =>
-                onUpdateSettings({ ...settings, doubleIn: e.target.checked })
-              }
-              disabled={!canEdit}
-              className="w-4 h-4 accent-green-500 disabled:opacity-50"
-            />
-            <span className="text-gray-300">Double In</span>
-          </label>
-
-          <label className={`flex items-center gap-3 ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}>
-            <input
-              type="checkbox"
-              checked={settings.doubleOut}
-              onChange={(e) =>
-                onUpdateSettings({ ...settings, doubleOut: e.target.checked })
-              }
-              disabled={!canEdit}
-              className="w-4 h-4 accent-green-500 disabled:opacity-50"
-            />
-            <span className="text-gray-300">Double Out</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Invite code or opponent status (only creator of online lobby) */}
-      {isCreator && mode === 'online' && lobby.inviteCode && (
-        lobby.remoteConnected ? (
-          <div className="w-80 mb-6 text-center">
-            <p className="text-green-400 text-sm font-semibold">✓ Opponent connected</p>
-          </div>
-        ) : (
-          <div className="w-80 mb-6 text-center">
-            <p className="text-gray-400 text-sm mb-2">Invite Code</p>
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <code className="select-text text-2xl font-mono tracking-widest text-green-400 bg-gray-800 px-4 py-2 rounded">
-                {lobby.inviteCode}
-              </code>
-              <button
-                onClick={() => navigator.clipboard.writeText(lobby.inviteCode!)}
-                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
-                title="Copy to clipboard"
-              >
-                📋
-              </button>
-            </div>
-            <p className="text-gray-500 text-xs">
-              Or share:{' '}
-              <a
-                href={`/lobby/join/${lobby.inviteCode}`}
-                className="text-blue-400 hover:underline select-text"
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigator.clipboard.writeText(
-                    `${window.location.origin}/lobby/join/${lobby.inviteCode}`
-                  );
-                }}
-              >
-                /lobby/join/{lobby.inviteCode}
-              </a>
-            </p>
-          </div>
-        )
+      {isCreator && mode === 'online' && (
+        <InvitePanel
+          inviteCode={lobby.inviteCode}
+          remoteConnected={lobby.remoteConnected}
+        />
       )}
 
-      {/* Waiting message (online only, not enough players, not spectator) */}
       {mode === 'online' && !isSpectator && lobby.players.length < 2 && (
         <p className="text-yellow-400 text-sm mb-6">
           {!ownPlayerId
@@ -254,7 +82,6 @@ export function LobbyPage({
         </p>
       )}
 
-      {/* Actions */}
       <div className="flex gap-4">
         {!isSpectator && isCreator && (
           <button

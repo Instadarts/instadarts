@@ -124,6 +124,14 @@ export interface ScorerHelloMessage {
   type: 'scorer_hello';
   deviceId: string;
   token: string;
+  /** What this device calls itself. Carried on every hello, since the server forgets it. */
+  name?: string;
+}
+
+/** Scoring device: it was renamed. The device owns its own name; the frontend just displays it. */
+export interface ScorerNameMessage {
+  type: 'scorer_name';
+  name: string;
 }
 
 /** Scoring device: its camera started or stopped. Starting one is what makes it a camera. */
@@ -166,6 +174,7 @@ export type ClientMessage =
   | DeactivateDeviceMessage
   | ScorerPairMessage
   | ScorerHelloMessage
+  | ScorerNameMessage
   | ScorerCameraMessage
   | ScorerTipsMessage;
 
@@ -227,7 +236,7 @@ export interface DevicePairedMessage {
 /** To a frontend: how the devices it has active are doing. Sent on every change. */
 export interface DevicesStateMessage {
   type: 'devices_state';
-  devices: { deviceId: string; online: boolean; cameraActive: boolean }[];
+  devices: { deviceId: string; name: string; online: boolean; cameraActive: boolean }[];
 }
 
 /** To a frontend: another tab took this device. Stop trying to grab it. */

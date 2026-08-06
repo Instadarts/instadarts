@@ -85,6 +85,20 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
         const next: Record<string, { online: boolean; cameraActive: boolean }> = {};
         for (const d of msg.devices) next[d.deviceId] = { online: d.online, cameraActive: d.cameraActive };
         setStatus(next);
+
+        // A device names itself, and this is where that reaches the person who paired it. The
+        // "Camera N" we assign at pairing is only a placeholder until it says otherwise.
+        setPaired((current) => {
+          let changed = false;
+          let devices = current;
+          for (const d of msg.devices) {
+            const known = devices.find((p) => p.deviceId === d.deviceId);
+            if (!d.name || !known || known.name === d.name) continue;
+            devices = renamePairedDevice(d.deviceId, d.name);
+            changed = true;
+          }
+          return changed ? devices : current;
+        });
         break;
       }
       case 'device_lost':

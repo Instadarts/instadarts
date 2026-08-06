@@ -74,6 +74,33 @@ test.describe('scoring device pairing', () => {
     await scorer.context.close();
   });
 
+  test('naming the device on the phone renames it in the browser', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+    const code = await requestPairingCode(player);
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, code);
+    // Until it says otherwise, the browser calls it by the placeholder it assigned at pairing.
+    await expect(player.getByText('Camera 1')).toBeVisible();
+
+    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
+    await scorer.page.getByPlaceholder('Name this device').blur();
+
+    await expect(player.getByText('Board camera')).toBeVisible();
+    await expect(player.getByText('Camera 1')).toHaveCount(0);
+
+    // And it is the device's own name, so it survives a reload of both.
+    await scorer.page.reload();
+    await player.reload();
+    await player.getByRole('button', { name: 'Cameras' }).first().click();
+    await expect(player.getByText('Board camera')).toBeVisible();
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
   test('a wrong code is refused', async ({ browser }) => {
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, 'ZZZZZZ');

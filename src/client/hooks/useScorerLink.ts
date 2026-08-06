@@ -59,7 +59,9 @@ export function useScorerLink() {
       return;
     }
     const current = identityRef.current;
-    if (current) send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token });
+    if (current) {
+      send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: current.name });
+    }
   }, [connected, send]);
 
   const pair = useCallback((code: string) => {
@@ -88,6 +90,15 @@ export function useScorerLink() {
     setIdentity(next);
   }, []);
 
+  /**
+   * Tell the frontend what this device is called. Separate from `rename` so it fires when the user
+   * has finished typing rather than once per keystroke — a name is not worth a message a character.
+   */
+  const publishName = useCallback(() => {
+    const current = identityRef.current;
+    if (current) send({ type: 'scorer_name', name: current.name });
+  }, [send]);
+
   const status: ScorerLinkStatus = !connected
     ? 'connecting'
     : pairing
@@ -96,5 +107,5 @@ export function useScorerLink() {
         ? 'unpaired'
         : (state?.status ?? 'waiting');
 
-  return { identity, status, state, refusal, connected, pair, rename, setCameraActive, sendTips };
+  return { identity, status, state, refusal, connected, pair, rename, publishName, setCameraActive, sendTips };
 }

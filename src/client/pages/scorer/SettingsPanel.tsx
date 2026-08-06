@@ -1,5 +1,6 @@
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { saveSettings } from '../../lib/scorerStorage';
+import { Slider } from './Slider';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -38,18 +39,7 @@ export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screen
         </select>
       </label>
 
-      {vision.zoomRange ? (
-        <Slider
-          label="Zoom"
-          value={vision.zoom}
-          min={vision.zoomRange.min}
-          max={vision.zoomRange.max}
-          step={vision.zoomRange.step}
-          format={(v) => `${v.toFixed(1)}×`}
-          onChange={(v) => void vision.applyZoom(v)}
-          hint="Zoom in until the board fills the frame. Calibrate the lens afterwards — zoom changes the distortion it is correcting."
-        />
-      ) : (
+      {vision.cameraActive && !vision.zoomRange && (
         <p className="text-sm text-gray-500">This camera does not expose a zoom control.</p>
       )}
 
@@ -106,34 +96,3 @@ export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screen
   );
 }
 
-interface SliderProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format: (value: number) => string;
-  onChange: (value: number) => void;
-  hint?: string;
-}
-
-function Slider({ label, value, min, max, step, format, onChange, hint }: SliderProps) {
-  return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="flex justify-between">
-        <span>{label}</span>
-        <span className="font-mono text-gray-400">{format(value)}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full"
-      />
-      {hint && <span className="text-xs text-gray-500">{hint}</span>}
-    </label>
-  );
-}

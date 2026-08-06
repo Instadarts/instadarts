@@ -127,12 +127,51 @@ describe('pairing', () => {
     const { scorer, deviceId } = pair(frontend);
 
     expect(frontend.last('devices_state')!.devices).toEqual([
-      { deviceId, online: true, cameraActive: false },
+      { deviceId, name: '', online: true, cameraActive: false },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
 
     scorer.send({ type: 'scorer_camera', active: true });
     expect(frontend.last('devices_state')!.devices[0].cameraActive).toBe(true);
+  });
+
+  it('a device names itself and the name reaches the browser holding it', () => {
+    const frontend = connect();
+    const { scorer } = pair(frontend);
+
+    scorer.send({ type: 'scorer_name', name: 'Board camera' });
+    expect(frontend.last('devices_state')!.devices[0].name).toBe('Board camera');
+
+    scorer.send({ type: 'scorer_name', name: '  Left mount  ' });
+    expect(frontend.last('devices_state')!.devices[0].name).toBe('Left mount');
+  });
+
+  it('carries the name through a server restart, since the device brings it along', () => {
+    const frontend = connect();
+    const { deviceId, token, tokenHash, scorer } = pair(frontend);
+    scorer.send({ type: 'scorer_name', name: 'Board camera' });
+
+    resetDeviceRegistry();
+
+    const reconnected = connect();
+    reconnected.send({ type: 'scorer_hello', deviceId, token, name: 'Board camera' });
+    const frontend2 = connect();
+    frontend2.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 2 }] });
+
+    expect(frontend2.last('devices_state')!.devices[0].name).toBe('Board camera');
+  });
+
+  it('leaves a device unnamed rather than accepting a name that is not one', () => {
+    const frontend = connect();
+    const { scorer } = pair(frontend);
+    scorer.send({ type: 'scorer_name', name: 'Board camera' });
+
+    // Clearing the field is a real intention, so an unusable name means "unnamed" rather than
+    // being ignored — the browser then falls back to the label it gave the device at pairing.
+    for (const name of ['', '   ', 'x'.repeat(21), null, 42, { name: 'x' }]) {
+      scorer.send({ type: 'scorer_name', name });
+      expect(frontend.last('devices_state')!.devices[0].name).toBe('');
+    }
   });
 
   it('a device with no frontend holding it waits rather than scoring', () => {
@@ -163,7 +202,7 @@ describe('re-authentication', () => {
 
     expect(scorer.last('scorer_refused')).toBeUndefined();
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, online: true, cameraActive: false },
+      { deviceId, name: '', online: true, cameraActive: false },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
   });
@@ -178,7 +217,7 @@ describe('re-authentication', () => {
     frontend2.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 2 }] });
     // Nothing has proven the device yet, so the claim is parked and does not count as online.
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, online: false, cameraActive: false },
+      { deviceId, name: '', online: false, cameraActive: false },
     ]);
 
     const scorer = connect();

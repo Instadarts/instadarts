@@ -14,6 +14,8 @@ interface ScorerPageProps {
   state: ScorerStateMessage | null;
   name: string;
   onRename: (name: string) => void;
+  /** The user has finished typing the name — publish it. */
+  onNameSettled: () => void;
   onTips: (tips: BoardTip[], ms: number) => void;
   onCameraActive: (active: boolean) => void;
 }
@@ -21,7 +23,7 @@ interface ScorerPageProps {
 type View = 'scoring' | 'settings' | 'calibration';
 
 /** The scoring screen: what this device is looking at, and what the match it feeds looks like. */
-export function ScorerPage({ status, state, name, onRename, onTips, onCameraActive }: ScorerPageProps) {
+export function ScorerPage({ status, state, name, onRename, onNameSettled, onTips, onCameraActive }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
   const [view, setView] = useState<View>('scoring');
   const [screensaver, setScreensaver] = useState(() => loadSettings().screensaver);
@@ -35,6 +37,8 @@ export function ScorerPage({ status, state, name, onRename, onTips, onCameraActi
             type="text"
             value={name}
             onChange={(e) => onRename(e.target.value.slice(0, 20))}
+            onBlur={onNameSettled}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
             placeholder="Name this device"
             className="w-32 px-2 py-1 text-sm text-right bg-transparent border-b border-gray-800 focus:border-green-500 focus:outline-none"
           />

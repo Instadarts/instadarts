@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
+import { Slider } from './Slider';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -61,6 +62,21 @@ export function CameraPanel({ vision }: CameraPanelProps) {
           </div>
         )}
       </div>
+
+      {/* Zoom lives here rather than in the settings: framing the board is the first thing anyone
+          does at a mount, and it is judged against the picture directly above it. */}
+      {vision.cameraActive && vision.zoomRange && (
+        <Slider
+          label="Zoom"
+          value={vision.zoom}
+          min={vision.zoomRange.min}
+          max={vision.zoomRange.max}
+          step={vision.zoomRange.step}
+          format={(v) => `${v.toFixed(1)}×`}
+          onChange={(v) => void vision.applyZoom(v)}
+          hint="Zoom in until the board fills the frame. Calibrate the lens afterwards — zoom changes the distortion it is correcting."
+        />
+      )}
 
       {vision.cameras.length > 1 && (
         <select

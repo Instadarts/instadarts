@@ -64,6 +64,18 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:3000',
         ws: true,
+        // A closing WebSocket routinely aborts the socket before the proxy has finished writing to
+        // it, and Vite logs the resulting ECONNABORTED/ECONNRESET as a stack trace. Every page
+        // reload and every scoring device that drops off the Wi-Fi produces one, which buries the
+        // errors that do mean something. The server sees the close either way.
+        configure: (proxy) => {
+          const expected = new Set(['ECONNABORTED', 'ECONNRESET', 'EPIPE']);
+          const quiet = (err: NodeJS.ErrnoException) => {
+            if (!expected.has(err.code ?? '')) console.error('[ws proxy]', err);
+          };
+          proxy.on('error', quiet);
+          proxy.on('econnreset', quiet);
+        },
       },
     },
   },

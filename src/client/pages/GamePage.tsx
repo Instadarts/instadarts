@@ -32,12 +32,21 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
     onSubmitVisit(game.id);
   }, [game.id, onSubmitVisit]);
 
-  const getRemaining = (playerId: string): number => {
+  /**
+   * What a player was on before the current visit. Deliberately not clamped: an overthrow is only
+   * recognisable as one while it is still negative.
+   */
+  const getRemainingBeforeVisit = (playerId: string): number => {
     let remaining = game.settings.startScore;
     for (const visit of game.visits) {
       if (visit.playerId !== playerId || visit.bust) continue;
       remaining -= visit.darts.reduce((s, d) => s + d.score.points, 0);
     }
+    return remaining;
+  };
+
+  const getRemaining = (playerId: string): number => {
+    let remaining = getRemainingBeforeVisit(playerId);
     // Subtract in-progress currentVisit darts for this player
     if (game.currentVisit && game.currentVisit.playerId === playerId) {
       remaining -= game.currentVisit.darts.reduce((s, d) => s + d.score.points, 0);
@@ -54,8 +63,7 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
     const cv = game.currentVisit;
     if (!cv || !cv.locked) return 'active';
     const visitTotal = cv.darts.reduce((s, d) => s + d.score.points, 0);
-    const remainingBefore = getRemaining(cv.playerId) + visitTotal;
-    const after = remainingBefore - visitTotal;
+    const after = getRemainingBeforeVisit(cv.playerId) - visitTotal;
     if (after < 0 || after === 1) return 'bust';
     if (after === 0) {
       if (!game.settings.doubleOut) return 'checkout';

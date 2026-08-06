@@ -341,6 +341,45 @@ test.describe('Local 1-player x01 match', () => {
     // Game should be finished, Alice wins
     await expect(page.locator('text=Alice wins!')).toBeVisible();
   });
+
+  test('overthrowing on a double reads as a bust, not a checkout', async ({ page }) => {
+    await setupLocalMatch(page, ['Alice'], 301);
+
+    // 301 − 180 leaves 121.
+    await clickT20(page);
+    await clickT20(page);
+    await clickT20(page);
+    await submitVisit(page);
+
+    // 121 − 60 − 60 leaves 1, and D20 overthrows it to −39. The last dart being a double must not
+    // make that read as a finish.
+    await clickT20(page);
+    await clickT20(page);
+    await clickD20(page);
+
+    await expect(page.locator('text=Bust!')).toBeVisible();
+    await expect(page.locator('text=Checkout!')).toHaveCount(0);
+
+    // And the server agrees once it is sent: a busted visit, and nobody has won.
+    await submitVisit(page);
+    await expect(page.locator('text=Alice wins!')).toHaveCount(0);
+    await expect(page.locator('text=121')).toBeVisible();
+  });
+
+  test('leaving exactly one reads as a bust', async ({ page }) => {
+    await setupLocalMatch(page, ['Alice'], 301);
+
+    await clickT20(page);
+    await clickT20(page);
+    await clickT20(page);
+    await submitVisit(page);
+
+    // 121 − 60 − 60 = 1, which is unfinishable and so a bust.
+    await clickT20(page);
+    await clickT20(page);
+    await clickBoard(page, 500_000, 990_000); // a miss, to fill the visit and lock it
+    await expect(page.locator('text=Bust!')).toBeVisible();
+  });
 });
 
 test.describe('Local 2-player x01 match', () => {

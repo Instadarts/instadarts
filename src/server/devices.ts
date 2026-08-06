@@ -38,6 +38,8 @@ interface DeviceRecord {
   id: string;
   /** sha256 of the device's token, hex. The token itself is never stored. */
   tokenHash: string;
+  /** What the device calls itself. It tells us on every hello, since we forget it on restart. */
+  name: string;
   /**
    * Whether a socket is currently open for it. The record outlives the socket while a frontend
    * still holds a claim, so that a phone that drops off the Wi-Fi comes back to the same pairing
@@ -115,7 +117,7 @@ export function redeemPairingCode(raw: string, attemptKey: string): PairedDevice
   const tokenHash = hashToken(token);
 
   evictIfFull();
-  devices.set(deviceId, { id: deviceId, tokenHash, connected: true, cameraActive: false });
+  devices.set(deviceId, { id: deviceId, tokenHash, name: '', connected: true, cameraActive: false });
 
   return { deviceId, token, tokenHash, ownerSessionId: pending.sessionId };
 }
@@ -152,7 +154,7 @@ function normalizeCode(raw: unknown): string | null {
  * what makes the whole scheme survive a restart without anyone being able to squat a pairing:
  * recreating an entry requires the token, and naming a device at all requires its 128-bit id.
  */
-export function verifyDevice(deviceId: unknown, token: unknown): DeviceRecord | null {
+export function verifyDevice(deviceId: unknown, token: unknown, name = ''): DeviceRecord | null {
   if (typeof deviceId !== 'string' || deviceId.length < 16 || deviceId.length > 64) return null;
   if (typeof token !== 'string' || token.length < 32 || token.length > 128) return null;
 
@@ -161,11 +163,12 @@ export function verifyDevice(deviceId: unknown, token: unknown): DeviceRecord | 
   if (existing) {
     if (!sameSecret(tokenHash, existing.tokenHash)) return null;
     existing.connected = true;
+    if (name) existing.name = name;
     return existing;
   }
 
   evictIfFull();
-  const record: DeviceRecord = { id: deviceId, tokenHash, connected: true, cameraActive: false };
+  const record: DeviceRecord = { id: deviceId, tokenHash, name, connected: true, cameraActive: false };
   devices.set(deviceId, record);
 
   // A claim parked against this id before we knew the real hash was a squat if it disagrees.
@@ -182,6 +185,11 @@ export function getDevice(deviceId: string): DeviceRecord | undefined {
 export function setCameraActive(deviceId: string, active: boolean): void {
   const device = devices.get(deviceId);
   if (device) device.cameraActive = active;
+}
+
+export function setDeviceName(deviceId: string, name: string): void {
+  const device = devices.get(deviceId);
+  if (device) device.name = name;
 }
 
 /**
@@ -271,14 +279,21 @@ export function ownerOf(deviceId: string): string | null {
 }
 
 /** Which devices this frontend currently has active, and how each is doing. */
-export function devicesForSession(sessionId: string): { deviceId: string; cameraActive: boolean; online: boolean }[] {
-  const owned: { deviceId: string; cameraActive: boolean; online: boolean }[] = [];
+export function devicesForSession(
+  sessionId: string,
+): { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] {
+  const owned: { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] = [];
   for (const [deviceId, claim] of claims) {
     if (claim.sessionId !== sessionId) continue;
     const device = devices.get(deviceId);
     const paired = device !== undefined && sameSecret(claim.tokenHash, device.tokenHash);
     const online = paired && device!.connected;
-    owned.push({ deviceId, cameraActive: online ? device!.cameraActive : false, online });
+    owned.push({
+      deviceId,
+      name: paired ? device!.name : '',
+      cameraActive: online ? device!.cameraActive : false,
+      online,
+    });
   }
   return owned;
 }

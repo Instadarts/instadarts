@@ -21,6 +21,7 @@ import {
   releaseDevice,
   releaseSession,
   setCameraActive,
+  setDeviceName,
   unclaimDevice,
   verifyDevice,
 } from './devices';
@@ -232,6 +233,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'scorer_hello':
       handleScorerHello(ws, msg);
+      break;
+    case 'scorer_name':
+      handleScorerName(ws, msg);
       break;
     case 'scorer_camera':
       handleScorerCamera(ws, msg);
@@ -894,7 +898,7 @@ function handleScorerHello(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client || client.deviceId) return;
 
-  const device = verifyDevice(msg.deviceId, msg.token);
+  const device = verifyDevice(msg.deviceId, msg.token, sanitizeName(msg.name) ?? '');
   if (!device) {
     send(ws, { type: 'scorer_refused', reason: 'unpaired' });
     return;
@@ -902,6 +906,16 @@ function handleScorerHello(ws: WebSocket, msg: any): void {
 
   bindDeviceSocket(ws, client, device.id);
   const owner = ownerOf(device.id);
+  if (owner) publishDevicesState(owner);
+}
+
+/** A device renaming itself. It owns its own name; a frontend only displays what it is told. */
+function handleScorerName(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.deviceId) return;
+
+  setDeviceName(client.deviceId, sanitizeName(msg.name) ?? '');
+  const owner = ownerOf(client.deviceId);
   if (owner) publishDevicesState(owner);
 }
 

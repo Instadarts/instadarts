@@ -126,10 +126,10 @@ export function deleteGame(id: string): void {
 // GC helpers
 // ============================================================
 
-export function getAllGames(): Map<string, GameState> {
+export function getAllGames(): ReadonlyMap<string, GameState> {
   return games;
 }
 
-export function getAllLobbies(): Map<string, Lobby> {
+export function getAllLobbies(): ReadonlyMap<string, Lobby> {
   return lobbies;
 }

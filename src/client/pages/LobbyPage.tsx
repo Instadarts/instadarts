@@ -39,7 +39,7 @@ export function LobbyPage({
   const canEdit = !isSpectator && (mode === 'local' || isCreator);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="flex-1 flex flex-col items-center justify-center p-4">
       <h2 className="text-3xl font-bold text-green-400 mb-2">
         {mode === 'local' ? 'Local Match' : 'Online Match'}
         {isSpectator && <span className="text-yellow-400 text-lg ml-2">(spectating)</span>}

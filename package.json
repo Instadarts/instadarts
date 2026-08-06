@@ -12,6 +12,7 @@
     "test:e2e": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; sleep 1; npm run dev & sleep 3; npx playwright test; lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null"
   },
   "dependencies": {
+    "@litertjs/core": "^2.5.3",
     "express": "^5.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

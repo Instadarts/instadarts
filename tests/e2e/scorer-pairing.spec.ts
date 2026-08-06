@@ -1,0 +1,131 @@
+import { test, expect, type Page, type Browser } from '@playwright/test';
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Open the top bar's device panel and start pairing; returns the code it shows. */
+async function requestPairingCode(page: Page): Promise<string> {
+  await page.getByRole('button', { name: 'Cameras' }).first().click();
+  await page.getByRole('button', { name: 'Pair scoring device' }).click();
+  const code = page.locator('p.font-mono.tracking-\\[0\\.3em\\]');
+  await expect(code).toBeVisible();
+  const text = await code.textContent();
+  return (text ?? '').trim();
+}
+
+async function openScorer(browser: Browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/scorer');
+  return { context, page };
+}
+
+async function pairScorer(page: Page, code: string) {
+  await page.getByPlaceholder('CODE').fill(code);
+  await page.getByRole('button', { name: 'Pair' }).click();
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+test.describe('scoring device pairing', () => {
+  test('a phone pairs with the code the frontend shows and becomes active', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+
+    const code = await requestPairingCode(player);
+    expect(code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, code);
+
+    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(player.getByText('connected')).toBeVisible();
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
+  test('the pairing survives a reload of both sides', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+    const code = await requestPairingCode(player);
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, code);
+    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+
+    await scorer.page.reload();
+    await player.reload();
+
+    // Neither side asks anyone to pair again: the device still has its token, the browser still
+    // has the hash, and that is all the server needs to recognise them.
+    await expect(scorer.page.getByPlaceholder('CODE')).toHaveCount(0);
+    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+
+    await player.getByRole('button', { name: 'Cameras' }).first().click();
+    await expect(player.getByText('connected')).toBeVisible();
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
+  test('a wrong code is refused', async ({ browser }) => {
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, 'ZZZZZZ');
+    await expect(scorer.page.getByText('That code was not accepted. Ask for a new one.')).toBeVisible();
+    await scorer.context.close();
+  });
+
+  test('a second tab grabs the device and the first is told', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const tabA = await frontend.newPage();
+    await tabA.goto('/');
+    const code = await requestPairingCode(tabA);
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, code);
+    await expect(tabA.getByText('connected')).toBeVisible();
+
+    // A second tab of the same browser: paired already (localStorage), not active (sessionStorage).
+    const tabB = await frontend.newPage();
+    await tabB.goto('/');
+    await tabB.getByRole('button', { name: 'Cameras' }).first().click();
+    await expect(tabB.getByText('not in use here')).toBeVisible();
+
+    await tabB.getByRole('button', { name: 'Use here' }).click();
+    await expect(tabB.getByText('connected')).toBeVisible();
+    await expect(tabA.getByText('not in use here')).toBeVisible();
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
+  test('a different browser cannot see or use the pairing', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+    const code = await requestPairingCode(player);
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, code);
+    await expect(player.getByText('connected')).toBeVisible();
+
+    const stranger = await browser.newContext();
+    const strangerPage = await stranger.newPage();
+    await strangerPage.goto('/');
+    await strangerPage.getByRole('button', { name: 'Cameras' }).first().click();
+    await expect(strangerPage.getByText('No scoring devices paired to this browser yet.')).toBeVisible();
+
+    // And the real owner still has it.
+    await expect(player.getByText('connected')).toBeVisible();
+
+    await frontend.close();
+    await scorer.context.close();
+    await stranger.close();
+  });
+});

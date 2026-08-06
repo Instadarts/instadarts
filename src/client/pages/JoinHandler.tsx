@@ -42,7 +42,7 @@ export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
   }, [error, navigate]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center text-gray-400 gap-2">
+    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
       <p>Joining lobby...</p>
       {error && <p className="text-red-400 text-sm">{error}</p>}
     </div>

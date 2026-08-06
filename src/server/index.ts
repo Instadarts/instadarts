@@ -46,6 +46,17 @@ app.get('/server-stats', (_req, res) => {
 
 // Only serve static files in production (dev uses Vite on port 5173)
 if (process.env.NODE_ENV === 'production') {
+  // Cross-origin isolation, or LiteRT silently runs single-threaded on the scoring device. The
+  // headers have to reach the WASM worker script itself too, which is why they go on everything
+  // rather than only on the document. Nothing this app loads is cross-origin, so that costs us
+  // nothing — and note it must NOT include Permissions-Policy: camera=(), which would kill
+  // getUserMedia on the scoring device.
+  app.use((_req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    next();
+  });
   app.use(express.static('dist/client'));
   // SPA fallback: serve index.html for all non-API routes
   app.get('/{*splat}', (_req, res) => {
@@ -56,7 +67,7 @@ if (process.env.NODE_ENV === 'production') {
 wss.on('connection', (ws) => {
   console.log('Client connected');
   const sessionId = crypto.randomUUID();
-  registerClient(ws, { sessionId, lobbyId: null, gameId: null, playerId: null, isSpectator: false });
+  registerClient(ws, { sessionId, lobbyId: null, gameId: null, playerId: null, isSpectator: false, deviceId: null });
   ws.send(JSON.stringify({ type: 'connected', sessionId }));
 
   ws.on('message', (data) => {

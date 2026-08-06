@@ -18,7 +18,7 @@ export function HomePage({
 
   if (showJoin) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="flex-1 flex flex-col items-center justify-center p-4">
         <h1 className="text-5xl font-bold text-green-400 mb-2">InstaDarts</h1>
         <p className="text-gray-500 mb-8">Join an online match</p>
 
@@ -51,7 +51,7 @@ export function HomePage({
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="flex-1 flex flex-col items-center justify-center p-4">
       <h1 className="text-5xl font-bold text-green-400 mb-2">InstaDarts</h1>
       <p className="text-gray-500 mb-8">Dart game tracker</p>
 

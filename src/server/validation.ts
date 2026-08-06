@@ -1,5 +1,6 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
 import type { GameSettings, DartThrow } from '../shared/types';
+import type { BoardTip } from '../shared/vision/types';
 
 // ============================================================
 // Player name
@@ -83,6 +84,56 @@ export function validateDartThrow(raw: unknown): DartThrow | null {
 
   return { x, y, score };
 }
+
+// ============================================================
+// Scoring devices
+// ============================================================
+
+/** Model output is capped at 32 detections, eight of which are board keypoints. */
+const MAX_TIPS = 24;
+
+/**
+ * One inference's worth of dart tips from a scoring device.
+ *
+ * A malformed report is dropped **whole** — never salvaged, and above all never degraded to an
+ * empty array, because an empty array is the takeout signal. "This report was nonsense" and "the
+ * darts came out" must never be confusable.
+ */
+export function validateTips(raw: unknown): BoardTip[] | null {
+  if (!Array.isArray(raw) || raw.length > MAX_TIPS) return null;
+
+  const tips: BoardTip[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) return null;
+    const t = item as Record<string, unknown>;
+    const x = Number(t.x);
+    const y = Number(t.y);
+    const confidence = Number(t.confidence);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(confidence)) return null;
+    if (x < BOARD_MIN || x > BOARD_MAX || y < BOARD_MIN || y > BOARD_MAX) return null;
+    if (confidence < 0 || confidence > 1) return null;
+    tips.push({ x, y, confidence });
+  }
+  return tips;
+}
+
+/** The device list a frontend claims on connect. Anything malformed drops that entry, not the lot. */
+export function validateDeviceClaims(raw: unknown): { deviceId: string; tokenHash: string; grabbedAt: number }[] {
+  if (!Array.isArray(raw)) return [];
+  const claims: { deviceId: string; tokenHash: string; grabbedAt: number }[] = [];
+  for (const item of raw.slice(0, MAX_CLAIMS)) {
+    if (typeof item !== 'object' || item === null) continue;
+    const c = item as Record<string, unknown>;
+    if (typeof c.deviceId !== 'string' || c.deviceId.length < 16 || c.deviceId.length > 64) continue;
+    if (typeof c.tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(c.tokenHash)) continue;
+    const grabbedAt = Number(c.grabbedAt);
+    if (!Number.isFinite(grabbedAt)) continue;
+    claims.push({ deviceId: c.deviceId, tokenHash: c.tokenHash, grabbedAt });
+  }
+  return claims;
+}
+
+const MAX_CLAIMS = 8;
 
 export function validateVisit(raw: unknown): { playerId: string; darts: DartThrow[]; bust: false } | null {
   if (typeof raw !== 'object' || raw === null) return null;

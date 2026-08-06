@@ -4,7 +4,11 @@ import type { GameState, Lobby, Player } from '../../shared/types';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
-export function useGameState() {
+/**
+ * @param onServerMessage - Also called for every frame, before this hook handles it. Lets a second
+ *   concern (scoring devices) share the one socket without this hook knowing anything about it.
+ */
+export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +20,12 @@ export function useGameState() {
   const ownPlayerIdRef = useRef<string | null>(null);
   ownPlayerIdRef.current = ownPlayerId;
 
+  const extraHandlerRef = useRef(onServerMessage);
+  extraHandlerRef.current = onServerMessage;
+
   const handleMessage = useCallback((msg: any) => {
+    extraHandlerRef.current?.(msg);
+
     // Handle connected message (not a ServerMessage type)
     if (msg.type === 'connected' && msg.sessionId) {
       setSessionId(msg.sessionId);
@@ -131,6 +140,7 @@ export function useGameState() {
     game,
     error,
     connected,
+    send,
     ownPlayerId,
     isSpectator,
     sessionId,

@@ -4,7 +4,16 @@ import { getWsUrl, saveReconnectInfo, loadReconnectInfo, clearReconnectInfo } fr
 
 type MessageHandler = (msg: ServerMessage) => void;
 
-export function useWebSocket(onMessage: MessageHandler) {
+interface Options {
+  /**
+   * Whether to resume a lobby or match on connect. The gaming frontend does; the scoring app must
+   * not, or a scorer opened in the same tab would try to rejoin the player's game.
+   */
+  resumeSession?: boolean;
+}
+
+export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
+  const resumeSession = options.resumeSession !== false;
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -37,7 +46,7 @@ export function useWebSocket(onMessage: MessageHandler) {
       flushPending();
 
       // Check for reconnect info (page reload recovery)
-      const info = loadReconnectInfo();
+      const info = resumeSession ? loadReconnectInfo() : null;
       if (info) {
         ws.send(JSON.stringify({
           type: 'reconnect',
@@ -65,7 +74,7 @@ export function useWebSocket(onMessage: MessageHandler) {
       reconnectAttempt.current++;
       reconnectTimer.current = setTimeout(connect, delay);
     };
-  }, []);
+  }, [resumeSession]);
 
   const send = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

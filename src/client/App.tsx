@@ -1,15 +1,22 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useGameState } from './hooks/useGameState';
+import { useScoringDevices } from './hooks/useScoringDevices';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { JoinHandler } from './pages/JoinHandler';
+import { TopBar } from './components/TopBar';
 import { loadReconnectInfo } from './lib/ws';
+import type { ServerMessage } from '../shared/protocol';
 import type { Lobby, GameState } from '../shared/types';
 
 export function App() {
+  // Scoring devices share the match socket, but the socket is created inside useGameState. The ref
+  // is what lets the two be introduced without either owning the other.
+  const devicesHandler = useRef<((msg: ServerMessage) => void) | null>(null);
+
   const {
     lobby,
     game,
@@ -18,6 +25,7 @@ export function App() {
     ownPlayerId,
     isSpectator,
     sessionId,
+    send,
     createLobby,
     joinLobby,
     addLocalPlayer,
@@ -30,7 +38,10 @@ export function App() {
     swapPlayers,
     addDart,
     undoDart,
-  } = useGameState();
+  } = useGameState((msg) => devicesHandler.current?.(msg));
+
+  const devices = useScoringDevices(send, connected);
+  devicesHandler.current = devices.handleMessage;
 
   const navigate = useNavigate();
 
@@ -57,56 +68,70 @@ export function App() {
   }, [lobby, game, navigate]);
 
   return (
-    <Routes>
-      <Route path="/" element={
-        <HomePage
-          onCreateLocalMatch={() => { createLobby(true); }}
-          onCreateOnlineMatch={() => { createLobby(false); }}
-          connected={connected}
-        />
-      } />
+    <div className="min-h-screen flex flex-col">
+      <TopBar
+        connected={connected}
+        devices={devices.devices}
+        pairingCode={devices.pairingCode}
+        onRequestPairingCode={devices.requestPairingCode}
+        onCancelPairing={devices.cancelPairing}
+        onGrab={devices.grab}
+        onRelease={devices.release}
+        onForget={devices.forget}
+      />
+      <main className="flex-1 flex flex-col">
+      <Routes>
+        <Route path="/" element={
+          <HomePage
+            onCreateLocalMatch={() => { createLobby(true); }}
+            onCreateOnlineMatch={() => { createLobby(false); }}
+            connected={connected}
+          />
+        } />
 
-      <Route path="/lobby/join/:code" element={
-        <JoinHandler onJoin={joinLobby} lobby={lobby} error={error} />
-      } />
+        <Route path="/lobby/join/:code" element={
+          <JoinHandler onJoin={joinLobby} lobby={lobby} error={error} />
+        } />
 
-      <Route path="/lobby/:id" element={
-        <LobbyWrapper
-          lobby={lobby}
-          ownPlayerId={ownPlayerId}
-          isSpectator={isSpectator}
-          sessionId={sessionId}
-          startGame={startGame}
-          leaveGame={leaveGame}
-          updateSettings={updateSettings}
-          addLocalPlayer={addLocalPlayer}
-          removePlayer={removePlayer}
-          swapPlayers={swapPlayers}
-          navigate={navigate}
-          error={error}
-        />
-      } />
+        <Route path="/lobby/:id" element={
+          <LobbyWrapper
+            lobby={lobby}
+            ownPlayerId={ownPlayerId}
+            isSpectator={isSpectator}
+            sessionId={sessionId}
+            startGame={startGame}
+            leaveGame={leaveGame}
+            updateSettings={updateSettings}
+            addLocalPlayer={addLocalPlayer}
+            removePlayer={removePlayer}
+            swapPlayers={swapPlayers}
+            navigate={navigate}
+            error={error}
+          />
+        } />
 
-      <Route path="/match/:id" element={
-        <MatchWrapper
-          game={game}
-          ownPlayerId={ownPlayerId}
-          isSpectator={isSpectator}
-          leaveGame={leaveGame}
-          addDart={addDart}
-          undoDart={undoDart}
-          submitVisit={submitVisit}
-          navigate={navigate}
-          error={error}
-        />
-      } />
+        <Route path="/match/:id" element={
+          <MatchWrapper
+            game={game}
+            ownPlayerId={ownPlayerId}
+            isSpectator={isSpectator}
+            leaveGame={leaveGame}
+            addDart={addDart}
+            undoDart={undoDart}
+            submitVisit={submitVisit}
+            navigate={navigate}
+            error={error}
+          />
+        } />
 
-      <Route path="/spectate/:id" element={
-        <SpectateWrapper spectate={spectate} lobby={lobby} game={game} leaveGame={leaveGame} navigate={navigate} />
-      } />
+        <Route path="/spectate/:id" element={
+          <SpectateWrapper spectate={spectate} lobby={lobby} game={game} leaveGame={leaveGame} navigate={navigate} />
+        } />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      </main>
+    </div>
   );
 }
 
@@ -128,7 +153,7 @@ interface LobbyWrapperProps {
 function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
-  if (!lobby) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading lobby...</div>;
+  if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
   return (
     <LobbyPage
       lobby={lobby}
@@ -162,7 +187,7 @@ interface MatchWrapperProps {
 function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undoDart, submitVisit, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(game, error, navigate);
 
-  if (!game) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading game...</div>;
+  if (!game) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading game...</div>;
   return (
     <GamePage
       game={game}
@@ -229,5 +254,5 @@ function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: Spectat
     );
   }
 
-  return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
+  return <div className="flex-1 flex items-center justify-center text-gray-400">Loading...</div>;
 }

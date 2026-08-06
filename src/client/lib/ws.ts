@@ -36,10 +36,8 @@ export function clearReconnectInfo(): void {
 }
 
 export function getWsUrl(): string {
-  // In dev, Vite proxies /ws; in production, connect directly
-  if (import.meta.env.DEV) {
-    return `ws://${window.location.hostname}:3000/ws`;
-  }
+  // Always same-origin: Vite proxies /ws in dev, the server serves it in production. A phone on
+  // the LAN then needs one reachable port, not two, and https gives us wss for free.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws`;
 }

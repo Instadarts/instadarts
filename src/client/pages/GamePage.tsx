@@ -67,7 +67,7 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
   })();
 
   return (
-    <div className="min-h-screen flex flex-col items-center p-4 gap-6">
+    <div className="flex-1 flex flex-col items-center p-4 gap-6">
       <h2 className="text-2xl font-bold text-green-400">
         {game.settings.startScore} — {game.settings.doubleOut ? 'Double Out' : 'Straight Out'}
         {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}

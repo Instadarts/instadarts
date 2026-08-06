@@ -7,9 +7,23 @@ import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createG
 import { generatePlayerId } from './player';
 import { addDartToGame, undoDartFromGame, submitVisitToGame } from './game';
 import { generateInviteCode } from './invite';
-import { sanitizeName, validateSettings, validateDartThrow } from './validation';
-import { checkRateLimit, removeRateLimitBucket } from './rateLimit';
+import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims, validateTips } from './validation';
+import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
+import { getModeHandler } from './modes/types';
+import { getScoringSession, dropScoringSessions } from './scoring/store';
 import { canCreateLobby, canCreateGame } from './concurrencyLimit';
+import {
+  claimDevice,
+  createPairingCode,
+  devicesForSession,
+  ownerOf,
+  redeemPairingCode,
+  releaseDevice,
+  releaseSession,
+  setCameraActive,
+  unclaimDevice,
+  verifyDevice,
+} from './devices';
 
 // ============================================================
 // Client registry
@@ -63,8 +77,23 @@ export function removeClient(ws: WebSocket): void {
   const client = clients.get(ws);
   if (client) {
     removeRateLimitBucket(client.playerId ?? '');
+    releaseScoringState(client);
   }
   clients.delete(ws);
+}
+
+/** Whichever side of the pairing this connection was, let go of it. */
+function releaseScoringState(client: Client): void {
+  if (client.deviceId) {
+    const owner = ownerOf(client.deviceId);
+    deviceSockets.delete(client.deviceId);
+    releaseDevice(client.deviceId);
+    if (owner) publishDevicesState(owner);
+    return;
+  }
+  for (const deviceId of releaseSession(client.sessionId)) {
+    publishScorerState(deviceId);
+  }
 }
 
 // ============================================================
@@ -123,19 +152,28 @@ function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
 // ============================================================
 
 export function handleMessage(ws: WebSocket, raw: string): void {
-  // Rate limit
   const client = clients.get(ws);
-  const connId = client?.sessionId ?? `anon_${Math.random()}`;
-  if (!checkRateLimit(connId)) {
-    send(ws, { type: 'error', message: 'Rate limit exceeded' });
-    return;
-  }
 
   const msg = parseMessage(raw);
   if (!msg) {
     send(ws, { type: 'error', message: 'Invalid message format' });
     return;
   }
+
+  // Tips get their own budget. A camera on a fast phone publishes faster than a person clicks, and
+  // one of the reports it would lose to the shared bucket is the empty one that ends the visit.
+  if (msg.type === 'scorer_tips') {
+    if (!client?.deviceId || !checkTipsRateLimit(client.deviceId)) return;
+  } else if (!checkRateLimit(client?.sessionId ?? `anon_${Math.random()}`)) {
+    send(ws, { type: 'error', message: 'Rate limit exceeded' });
+    return;
+  }
+
+  // A connection is a frontend or a scoring device, never both. Keeping the two vocabularies apart
+  // means a compromised scoring device cannot reach a single gameplay handler.
+  const isScorerMessage = msg.type.startsWith('scorer_');
+  if (client?.deviceId && !isScorerMessage) return;
+  if (isScorerMessage && !client?.deviceId && msg.type !== 'scorer_pair' && msg.type !== 'scorer_hello') return;
 
   switch (msg.type) {
     case 'create_lobby':
@@ -179,6 +217,27 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'swap_players':
       handleSwapPlayers(ws, msg);
+      break;
+    case 'create_pairing_code':
+      handleCreatePairingCode(ws);
+      break;
+    case 'activate_devices':
+      handleActivateDevices(ws, msg);
+      break;
+    case 'deactivate_device':
+      handleDeactivateDevice(ws, msg);
+      break;
+    case 'scorer_pair':
+      handleScorerPair(ws, msg);
+      break;
+    case 'scorer_hello':
+      handleScorerHello(ws, msg);
+      break;
+    case 'scorer_camera':
+      handleScorerCamera(ws, msg);
+      break;
+    case 'scorer_tips':
+      handleScorerTips(ws, msg);
       break;
     default:
       send(ws, { type: 'error', message: `Unknown message type: ${(msg as any).type}` });
@@ -413,8 +472,7 @@ function handleAddDart(ws: WebSocket, msg: any): void {
   const result = addDartToGame(game, playerId, dart);
   if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
-  updateGame(game.id, result.game);
-  broadcastToGame(game.id, { type: 'game_state', game: { ...result.game } });
+  commitScoredGame(result.game);
 }
 
 function handleUndoDart(ws: WebSocket, _msg: any): void {
@@ -432,8 +490,7 @@ function handleUndoDart(ws: WebSocket, _msg: any): void {
   const result = undoDartFromGame(game);
   if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
-  updateGame(game.id, result.game);
-  broadcastToGame(game.id, { type: 'game_state', game: { ...result.game } });
+  commitScoredGame(result.game);
 }
 
 function handleSubmitVisit(ws: WebSocket, _msg: any): void {
@@ -450,8 +507,7 @@ function handleSubmitVisit(ws: WebSocket, _msg: any): void {
   const submitResult = submitVisitToGame(game);
   if (!submitResult.success) { send(ws, { type: 'error', message: submitResult.error }); return; }
 
-  updateGame(game.id, submitResult.result.game);
-  broadcastToGame(game.id, { type: 'game_state', game: { ...submitResult.result.game } });
+  commitScoredGame(submitResult.result.game);
 }
 
 function handleLeaveGame(ws: WebSocket, _msg: any): void {
@@ -648,6 +704,236 @@ function handleReconnect(ws: WebSocket, msg: any): void {
   }
 
   send(ws, { type: 'error', message: 'No lobby or game ID provided for reconnect' });
+}
+
+// ============================================================
+// Scoring devices
+// ============================================================
+
+/** Live scoring-device sockets, by device id. The registry in devices.ts holds no sockets. */
+const deviceSockets = new Map<string, WebSocket>();
+
+function findSessionSocket(sessionId: string): WebSocket | null {
+  for (const [ws, client] of clients) {
+    if (!client.deviceId && client.sessionId === sessionId) return ws;
+  }
+  return null;
+}
+
+/** Tell a frontend how its devices are doing. */
+function publishDevicesState(sessionId: string): void {
+  const ws = findSessionSocket(sessionId);
+  if (!ws) return;
+  send(ws, { type: 'devices_state', devices: devicesForSession(sessionId) });
+}
+
+/** Tell a scoring device where it stands. A retained topic: pushed on connect and on every change. */
+function publishScorerState(deviceId: string): void {
+  const ws = deviceSockets.get(deviceId);
+  if (!ws) return;
+  const owner = ownerOf(deviceId);
+  const scoring = owner ? resolveScoringTarget(owner) : null;
+  send(ws, {
+    type: 'scorer_state',
+    status: owner ? 'active' : 'waiting',
+    cameras: owner ? activeCameras(owner).length : 0,
+    match: scoring ? projectMatch(scoring.game) : null,
+  });
+}
+
+/** Everything a scoring device is allowed to know about the match. A projection, never the state. */
+function projectMatch(game: GameState): { players: { name: string; remaining: number; active: boolean }[]; visit: string[] } {
+  const handler = getModeHandler(game.settings.mode);
+  return {
+    players: game.players.map((player, index) => ({
+      name: player.name,
+      remaining: handler ? handler.getRemainingScore(game, player.id) : 0,
+      active: index === game.currentPlayerIndex,
+    })),
+    visit: (game.currentVisit?.darts ?? []).map((dart) => dart.score.label),
+  };
+}
+
+/** The devices this frontend has active with a running camera. */
+function activeCameras(ownerSessionId: string): string[] {
+  return devicesForSession(ownerSessionId)
+    .filter((d) => d.online && d.cameraActive)
+    .map((d) => d.deviceId);
+}
+
+/**
+ * Which match a frontend's cameras score into, and for whom.
+ *
+ * The owner must be an actual player in a running match. Spectators get a `gameId` too, which is
+ * exactly why the check is here: a spectator with a paired camera must not become a scorer.
+ */
+function resolveScoringTarget(ownerSessionId: string): { game: GameState; ownerPlayerId: string | null } | null {
+  for (const client of clients.values()) {
+    if (client.deviceId || client.sessionId !== ownerSessionId) continue;
+    if (client.isSpectator || !client.gameId) return null;
+    const game = getGame(client.gameId);
+    if (!game || game.status !== 'in_progress') return null;
+    // A local match is one board scored for whoever is up; an online one scores only for its owner.
+    return { game, ownerPlayerId: game.isLocal ? null : client.playerId };
+  }
+  return null;
+}
+
+/**
+ * One inference's dart tips from a scoring device.
+ *
+ * Everything here is a reason to drop the report silently rather than to answer: a scoring device
+ * that has lost its right to speak should learn that from `scorer_state`, not from an error frame
+ * arriving once per frame.
+ */
+function handleScorerTips(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.deviceId) return;
+
+  // A malformed report is dropped whole. It is never salvaged into an empty array, because an
+  // empty array means the darts came out.
+  const tips = validateTips(msg.tips);
+  if (!tips) return;
+
+  const owner = ownerOf(client.deviceId);
+  if (!owner) return;
+  const target = resolveScoringTarget(owner);
+  if (!target) return;
+
+  const session = getScoringSession(target.game.id, target.ownerPlayerId, commitScoredGame);
+  session.setCameras(activeCameras(owner));
+  session.addTips(client.deviceId, tips);
+}
+
+/**
+ * The game changed: persist it, tell everyone in it, and refresh the scoring devices watching it.
+ * Used by manual darts and camera darts alike — there is only one way a game moves.
+ */
+function commitScoredGame(game: GameState): void {
+  updateGame(game.id, game);
+  broadcastToGame(game.id, { type: 'game_state', game: { ...game } });
+  if (game.status !== 'in_progress') dropScoringSessions(game.id);
+  for (const deviceId of scoringDevicesFor(game.id)) publishScorerState(deviceId);
+}
+
+/** Every scoring device whose owner is playing in this game. */
+function scoringDevicesFor(gameId: string): string[] {
+  const found: string[] = [];
+  for (const client of clients.values()) {
+    if (client.deviceId || client.gameId !== gameId || client.isSpectator) continue;
+    for (const device of devicesForSession(client.sessionId)) {
+      if (device.online) found.push(device.deviceId);
+    }
+  }
+  return found;
+}
+
+function handleCreatePairingCode(ws: WebSocket): void {
+  const client = clients.get(ws);
+  if (!client) return;
+  const { code, expiresAt } = createPairingCode(client.sessionId);
+  send(ws, { type: 'pairing_code', code, expiresAt });
+}
+
+/**
+ * A frontend taking devices for this session — sent on every connect for whatever this tab has
+ * active, which is what re-establishes a pairing after a server restart.
+ */
+function handleActivateDevices(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client) return;
+
+  for (const claim of validateDeviceClaims(msg.devices)) {
+    const previousOwner = ownerOf(claim.deviceId);
+    const result = claimDevice(claim.deviceId, claim.tokenHash, client.sessionId, claim.grabbedAt);
+    if (result === 'stale') {
+      // Another tab of this browser holds it with a newer grab. Say so, so this one stops asking.
+      send(ws, { type: 'device_lost', deviceId: claim.deviceId });
+      continue;
+    }
+    if (result === 'mismatch') continue;
+    if (previousOwner && previousOwner !== client.sessionId) {
+      const loser = findSessionSocket(previousOwner);
+      if (loser) send(loser, { type: 'device_lost', deviceId: claim.deviceId });
+      publishDevicesState(previousOwner);
+    }
+    publishScorerState(claim.deviceId);
+  }
+
+  publishDevicesState(client.sessionId);
+}
+
+function handleDeactivateDevice(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client || typeof msg.deviceId !== 'string') return;
+  if (!unclaimDevice(msg.deviceId, client.sessionId)) return;
+  publishScorerState(msg.deviceId);
+  publishDevicesState(client.sessionId);
+}
+
+function handleScorerPair(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client || client.deviceId) return;
+
+  const paired = redeemPairingCode(msg.code, client.sessionId);
+  if (!paired) {
+    send(ws, { type: 'scorer_refused', reason: 'bad_code' });
+    return;
+  }
+
+  bindDeviceSocket(ws, client, paired.deviceId);
+  send(ws, { type: 'scorer_paired', deviceId: paired.deviceId, token: paired.token });
+
+  // The frontend that showed the code has to persist the hash: the server will not remember it,
+  // and it is what proves the pairing again after a restart.
+  const owner = findSessionSocket(paired.ownerSessionId);
+  if (owner) send(owner, { type: 'device_paired', deviceId: paired.deviceId, tokenHash: paired.tokenHash });
+}
+
+function handleScorerHello(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client || client.deviceId) return;
+
+  const device = verifyDevice(msg.deviceId, msg.token);
+  if (!device) {
+    send(ws, { type: 'scorer_refused', reason: 'unpaired' });
+    return;
+  }
+
+  bindDeviceSocket(ws, client, device.id);
+  const owner = ownerOf(device.id);
+  if (owner) publishDevicesState(owner);
+}
+
+function handleScorerCamera(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.deviceId) return;
+
+  setCameraActive(client.deviceId, Boolean(msg.active));
+  const owner = ownerOf(client.deviceId);
+  if (owner) {
+    // A camera leaving must leave the roster at once, or every throw window afterwards waits for a
+    // report that is never coming.
+    const target = resolveScoringTarget(owner);
+    if (target) {
+      getScoringSession(target.game.id, target.ownerPlayerId, commitScoredGame).setCameras(activeCameras(owner));
+    }
+    publishDevicesState(owner);
+  }
+  publishScorerState(client.deviceId);
+}
+
+/** One socket per device: a second connection for the same id displaces the first. */
+function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void {
+  const existing = deviceSockets.get(deviceId);
+  if (existing && existing !== ws) {
+    const stale = clients.get(existing);
+    if (stale) stale.deviceId = null;
+    send(existing, { type: 'scorer_refused', reason: 'unpaired' });
+  }
+  client.deviceId = deviceId;
+  deviceSockets.set(deviceId, ws);
+  publishScorerState(deviceId);
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {

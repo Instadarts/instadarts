@@ -47,7 +47,8 @@ function parseLabel(label: string): ScoreResult {
 
 // --- Public API ---
 
-const BOARD_MAX = 1_000_000;
+export const BOARD_MAX = 1_000_000;
+export const BOARD_CENTER = BOARD_MAX / 2;
 
 /**
  * Score a dart from integer board coordinates.

@@ -6,6 +6,8 @@ import { X01Handler } from './modes/x01';
 import { registerModeHandler } from './modes/types';
 import { getAllLobbies, getAllGames } from './store';
 
+const QUIET = process.env.QUIET === '1';
+
 // Register game modes
 registerModeHandler('x01', new X01Handler());
 
@@ -65,7 +67,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 wss.on('connection', (ws) => {
-  console.log('Client connected');
+  if (!QUIET) console.log('Client connected');
   const sessionId = crypto.randomUUID();
   registerClient(ws, { sessionId, lobbyId: null, gameId: null, playerId: null, isSpectator: false, deviceId: null });
   ws.send(JSON.stringify({ type: 'connected', sessionId }));
@@ -75,7 +77,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log('Client disconnected');
+    if (!QUIET) console.log('Client disconnected');
     // Use a grace period before processing leave, so page reloads can reconnect
     scheduleDisconnect(ws, () => {
       handleClientLeave(ws);

@@ -26,7 +26,6 @@ export function ScorerApp() {
     <div className="min-h-screen flex flex-col">
       <ScorerPage
         status={link.status}
-        state={link.state}
         name={link.identity.name}
         onRename={link.rename}
         onNameSettled={link.publishName}

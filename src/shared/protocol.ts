@@ -261,10 +261,6 @@ export interface ScorerStateMessage {
   status: 'unpaired' | 'waiting' | 'active';
   /** How many cameras the server is hearing from for this match, including this one. */
   cameras: number;
-  match: {
-    players: { name: string; remaining: number; active: boolean }[];
-    visit: string[];
-  } | null;
 }
 
 /** To a scoring device: its identity was not accepted. Terminal — stop and pair again. */

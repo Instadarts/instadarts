@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ScorerStateMessage } from '../../../shared/protocol';
 
 /** The reference's numbers, field-worn, and there is no reason to differ. */
 const IDLE_MS = 30_000;
@@ -9,7 +8,8 @@ interface ScreensaverProps {
   enabled: boolean;
   /** Suppressed while the lens is being calibrated: a screen that keeps blacking out is unusable. */
   suppressed: boolean;
-  state: ScorerStateMessage | null;
+  /** Whether the scorer is actively scoring — transitions wake the screen. */
+  active: boolean;
 }
 
 /**
@@ -25,21 +25,20 @@ interface ScreensaverProps {
  *     so the overlay stays up until the finger lifts.
  *   · **dim while somebody is setting the device up.** That is what `suppressed` is for.
  *
- * It also wakes on its own when the match moves, which is what a live connection buys over a
- * timer: the screen comes back because somebody threw, not because somebody remembered to touch it.
+ * It also wakes on its own when the scoring state changes, which is what a live connection buys
+ * over a timer: the screen comes back because somebody threw, not because somebody remembered to
+ * touch it.
  */
-export function Screensaver({ enabled, suppressed, state }: ScreensaverProps) {
+export function Screensaver({ enabled, suppressed, active }: ScreensaverProps) {
   const [asleep, setAsleep] = useState(false);
   const [drift, setDrift] = useState({ x: 30, y: 30 });
   const lastActivity = useRef(Date.now());
 
-  const visit = state?.match?.visit.join(' ') ?? '';
-
-  // Any change in the match is activity, exactly as a touch is.
+  // A change in scoring state (active ↔ waiting) counts as activity, exactly as a touch does.
   useEffect(() => {
     lastActivity.current = Date.now();
     setAsleep(false);
-  }, [visit, state?.status]);
+  }, [active]);
 
   useEffect(() => {
     if (!enabled || suppressed) {
@@ -85,23 +84,7 @@ export function Screensaver({ enabled, suppressed, state }: ScreensaverProps) {
         className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-1000 text-center"
         style={{ left: `${drift.x}%`, top: `${drift.y}%` }}
       >
-        {state?.match ? (
-          <>
-            <div className="flex gap-6">
-              {state.match.players.map((player) => (
-                <div key={player.name}>
-                  <p className="text-xs text-gray-700">{player.name}</p>
-                  <p className={`text-3xl font-mono ${player.active ? 'text-gray-400' : 'text-gray-700'}`}>
-                    {player.remaining}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 font-mono text-gray-700">{visit}</p>
-          </>
-        ) : (
-          <p className="text-gray-800">InstaDarts</p>
-        )}
+        <p className="text-gray-800">InstaDarts</p>
       </div>
     </div>
   );

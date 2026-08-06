@@ -14,22 +14,11 @@ test.setTimeout(120_000);
 /**
  * What the model finds in the three-dart photo: two darts in the treble 20 and one in the single,
  * totalling 140.
- *
- * Sorted, because the order is not ours to predict. Fused candidates are ranked by how many cameras
- * saw them, then by confidence — so which of the three the model happens to be surest about decides
- * the order, and that is a property of the photograph, not of anything worth asserting.
  */
 const EXPECTED_DARTS = ['S20', 'T20', 'T20'];
 
 function sortedLabels(text: string | null): string[] {
   return (text ?? '').trim().split(/\s+/).filter(Boolean).sort();
-}
-
-/** The visit the scoring device is showing, as a multiset of labels. */
-async function expectScorerVisit(scorer: Page, labels: string[]) {
-  await expect
-    .poll(async () => sortedLabels(await scorer.getByTestId('scorer-visit').textContent()), { timeout: 15_000 })
-    .toEqual(labels);
 }
 
 /** Every committed visit in the player's history, as `{darts, total}`. */
@@ -102,7 +91,6 @@ test.describe('camera scoring, end to end', () => {
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });
     await expect(player.getByText('T20 (60)')).toHaveCount(2);
     await expect(player.getByText('S20 (20)')).toHaveCount(1);
-    await expectScorerVisit(scorer.page, EXPECTED_DARTS);
 
     // A full visit does NOT submit: the player is still standing there, and that gap is where a
     // misread third dart gets fixed.

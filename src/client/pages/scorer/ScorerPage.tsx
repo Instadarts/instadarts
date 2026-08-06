@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { ScorerLinkStatus } from '../../hooks/useScorerLink';
-import type { ScorerStateMessage } from '../../../shared/protocol';
 import type { BoardTip } from '../../../shared/vision/types';
 import { loadSettings } from '../../lib/scorerStorage';
 import { CameraPanel } from './CameraPanel';
@@ -11,7 +10,6 @@ import { SettingsPanel } from './SettingsPanel';
 
 interface ScorerPageProps {
   status: ScorerLinkStatus;
-  state: ScorerStateMessage | null;
   name: string;
   onRename: (name: string) => void;
   /** The user has finished typing the name — publish it. */
@@ -23,7 +21,7 @@ interface ScorerPageProps {
 type View = 'scoring' | 'settings' | 'calibration';
 
 /** The scoring screen: what this device is looking at, and what the match it feeds looks like. */
-export function ScorerPage({ status, state, name, onRename, onNameSettled, onTips, onCameraActive }: ScorerPageProps) {
+export function ScorerPage({ status, name, onRename, onNameSettled, onTips, onCameraActive }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
   const [view, setView] = useState<View>('scoring');
   const [screensaver, setScreensaver] = useState(() => loadSettings().screensaver);
@@ -57,7 +55,6 @@ export function ScorerPage({ status, state, name, onRename, onNameSettled, onTip
           vision runtime owns a camera stream and a compiled model that must survive a settings trip. */}
       <div className={view === 'scoring' ? 'contents' : 'hidden'}>
         <CameraPanel vision={vision} />
-        <Scoreboard state={state} />
       </div>
 
       {view === 'settings' && (
@@ -71,35 +68,7 @@ export function ScorerPage({ status, state, name, onRename, onNameSettled, onTip
 
       {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
 
-      <Screensaver enabled={screensaver} suppressed={view !== 'scoring'} state={state} />
-    </div>
-  );
-}
-
-function Scoreboard({ state }: { state: ScorerStateMessage | null }) {
-  if (!state?.match) {
-    return <p className="text-gray-500">No match in progress.</p>;
-  }
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="flex gap-4">
-        {state.match.players.map((player) => (
-          <div
-            key={player.name}
-            className={`text-center px-5 py-3 rounded-lg ${
-              player.active ? 'bg-green-900 border border-green-500' : 'bg-gray-900'
-            }`}
-          >
-            <p className="text-sm text-gray-400">{player.name}</p>
-            <p className={`text-4xl font-bold font-mono ${player.active ? 'text-green-400' : 'text-gray-300'}`}>
-              {player.remaining}
-            </p>
-          </div>
-        ))}
-      </div>
-      <p className="font-mono text-xl text-gray-300 h-7" data-testid="scorer-visit">
-        {state.match.visit.join('  ')}
-      </p>
+      <Screensaver enabled={screensaver} suppressed={view !== 'scoring'} active={status === 'active'} />
     </div>
   );
 }

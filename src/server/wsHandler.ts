@@ -736,26 +736,11 @@ function publishScorerState(deviceId: string): void {
   const ws = deviceSockets.get(deviceId);
   if (!ws) return;
   const owner = ownerOf(deviceId);
-  const scoring = owner ? resolveScoringTarget(owner) : null;
   send(ws, {
     type: 'scorer_state',
     status: owner ? 'active' : 'waiting',
     cameras: owner ? activeCameras(owner).length : 0,
-    match: scoring ? projectMatch(scoring.game) : null,
   });
-}
-
-/** Everything a scoring device is allowed to know about the match. A projection, never the state. */
-function projectMatch(game: GameState): { players: { name: string; remaining: number; active: boolean }[]; visit: string[] } {
-  const handler = getModeHandler(game.settings.mode);
-  return {
-    players: game.players.map((player, index) => ({
-      name: player.name,
-      remaining: handler ? handler.getRemainingScore(game, player.id) : 0,
-      active: index === game.currentPlayerIndex,
-    })),
-    visit: (game.currentVisit?.darts ?? []).map((dart) => dart.score.label),
-  };
 }
 
 /** The devices this frontend has active with a running camera. */

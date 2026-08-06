@@ -181,18 +181,13 @@ describe('camera darts', () => {
     expect(game().winnerId).toBe(game().players[0].id);
   });
 
-  it('the scoring device is shown the match it is scoring', () => {
+  it('the scoring device knows it is actively scoring', () => {
     const { scorer } = setup({ startScore: 501 });
     tips(scorer, ...T20_GROUP);
 
     const state = scorer.last('scorer_state')!;
     expect(state.status).toBe('active');
     expect(state.cameras).toBe(1);
-    expect(state.match!.players).toEqual([
-      { name: 'Alice', remaining: 501, active: true },
-      { name: 'Bob', remaining: 501, active: false },
-    ]);
-    expect(state.match!.visit).toEqual(['T20', 'T20', 'T20']);
   });
 
   it('manual and camera darts share one visit', () => {
@@ -264,7 +259,7 @@ describe('camera darts — refusals', () => {
     scorer.send({ type: 'scorer_camera', active: true });
 
     tips(scorer, ...T20_GROUP);
-    expect(scorer.last('scorer_state')!.match).toBeNull();
+    expect(scorer.last('scorer_state')!.status).toBe('active');
   });
 
   it('a spectator with a camera is not a scorer', () => {

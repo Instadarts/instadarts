@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createLobby, getLobby, deleteLobby, createGame, getGame, addPlayerToLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
+import { createLobby, getLobby, deleteLobby, createGame, getGame, addPlayerToLobby, removePlayerFromLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {
   beforeEach(() => {
@@ -79,6 +79,69 @@ describe('Store', () => {
 
       const found = getGame(game.id);
       expect(found).toBeDefined();
+    });
+  });
+
+  describe('handleClientLeave scenarios (store-level contracts)', () => {
+    // These tests verify the data operations that handleClientLeave orchestrates.
+    // The wsHandler-level refactor must preserve these state transitions.
+
+    it('local match: setting status=finished with no winner simulates creator disconnect', () => {
+      const lobby = createLobby();
+      lobby.isLocal = true;
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's1' });
+      const game = createGame(lobby);
+
+      // Simulate handleClientLeave: game.status = 'finished', no winner
+      game.status = 'finished';
+      game.finishedAt = Date.now();
+      // winnerId stays null — local match cancellation
+
+      expect(game.status).toBe('finished');
+      expect(game.winnerId).toBeNull();
+    });
+
+    it('online match: player leave declares other player winner', () => {
+      const lobby = createLobby();
+      lobby.isLocal = false;
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's2' });
+      const game = createGame(lobby);
+
+      // Simulate p1 leaves: p2 wins
+      const otherPlayer = game.players.find((p) => p.id !== 'p1');
+      expect(otherPlayer).toBeDefined();
+      game.status = 'finished';
+      game.winnerId = otherPlayer!.id;
+      game.finishedAt = Date.now();
+
+      expect(game.winnerId).toBe('p2');
+      expect(game.status).toBe('finished');
+    });
+
+    it('host leaving lobby: deleteLobby cleans up the lobby', () => {
+      const lobby = createLobby();
+      const lobbyId = lobby.id;
+      // Host leaves → deleteLobby
+      deleteLobby(lobbyId);
+      expect(getLobby(lobbyId)).toBeUndefined();
+    });
+
+    it('non-host leaving lobby: player removed, lobby still exists', () => {
+      const lobby = createLobby();
+      lobby.remoteConnected = true;
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'host' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'joiner' });
+
+      // Simulate joiner (p2) leaves: remove player, set remoteConnected false
+      const updated = removePlayerFromLobby(lobby.id, 'p2');
+      expect(updated).not.toBeNull();
+      expect(updated!.players).toHaveLength(1);
+      lobby.remoteConnected = false;
+
+      expect(getLobby(lobby.id)).toBeDefined();
+      expect(lobby.remoteConnected).toBe(false);
     });
   });
 });

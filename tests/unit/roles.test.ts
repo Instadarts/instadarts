@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { X01Handler } from '../../src/server/modes/x01';
-import { addDartToGame, submitVisitToGame } from '../../src/server/game';
+import { addDartToGame, submitVisitToGame, undoDartFromGame } from '../../src/server/game';
 import { registerModeHandler } from '../../src/server/modes/types';
 import { makeDart, makeGame } from '../helpers';
 
@@ -139,26 +139,57 @@ describe('Visit submission ownership', () => {
   });
 });
 
-describe('Reconnect session validation', () => {
-  it('rejects reconnect with mismatched sessionId', () => {
-    const game = makeGame({ isLocal: false, players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
-    ] });
-    // p1 has sessionId 'session-a', but reconnecting with session 'session-b'
-    const player = game.players.find((p) => p.id === 'p1')!;
-    expect(player.sessionId).toBe('session-a');
-    // A client with sessionId 'session-b' trying to reconnect as p1 should fail
-    // (this is enforced at the wsHandler level)
+describe('undoDart via game.ts (turn enforcement layer)', () => {
+  it('undoDart on an in-progress game succeeds', () => {
+    const game = makeGame({ currentPlayerIndex: 0 });
+    let r = addDartToGame(game, 'p1', makeDart('T20'));
+    expect(r.success).toBe(true);
+    r = addDartToGame(r.game, 'p1', makeDart('S20'));
+    expect(r.success).toBe(true);
+    const undo = undoDartFromGame(r.game);
+    expect(undo.success).toBe(true);
+    expect(undo.game.currentVisit?.darts).toHaveLength(1);
+    expect(undo.game.currentVisit!.darts[0].score.label).toBe('T20');
   });
 
-  it('allows reconnect with matching sessionId', () => {
+  it('undoDart on a finished game is rejected', () => {
+    const game = makeGame({ status: 'finished', winnerId: 'p1' });
+    const result = undoDartFromGame(game);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toBe('Game is not in progress');
+  });
+
+  it('undoDart with no darts returns clean state', () => {
+    const game = makeGame();
+    const result = undoDartFromGame(game);
+    expect(result.success).toBe(true);
+    expect(result.game.currentVisit).toBeUndefined();
+  });
+});
+
+describe('Reconnect session validation', () => {
+  // These scenarios are enforced at the wsHandler level — verified via E2E.
+  // Unit-level assertions verify the expected sessionId relationships.
+
+  it('player sessionId matches expected value', () => {
     const game = makeGame({ isLocal: false, players: [
       { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
       { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
     ] });
     const player = game.players.find((p) => p.id === 'p1')!;
     expect(player.sessionId).toBe('session-a');
-    // A client with sessionId 'session-a' reconnecting as p1 should succeed
+    // Reconnect enforcement (mismatched sessionId → reject, matching → allow)
+    // is handled by the wsHandler — see E2E tests.
+  });
+
+  it('local match allows same session for multiple players', () => {
+    const game = makeGame({
+      isLocal: true,
+      players: [
+        { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'local-session' },
+        { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'local-session' },
+      ],
+    });
+    expect(game.players[0].sessionId).toBe(game.players[1].sessionId);
   });
 });

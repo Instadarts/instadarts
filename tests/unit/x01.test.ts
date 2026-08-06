@@ -190,4 +190,28 @@ describe('X01Handler', () => {
       expect(result.game.visits).toHaveLength(1);
     });
   });
+
+  describe('zero-dart submit (auto-miss)', () => {
+    it('submitting with no darts creates a visit of 3 misses', () => {
+      const game = makeGame();
+      // Submit without adding any darts first
+      const result = handler.submitVisit(game);
+      expect(result.valid).toBe(true);
+      expect(result.game.visits).toHaveLength(1);
+      expect(result.game.visits[0].darts).toHaveLength(3);
+      expect(result.game.visits[0].darts.every(d => d.score.label === 'miss')).toBe(true);
+    });
+
+    it('auto-miss visit advances to next player', () => {
+      const game = makeGame({ currentPlayerIndex: 0 });
+      const result = handler.submitVisit(game);
+      expect(result.game.currentPlayerIndex).toBe(1);
+    });
+
+    it('auto-miss does not score any points', () => {
+      const game = makeGame({ settings: { startScore: 301 } });
+      const result = handler.submitVisit(game);
+      expect(result.remainingScore).toBe(301);
+    });
+  });
 });

@@ -273,6 +273,7 @@ export class ScoringSession {
     if (!handler) return false;
     const remaining = handler.getRemainingScore(game, visit.playerId);
     const points = visit.darts.reduce((sum, d) => sum + d.score.points, 0);
-    return points > remaining || remaining - points === 1;
+    if (points > remaining) return true;
+    return game.settings.doubleOut && remaining - points === 1;
   }
 }

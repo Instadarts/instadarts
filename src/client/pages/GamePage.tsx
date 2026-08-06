@@ -64,7 +64,9 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
     if (!cv || !cv.locked) return 'active';
     const visitTotal = cv.darts.reduce((s, d) => s + d.score.points, 0);
     const after = getRemainingBeforeVisit(cv.playerId) - visitTotal;
-    if (after < 0 || after === 1) return 'bust';
+    // Leaving exactly 1 is only unfinishable when a double is required; straight out checks it
+    // out with a single 1.
+    if (after < 0 || (game.settings.doubleOut && after === 1)) return 'bust';
     if (after === 0) {
       if (!game.settings.doubleOut) return 'checkout';
       const last = cv.darts[cv.darts.length - 1];

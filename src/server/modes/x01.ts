@@ -12,8 +12,8 @@ import type { GameModeHandler, VisitResult } from './types';
  *   is void if no double was hit.
  * - If doubleOut is set, the winning dart must be a double that
  *   brings the score exactly to 0.
- * - Bust: visit total would make remaining < 0, equals 1, or
- *   (with doubleOut) would leave 0 without a double finish.
+ * - Bust: the visit total would take remaining below 0, or — under doubleOut — would leave
+ *   exactly 1 (unfinishable, since no double is worth one) or would reach 0 on a non-double.
  */
 
 const MAX_DARTS = 3;
@@ -79,8 +79,15 @@ export class X01Handler implements GameModeHandler {
 
   // --- Lock detection ---
 
-  private isBustScore(remainingAfter: number): boolean {
-    return remainingAfter < 0 || remainingAfter === 1;
+  /**
+   * Whether a visit leaving this much is dead.
+   *
+   * Overthrowing always is. Leaving exactly one is too — but only under double-out, where there is
+   * no double worth one to finish on. A straight-out game checks it out with a single 1.
+   */
+  private isBustScore(remainingAfter: number, doubleOut: boolean): boolean {
+    if (remainingAfter < 0) return true;
+    return doubleOut && remainingAfter === 1;
   }
 
   private isNoDoubleCheckout(lastDart: DartThrow, doubleOut: boolean, remainingAfter: number): boolean {
@@ -94,9 +101,13 @@ export class X01Handler implements GameModeHandler {
     const effectiveScore = this.computeEffectiveScore(game, playerId, darts);
     const remainingAfter = remainingBefore - effectiveScore;
 
+    // Reaching zero ends the visit either way — won, or busted on a non-double.
     if (remainingAfter <= 0) return true;
 
-    return false;
+    // A visit that has already busted has nothing left to throw for. Without this a double-out
+    // player left on one would be invited to throw a third dart that cannot possibly help, and
+    // would not be told they were out until the visit filled up.
+    return this.isBustScore(remainingAfter, game.settings.doubleOut);
   }
 
   private computeEffectiveScore(game: GameState, playerId: string, darts: DartThrow[]): number {
@@ -118,7 +129,9 @@ export class X01Handler implements GameModeHandler {
     const visitTotal = darts.reduce((sum, d) => sum + d.score.points, 0);
     const remainingAfter = remainingBefore - visitTotal;
 
-    if (this.isBustScore(remainingAfter)) return this.commitVisit(game, darts, playerId, true, remainingBefore);
+    if (this.isBustScore(remainingAfter, game.settings.doubleOut)) {
+      return this.commitVisit(game, darts, playerId, true, remainingBefore);
+    }
     if (this.isNoDoubleCheckout(darts[darts.length - 1], game.settings.doubleOut, remainingAfter)) {
       return this.commitVisit(game, darts, playerId, true, remainingBefore);
     }
@@ -149,7 +162,7 @@ export class X01Handler implements GameModeHandler {
     this.doubleInMet.set(playerId, true);
     const remainingAfter = remainingBefore - scoreAfterDouble;
 
-    if (this.isBustScore(remainingAfter)) {
+    if (this.isBustScore(remainingAfter, settings.doubleOut)) {
       this.doubleInMet.delete(playerId);
       return this.commitVisit(game, darts, playerId, true, remainingBefore);
     }

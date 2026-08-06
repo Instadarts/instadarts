@@ -366,7 +366,7 @@ test.describe('Local 1-player x01 match', () => {
     await expect(page.locator('text=121')).toBeVisible();
   });
 
-  test('leaving exactly one reads as a bust', async ({ page }) => {
+  test('leaving exactly one busts immediately under double out', async ({ page }) => {
     await setupLocalMatch(page, ['Alice'], 301);
 
     await clickT20(page);
@@ -374,11 +374,15 @@ test.describe('Local 1-player x01 match', () => {
     await clickT20(page);
     await submitVisit(page);
 
-    // 121 − 60 − 60 = 1, which is unfinishable and so a bust.
+    // 121 − 60 − 60 = 1, which no double can check out. The visit is over there and then: the
+    // third dart is not offered, and the player is told rather than left sitting on 1.
     await clickT20(page);
     await clickT20(page);
-    await clickBoard(page, 500_000, 990_000); // a miss, to fill the visit and lock it
     await expect(page.locator('text=Bust!')).toBeVisible();
+
+    await submitVisit(page);
+    await expect(page.locator('text=T20 T20 = Bust')).toBeVisible();
+    await expect(page.locator('text=121')).toBeVisible();
   });
 });
 

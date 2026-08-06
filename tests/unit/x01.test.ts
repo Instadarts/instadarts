@@ -58,6 +58,57 @@ describe('X01Handler', () => {
       expect(result.valid).toBe(false);
       expect(result.remainingScore).toBe(20);
     });
+
+    it('leaving 1 is NOT a bust under straight out — a single 1 checks it out', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: false, startScore: 20 } });
+      const result = doVisit(handler, game, 'p1', ['S19']); // 19, leaves 1
+      expect(result.valid).toBe(true);
+      expect(result.remainingScore).toBe(1);
+    });
+
+    it('a straight-out player left on 1 finishes on the single', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: false, startScore: 1 } });
+      const result = doVisit(handler, game, 'p1', ['S1']);
+      expect(result.won).toBe(true);
+      expect(result.game.status).toBe('finished');
+    });
+
+    it('locks the visit the moment it leaves 1 under double out', () => {
+      // Nothing thrown after this can help, and a player left on one should be told so rather than
+      // being invited to throw the rest of the visit.
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 21 } });
+      const r = handler.addDart(game, 'p1', makeDart('S20')); // leaves 1
+      expect(r.locked).toBe(true);
+      expect(r.game.currentVisit!.darts).toHaveLength(1);
+
+      // And it stays a one-dart busted visit.
+      const submitted = handler.submitVisit(r.game);
+      expect(submitted.valid).toBe(false);
+      expect(submitted.game.visits[0].bust).toBe(true);
+      expect(submitted.game.visits[0].darts).toHaveLength(1);
+    });
+
+    it('does not lock on 1 under straight out', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: false, startScore: 21 } });
+      const r = handler.addDart(game, 'p1', makeDart('S20')); // leaves 1
+      expect(r.locked).toBe(false);
+
+      const finish = handler.addDart(r.game, 'p1', makeDart('S1'));
+      expect(finish.locked).toBe(true);
+      expect(handler.submitVisit(finish.game).won).toBe(true);
+    });
+
+    it('unlocks again when the dart that left 1 is undone', () => {
+      const game = makeGame({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 61 } });
+      let r = handler.addDart(game, 'p1', makeDart('T20')); // 60 thrown, leaves 1
+      expect(r.locked).toBe(true);
+
+      const undo = handler.undoDart(r.game);
+      expect(undo.game.currentVisit).toBeUndefined();
+
+      r = handler.addDart(undo.game, 'p1', makeDart('S20')); // leaves 41 — still alive
+      expect(r.locked).toBe(false);
+    });
   });
 
   describe('double-out', () => {

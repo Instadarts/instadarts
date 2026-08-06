@@ -40,6 +40,10 @@ function litertWasm(): Plugin {
   };
 }
 
+/** Kept in step with the server's own PORT, so a second instance can be brought up beside a first. */
+const SERVER_PORT = Number(process.env.PORT ?? 3000);
+const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), litertWasm()],
   resolve: {
@@ -53,7 +57,10 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    port: CLIENT_PORT,
+    // Fail rather than quietly moving to the next free port. A silent slide leaves whatever was
+    // already on this one serving the app, which looks like the code simply not taking effect.
+    strictPort: true,
     // A scoring device is a phone on the LAN, so the dev server has to be reachable from it.
     host: true,
     // Without these the app still runs, but LiteRT silently falls back to single-threaded WASM —
@@ -62,7 +69,7 @@ export default defineConfig({
     headers: ISOLATION_HEADERS,
     proxy: {
       '/ws': {
-        target: 'ws://localhost:3000',
+        target: `ws://localhost:${SERVER_PORT}`,
         ws: true,
         // A closing WebSocket routinely aborts the socket before the proxy has finished writing to
         // it, and Vite logs the resulting ECONNABORTED/ECONNRESET as a stack trace. Every page

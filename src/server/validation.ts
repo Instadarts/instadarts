@@ -1,5 +1,5 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
-import type { GameSettings, DartThrow, Visit } from '../shared/types';
+import type { GameSettings, DartThrow } from '../shared/types';
 
 // ============================================================
 // Player name
@@ -84,7 +84,7 @@ export function validateDartThrow(raw: unknown): DartThrow | null {
   return { x, y, score };
 }
 
-export function validateVisit(raw: unknown): Omit<Visit, 'visitNumber'> | null {
+export function validateVisit(raw: unknown): { playerId: string; darts: DartThrow[]; bust: false } | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const v = raw as Record<string, unknown>;
 

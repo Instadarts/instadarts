@@ -40,12 +40,32 @@ function litertWasm(): Plugin {
   };
 }
 
+/**
+ * Suppress the [vite] ws proxy error / ws proxy socket error noise that Vite 8 logs internally
+ * before user-defined proxy error handlers get to process them. Every page reload, every scoring
+ * device that drops off the Wi-Fi, and every e2e test browser close produces one — they are
+ * expected and the server sees the close either way.
+ */
+function quietWsProxyErrors(): Plugin {
+  return {
+    name: 'quiet-ws-proxy-errors',
+    configureServer(server) {
+      const log = server.config.logger;
+      const orig = log.error.bind(log);
+      log.error = (msg: string, options?: { timestamp?: boolean; error?: Error }) => {
+        if (msg.includes('ws proxy error') || msg.includes('ws proxy socket error')) return;
+        return orig(msg, options);
+      };
+    },
+  };
+}
+
 /** Kept in step with the server's own PORT, so a second instance can be brought up beside a first. */
 const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), litertWasm()],
+  plugins: [react(), tailwindcss(), litertWasm(), quietWsProxyErrors()],
   resolve: {
     alias: {
       '@shared': new URL('./src/shared', import.meta.url).pathname,

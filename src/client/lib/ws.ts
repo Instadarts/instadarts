@@ -35,17 +35,6 @@ export function clearReconnectInfo(): void {
   }
 }
 
-const WS_URL = `ws://${window.location.hostname}:3000/ws`;
-
-/**
- * Create a WebSocket connection with auto-reconnect.
- * Returns [ws, send] tuple.
- */
-export function createWS(): WebSocket {
-  const ws = new WebSocket(WS_URL);
-  return ws;
-}
-
 export function getWsUrl(): string {
   // In dev, Vite proxies /ws; in production, connect directly
   if (import.meta.env.DEV) {

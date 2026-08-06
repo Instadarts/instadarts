@@ -60,7 +60,6 @@ export function App() {
         <HomePage
           onCreateLocalMatch={() => { createLobby(true); }}
           onCreateOnlineMatch={() => { createLobby(false); }}
-          onJoinOnlineMatch={(code) => navigate(`/lobby/join/${code}`)}
           connected={connected}
         />
       } />

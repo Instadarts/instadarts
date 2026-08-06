@@ -59,12 +59,6 @@ export function useGameState() {
       case 'error':
         setError(msg.message);
         break;
-      case 'player_joined':
-        // Handled by lobby_state broadcast
-        break;
-      case 'player_left':
-        // Handled by lobby_state broadcast
-        break;
     }
   }, []);
 
@@ -145,7 +139,6 @@ export function useGameState() {
     addLocalPlayer,
     removePlayer,
     updateSettings,
-    setPlayerName,
     startGame,
     addDart,
     undoDart,

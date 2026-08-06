@@ -71,8 +71,6 @@ wss.on('connection', (ws) => {
       removeClient(ws);
     });
   });
-
-  ws.send(JSON.stringify({ type: 'connected', message: 'Welcome to InstaDarts!' }));
 });
 
 server.listen(PORT, () => {

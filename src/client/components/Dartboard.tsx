@@ -3,7 +3,7 @@ import {
   RADII, CENTER, BOARD_SIZE,
   SECTOR_ORDER,
   getSectorColor, getDoubleTripleColor,
-  boardYToSvgY, svgYToBoardY,
+  boardYToSvgY,
 } from './boardGeometry';
 import { DartMarker } from './DartMarker';
 import type { DartThrow } from '../../shared/types';
@@ -67,7 +67,7 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
     const svgY = ((e.clientY - rect.top) / rect.height) * BOARD_SIZE;
 
     const boardX = Math.round(svgX);
-    const boardY = Math.round(svgYToBoardY(svgY));
+    const boardY = Math.round(BOARD_SIZE - svgY);
 
     const score = scoreFromBoardCoords(boardX, boardY);
 

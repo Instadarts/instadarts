@@ -120,18 +120,6 @@ export interface ErrorMessage {
   message: string;
 }
 
-export interface PlayerJoinedMessage {
-  type: 'player_joined';
-  lobbyId: string;
-  player: import('./types').Player;
-}
-
-export interface PlayerLeftMessage {
-  type: 'player_left';
-  lobbyId: string;
-  playerId: string;
-}
-
 export interface GameStartedMessage {
   type: 'game_started';
   game: import('./types').GameState;
@@ -150,8 +138,6 @@ export type ServerMessage =
   | LobbyStateMessage
   | GameStateMessage
   | ErrorMessage
-  | PlayerJoinedMessage
-  | PlayerLeftMessage
   | GameStartedMessage
   | GameFinishedMessage
   | LobbyAbandonedMessage;

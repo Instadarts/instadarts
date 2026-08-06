@@ -186,7 +186,4 @@ export class X01Handler implements GameModeHandler {
     return { valid: true, game: newGame, remainingScore, won };
   }
 
-  reset(): void {
-    this.doubleInMet.clear();
-  }
 }

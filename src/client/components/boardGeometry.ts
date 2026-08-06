@@ -43,8 +43,3 @@ export function getDoubleTripleColor(sectorIndex: number): string {
 export function boardYToSvgY(boardY: number): number {
   return BOARD_SIZE - boardY;
 }
-
-// Convert SVG click (y-down) to board (y-up)
-export function svgYToBoardY(svgY: number): number {
-  return BOARD_SIZE - svgY;
-}

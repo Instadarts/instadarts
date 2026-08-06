@@ -4,14 +4,12 @@ import { useNavigate } from 'react-router';
 interface HomePageProps {
   onCreateLocalMatch: () => void;
   onCreateOnlineMatch: () => void;
-  onJoinOnlineMatch: (code: string) => void;
   connected: boolean;
 }
 
 export function HomePage({
   onCreateLocalMatch,
   onCreateOnlineMatch,
-  onJoinOnlineMatch,
   connected,
 }: HomePageProps) {
   const [showJoin, setShowJoin] = useState(false);

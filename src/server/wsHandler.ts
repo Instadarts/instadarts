@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../shared/protocol';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, deleteGame, swapLobbyPlayers } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
 import { addDartToGame, undoDartFromGame, submitVisitToGame } from './game';
 import { generateInviteCode } from './invite';

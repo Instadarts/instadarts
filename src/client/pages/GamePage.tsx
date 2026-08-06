@@ -32,7 +32,7 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
     onSubmitVisit(game.id);
   }, [game.id, onSubmitVisit]);
 
-  const getRemaining = useCallback((playerId: string): number => {
+  const getRemaining = (playerId: string): number => {
     let remaining = game.settings.startScore;
     for (const visit of game.visits) {
       if (visit.playerId !== playerId || visit.bust) continue;
@@ -43,7 +43,7 @@ export function GamePage({ game, onLeave, onAddDart, onUndoDart, onSubmitVisit, 
       remaining -= game.currentVisit.darts.reduce((s, d) => s + d.score.points, 0);
     }
     return Math.max(0, remaining);
-  }, [game.visits, game.settings.startScore, game.currentVisit]);
+  };
 
   const needsDoubleIn = game.settings.doubleIn && game.visits.filter(
     (v) => v.playerId === currentPlayer.id && !v.bust

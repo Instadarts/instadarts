@@ -465,75 +465,83 @@ export function handleClientLeave(ws: WebSocket): void {
   const client = clients.get(ws);
   if (!client) return;
 
-  // Spectators leaving: just clear association, keep client for rejoin
   if (client.isSpectator) {
-    client.isSpectator = false;
-    client.lobbyId = null;
-    client.gameId = null;
+    leaveAsSpectator(client);
     return;
   }
 
-  // Client is in a game → declare other player winner
   if (client.gameId) {
-    const game = getGame(client.gameId);
-    if (game && game.status === 'in_progress') {
-      if (game.isLocal) {
-        // Local match: creator left → cancel match, no winner
+    leaveGame(ws, client);
+    return;
+  }
+
+  if (client.lobbyId) {
+    leaveLobby(ws, client);
+  }
+}
+
+function leaveAsSpectator(client: Client): void {
+  client.isSpectator = false;
+  client.lobbyId = null;
+  client.gameId = null;
+}
+
+function leaveGame(_ws: WebSocket, client: Client): void {
+  const game = getGame(client.gameId!);
+  if (game && game.status === 'in_progress') {
+    if (game.isLocal) {
+      // Local match: creator left → cancel match, no winner
+      game.status = 'finished';
+      game.finishedAt = Date.now();
+      broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
+    } else {
+      // Online match: declare other player winner
+      const otherPlayer = game.players.find((p) => p.id !== client.playerId);
+      if (otherPlayer && game.players.length === 2) {
         game.status = 'finished';
+        game.winnerId = otherPlayer.id;
         game.finishedAt = Date.now();
         broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
-      } else {
-        // Online match: declare other player winner
-        const otherPlayer = game.players.find((p) => p.id !== client.playerId);
-        if (otherPlayer && game.players.length === 2) {
-          game.status = 'finished';
-          game.winnerId = otherPlayer.id;
-          game.finishedAt = Date.now();
-          broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
-        }
       }
     }
-    client.gameId = null;
-    client.playerId = null;
+  }
+  client.gameId = null;
+  client.playerId = null;
+}
+
+function leaveLobby(ws: WebSocket, client: Client): void {
+  const lobby = getLobby(client.lobbyId!);
+  if (!lobby) {
+    client.lobbyId = null;
     return;
   }
 
-  // Client is in a lobby
-  if (client.lobbyId) {
-    const lobby = getLobby(client.lobbyId);
-    if (!lobby) {
-      client.lobbyId = null;
-      return;
-    }
-
-    if (client.sessionId === lobby.hostSessionId) {
-      // Host left → abandon lobby, kick everyone
-      for (const [otherWs, otherClient] of clients) {
-        if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
-          // Send lobby_abandoned directly to each remaining client
-          send(otherWs, { type: 'lobby_abandoned' });
-          otherClient.lobbyId = null;
-          otherClient.playerId = null;
-        }
+  if (client.sessionId === lobby.hostSessionId) {
+    // Host left → abandon lobby, kick everyone
+    for (const [otherWs, otherClient] of clients) {
+      if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
+        send(otherWs, { type: 'lobby_abandoned' });
+        otherClient.lobbyId = null;
+        otherClient.playerId = null;
       }
-      deleteLobby(lobby.id);
-      client.lobbyId = null;
-      client.playerId = null;
-      return;
-    } else {
-      // Non-host left: clear lobbyId before broadcasting so leaver is excluded
-      const leavingPlayerId = client.playerId;
-      client.lobbyId = null;
-      client.playerId = null;
-      lobby.remoteConnected = false;
-      if (leavingPlayerId) {
-        removePlayerFromLobby(lobby.id, leavingPlayerId);
-      }
-      generateInviteCode(lobby.id);
-      broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
-      return;
     }
+    deleteLobby(lobby.id);
+  } else {
+    // Non-host left: clear lobbyId before broadcasting so leaver is excluded
+    const leavingPlayerId = client.playerId;
+    client.lobbyId = null;
+    client.playerId = null;
+    lobby.remoteConnected = false;
+    if (leavingPlayerId) {
+      removePlayerFromLobby(lobby.id, leavingPlayerId);
+    }
+    generateInviteCode(lobby.id);
+    broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+    return;
   }
+
+  client.lobbyId = null;
+  client.playerId = null;
 }
 
 function handleSpectate(ws: WebSocket, msg: any): void {

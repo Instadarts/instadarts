@@ -1,11 +1,8 @@
 @import "tailwindcss";
 
+/* Ensure form inputs remain selectable (Tailwind may disable by default) */
 input[type="text"],
 input[type="search"],
 textarea {
   user-select: text;
-}
-
-select {
-  user-select: none;
 }

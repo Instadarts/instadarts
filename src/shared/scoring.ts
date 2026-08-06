@@ -40,7 +40,7 @@ function parseLabel(label: string): ScoreResult {
   if (label === 'DB') return { label, points: 50, mult: 2, base: 25 };
   const match = label.match(/^([SDT])(\d+)$/);
   if (!match) return { label, points: 0, mult: 0, base: 0 };
-  const mult = MULT_MAP[match[1]] ?? 1;
+  const mult = MULT_MAP[match[1]];
   const base = parseInt(match[2], 10);
   return { label, points: base * mult, mult, base };
 }
@@ -75,7 +75,7 @@ export function scoreFromBoardCoords(x: number, y: number): ScoreResult {
 
   const angleDeg = (Math.atan2(dx, dy) * 180) / Math.PI + 360;
   const sectorIdx = Math.floor(((angleDeg + 9) % 360) / 18);
-  const segment = SECTOR_ORDER[sectorIdx] ?? 20;
+  const segment = SECTOR_ORDER[sectorIdx];
 
   if (r >= RADII.tripleInner && r <= RADII.tripleOuter) {
     return parseLabel(`T${segment}`);

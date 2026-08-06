@@ -144,11 +144,15 @@ export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
         })}
 
         {/* Ring wires */}
-        <circle cx={CENTER} cy={CENTER} r={RADII.doubleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={CENTER} r={RADII.doubleOuter} fill="none" stroke="#333" strokeWidth="800" />
-        <circle cx={CENTER} cy={CENTER} r={RADII.tripleInner} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={CENTER} r={RADII.tripleOuter} fill="none" stroke="#333" strokeWidth="600" />
-        <circle cx={CENTER} cy={CENTER} r={RADII.outerBull} fill="none" stroke="#333" strokeWidth="500" />
+        {[
+          [RADII.doubleInner, 600],
+          [RADII.doubleOuter, 800],
+          [RADII.tripleInner, 600],
+          [RADII.tripleOuter, 600],
+          [RADII.outerBull, 500],
+        ].map(([r, sw]) => (
+          <circle key={`ring-${r}`} cx={CENTER} cy={CENTER} r={r} fill="none" stroke="#333" strokeWidth={sw} />
+        ))}
 
         {/* Sector numbers */}
         {SECTOR_ORDER.map((value, i) => {

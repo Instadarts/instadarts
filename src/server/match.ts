@@ -4,7 +4,7 @@
 // play-through of the game mode — as well as whose visit it is and the lifecycle. It holds a dart in
 // the current visit and asks the mode what that means; it never interprets one itself.
 
-import type { DartThrow, MatchState, ModeView, Visit } from '../shared/types';
+import type { DartThrow, MatchState, ModeView } from '../shared/types';
 import { matchWinnerOf, standingsOf, starterIndex } from '../shared/matchFormat';
 import { getMode } from './modes/types';
 import type { GameMode, LegContext } from './modes/types';
@@ -23,29 +23,18 @@ function isFailure(value: GameMode | Failure): value is Failure {
 }
 
 /**
- * Which visits are "this leg".
- *
- * Normally the current leg's, which is what makes a new leg free: it starts with an empty list and
- * everything the mode derives starts over with it.
- *
- * A **finished** match is the exception. Winning a leg closes it, so a match that has just been won
- * has an empty current leg — and a summary showing neither the final scores nor how they were
- * reached. The leg that decided the match is the one to show.
- */
-function legVisits(match: MatchState): Visit[] {
-  const between = match.visits.length === 0 && match.legs.length > 0;
-  return match.status === 'finished' && between ? match.legs[match.legs.length - 1].visits : match.visits;
-}
-
-/**
  * The current leg, as the mode sees it — one leg, with no sight of the match around it.
+ *
+ * A new leg needs no reset: it starts with an empty visit list, and everything the mode derives
+ * starts over with it. A finished match has an empty current leg too, and that is fine — the summary
+ * screen is the match's, not the mode's, so there is nothing left for the mode to describe.
  */
 export function legContext(match: MatchState): LegContext {
   return {
     settings: match.settings.modeSettings,
     players: match.players,
     currentPlayerId: match.currentVisit?.playerId ?? match.players[match.currentPlayerIndex].id,
-    visits: legVisits(match),
+    visits: match.visits,
     currentVisit: match.currentVisit,
   };
 }

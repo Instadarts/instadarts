@@ -337,9 +337,11 @@ test.describe('Home screen', () => {
     await page.reload();
     await page.waitForTimeout(3000);
 
-    // Should be back in the match with score and visit history
-    await expect(page.locator('text=501').first()).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=180').first()).toBeVisible({ timeout: 5000 });
+    // Back in the match — still being played, with the visit history intact.
+    await expect(page.locator('text=Visit History')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Match cancelled')).toHaveCount(0);
+    await expect(page.getByText('321', { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('= 180').first()).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -367,10 +369,11 @@ test.describe('Local 1-player x01 match', () => {
     await clickT19(page);
     await clickD12(page);
     await submitVisit(page);
-    await expectVisitTotal(page, 141);
 
-    // Match should be finished, Alice wins
+    // Match should be finished, Alice wins. The summary is the match's, not the leg's.
     await expect(page.locator('text=Alice wins!')).toBeVisible();
+    await expect(page.locator('text=Match History')).toBeVisible();
+    await expect(page.locator('text=Visit History')).toHaveCount(0);
   });
 
   test('overthrowing on a double reads as a bust, not a checkout', async ({ page }) => {
@@ -443,7 +446,6 @@ test.describe('Local 2-player x01 match', () => {
     // --- Alice: Visit 3: T20, T19, D12 = 141, checkout! ---
     await clickT20(page); await clickT19(page); await clickD12(page);
     await submitVisit(page);
-    await expectVisitTotal(page, 141);
 
     await expect(page.locator('text=Alice wins!')).toBeVisible();
   });
@@ -987,7 +989,7 @@ test.describe('Re-match', () => {
     await expect(page.locator('text=No re-match')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Alice: accept re-match' })).toBeDisabled();
     await expect(page.locator('text=Alice wins!')).toBeVisible();
-    await expect(page.locator('text=Visit History')).toBeVisible();
+    await expect(page.locator('text=Match History')).toBeVisible();
     expect(page.url()).toBe(firstMatch);
   });
 

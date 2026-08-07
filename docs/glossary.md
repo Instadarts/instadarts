@@ -244,9 +244,8 @@ and the leg and set layer is written in terms of no mode's rules.
   a `CompletedLeg` — its visits and its winner.
 - A new leg therefore needs no reset: it starts with an empty visit list, and everything a mode
   derives starts over with it.
-- The exception is display: a **finished** match has no current leg, so the screen is shown the leg
-  that decided it — otherwise the summary would have neither final scores nor history
-  ([`legVisits`](../src/server/match.ts)).
+- A finished match has no current leg, and needs none: its summary is the
+  [match's](#the-summary-screen), not the mode's.
 
 ### Set
 
@@ -266,6 +265,16 @@ that keeps a game mode stateless.
 Shared, so the server decides the match with it and the screen displays it with it — one
 implementation, and nothing derived on the wire. The player card reads `2S | 3L`, or `5L` when a set
 is one leg.
+
+### The summary screen
+
+What a finished match shows. Deliberately **match-level**: the player cards give winner and loser
+rather than a score, and the scoreline is legs per set, read like a tennis result
+([`MatchHistory`](../src/client/components/MatchHistory.tsx)).
+
+The game mode contributes exactly two things — the headline, so it still says what was played, and
+its optional [panel](#mode-view), which is where a mode may put statistics of its own. Everything
+else is the same whatever was played inside the legs.
 
 ### Who throws first
 
@@ -557,4 +566,4 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
 | "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), `tests/e2e/app.spec.ts` |
 | `visitNumber` counts across the leg and both players, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
-| The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` but never displayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |
+| The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` and are summarised, never replayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

@@ -65,6 +65,20 @@ function cancelDisconnect(key: string): void {
   }
 }
 
+/**
+ * Cancel every pending disconnect for a match.
+ *
+ * For a **local** match, which is one user holding every player: the key a disconnect was filed
+ * under names whichever player that connection was associated with, and a reloading client cannot
+ * know which one that was. Their return covers all of them, because there is nobody else it could
+ * be. An online match is left alone — one player coming back says nothing about the other.
+ */
+function cancelDisconnectsForMatch(matchId: string): void {
+  for (const key of [...pendingDisconnects.keys()]) {
+    if (key.startsWith(`match:${matchId}:`)) cancelDisconnect(key);
+  }
+}
+
 export function registerClient(ws: WebSocket, client: Client): void {
   clients.set(ws, client);
 }
@@ -786,6 +800,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
       send(ws, { type: 'error', message: 'Player not found in match' });
       return;
     }
+    if (match.isLocal) cancelDisconnectsForMatch(match.id);
     // Leaving is final: a player who walked out does not come back, however they walked out.
     if (match.departed.includes(msg.playerId)) {
       send(ws, { type: 'error', message: 'You have left this match' });

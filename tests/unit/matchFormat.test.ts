@@ -43,6 +43,21 @@ describe('standings', () => {
     expect(s.legsInCurrentSet).toBe(0);
   });
 
+  it('read out set by set, the way a scoreline does', () => {
+    // First to 3 legs: A takes set 1 by 3–1, and set 2 is under way at 1–0 to B.
+    const s = standingsOf(legs('ABAAB'), format(3, 3));
+    expect(s.sets).toEqual([
+      { legWins: { A: 3, B: 1 }, winnerId: 'A' },
+      { legWins: { B: 1 }, winnerId: null },  // still being played
+    ]);
+  });
+
+  it('start no set until a leg has been played into it', () => {
+    expect(standingsOf(legs(''), format(3, 3)).sets).toEqual([]);
+    // The set that has just closed is not followed by an empty one.
+    expect(standingsOf(legs('AAA'), format(3, 3)).sets).toHaveLength(1);
+  });
+
   it('report no winner until the sets are there', () => {
     const settings = format(2, 2);
     expect(matchWinnerOf(standingsOf(legs('AA'), settings), settings)).toBeNull();  // one set

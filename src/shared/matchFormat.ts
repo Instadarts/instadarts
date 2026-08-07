@@ -21,6 +21,14 @@ export const MATCH_FIELDS: SettingsField[] = [
 /** One set, one leg: a single play-through, which is what a match was before sets and legs existed. */
 export const DEFAULT_FORMAT = { setsToWinMatch: 1, legsToWinSet: 1 };
 
+/** One set: how its legs were shared, and who took it. */
+export interface SetScore {
+  /** Legs won in this set, by player id. */
+  legWins: Record<string, number>;
+  /** Who took the set, or null while it is still being played. */
+  winnerId: string | null;
+}
+
 export interface Standings {
   /** Sets won, by player id. */
   setWins: Record<string, number>;
@@ -30,29 +38,41 @@ export interface Standings {
   setsPlayed: number;
   /** How many legs of the current set have been played. */
   legsInCurrentSet: number;
+  /**
+   * Every set that has been started, in order — the last may still be in progress. This is the
+   * match's result read out set by set, the way a tennis scoreline is.
+   */
+  sets: SetScore[];
 }
 
 /** Where the match stands, from the legs played so far. */
 export function standingsOf(legs: CompletedLeg[], settings: MatchSettings): Standings {
+  const sets: SetScore[] = [];
   const setWins: Record<string, number> = {};
-  let legWins: Record<string, number> = {};
-  let setsPlayed = 0;
-  let legsInCurrentSet = 0;
+  let open: SetScore | null = null;
 
   for (const leg of legs) {
-    legWins[leg.winnerId] = (legWins[leg.winnerId] ?? 0) + 1;
-    legsInCurrentSet += 1;
+    if (!open) {
+      open = { legWins: {}, winnerId: null };
+      sets.push(open);
+    }
+    open.legWins[leg.winnerId] = (open.legWins[leg.winnerId] ?? 0) + 1;
 
-    if (legWins[leg.winnerId] < settings.legsToWinSet) continue;
+    if (open.legWins[leg.winnerId] < settings.legsToWinSet) continue;
 
-    // The set is won: it closes, and the leg tally starts again.
+    // The set is won: it closes, and the next leg opens a new one.
+    open.winnerId = leg.winnerId;
     setWins[leg.winnerId] = (setWins[leg.winnerId] ?? 0) + 1;
-    setsPlayed += 1;
-    legWins = {};
-    legsInCurrentSet = 0;
+    open = null;
   }
 
-  return { setWins, legWins, setsPlayed, legsInCurrentSet };
+  return {
+    setWins,
+    legWins: open ? { ...open.legWins } : {},
+    setsPlayed: sets.length - (open ? 1 : 0),
+    legsInCurrentSet: open ? Object.values(open.legWins).reduce((a, b) => a + b, 0) : 0,
+    sets,
+  };
 }
 
 /** Who has won the match, or null while it is still on. */

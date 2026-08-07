@@ -207,14 +207,24 @@ Top to bottom:
 | 8 | History | the element | `history` |
 | 9 | Leave | all of it | — |
 
-Once the match is finished the input block (4–7) unmounts, and the screen becomes the summary: the
-headline, the player cards, how it ended, the [re-match](./glossary.md#re-match) toggles and the
-history. All of that is either universal or already in the view, so a mode contributes to the summary
-exactly as it does to a live match — a mode wanting match statistics puts them in its `view`, in the
-player cards or the panel, with no new mechanism.
+### The summary
 
-The re-match itself is **not** a mode concern: it starts an ordinary new match with the same settings
-and participants, and no mode is consulted.
+Once the match is finished the screen becomes **the match's**, not the mode's. The input block (4–7)
+unmounts, the player cards show winner and loser instead of a score, and the history is replaced by
+the match scoreline — legs per set, read like a tennis result.
+
+A mode contributes exactly two things to it:
+
+- the **headline**, so the summary still says what was played;
+- the **panel**, which is the one place a mode may show its own statistics after a match. x01 uses
+  it for nothing, so nothing is rendered there.
+
+Everything else on the summary — the verdict, the scoreline, the re-match, Exit — is match-level and
+means the same whatever was played. The re-match in particular is **not** a mode concern: it starts
+an ordinary new match with the same settings and participants, and no mode is consulted.
+
+This is also why a finished match needs no special handling on the mode side: its current leg is
+empty, and there is nothing left for the mode to describe.
 
 Notes:
 

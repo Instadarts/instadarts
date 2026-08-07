@@ -3,6 +3,7 @@ import type { DartThrow, MatchState, ModeView, RematchAnswer } from '../../share
 import { textOf } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
 import { RematchPanel } from '../components/RematchPanel';
+import { MatchHistory } from '../components/MatchHistory';
 import { modeTextClasses } from '../components/modeText';
 import { standingsOf } from '../../shared/matchFormat';
 import { MODE_PANELS } from '../modes/panels';
@@ -38,6 +39,16 @@ function formatStandings(setWins: number, legWins: number, legsToWinSet: number)
   return legsToWinSet === 1 ? `${setWins}L` : `${setWins}S | ${legWins}L`;
 }
 
+/**
+ * How a player finished. A cancelled match has no winner and therefore no verdict to give.
+ */
+function Verdict({ match, playerId }: { match: MatchState; playerId: string }) {
+  if (!match.winnerId) return <p className="text-2xl font-bold text-gray-600">—</p>;
+  return match.winnerId === playerId
+    ? <p className="text-2xl font-bold text-green-400">WINNER</p>
+    : <p className="text-2xl font-bold text-gray-500">loser</p>;
+}
+
 export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
@@ -60,6 +71,7 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
 
   const ModePanel = MODE_PANELS[match.settings.mode];
   const standings = standingsOf(match.legs, match.settings);
+  const over = match.status === 'finished';
 
   return (
     <div className="flex-1 flex flex-col items-center p-4 gap-6">
@@ -68,41 +80,46 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
         {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}
       </h2>
 
-      {/* Score panel */}
+      {/* Score panel. While the match is on it is the mode's; once it is over it is the result. */}
       <div className="flex gap-8">
         {match.players.map((p, i) => {
-          const isCurrent = i === match.currentPlayerIndex;
+          const isCurrent = !over && i === match.currentPlayerIndex;
           const score = view.playerScores[p.id] ?? '';
           return (
             <div
               key={p.id}
               data-player={p.name}
-              aria-current={isCurrent && match.status === 'in_progress'}
+              aria-current={isCurrent}
               className={`text-center px-6 py-4 rounded-lg min-w-[120px] ${
                 isCurrent ? 'bg-green-900 border border-green-500' : 'bg-gray-900'
               }`}
             >
               <p className="text-sm text-gray-400">{p.name}</p>
-              <p className="text-xs text-gray-500 font-mono">
-                {formatStandings(
-                  standings.setWins[p.id] ?? 0,
-                  standings.legWins[p.id] ?? 0,
-                  match.settings.legsToWinSet,
-                )}
-              </p>
-              {/* Whose turn it is is ours to colour; anything the mode wants to say about the score
-                  itself overrides it. */}
-              <p
-                className={modeTextClasses(
-                  score,
-                  { tone: isCurrent ? 'accent' : 'default', size: '4xl', weight: 'bold' },
-                  'font-mono',
-                )}
-              >
-                {textOf(score)}
-              </p>
-              {isCurrent && match.status === 'in_progress' && (
-                <p className="text-xs text-green-500 mt-1">▶ throwing</p>
+
+              {over ? (
+                <Verdict match={match} playerId={p.id} />
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 font-mono">
+                    {formatStandings(
+                      standings.setWins[p.id] ?? 0,
+                      standings.legWins[p.id] ?? 0,
+                      match.settings.legsToWinSet,
+                    )}
+                  </p>
+                  {/* Whose turn it is is ours to colour; anything the mode wants to say about the
+                      score itself overrides it. */}
+                  <p
+                    className={modeTextClasses(
+                      score,
+                      { tone: isCurrent ? 'accent' : 'default', size: '4xl', weight: 'bold' },
+                      'font-mono',
+                    )}
+                  >
+                    {textOf(score)}
+                  </p>
+                  {isCurrent && <p className="text-xs text-green-500 mt-1">▶ throwing</p>}
+                </>
               )}
             </div>
           );
@@ -110,7 +127,7 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
       </div>
 
       {/* How it ended. No winner on a finished match means it was cancelled, not won. */}
-      {match.status === 'finished' && (
+      {over && (
         <div className="text-center">
           {match.winnerId ? (
             <p className="text-2xl text-yellow-400 font-bold">
@@ -122,7 +139,7 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
         </div>
       )}
 
-      {match.status === 'finished' && !isSpectator && (
+      {over && !isSpectator && (
         <RematchPanel match={match} sessionId={sessionId} onVote={onVoteRematch} />
       )}
 
@@ -136,7 +153,7 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
       {ModePanel && view.panel !== undefined && <ModePanel payload={view.panel} />}
 
       {/* Dartboard / Visit Input */}
-      {match.status === 'in_progress' && (
+      {!over && (
         <div className="w-full max-w-[500px]">
           <VisitInput
             darts={currentDarts}
@@ -154,25 +171,32 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
         </div>
       )}
 
-      {/* Visit history */}
-      <div className="w-80 max-h-48 overflow-y-auto">
-        <h3 className="text-gray-400 text-sm uppercase mb-2">Visit History</h3>
-        {view.history.slice(0, 12).map((line, i) => (
-          <div
-            key={i}
-            className={modeTextClasses(line, { size: 'sm' }, 'py-1 px-2 font-mono whitespace-pre-wrap')}
-          >
-            {textOf(line)}
-          </div>
-        ))}
-      </div>
+      {/* History. The mode's visits while it is being played; the match's scoreline once it is over. */}
+      {over ? (
+        <div className="flex flex-col items-center">
+          <h3 className="text-gray-400 text-sm uppercase mb-2">Match History</h3>
+          <MatchHistory match={match} />
+        </div>
+      ) : (
+        <div className="w-80 max-h-48 overflow-y-auto">
+          <h3 className="text-gray-400 text-sm uppercase mb-2">Visit History</h3>
+          {view.history.slice(0, 12).map((line, i) => (
+            <div
+              key={i}
+              className={modeTextClasses(line, { size: 'sm' }, 'py-1 px-2 font-mono whitespace-pre-wrap')}
+            >
+              {textOf(line)}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Actions */}
       <button
         onClick={onLeave}
         className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
       >
-        {match.status === 'finished' ? 'Exit' : 'Leave Match'}
+        {over ? 'Exit' : 'Leave Match'}
       </button>
     </div>
   );

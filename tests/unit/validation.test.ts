@@ -66,19 +66,37 @@ describe('sanitizeName', () => {
 describe('validateSettings', () => {
   // Settings are validated against what the mode declares in shared/modes/catalog.ts, so nothing
   // here — and nothing in validation.ts — names an x01 setting except the fixtures.
-  const current: MatchSettings = { mode: 'x01', modeSettings: { startScore: 501, doubleIn: false, doubleOut: true } };
+  const current: MatchSettings = {
+    mode: 'x01',
+    modeSettings: { startScore: 501, doubleIn: false, doubleOut: true },
+    setsToWinMatch: 1,
+    legsToWinSet: 1,
+  };
   const settings = (modeSettings: Record<string, unknown>, mode = 'x01') => ({ mode, modeSettings });
 
   it('accepts valid settings', () => {
     expect(validateSettings(settings({ startScore: 301, doubleIn: true, doubleOut: true }), current)).toEqual({
-      mode: 'x01',
+      ...current,
       modeSettings: { startScore: 301, doubleIn: true, doubleOut: true },
     });
   });
 
+  it('validates the match format the same way as a mode setting', () => {
+    const format = (over: Record<string, unknown>) => validateSettings({ ...over }, current)!;
+
+    expect(format({ setsToWinMatch: 3, legsToWinSet: 5 })).toMatchObject({ setsToWinMatch: 3, legsToWinSet: 5 });
+    // A minimum of one of each, declared by the field and enforced by the same code as any other.
+    expect(format({ legsToWinSet: 0 }).legsToWinSet).toBe(1);
+    expect(format({ legsToWinSet: -3 }).legsToWinSet).toBe(1);
+    expect(format({ setsToWinMatch: 0 }).setsToWinMatch).toBe(1);
+    expect(format({ setsToWinMatch: 1.5 }).setsToWinMatch).toBe(1);
+    expect(format({ setsToWinMatch: 999 }).setsToWinMatch).toBe(1); // above the cap, so dropped
+    expect(format({ setsToWinMatch: '3' }).setsToWinMatch).toBe(3); // coerced, then checked
+  });
+
   it('fills the gaps from the current settings', () => {
     expect(validateSettings(settings({ startScore: 301 }), current)).toEqual({
-      mode: 'x01',
+      ...current,
       modeSettings: { startScore: 301, doubleIn: false, doubleOut: true },
     });
     expect(validateSettings(settings({}), current)).toEqual(current);
@@ -136,7 +154,7 @@ describe('validateSettings', () => {
       settings({ startScore: 301, __proto__: { isAdmin: true }, constructor: 'evil', extraField: 'ignored' }),
       current,
     );
-    expect(result).toEqual({ mode: 'x01', modeSettings: { startScore: 301, doubleIn: false, doubleOut: true } });
+    expect(result).toEqual({ ...current, modeSettings: { startScore: 301, doubleIn: false, doubleOut: true } });
     expect((result!.modeSettings as any).extraField).toBeUndefined();
   });
 

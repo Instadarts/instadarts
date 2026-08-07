@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { addDartToMatch } from '../../src/server/match';
 import { x01Remaining } from '../../src/server/modes/x01';
-import { legOf, makeDart, makeMatch, playVisit, throwDart, undoDart } from '../helpers';
+import { legOf, makeDart, makeMatch, playVisit, throwDart, undoDart, visitsOf } from '../helpers';
 import type { MatchState } from '../../src/shared/types';
 
 const remaining = (match: MatchState, playerId: string) => x01Remaining(legOf(match), playerId);
@@ -10,7 +10,7 @@ describe('Spectator / bad-actor match logic tests', () => {
   describe('turn enforcement', () => {
     it('accepts darts from the current player', () => {
       const match = playVisit(makeMatch({ currentPlayerIndex: 0 }), 'p1', ['T20', 'T20', 'T20']);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(remaining(match, 'p1')).toBe(321);
     });
 
@@ -25,26 +25,26 @@ describe('Spectator / bad-actor match logic tests', () => {
   describe('bust protection', () => {
     it('bust when score exceeds remaining', () => {
       const match = playVisit(makeMatch({ settings: { startScore: 40 } }), 'p1', ['T20']);
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(40);
     });
 
     it('bust at 1 remaining', () => {
       const match = playVisit(makeMatch({ settings: { startScore: 2 } }), 'p1', ['S20']);
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(2);
     });
 
     it('double-out: cannot win on a single', () => {
       const match = playVisit(makeMatch({ settings: { startScore: 20 } }), 'p1', ['S20']);
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(match.status).toBe('in_progress');
       expect(match.winnerId).toBeNull();
     });
 
     it('double-out: D20 wins from 40', () => {
       const match = playVisit(makeMatch({ settings: { startScore: 40 } }), 'p1', ['D20']);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(match.status).toBe('finished');
       expect(match.winnerId).toBe('p1');
     });
@@ -54,7 +54,7 @@ describe('Spectator / bad-actor match logic tests', () => {
     it('requires a double to start scoring', () => {
       let match = makeMatch({ settings: { mode: 'x01', doubleIn: true, doubleOut: true, startScore: 501 } });
       match = playVisit(match, 'p1', ['S20', 'S20', 'S20']);
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(501);
 
       match = playVisit(match, 'p2', []);
@@ -75,7 +75,7 @@ describe('Spectator / bad-actor match logic tests', () => {
   describe('miss darts', () => {
     it('handles visits with misses', () => {
       const match = playVisit(makeMatch({ settings: { startScore: 501 } }), 'p1', ['T20', 'miss', 'S20']);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(remaining(match, 'p1')).toBe(421);
     });
   });

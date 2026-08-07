@@ -7,20 +7,11 @@
 // Shared rather than server-only because the lobby has to render a panel before a match exists, and
 // a settings *descriptor* is configuration, not a rule. The rules stay in src/server/modes/.
 
-/** A mode's own settings. Values are validated against the field list below before they are stored. */
-export type ModeSettings = Record<string, string | number | boolean>;
+import type { SettingsField, SettingsValue } from '../settings';
+export type { SettingsField } from '../settings';
 
-export type SettingsField =
-  | { key: string; label: string; kind: 'toggle' }
-  | {
-      key: string;
-      label: string;
-      kind: 'number';
-      min: number;
-      max: number;
-      /** Usual values, offered as a dropdown. Suggestions — anything in range is still accepted. */
-      options?: { value: number; label: string }[];
-    };
+/** A mode's own settings. Values are validated against the field list below before they are stored. */
+export type ModeSettings = Record<string, SettingsValue>;
 
 export interface ModeDescriptor {
   id: string;

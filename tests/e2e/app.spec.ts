@@ -81,6 +81,37 @@ async function expectVisitTotal(page: Page, total: number) {
   await expect(page.getByText(`= ${total}`).first()).toBeVisible();
 }
 
+/** Hand the board to Alice if it is not already hers. The rota decides who starts each leg. */
+async function ensureAliceThrows(alice: Page, bob: Page) {
+  const card = alice.locator('[data-player="Alice"]');
+  await expect(card).toBeVisible();
+  if ((await card.getAttribute('aria-current')) !== 'true') await submitVisit(bob);
+}
+
+/**
+ * Alice wins one leg at 501 — 180, 180, then a 141 checkout — while Bob passes.
+ *
+ * `bob` is the page playing Bob: the same one in a local match, the opponent's in an online one.
+ */
+async function winLegAt501(alice: Page, bob: Page = alice) {
+  await ensureAliceThrows(alice, bob);
+  await clickT20(alice); await clickT20(alice); await clickT20(alice);   // 180 → 321
+  await submitVisit(alice);
+  await submitVisit(bob);
+  await clickT20(alice); await clickT20(alice); await clickT20(alice);   // 180 → 141
+  await submitVisit(alice);
+  await submitVisit(bob);
+  await clickT20(alice); await clickT19(alice); await clickD12(alice);   // 141 → checkout
+  await submitVisit(alice);
+}
+
+/** Set a match-format field in the lobby, and wait for the server to confirm it. */
+async function setFormat(page: Page, label: string, value: number) {
+  const field = page.getByLabel(label);
+  await field.fill(String(value));
+  await expect(field).toHaveValue(String(value));
+}
+
 /** Start a local match with given player names and settings. */
 async function setupLocalMatch(page: Page, players: string[], startScore = 501) {
   await page.goto('/');
@@ -94,7 +125,7 @@ async function setupLocalMatch(page: Page, players: string[], startScore = 501) 
   }
 
   // Configure settings
-  await page.selectOption('select', String(startScore));
+  await page.getByLabel('Starting Score').selectOption(String(startScore));
   // Uncheck double-in (default off), ensure double-out is checked
   const diCheckbox = page.locator('text=Double In').locator('..').locator('input[type="checkbox"]');
   const doCheckbox = page.locator('text=Double Out').locator('..').locator('input[type="checkbox"]');
@@ -724,7 +755,7 @@ test.describe('Spectator mode', () => {
     await expect(page2.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
     await expect(page2.locator('input[placeholder="New player name"]')).not.toBeVisible({ timeout: 3000 });
     await expect(page2.locator('button:has-text("Start Match")')).not.toBeVisible({ timeout: 3000 });
-    await expect(page2.locator('text=(read-only)')).toBeVisible();
+    await expect(page2.locator('text=(read-only)').first()).toBeVisible();
     await expect(page2.locator('text=Alice')).toBeVisible();
     await expect(page2.locator('button[title="Remove player"]')).not.toBeVisible({ timeout: 3000 });
 
@@ -879,19 +910,9 @@ test.describe('Spectator mode', () => {
 
 
 test.describe('Re-match', () => {
-  /**
-   * Alice checks out 501 while Bob passes. `bob` is the page playing Bob — the same one in a local
-   * match, the opponent's in an online one.
-   */
+  /** One leg at 501 is the whole match at the default format. */
   async function playToAWin(alice: Page, bob: Page = alice) {
-    await clickT20(alice); await clickT20(alice); await clickT20(alice);   // 180 → 321
-    await submitVisit(alice);
-    await submitVisit(bob);                                                // Bob passes
-    await clickT20(alice); await clickT20(alice); await clickT20(alice);   // 180 → 141
-    await submitVisit(alice);
-    await submitVisit(bob);
-    await clickT20(alice); await clickT19(alice); await clickD12(alice);   // 141 → checkout
-    await submitVisit(alice);
+    await winLegAt501(alice, bob);
     await expect(alice.locator('text=Alice wins!')).toBeVisible();
   }
 
@@ -1030,5 +1051,59 @@ test.describe('Re-match', () => {
 
     await expect(page2.locator('text=Bob wins!')).toBeVisible({ timeout: 5000 });
     await expect(page2.locator('text=Play again?')).toHaveCount(0);
+  });
+});
+
+test.describe('Sets and legs', () => {
+  test('a match of three legs runs leg by leg, alternating the throw', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+    for (const name of ['Alice', 'Bob']) {
+      await page.fill('input[placeholder="New player name"]', name);
+      await page.click('button:has-text("Add")');
+    }
+    await setFormat(page, 'Legs to win a set', 3);
+    await page.click('text=Start Match');
+    await page.waitForURL('**/match/**');
+
+    // Both start at nothing won, and Alice throws first.
+    await expect(page.locator('text=0S | 0L')).toHaveCount(2);
+    await expect(page.locator('text=▶ throwing')).toBeVisible();
+
+    // Alice takes leg one. Bob then has the throw, so Alice must wait a visit for each of the rest.
+    await winLegAt501(page);
+    await expect(page.locator('text=0S | 1L')).toBeVisible();
+    // A fresh leg: both back to the start. Exact, or the headline's "501 — Double Out" counts too.
+    await expect(page.getByText('501', { exact: true })).toHaveCount(2);
+    await expect(page.locator('text=Alice wins!')).toHaveCount(0); // one leg is not the match
+
+    await winLegAt501(page);
+    await expect(page.locator('text=0S | 2L')).toBeVisible();
+
+    await winLegAt501(page);
+    await expect(page.locator('text=Alice wins!')).toBeVisible();
+  });
+
+  test('single-leg sets are shown as legs', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+    for (const name of ['Alice', 'Bob']) {
+      await page.fill('input[placeholder="New player name"]', name);
+      await page.click('button:has-text("Add")');
+    }
+    await setFormat(page, 'Sets to win the match', 2);
+    await page.click('text=Start Match');
+    await page.waitForURL('**/match/**');
+
+    // One leg per set, so the cards count legs and never mention sets.
+    await expect(page.locator('text=0L')).toHaveCount(2);
+    await expect(page.locator('text=0S')).toHaveCount(0);
+
+    await winLegAt501(page);
+    await expect(page.locator('text=1L')).toBeVisible();
+    await expect(page.locator('text=Alice wins!')).toHaveCount(0);
+
+    await winLegAt501(page);
+    await expect(page.locator('text=Alice wins!')).toBeVisible();
   });
 });

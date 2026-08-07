@@ -32,8 +32,8 @@ for the places where that has already gone wrong.
 | [Lobby](#lobby) | Setup phase of a match | `Lobby`, `lobbyId` |
 | [Match](#match) | The whole contest between two players | `MatchState`, `matchId`, `match_*` messages, `/match/:id` |
 | [Game Mode](#game-mode) | The rules of a single play-through (x01) | `GameMode`, `MatchSettings.mode`, `ModeDescriptor` |
-| [Leg](#leg) | One play-through of the game mode | ⏳ no entity — a match currently *is* one leg |
-| [Set](#set) | A group of legs, "first to n legs" | ⏳ not implemented at all |
+| [Leg](#leg) | One play-through of the game mode | `MatchState.visits` (current), `CompletedLeg` |
+| [Set](#set) | A group of legs, "first to n legs" | `legsToWinSet`, `setsToWinMatch`, `standingsOf` |
 | [Re-Match](#re-match) | Replay with same rules/players, no lobby | `rematch_vote`, `MatchState.rematchVotes`, `createRematch` |
 | [Visit](#visit) | One player's turn, up to three darts | `Visit`, `CurrentVisit`, `visits[]` |
 | [Dart](#dart--throw) | One throw: board coordinates + score | `DartThrow` |
@@ -109,11 +109,9 @@ In code it is `MatchState` / `matchId` / `match_*`, and the match layer is
 [`src/server/match.ts`](../src/server/match.ts). "Game" in this codebase now only ever means a
 *game mode*.
 
-Today a match is a single [leg](#leg): `MatchState` holds one flat `visits[]` array, one
-`currentPlayerIndex` and one `winnerId`. The game mode reports that a leg was won
-(`finalizeVisit → legWinnerId`) and **the match layer** decides what that means — today, that the
-match is over ([`match.ts`](../src/server/match.ts)). That branch is where set and leg progression
-will go.
+A match is [sets of legs](#match-structure-sets-and-legs). The game mode reports that a leg was won
+(`finalizeVisit → legWinnerId`) and **the match layer** decides what that means for the set and the
+match ([`match.ts`](../src/server/match.ts)) — the mode is never told.
 
 `MatchStatus` is `'in_progress' | 'finished'`; a match is created directly as `'in_progress'`.
 
@@ -228,51 +226,56 @@ mechanism.
 
 ---
 
-## ⏳ Planned structure: legs and sets
+## Match structure: sets and legs
 
-Neither exists in the code yet. Do not name identifiers after them until they do.
+A **match** is a number of sets; a **set** is a number of legs; a **leg** is one play-through of the
+game mode. Both counts are match settings with a minimum — and a default — of 1, so a single
+play-through is the same code path as everything else and needs no special case.
 
 ### Leg
 
 One instance / play-through of a [game mode](#game-mode), ending when that mode declares a winner
 (in x01: a checkout). The winner of a leg is not automatically the winner of the match.
 
-A leg is **mode-agnostic**: "first to *n* legs" must mean the same thing whatever the mode inside it
-is, so the leg and set layer may not be written in terms of x01's rules.
+A leg is **mode-agnostic**: "first to *n* legs" means the same thing whatever the mode inside it is,
+and the leg and set layer is written in terms of no mode's rules.
 
-Today there is no leg entity. A match is exactly one leg, so `MatchState.visits`, `winnerId` and
-`status: 'finished'` currently carry both meanings at once. The word appears in comments and test
-names ("complete 501 leg") in this sense.
+- `MatchState.visits` is the **current leg's** visits. A finished leg moves into `MatchState.legs` as
+  a `CompletedLeg` — its visits and its winner.
+- A new leg therefore needs no reset: it starts with an empty visit list, and everything a mode
+  derives starts over with it.
+- The exception is display: a **finished** match has no current leg, so the screen is shown the leg
+  that decided it — otherwise the summary would have neither final scores nor history
+  ([`legVisits`](../src/server/match.ts)).
 
 ### Set
 
-A group of legs played as "first to *n* legs". A match is played as "first to *m* sets".
+A group of legs, won by the first player to take `legsToWinSet` of them.
 
-Single-leg sets are allowed deliberately so there is only one code path: a match with
-"first to 3 sets, first to 1 leg" plays identically to "first to 3 legs with no sets". The UI may
-present the second case as legs only.
+Single-leg sets are allowed deliberately so there is only one code path: a match with "first to 3
+sets, first to 1 leg" plays identically to "first to 3 legs". The player card presents that case as
+legs only — display, nothing more.
 
-### What legs/sets will have to touch
+### Standings
 
-Recorded here because it is where the single-leg assumption is still baked in. The mode boundary is
-already in place, so a mode should not need changing — these are all match-layer concerns.
+Where a match stands: sets won, and legs won **in the set being played** (which resets when a set is
+taken). Never stored — derived by replaying the ordered leg winners in
+[`shared/matchFormat.ts`](../src/shared/matchFormat.ts), the same "one source of truth" discipline
+that keeps a game mode stateless.
 
-- **`MatchState.visits[]` is flat.** It is the leg's visit list and the match's at once.
-  `LegContext.visits` is what a mode sees, so once legs exist the match layer simply hands over the
-  current leg's slice — the mode does not learn that anything changed.
-- **`visitNumber` is global** (`ctx.visits.length + 1`), not per player and not per leg.
-- **Per-leg reset is free where it used to be impossible.** A mode derives everything from
-  `LegContext`, so a fresh leg is a fresh visit list and nothing else. This is what removing
-  `X01Handler.doubleInMet` — a `Map` on a process-wide singleton, outside the match state, never
-  cleared — bought.
-- **`ScoringSession.syncVisit`** detects "the visit moved on" from
-  `${visits.length}:${currentPlayerIndex}:${status}`. A leg boundary must stay visible in whatever
-  replaces that mark, or tracked darts will leak across legs.
-- **`currentPlayerIndex` starts at `0`**, i.e. lobby order; `swap_players` is the only way to change
-  who throws first. Alternating the starting player per leg/set has no home yet.
-- **`submitVisitToMatch`'s `legWinnerId` branch** is the single place where "a leg was won" becomes
-  "the match is over". Set and leg progression replaces exactly that branch
-  ([`match.ts`](../src/server/match.ts)).
+Shared, so the server decides the match with it and the screen displays it with it — one
+implementation, and nothing derived on the wire. The player card reads `2S | 3L`, or `5L` when a set
+is one leg.
+
+### Who throws first
+
+The throw alternates every leg, **and every set alternates independently of how the last one ended**:
+the first player starts sets 1, 3, 5 and the second starts sets 2, 4, 6, whoever won what. A player
+who takes a set 3–1 — winning its last leg — still throws first in the next set.
+
+Derived, not stored: `(setsPlayed + legsInCurrentSet) % playerCount`
+([`starterIndex`](../src/shared/matchFormat.ts)). `swap_players` in the lobby decides who is "first
+player" to begin with.
 
 ---
 
@@ -542,8 +545,7 @@ the distinctions are load-bearing, so keep them apart in prose too.
   camera and may have it off.
 - **Server is authoritative.** Scores, turn order and match state are computed on the server; the
   client renders. Client-supplied scores are recomputed, client-claimed identities are verified.
-- **⏳-marked terms are aspirational.** Until legs and sets exist, do not describe current behaviour
-  in terms of them (an x01 checkout wins *the match* today, not *the leg*).
+- **⏳-marked terms are aspirational.** Nothing carries the marker at present.
 
 ## Known vocabulary/code mismatches
 
@@ -554,4 +556,5 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | --- | --- |
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
 | "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), `tests/e2e/app.spec.ts` |
-| `visitNumber` counts across the whole match and both players, not per leg or per player | [`x01.ts`](../src/server/modes/x01.ts) |
+| `visitNumber` counts across the leg and both players, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
+| The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` but never displayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

@@ -1,7 +1,8 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
 import type { MatchSettings, ModeSettings, DartThrow } from '../shared/types';
 import { describeMode } from '../shared/modes/catalog';
-import type { SettingsField } from '../shared/modes/catalog';
+import { MATCH_FIELDS } from '../shared/matchFormat';
+import type { SettingsField } from '../shared/settings';
 import type { BoardTip } from '../shared/vision/types';
 
 // ============================================================
@@ -25,10 +26,12 @@ export function sanitizeName(raw: unknown): string | null {
 // ============================================================
 
 /**
- * Settings arriving from a client, validated against what the mode declares.
+ * Settings arriving from a client, validated against what the match format and the mode declare.
  *
- * Nothing here names an x01 setting: the fields, their bounds and their defaults all come from the
- * mode's descriptor, so a new mode is validated correctly the moment it is in the catalog.
+ * Nothing here names a setting: the fields, their bounds and their defaults come from `MATCH_FIELDS`
+ * and the mode's descriptor, so both a new match-level setting and a new mode are validated
+ * correctly the moment they are declared. The minimum of one leg and one set is a property of the
+ * field list, not a check in this file.
  *
  * Returns a complete settings object — `current` supplies whatever the client did not send. Only a
  * malformed payload or an unknown mode is rejected outright; a value that fails its field's rules is
@@ -58,7 +61,14 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
     if (value !== undefined) cleaned[field.key] = value;
   }
 
-  return { mode, modeSettings: cleaned };
+  const format = { legsToWinSet: current.legsToWinSet, setsToWinMatch: current.setsToWinMatch };
+  for (const field of MATCH_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(input, field.key)) continue;
+    const value = validateField(field, input[field.key]);
+    if (typeof value === 'number') format[field.key as keyof typeof format] = value;
+  }
+
+  return { mode, modeSettings: cleaned, ...format };
 }
 
 function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {

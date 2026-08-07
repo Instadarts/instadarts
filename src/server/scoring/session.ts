@@ -212,7 +212,12 @@ export class ScoringSession {
    */
   private syncVisit(): void {
     const match = this.opts.getMatch();
-    const mark = match ? `${match.visits.length}:${match.currentPlayerIndex}:${match.status}` : null;
+    // Legs are in the mark explicitly. A leg boundary also empties `visits`, so it would be caught
+    // either way — but a boundary is exactly when the board is cleared, and that is worth stating
+    // rather than relying on.
+    const mark = match
+      ? `${match.legs.length}:${match.visits.length}:${match.currentPlayerIndex}:${match.status}`
+      : null;
     if (mark === this.visitMark) return;
 
     const first = this.visitMark === null;

@@ -1,5 +1,6 @@
 import type { MatchState, MatchSettings, Lobby, Player } from '../shared/types';
 import { DEFAULT_MODE, defaultSettingsFor } from '../shared/modes/catalog';
+import { DEFAULT_FORMAT } from '../shared/matchFormat';
 import { IDLE_TTL_MS } from './lifecycle';
 
 // ============================================================
@@ -26,7 +27,7 @@ export function createLobby(): Lobby {
   const lobby: Lobby = {
     id,
     players: [],
-    settings: { mode: DEFAULT_MODE, modeSettings: defaultSettingsFor(DEFAULT_MODE)! },
+    settings: { mode: DEFAULT_MODE, modeSettings: defaultSettingsFor(DEFAULT_MODE)!, ...DEFAULT_FORMAT },
     inviteCode: null,
     hostPlayerId: null,
     hostSessionId: null,
@@ -96,9 +97,10 @@ function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean
   const match: MatchState = {
     id,
     status: 'in_progress',
-    settings: { mode: settings.mode, modeSettings: { ...settings.modeSettings } },
+    settings: { ...settings, modeSettings: { ...settings.modeSettings } },
     players: players.map((p) => ({ ...p })),
     visits: [],
+    legs: [],
     currentPlayerIndex: 0,
     winnerId: null,
     createdAt: Date.now(),

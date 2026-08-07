@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { x01, x01NeedsDoubleIn, x01Remaining } from '../../src/server/modes/x01';
-import { legOf, makeMatch, playVisit, submitVisit, throwDart, undoDart } from '../helpers';
+import { legOf, makeMatch, playVisit, submitVisit, throwDart, undoDart, visitsOf } from '../helpers';
 import type { X01Over } from '../helpers';
 import type { MatchState } from '../../src/shared/types';
 
@@ -32,20 +32,20 @@ describe('x01', () => {
   describe('bust rules', () => {
     it('bust when score exceeds remaining', () => {
       const match = playVisit(makeMatch({ settings: settings({ startScore: 40 }) }), 'p1', ['T20']); // 60 > 40
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(40);
       expect(match.currentPlayerIndex).toBe(1);
     });
 
     it('bust when score equals 1', () => {
       const match = playVisit(makeMatch({ settings: settings({ startScore: 20 }) }), 'p1', ['S19']); // leaves 1
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(20);
     });
 
     it('leaving 1 is NOT a bust under straight out — a single 1 checks it out', () => {
       const match = playVisit(makeMatch({ settings: settings({ doubleOut: false, startScore: 20 }) }), 'p1', ['S19']);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(remaining(match, 'p1')).toBe(1);
     });
 
@@ -64,8 +64,8 @@ describe('x01', () => {
 
       // And it stays a one-dart voided visit.
       const submitted = submitVisit(r.match);
-      expect(submitted.visits[0].voided).toBe(true);
-      expect(submitted.visits[0].darts).toHaveLength(1);
+      expect(visitsOf(submitted)[0].voided).toBe(true);
+      expect(visitsOf(submitted)[0].darts).toHaveLength(1);
     });
 
     it('does not lock on 1 under straight out', () => {
@@ -91,14 +91,14 @@ describe('x01', () => {
   describe('double-out', () => {
     it('wins with a double checkout', () => {
       const match = playVisit(makeMatch({ settings: settings({ startScore: 32 }) }), 'p1', ['D16']);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(match.status).toBe('finished');
       expect(match.winnerId).toBe('p1');
     });
 
     it('bust when finishing on a single with 0 remaining', () => {
       const match = playVisit(makeMatch({ settings: settings({ startScore: 20 }) }), 'p1', ['S20']); // not a double
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(match.status).toBe('in_progress');
       expect(remaining(match, 'p1')).toBe(20);
     });
@@ -116,7 +116,7 @@ describe('x01', () => {
     it('requires a double to start scoring', () => {
       let match = makeMatch({ settings: settings({ doubleIn: true }) });
       match = playVisit(match, 'p1', ['S20', 'T20', 'T20']);
-      expect(match.visits[0].voided).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(501);
 
       match = playVisit(match, 'p2', []); // hand the board back
@@ -141,7 +141,7 @@ describe('x01', () => {
 
       match = playVisit(match, 'p2', []);
       match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // 180 > 160 → bust
-      expect(match.visits[2].voided).toBe(true);
+      expect(visitsOf(match)[2].voided).toBe(true);
       expect(x01NeedsDoubleIn(legOf(match), 'p1')).toBe(false);
       expect(remaining(match, 'p1')).toBe(160);
     });
@@ -151,12 +151,12 @@ describe('x01', () => {
       // player start scoring without ever having hit a double.
       let match = makeMatch({ settings: settings({ doubleIn: true }) });
       match = playVisit(match, 'p1', []);
-      expect(match.visits[0].voided).toBe(false);
+      expect(visitsOf(match)[0].voided).toBe(false);
       expect(x01NeedsDoubleIn(legOf(match), 'p1')).toBe(true);
 
       match = playVisit(match, 'p2', []);
       match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // still no double → scores nothing
-      expect(match.visits[2].voided).toBe(true);
+      expect(visitsOf(match)[2].voided).toBe(true);
       expect(remaining(match, 'p1')).toBe(501);
     });
   });
@@ -233,9 +233,9 @@ describe('x01', () => {
     it('creates a visit of 3 misses', () => {
       const match = submitVisit(makeMatch());
       expect(match.visits).toHaveLength(1);
-      expect(match.visits[0].voided).toBe(false);
-      expect(match.visits[0].darts).toHaveLength(3);
-      expect(match.visits[0].darts.every((d) => d.score.label === 'miss')).toBe(true);
+      expect(visitsOf(match)[0].voided).toBe(false);
+      expect(visitsOf(match)[0].darts).toHaveLength(3);
+      expect(visitsOf(match)[0].darts.every((d) => d.score.label === 'miss')).toBe(true);
     });
 
     it('advances to the next player', () => {

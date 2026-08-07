@@ -4,6 +4,7 @@ import { textOf } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
 import { RematchPanel } from '../components/RematchPanel';
 import { modeTextClasses } from '../components/modeText';
+import { standingsOf } from '../../shared/matchFormat';
 import { MODE_PANELS } from '../modes/panels';
 
 interface MatchScreenProps {
@@ -26,6 +27,17 @@ interface MatchScreenProps {
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
+/**
+ * Where a player stands: sets won, and legs won in the set being played.
+ *
+ * Single-leg sets are a set per leg, so showing both would read as "3S | 0L" for someone who has won
+ * three. In that one case the set count is shown as legs — a display choice only; the match is sets
+ * and legs underneath either way.
+ */
+function formatStandings(setWins: number, legWins: number, legsToWinSet: number): string {
+  return legsToWinSet === 1 ? `${setWins}L` : `${setWins}S | ${legWins}L`;
+}
+
 export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
@@ -47,6 +59,7 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
   }, [match.id, onSubmitVisit]);
 
   const ModePanel = MODE_PANELS[match.settings.mode];
+  const standings = standingsOf(match.legs, match.settings);
 
   return (
     <div className="flex-1 flex flex-col items-center p-4 gap-6">
@@ -63,11 +76,20 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
           return (
             <div
               key={p.id}
+              data-player={p.name}
+              aria-current={isCurrent && match.status === 'in_progress'}
               className={`text-center px-6 py-4 rounded-lg min-w-[120px] ${
                 isCurrent ? 'bg-green-900 border border-green-500' : 'bg-gray-900'
               }`}
             >
               <p className="text-sm text-gray-400">{p.name}</p>
+              <p className="text-xs text-gray-500 font-mono">
+                {formatStandings(
+                  standings.setWins[p.id] ?? 0,
+                  standings.legWins[p.id] ?? 0,
+                  match.settings.legsToWinSet,
+                )}
+              </p>
               {/* Whose turn it is is ours to colour; anything the mode wants to say about the score
                   itself overrides it. */}
               <p

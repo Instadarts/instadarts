@@ -42,13 +42,19 @@ export type { ModeSettings } from './modes/catalog';
 import type { ModeSettings } from './modes/catalog';
 
 /**
- * Match-level settings. Only `mode` is universal; everything the mode itself needs lives under
- * `modeSettings`, declared by the mode in shared/modes/catalog.ts. Match format (first to n legs,
- * first to m sets) will sit next to `mode`, never inside `modeSettings`.
+ * Match-level settings. The format and the mode are universal; everything the mode itself needs
+ * lives under `modeSettings`, declared by the mode in shared/modes/catalog.ts.
+ *
+ * Both counts have a minimum — and a default — of 1, so "first to 1 set, first to 1 leg" is a single
+ * play-through and needs no special case anywhere.
  */
 export interface MatchSettings {
   mode: string;
   modeSettings: ModeSettings;
+  /** Legs a player must win to take a set. */
+  legsToWinSet: number;
+  /** Sets a player must win to take the match. */
+  setsToWinMatch: number;
 }
 
 // --- What the game mode contributes to the match screen ---
@@ -126,12 +132,21 @@ export interface ModeView {
 
 export type MatchStatus = 'in_progress' | 'finished';
 
+/** A leg that has been played out. The ordered list of these is what standings are derived from. */
+export interface CompletedLeg {
+  visits: Visit[];
+  winnerId: string;
+}
+
 export interface MatchState {
   id: string;
   status: MatchStatus;
   settings: MatchSettings;
   players: Player[];
+  /** The **current leg's** visits. Finished legs are in `legs`. */
   visits: Visit[];
+  /** Every finished leg, in order. See shared/matchFormat.ts — standings are derived from it. */
+  legs: CompletedLeg[];
   currentPlayerIndex: number;
   /** Null on a finished match means it was cancelled rather than won. */
   winnerId: string | null;

@@ -1,40 +1,34 @@
-import type { MatchSettings } from '../../shared/types';
-import { describeMode } from '../../shared/modes/catalog';
-import type { SettingsField } from '../../shared/modes/catalog';
+import type { SettingsField, SettingsValue } from '../../shared/settings';
 
-interface ModeSettingsPanelProps {
-  settings: MatchSettings;
+interface SettingsFieldsProps {
+  title: string;
+  fields: SettingsField[];
+  values: Record<string, SettingsValue | undefined>;
   canEdit: boolean;
-  onChange: (settings: MatchSettings) => void;
+  onChange: (key: string, value: SettingsValue) => void;
 }
 
 /**
- * The game mode's settings, rendered from what the mode declares.
+ * A block of settings, rendered from what they declare about themselves.
  *
- * Deliberately knows no setting by name: a mode adds a field to its descriptor and it appears here.
+ * Deliberately knows no setting by name — it is used for the match format and for whichever game
+ * mode is selected, and neither of them needs anything here to change.
  */
-export function ModeSettingsPanel({ settings, canEdit, onChange }: ModeSettingsPanelProps) {
-  const descriptor = describeMode(settings.mode);
-  if (!descriptor) return null;
-
-  const set = (key: string, value: string | number | boolean) => {
-    onChange({ ...settings, modeSettings: { ...settings.modeSettings, [key]: value } });
-  };
-
+export function SettingsFields({ title, fields, values, canEdit, onChange }: SettingsFieldsProps) {
   return (
     <div className="w-80 mb-6">
       <h3 className="text-gray-400 text-sm uppercase mb-2">
-        Settings
+        {title}
         {!canEdit && <span className="text-gray-600 ml-1">(read-only)</span>}
       </h3>
       <div className="space-y-3 bg-gray-900 rounded-lg p-4">
-        {descriptor.fields.map((field) => (
+        {fields.map((field) => (
           <Field
             key={field.key}
             field={field}
-            value={settings.modeSettings[field.key]}
+            value={values[field.key]}
             canEdit={canEdit}
-            onChange={(value) => set(field.key, value)}
+            onChange={(value) => onChange(field.key, value)}
           />
         ))}
       </div>
@@ -44,9 +38,9 @@ export function ModeSettingsPanel({ settings, canEdit, onChange }: ModeSettingsP
 
 interface FieldProps {
   field: SettingsField;
-  value: string | number | boolean | undefined;
+  value: SettingsValue | undefined;
   canEdit: boolean;
-  onChange: (value: string | number | boolean) => void;
+  onChange: (value: SettingsValue) => void;
 }
 
 function Field({ field, value, canEdit, onChange }: FieldProps) {
@@ -75,6 +69,7 @@ function Field({ field, value, canEdit, onChange }: FieldProps) {
           value={numeric}
           onChange={(e) => onChange(Number(e.target.value))}
           disabled={!canEdit}
+          aria-label={field.label}
           className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {field.options.map((option) => (
@@ -89,6 +84,7 @@ function Field({ field, value, canEdit, onChange }: FieldProps) {
           max={field.max}
           onChange={(e) => onChange(Number(e.target.value))}
           disabled={!canEdit}
+          aria-label={field.label}
           className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
         />
       )}

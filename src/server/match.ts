@@ -1,10 +1,11 @@
 // The match layer: everything about a match that is not a rule of the game mode.
 //
-// It owns the structure (today one leg per match; sets and legs slot in at the one marked place
-// below), whose visit it is, and the lifecycle. It holds a dart in the current visit and asks the
-// mode what that means — it never interprets one itself.
+// It owns the structure — a match is a number of sets, a set is a number of legs, a leg is one
+// play-through of the game mode — as well as whose visit it is and the lifecycle. It holds a dart in
+// the current visit and asks the mode what that means; it never interprets one itself.
 
-import type { DartThrow, MatchState, ModeView } from '../shared/types';
+import type { DartThrow, MatchState, ModeView, Visit } from '../shared/types';
+import { matchWinnerOf, standingsOf, starterIndex } from '../shared/matchFormat';
 import { getMode } from './modes/types';
 import type { GameMode, LegContext } from './modes/types';
 
@@ -21,13 +22,30 @@ function isFailure(value: GameMode | Failure): value is Failure {
   return 'success' in value;
 }
 
-/** The current leg, as the mode sees it. Today a match is exactly one leg. */
+/**
+ * Which visits are "this leg".
+ *
+ * Normally the current leg's, which is what makes a new leg free: it starts with an empty list and
+ * everything the mode derives starts over with it.
+ *
+ * A **finished** match is the exception. Winning a leg closes it, so a match that has just been won
+ * has an empty current leg — and a summary showing neither the final scores nor how they were
+ * reached. The leg that decided the match is the one to show.
+ */
+function legVisits(match: MatchState): Visit[] {
+  const between = match.visits.length === 0 && match.legs.length > 0;
+  return match.status === 'finished' && between ? match.legs[match.legs.length - 1].visits : match.visits;
+}
+
+/**
+ * The current leg, as the mode sees it — one leg, with no sight of the match around it.
+ */
 export function legContext(match: MatchState): LegContext {
   return {
     settings: match.settings.modeSettings,
     players: match.players,
     currentPlayerId: match.currentVisit?.playerId ?? match.players[match.currentPlayerIndex].id,
-    visits: match.visits,
+    visits: legVisits(match),
     currentVisit: match.currentVisit,
   };
 }
@@ -90,23 +108,36 @@ export function submitVisitToMatch(
 
   const { visit, legWinnerId } = mode.finalizeVisit(legContext(match));
 
-  const next: MatchState = {
-    ...match,
-    visits: [...match.visits, visit],
-    currentVisit: undefined,
-  };
-
   if (legWinnerId === null) {
     // A submitted visit always passes the board on. That a visit is exactly one player's turn is a
     // property of the app, not of any mode.
-    next.currentPlayerIndex = (match.currentPlayerIndex + 1) % match.players.length;
+    return {
+      success: true,
+      match: {
+        ...match,
+        visits: [...match.visits, visit],
+        currentVisit: undefined,
+        currentPlayerIndex: (match.currentPlayerIndex + 1) % match.players.length,
+      },
+    };
+  }
+
+  // The leg is over: it closes with the visit that won it, and the next one starts empty.
+  const legs = [...match.legs, { visits: [...match.visits, visit], winnerId: legWinnerId }];
+  const next: MatchState = { ...match, legs, visits: [], currentVisit: undefined };
+
+  const standings = standingsOf(legs, match.settings);
+  const winnerId = matchWinnerOf(standings, match.settings);
+
+  if (winnerId) {
+    next.status = 'finished';
+    next.winnerId = winnerId;
+    next.finishedAt = Date.now();
     return { success: true, match: next };
   }
 
-  // The leg is won. Sets and legs go here: today a match is one leg, so winning it wins the match.
-  next.status = 'finished';
-  next.winnerId = legWinnerId;
-  next.finishedAt = Date.now();
+  // Another leg, and the rota says whose throw it is.
+  next.currentPlayerIndex = starterIndex(standings, match.players.length);
   return { success: true, match: next };
 }
 

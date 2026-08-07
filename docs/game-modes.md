@@ -43,7 +43,9 @@ interface LegContext {
 ```
 
 Note what is absent: no match, no set, no leg number, no socket, no ids beyond the players. A mode
-that cannot see the match structure cannot accidentally depend on it.
+that cannot see the match structure cannot accidentally depend on it — which is why adding sets and
+legs to the match needed no change to any mode at all. The match layer hands over the current leg's
+visits and keeps the finished ones to itself.
 
 **Why pure derivation.** Undo, reconnect, spectating and (later) starting a fresh leg all become
 free: there is no second copy of the truth to keep in sync. x01 already worked this way for the
@@ -134,8 +136,9 @@ malformed payload or an unknown mode is rejected outright; a single value that f
 rules is dropped and the current one kept, so one bad number cannot discard the rest of the form.
 Switching mode starts from the new mode's defaults — the outgoing mode's values mean nothing to it.
 
-`MatchSettings` is `{ mode, modeSettings }`. Match-level format settings (first to *n* legs, first to
-*m* sets) will sit next to `mode`, never inside `modeSettings`.
+`MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to
+`mode`, never inside `modeSettings`, and is validated against `MATCH_FIELDS` by the same code that
+validates a mode's own fields.
 
 ---
 
@@ -195,7 +198,7 @@ Top to bottom:
 | # | Element | Universal | From the mode |
 | --- | --- | --- | --- |
 | 1 | Headline | the element, the spectator suffix | `headline`, `notice` |
-| 2 | Player cards | names, current-player highlight, "▶ throwing", winner banner | `playerScores[playerId]` |
+| 2 | Player cards | names, standings (sets and legs), current-player highlight, "▶ throwing", winner banner | `playerScores[playerId]` |
 | 3 | **Mode panel** | the slot | rendered entirely by the mode; nothing shown when `panel` is absent |
 | 4 | Dartboard (manual input) | all of it | — |
 | 5 | Visit slots | the element | `dartsPerVisit`, optionally `slots` |

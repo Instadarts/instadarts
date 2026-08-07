@@ -1,4 +1,4 @@
-import type { MatchState, ScoreResult } from '../src/shared/types';
+import type { MatchState, ScoreResult, Visit } from '../src/shared/types';
 import { registerMode } from '../src/server/modes/types';
 import { x01 } from '../src/server/modes/x01';
 import { addDartToMatch, legContext, submitVisitToMatch, undoDartFromMatch } from '../src/server/match';
@@ -32,12 +32,14 @@ export function makeDart(label: string, x = 500_000, y = 500_000) {
   return { x, y, score };
 }
 
-/** x01's settings, flat, as tests find it natural to write them. */
+/** x01's settings and the match format, flat, as tests find it natural to write them. */
 export interface X01Over {
   mode?: string;
   startScore?: number;
   doubleIn?: boolean;
   doubleOut?: boolean;
+  legsToWinSet?: number;
+  setsToWinMatch?: number;
 }
 
 type MatchOver = Partial<Omit<MatchState, 'settings'>> & { settings?: X01Over };
@@ -45,16 +47,22 @@ type MatchOver = Partial<Omit<MatchState, 'settings'>> & { settings?: X01Over };
 /** Create a MatchState with sensible defaults for testing. */
 export function makeMatch(overrides: MatchOver = {}): MatchState {
   const { settings: over = {}, ...rest } = overrides;
-  const { mode = 'x01', ...modeSettings } = over;
+  const { mode = 'x01', legsToWinSet = 1, setsToWinMatch = 1, ...modeSettings } = over;
   return {
     id: 'test-match',
     status: 'in_progress',
-    settings: { mode, modeSettings: { startScore: 501, doubleIn: false, doubleOut: true, ...modeSettings } },
+    settings: {
+      mode,
+      modeSettings: { startScore: 501, doubleIn: false, doubleOut: true, ...modeSettings },
+      legsToWinSet,
+      setsToWinMatch,
+    },
     players: [
       { id: 'p1', name: 'Alice', sessionId: 's1' },
       { id: 'p2', name: 'Bob', sessionId: 's2' },
     ],
     visits: [],
+    legs: [],
     currentPlayerIndex: 0,
     winnerId: null,
     createdAt: 0,
@@ -91,6 +99,16 @@ export function submitVisit(match: MatchState): MatchState {
   const result = submitVisitToMatch(match);
   if (!result.success) throw new Error(result.error);
   return result.match;
+}
+
+/**
+ * Every committed visit, finished legs first.
+ *
+ * A visit that wins a leg closes that leg and moves into `match.legs`, so a test about the rules of
+ * a visit should ask for the visits rather than for one particular place they might be.
+ */
+export function visitsOf(match: MatchState): Visit[] {
+  return [...match.legs.flatMap((leg) => leg.visits), ...match.visits];
 }
 
 /** Throw a whole visit and submit it. */

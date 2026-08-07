@@ -1,6 +1,6 @@
 import type { Lobby } from '../../shared/types';
 import { PlayerList } from '../components/PlayerList';
-import { ModeSettingsPanel } from '../components/ModeSettingsPanel';
+import { MatchSettingsPanel } from '../components/MatchSettingsPanel';
 import { InvitePanel } from '../components/InvitePanel';
 
 interface LobbyPageProps {
@@ -61,7 +61,7 @@ export function LobbyPage({
         onSwap={onSwapPlayers}
       />
 
-      <ModeSettingsPanel
+      <MatchSettingsPanel
         settings={lobby.settings}
         canEdit={canEdit}
         onChange={onUpdateSettings}

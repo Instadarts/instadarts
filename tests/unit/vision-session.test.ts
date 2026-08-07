@@ -210,7 +210,9 @@ describe('ScoringSession — takeout', () => {
     expect(h.match.currentVisit?.locked).toBe(true);
 
     h.see('cam-a');
-    expect(h.match.visits).toHaveLength(1);
+    // The checkout won the leg, so it is that leg's last visit rather than a loose one.
+    expect(h.match.visits).toHaveLength(0);
+    expect(h.match.legs[0].visits).toHaveLength(1);
     expect(h.match.status).toBe('finished');
     expect(h.match.winnerId).toBe('p1');
   });

@@ -11,6 +11,8 @@ import { scoreFromBoardCoords } from '../../shared/scoring';
 
 interface DartboardProps {
   darts: DartThrow[];
+  /** How many darts the visit may hold. The game mode decides. */
+  maxDarts: number;
   onDartClick: (dart: DartThrow) => void;
   disabled?: boolean;
 }
@@ -52,12 +54,12 @@ function sectorPath(
   ].join(' ');
 }
 
-export function Dartboard({ darts, onDartClick, disabled }: DartboardProps) {
+export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardProps) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const handleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (disabled) return;
-    if (darts.length >= 3) return;
+    if (darts.length >= maxDarts) return;
 
     const svg = svgRef.current;
     if (!svg) return;

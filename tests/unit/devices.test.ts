@@ -29,7 +29,7 @@ function connect() {
   registerClient(ws, {
     sessionId,
     lobbyId: null,
-    gameId: null,
+    matchId: null,
     playerId: null,
     isSpectator: false,
     deviceId: null,
@@ -439,11 +439,11 @@ describe('scoring devices and frontends are different kinds of client', () => {
     const { scorer } = pair(frontend);
 
     scorer.send({ type: 'create_lobby', isLocal: true });
-    scorer.send({ type: 'add_dart', gameId: 'x', dart: { x: 1, y: 1 } });
+    scorer.send({ type: 'add_dart', matchId: 'x', dart: { x: 1, y: 1 } });
     scorer.send({ type: 'spectate', id: 'x' });
 
     expect(scorer.count('lobby_state')).toBe(0);
-    expect(scorer.count('game_state')).toBe(0);
+    expect(scorer.count('match_state')).toBe(0);
   });
 
   it('a frontend cannot speak for a device it has not become', () => {

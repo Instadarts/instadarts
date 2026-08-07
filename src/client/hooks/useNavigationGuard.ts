@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Navigates home after an 8-second timeout if the entity (lobby/game) is absent.
+ * Navigates home after an 8-second timeout if the entity (lobby/match) is absent.
  * Clears on error or when the entity arrives.
  */
 export function useNavigationGuard(

@@ -1,5 +1,7 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
-import type { GameSettings, DartThrow } from '../shared/types';
+import type { MatchSettings, ModeSettings, DartThrow } from '../shared/types';
+import { describeMode } from '../shared/modes/catalog';
+import type { SettingsField } from '../shared/modes/catalog';
 import type { BoardTip } from '../shared/vision/types';
 
 // ============================================================
@@ -19,54 +21,59 @@ export function sanitizeName(raw: unknown): string | null {
 }
 
 // ============================================================
-// Game settings
+// Match settings
 // ============================================================
 
-const VALID_MODES = new Set(['x01']);
-const SCORE_MIN = 101;
-const SCORE_MAX = 999;
-
-export function validateSettings(raw: unknown): Partial<GameSettings> | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-
+/**
+ * Settings arriving from a client, validated against what the mode declares.
+ *
+ * Nothing here names an x01 setting: the fields, their bounds and their defaults all come from the
+ * mode's descriptor, so a new mode is validated correctly the moment it is in the catalog.
+ *
+ * Returns a complete settings object — `current` supplies whatever the client did not send. Only a
+ * malformed payload or an unknown mode is rejected outright; a value that fails its field's rules is
+ * dropped and the current one kept, so one bad number cannot discard the rest of the form.
+ */
+export function validateSettings(raw: unknown, current: MatchSettings): MatchSettings | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const input = raw as Record<string, unknown>;
-  const cleaned: Partial<GameSettings> = {};
 
-  // mode
-  if ('mode' in input) {
-    if (typeof input.mode === 'string' && VALID_MODES.has(input.mode)) {
-      cleaned.mode = input.mode as GameSettings['mode'];
-    }
+  const mode = typeof input.mode === 'string' ? input.mode : current.mode;
+  const descriptor = describeMode(mode);
+  if (!descriptor) return null;
+
+  // Switching mode starts from that mode's defaults: the outgoing mode's values mean nothing here.
+  const cleaned: ModeSettings = mode === current.mode
+    ? { ...current.modeSettings }
+    : { ...descriptor.defaults };
+
+  const incoming = typeof input.modeSettings === 'object' && input.modeSettings !== null
+    ? (input.modeSettings as Record<string, unknown>)
+    : {};
+
+  // Only declared fields are ever read, which is also what makes __proto__ and friends a non-event.
+  for (const field of descriptor.fields) {
+    if (!Object.prototype.hasOwnProperty.call(incoming, field.key)) continue;
+    const value = validateField(field, incoming[field.key]);
+    if (value !== undefined) cleaned[field.key] = value;
   }
 
-  // startScore
-  if ('startScore' in input) {
-    const s = Number(input.startScore);
-    if (Number.isFinite(s) && s >= SCORE_MIN && s <= SCORE_MAX && Number.isInteger(s)) {
-      cleaned.startScore = s;
-    }
-  }
+  return { mode, modeSettings: cleaned };
+}
 
-  // doubleIn
-  if ('doubleIn' in input) {
-    cleaned.doubleIn = Boolean(input.doubleIn);
-  }
+function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {
+  if (field.kind === 'toggle') return Boolean(raw);
 
-  // doubleOut
-  if ('doubleOut' in input) {
-    cleaned.doubleOut = Boolean(input.doubleOut);
-  }
-
-  // Reject if no valid keys
-  if (Object.keys(cleaned).length === 0) return null;
-  return cleaned;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) return undefined;
+  if (value < field.min || value > field.max) return undefined;
+  return value;
 }
 
 // ============================================================
 // Dart throws & visits
 // ============================================================
 
-const MAX_DARTS_PER_VISIT = 3;
 const BOARD_MIN = 0;
 const BOARD_MAX = 1_000_000;
 
@@ -134,22 +141,3 @@ export function validateDeviceClaims(raw: unknown): { deviceId: string; tokenHas
 }
 
 const MAX_CLAIMS = 8;
-
-export function validateVisit(raw: unknown): { playerId: string; darts: DartThrow[]; bust: false } | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const v = raw as Record<string, unknown>;
-
-  if (typeof v.playerId !== 'string' || v.playerId.length === 0) return null;
-
-  if (!Array.isArray(v.darts)) return null;
-  if (v.darts.length < 1 || v.darts.length > MAX_DARTS_PER_VISIT) return null;
-
-  const darts: DartThrow[] = [];
-  for (const d of v.darts) {
-    const validated = validateDartThrow(d);
-    if (!validated) return null;
-    darts.push(validated);
-  }
-
-  return { playerId: v.playerId, darts, bust: false };
-}

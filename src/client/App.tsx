@@ -1,25 +1,26 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
 import { useEffect, useRef } from 'react';
-import { useGameState } from './hooks/useGameState';
+import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
-import { GamePage } from './pages/GamePage';
+import { MatchScreen } from './pages/MatchScreen';
 import { JoinHandler } from './pages/JoinHandler';
 import { TopBar } from './components/TopBar';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { Lobby, GameState } from '../shared/types';
+import type { Lobby, MatchState, ModeView } from '../shared/types';
 
 export function App() {
-  // Scoring devices share the match socket, but the socket is created inside useGameState. The ref
+  // Scoring devices share the match socket, but the socket is created inside useMatch. The ref
   // is what lets the two be introduced without either owning the other.
   const devicesHandler = useRef<((msg: ServerMessage) => void) | null>(null);
 
   const {
     lobby,
-    game,
+    match,
+    view,
     error,
     connected,
     ownPlayerId,
@@ -31,21 +32,21 @@ export function App() {
     addLocalPlayer,
     removePlayer,
     updateSettings,
-    startGame,
+    startMatch,
     submitVisit,
-    leaveGame,
+    leaveMatch,
     spectate,
     swapPlayers,
     addDart,
     undoDart,
-  } = useGameState((msg) => devicesHandler.current?.(msg));
+  } = useMatch((msg) => devicesHandler.current?.(msg));
 
   const devices = useScoringDevices(send, connected);
   devicesHandler.current = devices.handleMessage;
 
   const navigate = useNavigate();
 
-  // Navigate when lobby/game state arrives via WebSocket
+  // Navigate when lobby/match state arrives via WebSocket
   useEffect(() => {
     if (lobby && window.location.pathname === '/') {
       navigate(`/lobby/${lobby.id}`, { replace: true });
@@ -53,19 +54,19 @@ export function App() {
   }, [lobby, navigate]);
 
   useEffect(() => {
-    if (game && game.status === 'in_progress' && !window.location.pathname.startsWith('/match/')) {
-      navigate(`/match/${game.id}`, { replace: true });
+    if (match && match.status === 'in_progress' && !window.location.pathname.startsWith('/match/')) {
+      navigate(`/match/${match.id}`, { replace: true });
     }
-  }, [game, navigate]);
+  }, [match, navigate]);
 
-  // Navigate to home when lobby/game is abandoned (skip if page reload with reconnect info)
+  // Navigate to home when lobby/match is abandoned (skip if page reload with reconnect info)
   useEffect(() => {
-    if (!lobby && !game && window.location.pathname !== '/' && !window.location.pathname.startsWith('/lobby/join/')) {
+    if (!lobby && !match && window.location.pathname !== '/' && !window.location.pathname.startsWith('/lobby/join/')) {
       // Don't navigate away if we're about to reconnect after a page reload
       if (loadReconnectInfo()) return;
       navigate('/', { replace: true });
     }
-  }, [lobby, game, navigate]);
+  }, [lobby, match, navigate]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -99,8 +100,8 @@ export function App() {
             ownPlayerId={ownPlayerId}
             isSpectator={isSpectator}
             sessionId={sessionId}
-            startGame={startGame}
-            leaveGame={leaveGame}
+            startMatch={startMatch}
+            leaveMatch={leaveMatch}
             updateSettings={updateSettings}
             addLocalPlayer={addLocalPlayer}
             removePlayer={removePlayer}
@@ -112,10 +113,11 @@ export function App() {
 
         <Route path="/match/:id" element={
           <MatchWrapper
-            game={game}
+            match={match}
+            view={view}
             ownPlayerId={ownPlayerId}
             isSpectator={isSpectator}
-            leaveGame={leaveGame}
+            leaveMatch={leaveMatch}
             addDart={addDart}
             undoDart={undoDart}
             submitVisit={submitVisit}
@@ -125,7 +127,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} game={game} leaveGame={leaveGame} navigate={navigate} />
+          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} leaveMatch={leaveMatch} navigate={navigate} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -140,8 +142,8 @@ interface LobbyWrapperProps {
   ownPlayerId: string | null;
   isSpectator: boolean;
   sessionId: string | null;
-  startGame: (lobbyId: string) => void;
-  leaveGame: (gameId: string) => void;
+  startMatch: (lobbyId: string) => void;
+  leaveMatch: (matchId: string) => void;
   updateSettings: (lobbyId: string, settings: any) => void;
   addLocalPlayer: (lobbyId: string, name: string) => void;
   removePlayer: (lobbyId: string, playerId: string) => void;
@@ -150,7 +152,7 @@ interface LobbyWrapperProps {
   error: string | null;
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, leaveGame, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
+function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
@@ -162,8 +164,8 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
       sessionId={sessionId}
-      onStartGame={() => startGame(lobby.id)}
-      onLeave={() => { leaveGame(lobby.id); navigate('/'); }}
+      onStartGame={() => startMatch(lobby.id)}
+      onLeave={() => { leaveMatch(lobby.id); navigate('/'); }}
       onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
       onAddLocalPlayer={(n: string) => addLocalPlayer(lobby.id, n)}
       onRemovePlayer={(p: string) => removePlayer(lobby.id, p)}
@@ -173,30 +175,32 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startGame, l
 }
 
 interface MatchWrapperProps {
-  game: GameState | null;
+  match: MatchState | null;
+  view: ModeView | null;
   ownPlayerId: string | null;
   isSpectator: boolean;
-  leaveGame: (gameId: string) => void;
-  addDart: (gameId: string, dart: any) => void;
-  undoDart: (gameId: string) => void;
-  submitVisit: (gameId: string) => void;
+  leaveMatch: (matchId: string) => void;
+  addDart: (matchId: string, dart: any) => void;
+  undoDart: (matchId: string) => void;
+  submitVisit: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undoDart, submitVisit, navigate, error }: MatchWrapperProps) {
-  useNavigationGuard(game, error, navigate);
+function MatchWrapper({ match, view, ownPlayerId, isSpectator, leaveMatch, addDart, undoDart, submitVisit, navigate, error }: MatchWrapperProps) {
+  useNavigationGuard(match, error, navigate);
 
-  if (!game) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading game...</div>;
+  if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
   return (
-    <GamePage
-      game={game}
+    <MatchScreen
+      match={match}
+      view={view}
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
-      onLeave={() => { leaveGame(game.id); navigate('/'); }}
+      onLeave={() => { leaveMatch(match.id); navigate('/'); }}
       onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
-      onUndoDart={() => undoDart(game.id)}
-      onSubmitVisit={() => submitVisit(game.id)}
+      onUndoDart={() => undoDart(match.id)}
+      onSubmitVisit={() => submitVisit(match.id)}
     />
   );
 }
@@ -204,12 +208,13 @@ function MatchWrapper({ game, ownPlayerId, isSpectator, leaveGame, addDart, undo
 interface SpectateWrapperProps {
   spectate: (id: string) => void;
   lobby: Lobby | null;
-  game: GameState | null;
-  leaveGame: (gameId: string) => void;
+  match: MatchState | null;
+  view: ModeView | null;
+  leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
 }
 
-function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, lobby, match, view, leaveMatch, navigate }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -217,7 +222,7 @@ function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: Spectat
   }, [id]);
 
   const handleLeave = () => {
-    leaveGame(lobby?.id ?? game?.id ?? '');
+    leaveMatch(lobby?.id ?? match?.id ?? '');
     navigate('/');
   };
 
@@ -240,10 +245,11 @@ function SpectateWrapper({ spectate, lobby, game, leaveGame, navigate }: Spectat
     );
   }
 
-  if (game) {
+  if (match && view) {
     return (
-      <GamePage
-        game={game}
+      <MatchScreen
+        match={match}
+        view={view}
         ownPlayerId={null}
         isSpectator={true}
         onLeave={() => navigate('/')}

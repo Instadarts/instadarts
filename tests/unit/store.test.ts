@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createLobby, getLobby, deleteLobby, createGame, getGame, addPlayerToLobby, removePlayerFromLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
+import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {
   beforeEach(() => {
@@ -11,7 +11,8 @@ describe('Store', () => {
       const lobby = createLobby();
       expect(lobby.id).toBeTruthy();
       expect(lobby.players).toHaveLength(0);
-      expect(lobby.settings.startScore).toBe(501);
+      expect(lobby.settings.mode).toBe('x01');
+      expect(lobby.settings.modeSettings.startScore).toBe(501);
 
       const found = getLobby(lobby.id);
       expect(found).toBeDefined();
@@ -56,28 +57,28 @@ describe('Store', () => {
     });
   });
 
-  describe('games', () => {
-    it('creates a game from a lobby', () => {
+  describe('matches', () => {
+    it('creates a match from a lobby', () => {
       const lobby = createLobby();
       addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
       addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false });
-      const game = createGame(lobby);
+      const match = createMatch(lobby);
 
-      expect(game.id).toBeTruthy();
-      expect(game.status).toBe('in_progress');
-      expect(game.players).toHaveLength(2);
-      expect(game.settings.startScore).toBe(501);
+      expect(match.id).toBeTruthy();
+      expect(match.status).toBe('in_progress');
+      expect(match.players).toHaveLength(2);
+      expect(match.settings.modeSettings.startScore).toBe(501);
 
-      // Lobby should be deleted after game creation
+      // Lobby should be deleted after match creation
       expect(getLobby(lobby.id)).toBeUndefined();
     });
 
-    it('gets and updates a game', () => {
+    it('gets and updates a match', () => {
       const lobby = createLobby();
       addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
-      const game = createGame(lobby);
+      const match = createMatch(lobby);
 
-      const found = getGame(game.id);
+      const found = getMatch(match.id);
       expect(found).toBeDefined();
     });
   });
@@ -89,35 +90,35 @@ describe('Store', () => {
     it('local match: setting status=finished with no winner simulates creator disconnect', () => {
       const lobby = createLobby();
       lobby.isLocal = true;
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's1' });
-      const game = createGame(lobby);
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 's1' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 's1' });
+      const match = createMatch(lobby);
 
-      // Simulate handleClientLeave: game.status = 'finished', no winner
-      game.status = 'finished';
-      game.finishedAt = Date.now();
+      // Simulate handleClientLeave: match.status = 'finished', no winner
+      match.status = 'finished';
+      match.finishedAt = Date.now();
       // winnerId stays null — local match cancellation
 
-      expect(game.status).toBe('finished');
-      expect(game.winnerId).toBeNull();
+      expect(match.status).toBe('finished');
+      expect(match.winnerId).toBeNull();
     });
 
     it('online match: player leave declares other player winner', () => {
       const lobby = createLobby();
       lobby.isLocal = false;
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's2' });
-      const game = createGame(lobby);
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 's1' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 's2' });
+      const match = createMatch(lobby);
 
       // Simulate p1 leaves: p2 wins
-      const otherPlayer = game.players.find((p) => p.id !== 'p1');
+      const otherPlayer = match.players.find((p) => p.id !== 'p1');
       expect(otherPlayer).toBeDefined();
-      game.status = 'finished';
-      game.winnerId = otherPlayer!.id;
-      game.finishedAt = Date.now();
+      match.status = 'finished';
+      match.winnerId = otherPlayer!.id;
+      match.finishedAt = Date.now();
 
-      expect(game.winnerId).toBe('p2');
-      expect(game.status).toBe('finished');
+      expect(match.winnerId).toBe('p2');
+      expect(match.status).toBe('finished');
     });
 
     it('host leaving lobby: deleteLobby cleans up the lobby', () => {
@@ -131,8 +132,8 @@ describe('Store', () => {
     it('non-host leaving lobby: player removed, lobby still exists', () => {
       const lobby = createLobby();
       lobby.remoteConnected = true;
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'host' });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'joiner' });
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 'host' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 'joiner' });
 
       // Simulate joiner (p2) leaves: remove player, set remoteConnected false
       const updated = removePlayerFromLobby(lobby.id, 'p2');

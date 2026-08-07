@@ -2,14 +2,14 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
-import { X01Handler } from './modes/x01';
-import { registerModeHandler } from './modes/types';
-import { getAllLobbies, getAllGames } from './store';
+import { x01 } from './modes/x01';
+import { registerMode } from './modes/types';
+import { getAllLobbies, getAllMatches } from './store';
 
 const QUIET = process.env.QUIET === '1';
 
 // Register game modes
-registerModeHandler('x01', new X01Handler());
+registerMode(x01);
 
 // Start garbage collector
 import { startGC, getGCStats } from './gc';
@@ -28,13 +28,13 @@ const wss = new WebSocketServer({
 // Server stats endpoint
 app.get('/server-stats', (_req, res) => {
   const lobbies = getAllLobbies();
-  const games = getAllGames();
-  const runningGames = [...games.values()].filter(g => g.status === 'in_progress').length;
+  const matches = getAllMatches();
+  const runningMatches = [...matches.values()].filter(g => g.status === 'in_progress').length;
   const mem = process.memoryUsage();
   res.json({
     openLobbies: lobbies.size,
-    runningMatches: runningGames,
-    totalGames: games.size,
+    runningMatches: runningMatches,
+    totalMatches: matches.size,
     connectedClients: wss.clients.size,
     gc: getGCStats(),
     memory: {
@@ -69,7 +69,7 @@ if (process.env.NODE_ENV === 'production') {
 wss.on('connection', (ws) => {
   if (!QUIET) console.log('Client connected');
   const sessionId = crypto.randomUUID();
-  registerClient(ws, { sessionId, lobbyId: null, gameId: null, playerId: null, isSpectator: false, deviceId: null });
+  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });
   ws.send(JSON.stringify({ type: 'connected', sessionId }));
 
   ws.on('message', (data) => {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { GameState, Lobby, Player } from '../../shared/types';
+import type { MatchState, Lobby, ModeView } from '../../shared/types';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
@@ -8,9 +8,10 @@ import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
  * @param onServerMessage - Also called for every frame, before this hook handles it. Lets a second
  *   concern (scoring devices) share the one socket without this hook knowing anything about it.
  */
-export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
+export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [lobby, setLobby] = useState<Lobby | null>(null);
-  const [game, setGame] = useState<GameState | null>(null);
+  const [match, setMatch] = useState<MatchState | null>(null);
+  const [view, setView] = useState<ModeView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
@@ -44,19 +45,21 @@ export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
           saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: pid });
         }
         break;
-      case 'game_state':
-      case 'game_started':
-        setGame(msg.game);
+      case 'match_state':
+      case 'match_started':
+        setMatch(msg.match);
+        setView(msg.view);
         setLobby(null);
         if (ownPlayerIdRef.current) {
-          saveReconnectInfo({ gameId: msg.game.id, playerId: ownPlayerIdRef.current });
-        } else if (msg.game.isLocal && msg.game.players.length > 0) {
-          // Local game: save reconnect info with any player's ID
-          saveReconnectInfo({ gameId: msg.game.id, playerId: msg.game.players[0].id });
+          saveReconnectInfo({ matchId: msg.match.id, playerId: ownPlayerIdRef.current });
+        } else if (msg.match.isLocal && msg.match.players.length > 0) {
+          // Local match: save reconnect info with any player's ID
+          saveReconnectInfo({ matchId: msg.match.id, playerId: msg.match.players[0].id });
         }
         break;
-      case 'game_finished':
-        setGame(msg.game);
+      case 'match_finished':
+        setMatch(msg.match);
+        setView(msg.view);
         clearReconnectInfo();
         break;
       case 'lobby_abandoned':
@@ -99,27 +102,29 @@ export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
     send({ type: 'set_player_name', lobbyId, playerId, name });
   }, [send]);
 
-  const startGame = useCallback((lobbyId: string) => {
-    send({ type: 'start_game', lobbyId });
+  const startMatch = useCallback((lobbyId: string) => {
+    send({ type: 'start_match', lobbyId });
   }, [send]);
 
-  const addDart = useCallback((gameId: string, dart: { x: number; y: number; score: any }) => {
-    send({ type: 'add_dart', gameId, dart });
+  const addDart = useCallback((matchId: string, dart: { x: number; y: number; score: any }) => {
+    send({ type: 'add_dart', matchId, dart });
   }, [send]);
 
-  const undoDart = useCallback((gameId: string) => {
-    send({ type: 'undo_dart', gameId });
+  const undoDart = useCallback((matchId: string) => {
+    send({ type: 'undo_dart', matchId });
   }, [send]);
 
-  const submitVisit = useCallback((gameId: string) => {
-    send({ type: 'submit_visit', gameId });
-    // Optimistically clear currentVisit so next player can throw immediately
-    setGame((prev) => prev ? { ...prev, currentVisit: undefined } : prev);
+  // No optimistic clear: the view travels with the match state, and clearing the visit locally
+  // would leave the mode's strings describing a visit that is no longer on screen. Every dart
+  // already round-trips, so the reply that clears it arrives on the same path as the rest.
+  const submitVisit = useCallback((matchId: string) => {
+    send({ type: 'submit_visit', matchId });
   }, [send]);
 
-  const leaveGame = useCallback((gameId: string) => {
-    send({ type: 'leave_game', gameId });
-    setGame(null);
+  const leaveMatch = useCallback((matchId: string) => {
+    send({ type: 'leave_match', matchId });
+    setMatch(null);
+    setView(null);
     setLobby(null);
     setOwnPlayerId(null);
     setIsSpectator(false);
@@ -137,7 +142,8 @@ export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
 
   return {
     lobby,
-    game,
+    match,
+    view,
     error,
     connected,
     send,
@@ -149,11 +155,11 @@ export function useGameState(onServerMessage?: (msg: ServerMessage) => void) {
     addLocalPlayer,
     removePlayer,
     updateSettings,
-    startGame,
+    startMatch,
     addDart,
     undoDart,
     submitVisit,
-    leaveGame,
+    leaveMatch,
     spectate,
     swapPlayers,
   };

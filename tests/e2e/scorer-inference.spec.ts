@@ -21,12 +21,19 @@ function sortedLabels(text: string | null): string[] {
   return (text ?? '').trim().split(/\s+/).filter(Boolean).sort();
 }
 
-/** Every committed visit in the player's history, as `{darts, total}`. */
+/**
+ * Every committed visit in the player's history, as `{darts, total}`.
+ *
+ * The rows are strings the game mode produced (`ModeView.history`), so this parses x01's format:
+ * `<player>   <labels> = <total|Bust>`.
+ */
 async function visitHistory(player: Page): Promise<{ darts: string[]; total: string }[]> {
-  const lines = await player.locator('div:has(> h3:text("Visit History")) span.font-mono').allTextContents();
+  const lines = await player.locator('div:has(> h3:text("Visit History")) div.font-mono').allTextContents();
   return lines.map((line) => {
-    const [darts, total] = line.split(' = ');
-    return { darts: sortedLabels(darts), total: total.trim() };
+    const [thrown, total] = line.split(' = ');
+    // Drop the thrower's name, which x01 puts in front of the darts.
+    const labels = sortedLabels(thrown).filter((label) => /^(miss|[SDT]\d+|SB|DB)$/.test(label));
+    return { darts: labels, total: total.trim() };
   });
 }
 
@@ -131,9 +138,10 @@ test.describe('camera scoring, end to end', () => {
     await scan(scorer.page);
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });
 
-    // Alice sends the visit herself rather than waiting for the takeout.
+    // Alice sends the visit herself rather than waiting for the takeout. Polled, because the visit
+    // only reaches the history when the server's reply does — the client commits nothing on its own.
     await player.click('button:has-text("Submit Visit")');
-    expect(await visitHistory(player)).toEqual([{ darts: EXPECTED_DARTS, total: '140' }]);
+    await expect.poll(() => visitHistory(player)).toEqual([{ darts: EXPECTED_DARTS, total: '140' }]);
 
     // Tracking is per-visit: Bob's throw into the very same treble is his own, not a re-sighting
     // of Alice's darts.

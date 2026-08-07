@@ -1,6 +1,6 @@
 // Which scoring session belongs to which player of which match.
 //
-// Keyed by (gameId, ownerPlayerId), not by gameId alone. In an online match the two players stand
+// Keyed by (matchId, ownerPlayerId), not by matchId alone. In an online match the two players stand
 // at two different boards with two different cameras: one shared session would let one player's
 // empty board submit the other's visit, and would repeat-filter one player's tips against the
 // other's darts. A local match has one board and one frontend, so it has one session.
@@ -8,32 +8,32 @@
 // Not keyed by the owning socket either — a frontend reload must not lose the record of which
 // darts are already physically in the board, or they would all be counted a second time.
 
-import type { GameState } from '../../shared/types';
-import { getGame } from '../store';
+import type { MatchState } from '../../shared/types';
+import { getMatch } from '../store';
 import { ScoringSession } from './session';
 
 const sessions = new Map<string, ScoringSession>();
 
-function sessionKey(gameId: string, ownerPlayerId: string | null): string {
-  return `${gameId}::${ownerPlayerId ?? ''}`;
+function sessionKey(matchId: string, ownerPlayerId: string | null): string {
+  return `${matchId}::${ownerPlayerId ?? ''}`;
 }
 
 /**
  * The session for this player of this match, created on first use.
  *
  * `commit` is supplied by the caller rather than imported, because persisting and broadcasting a
- * game is the transport layer's job and this module should not know how that is done.
+ * match is the transport layer's job and this module should not know how that is done.
  */
 export function getScoringSession(
-  gameId: string,
+  matchId: string,
   ownerPlayerId: string | null,
-  commit: (game: GameState) => void,
+  commit: (match: MatchState) => void,
 ): ScoringSession {
-  const key = sessionKey(gameId, ownerPlayerId);
+  const key = sessionKey(matchId, ownerPlayerId);
   let session = sessions.get(key);
   if (!session) {
     session = new ScoringSession({
-      getGame: () => getGame(gameId) ?? null,
+      getMatch: () => getMatch(matchId) ?? null,
       ownerPlayerId,
       commit,
     });
@@ -42,10 +42,10 @@ export function getScoringSession(
   return session;
 }
 
-/** Drop every session watching a game — a ThrowWindows may be holding a live timer. */
-export function dropScoringSessions(gameId: string): void {
+/** Drop every session watching a match — a ThrowWindows may be holding a live timer. */
+export function dropScoringSessions(matchId: string): void {
   for (const [key, session] of sessions) {
-    if (!key.startsWith(`${gameId}::`)) continue;
+    if (!key.startsWith(`${matchId}::`)) continue;
     session.stop();
     sessions.delete(key);
   }
@@ -55,9 +55,9 @@ export function dropScoringSessions(gameId: string): void {
 export function sweepScoringSessions(): number {
   let collected = 0;
   for (const [key, session] of sessions) {
-    const gameId = key.slice(0, key.indexOf('::'));
-    const game = getGame(gameId);
-    if (game && game.status === 'in_progress') continue;
+    const matchId = key.slice(0, key.indexOf('::'));
+    const match = getMatch(matchId);
+    if (match && match.status === 'in_progress') continue;
     session.stop();
     sessions.delete(key);
     collected++;

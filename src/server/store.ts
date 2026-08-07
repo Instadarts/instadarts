@@ -1,11 +1,12 @@
-import type { GameState, Lobby, Player } from '../shared/types';
+import type { MatchState, Lobby, Player } from '../shared/types';
+import { DEFAULT_MODE, defaultSettingsFor } from '../shared/modes/catalog';
 
 // ============================================================
 // In-memory stores
 // ============================================================
 
 const lobbies = new Map<string, Lobby>();
-const games = new Map<string, GameState>();
+const matches = new Map<string, MatchState>();
 
 // ============================================================
 // ID generation
@@ -24,12 +25,7 @@ export function createLobby(): Lobby {
   const lobby: Lobby = {
     id,
     players: [],
-    settings: {
-      mode: 'x01',
-      doubleIn: false,
-      doubleOut: true,
-      startScore: 501,
-    },
+    settings: { mode: DEFAULT_MODE, modeSettings: defaultSettingsFor(DEFAULT_MODE)! },
     inviteCode: null,
     hostPlayerId: null,
     hostSessionId: null,
@@ -86,13 +82,13 @@ export function findLobbyByInviteCode(code: string): Lobby | undefined {
 }
 
 // ============================================================
-// Game operations
+// Match operations
 // ============================================================
 
-export function createGame(lobby: Lobby): GameState {
+export function createMatch(lobby: Lobby): MatchState {
   deleteLobby(lobby.id);
   const id = generateId();
-  const game: GameState = {
+  const match: MatchState = {
     id,
     status: 'in_progress',
     settings: { ...lobby.settings },
@@ -104,30 +100,30 @@ export function createGame(lobby: Lobby): GameState {
     finishedAt: null,
     isLocal: lobby.isLocal,
   };
-  games.set(id, game);
-  return game;
+  matches.set(id, match);
+  return match;
 }
 
-export function getGame(id: string): GameState | undefined {
-  return games.get(id);
+export function getMatch(id: string): MatchState | undefined {
+  return matches.get(id);
 }
 
-export function updateGame(id: string, game: GameState): boolean {
-  if (!games.has(id)) return false;
-  games.set(id, game);
+export function updateMatch(id: string, match: MatchState): boolean {
+  if (!matches.has(id)) return false;
+  matches.set(id, match);
   return true;
 }
 
-export function deleteGame(id: string): void {
-  games.delete(id);
+export function deleteMatch(id: string): void {
+  matches.delete(id);
 }
 
 // ============================================================
 // GC helpers
 // ============================================================
 
-export function getAllGames(): ReadonlyMap<string, GameState> {
-  return games;
+export function getAllMatches(): ReadonlyMap<string, MatchState> {
+  return matches;
 }
 
 export function getAllLobbies(): ReadonlyMap<string, Lobby> {

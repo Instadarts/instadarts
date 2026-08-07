@@ -2,7 +2,7 @@ const RECONNECT_KEY = 'instadarts_reconnect';
 
 interface ReconnectInfo {
   lobbyId?: string;
-  gameId?: string;
+  matchId?: string;
   playerId: string;
 }
 

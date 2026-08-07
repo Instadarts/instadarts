@@ -1,4 +1,4 @@
-import type { DartThrow, GameSettings, Visit, ScoreResult, Lobby, GameState } from './types';
+import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModeView } from './types';
 import type { BoardTip } from './vision/types';
 
 // ============================================================
@@ -32,7 +32,7 @@ export interface RemovePlayerMessage {
 export interface UpdateSettingsMessage {
   type: 'update_settings';
   lobbyId: string;
-  settings: GameSettings;
+  settings: MatchSettings;
 }
 
 export interface SetPlayerNameMessage {
@@ -44,33 +44,33 @@ export interface SetPlayerNameMessage {
 
 export interface AddDartMessage {
   type: 'add_dart';
-  gameId: string;
+  matchId: string;
   dart: DartThrow;
 }
 
 export interface UndoDartMessage {
   type: 'undo_dart';
-  gameId: string;
+  matchId: string;
 }
 
 export interface SubmitVisitMessage {
   type: 'submit_visit';
-  gameId: string;
+  matchId: string;
 }
 
-export interface StartGameMessage {
-  type: 'start_game';
+export interface StartMatchMessage {
+  type: 'start_match';
   lobbyId: string;
 }
 
-export interface LeaveGameMessage {
-  type: 'leave_game';
-  gameId: string;
+export interface LeaveMatchMessage {
+  type: 'leave_match';
+  matchId: string;
 }
 
 export interface ReconnectMessage {
   type: 'reconnect';
-  gameId?: string;
+  matchId?: string;
   lobbyId?: string;
   playerId: string;
 }
@@ -164,8 +164,8 @@ export type ClientMessage =
   | AddDartMessage
   | UndoDartMessage
   | SubmitVisitMessage
-  | StartGameMessage
-  | LeaveGameMessage
+  | StartMatchMessage
+  | LeaveMatchMessage
   | ReconnectMessage
   | SpectateMessage
   | SwapPlayersMessage
@@ -188,9 +188,14 @@ export interface LobbyStateMessage {
   yourPlayerId?: string;
 }
 
-export interface GameStateMessage {
-  type: 'game_state';
-  game: GameState;
+/**
+ * The match, and what the game mode says to show for it. The view travels with every match message
+ * so the client never has to derive a mode-specific value itself.
+ */
+export interface MatchStateMessage {
+  type: 'match_state';
+  match: MatchState;
+  view: ModeView;
 }
 
 export interface ErrorMessage {
@@ -198,14 +203,16 @@ export interface ErrorMessage {
   message: string;
 }
 
-export interface GameStartedMessage {
-  type: 'game_started';
-  game: GameState;
+export interface MatchStartedMessage {
+  type: 'match_started';
+  match: MatchState;
+  view: ModeView;
 }
 
-export interface GameFinishedMessage {
-  type: 'game_finished';
-  game: GameState;
+export interface MatchFinishedMessage {
+  type: 'match_finished';
+  match: MatchState;
+  view: ModeView;
 }
 
 export interface LobbyAbandonedMessage {
@@ -254,7 +261,7 @@ export interface ScorerPairedMessage {
 
 /**
  * To a scoring device: everything it needs to show. A projection of the match, never the match —
- * a scoring device has no business holding the game state.
+ * a scoring device has no business holding the match state.
  */
 export interface ScorerStateMessage {
   type: 'scorer_state';
@@ -271,10 +278,10 @@ export interface ScorerRefusedMessage {
 
 export type ServerMessage =
   | LobbyStateMessage
-  | GameStateMessage
+  | MatchStateMessage
   | ErrorMessage
-  | GameStartedMessage
-  | GameFinishedMessage
+  | MatchStartedMessage
+  | MatchFinishedMessage
   | LobbyAbandonedMessage
   | PairingCodeMessage
   | DevicePairedMessage

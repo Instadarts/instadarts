@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeName, validateSettings, validateDartThrow, validateVisit } from '../../src/server/validation';
+import { sanitizeName, validateSettings, validateDartThrow } from '../../src/server/validation';
+import type { MatchSettings } from '../../src/shared/types';
 import { checkRateLimit, removeRateLimitBucket } from '../../src/server/rateLimit';
-import { canCreateLobby, canCreateGame } from '../../src/server/concurrencyLimit';
+import { canCreateLobby, canCreateMatch } from '../../src/server/concurrencyLimit';
 
 // ============================================================
 // Player name sanitization
@@ -63,71 +64,84 @@ describe('sanitizeName', () => {
 // ============================================================
 
 describe('validateSettings', () => {
+  // Settings are validated against what the mode declares in shared/modes/catalog.ts, so nothing
+  // here — and nothing in validation.ts — names an x01 setting except the fixtures.
+  const current: MatchSettings = { mode: 'x01', modeSettings: { startScore: 501, doubleIn: false, doubleOut: true } };
+  const settings = (modeSettings: Record<string, unknown>, mode = 'x01') => ({ mode, modeSettings });
+
   it('accepts valid settings', () => {
-    const result = validateSettings({ startScore: 501, doubleIn: true, doubleOut: true });
-    expect(result).toEqual({ startScore: 501, doubleIn: true, doubleOut: true });
+    expect(validateSettings(settings({ startScore: 301, doubleIn: true, doubleOut: true }), current)).toEqual({
+      mode: 'x01',
+      modeSettings: { startScore: 301, doubleIn: true, doubleOut: true },
+    });
   });
 
-  it('accepts partial settings', () => {
-    expect(validateSettings({ startScore: 301 })).toEqual({ startScore: 301 });
-    expect(validateSettings({ doubleIn: false })).toEqual({ doubleIn: false });
-    expect(validateSettings({ mode: 'x01' })).toEqual({ mode: 'x01' });
+  it('fills the gaps from the current settings', () => {
+    expect(validateSettings(settings({ startScore: 301 }), current)).toEqual({
+      mode: 'x01',
+      modeSettings: { startScore: 301, doubleIn: false, doubleOut: true },
+    });
+    expect(validateSettings(settings({}), current)).toEqual(current);
+    expect(validateSettings({ mode: 'x01' }, current)).toEqual(current);
   });
 
   it('rejects non-objects', () => {
-    expect(validateSettings(null)).toBeNull();
-    expect(validateSettings(undefined)).toBeNull();
-    expect(validateSettings('foo')).toBeNull();
-    expect(validateSettings(123)).toBeNull();
-    expect(validateSettings([])).toBeNull();
+    expect(validateSettings(null, current)).toBeNull();
+    expect(validateSettings(undefined, current)).toBeNull();
+    expect(validateSettings('foo', current)).toBeNull();
+    expect(validateSettings(123, current)).toBeNull();
+    expect(validateSettings([], current)).toBeNull();
   });
 
-  it('rejects empty objects', () => {
-    expect(validateSettings({})).toBeNull();
+  it('keeps an empty payload as the current settings', () => {
+    // Nothing to apply is not an error; only a malformed payload or an unknown mode is.
+    expect(validateSettings({}, current)).toEqual(current);
   });
 
-  it('clamps startScore to valid range', () => {
-    expect(validateSettings({ startScore: 0 })).toBeNull();
-    expect(validateSettings({ startScore: -1 })).toBeNull();
-    expect(validateSettings({ startScore: 100 })).toBeNull();
-    expect(validateSettings({ startScore: 1000 })).toBeNull();
-    expect(validateSettings({ startScore: NaN })).toBeNull();
-    expect(validateSettings({ startScore: Infinity })).toBeNull();
-    expect(validateSettings({ startScore: 101 })).toEqual({ startScore: 101 });
-    expect(validateSettings({ startScore: 999 })).toEqual({ startScore: 999 });
-    expect(validateSettings({ startScore: 100.5 })).toBeNull(); // not integer
-    // Number coercion: string '501' → 501, which is valid
-    expect(validateSettings({ startScore: '501' })).toEqual({ startScore: 501 });
+  it('holds a number field to its declared range', () => {
+    const startScore = (value: unknown) =>
+      validateSettings(settings({ startScore: value }), current)!.modeSettings.startScore;
+
+    expect(startScore(101)).toBe(101);
+    expect(startScore(999)).toBe(999);
+    expect(startScore('501')).toBe(501); // coerced, then checked
+    // Out of range or not an integer → the field is dropped and the current value kept.
+    expect(startScore(0)).toBe(501);
+    expect(startScore(-1)).toBe(501);
+    expect(startScore(100)).toBe(501);
+    expect(startScore(1000)).toBe(501);
+    expect(startScore(NaN)).toBe(501);
+    expect(startScore(Infinity)).toBe(501);
+    expect(startScore(100.5)).toBe(501);
   });
 
   it('rejects unknown modes', () => {
-    expect(validateSettings({ mode: 'x01' })).toEqual({ mode: 'x01' });
-    expect(validateSettings({ mode: 'cricket' })).toBeNull();
-    expect(validateSettings({ mode: '' })).toBeNull();
-    expect(validateSettings({ mode: 123 })).toBeNull();
+    expect(validateSettings({ mode: 'cricket' }, current)).toBeNull();
+    expect(validateSettings({ mode: '' }, current)).toBeNull();
+    expect(validateSettings({ mode: 123 }, current)).toEqual(current); // not a string → mode unchanged
   });
 
-  it('coerces booleans for doubleIn/doubleOut', () => {
-    expect(validateSettings({ doubleIn: true })).toEqual({ doubleIn: true });
-    expect(validateSettings({ doubleIn: false })).toEqual({ doubleIn: false });
-    // Non-booleans get coerced by Boolean()
-    expect(validateSettings({ doubleIn: 1 })).toEqual({ doubleIn: true });
-    expect(validateSettings({ doubleOut: 0 })).toEqual({ doubleOut: false });
+  it('coerces toggle fields', () => {
+    const doubleIn = (value: unknown) =>
+      validateSettings(settings({ doubleIn: value }), current)!.modeSettings.doubleIn;
+
+    expect(doubleIn(true)).toBe(true);
+    expect(doubleIn(false)).toBe(false);
+    expect(doubleIn(1)).toBe(true);
+    expect(doubleIn(0)).toBe(false);
   });
 
-  it('ignores unknown keys (no prototype pollution)', () => {
-    const result = validateSettings({
-      startScore: 501,
-      __proto__: { isAdmin: true },
-      constructor: 'evil',
-      extraField: 'should be ignored',
-    });
-    expect(result).toEqual({ startScore: 501 });
-    expect((result as any).extraField).toBeUndefined();
+  it('ignores undeclared keys (no prototype pollution)', () => {
+    const result = validateSettings(
+      settings({ startScore: 301, __proto__: { isAdmin: true }, constructor: 'evil', extraField: 'ignored' }),
+      current,
+    );
+    expect(result).toEqual({ mode: 'x01', modeSettings: { startScore: 301, doubleIn: false, doubleOut: true } });
+    expect((result!.modeSettings as any).extraField).toBeUndefined();
   });
 
-  it('handles object with only unknown keys', () => {
-    expect(validateSettings({ foo: 'bar', baz: 123 })).toBeNull();
+  it('keeps the current settings when only undeclared keys are sent', () => {
+    expect(validateSettings(settings({ foo: 'bar', baz: 123 }), current)).toEqual(current);
   });
 });
 
@@ -201,50 +215,6 @@ describe('validateDartThrow', () => {
 // Visit validation
 // ============================================================
 
-describe('validateVisit', () => {
-  const validDart = { x: 500_000, y: 726_000 }; // T20
-
-  it('accepts valid visit with 1-3 darts', () => {
-    expect(validateVisit({ playerId: 'p1', darts: [validDart] })).not.toBeNull();
-    expect(validateVisit({ playerId: 'p1', darts: [validDart, validDart] })).not.toBeNull();
-    expect(validateVisit({ playerId: 'p1', darts: [validDart, validDart, validDart] })).not.toBeNull();
-  });
-
-  it('rejects zero darts', () => {
-    expect(validateVisit({ playerId: 'p1', darts: [] })).toBeNull();
-  });
-
-  it('rejects too many darts', () => {
-    expect(validateVisit({ playerId: 'p1', darts: [validDart, validDart, validDart, validDart] })).toBeNull();
-    expect(validateVisit({ playerId: 'p1', darts: Array(50).fill(validDart) })).toBeNull();
-  });
-
-  it('rejects missing or invalid playerId', () => {
-    expect(validateVisit({ darts: [validDart] })).toBeNull();
-    expect(validateVisit({ playerId: '', darts: [validDart] })).toBeNull();
-    expect(validateVisit({ playerId: 123, darts: [validDart] })).toBeNull();
-  });
-
-  it('rejects non-array darts', () => {
-    expect(validateVisit({ playerId: 'p1', darts: 'foo' })).toBeNull();
-    expect(validateVisit({ playerId: 'p1', darts: null })).toBeNull();
-    expect(validateVisit({ playerId: 'p1', darts: {} })).toBeNull();
-  });
-
-  it('rejects visit with any invalid darts', () => {
-    expect(validateVisit({
-      playerId: 'p1',
-      darts: [validDart, { x: NaN, y: 500_000 }, validDart],
-    })).toBeNull();
-  });
-
-  it('rejects non-objects', () => {
-    expect(validateVisit(null)).toBeNull();
-    expect(validateVisit(undefined)).toBeNull();
-    expect(validateVisit('foo')).toBeNull();
-  });
-});
-
 // ============================================================
 // Rate limiting
 // ============================================================
@@ -282,13 +252,13 @@ describe('rate limiting', () => {
 // ============================================================
 
 describe('concurrency limits', () => {
-  it('canCreateLobby and canCreateGame return booleans', () => {
+  it('canCreateLobby and canCreateMatch return booleans', () => {
     expect(typeof canCreateLobby()).toBe('boolean');
-    expect(typeof canCreateGame()).toBe('boolean');
+    expect(typeof canCreateMatch()).toBe('boolean');
   });
 
   it('initially allows creation (store is empty)', () => {
     expect(canCreateLobby()).toBe(true);
-    expect(canCreateGame()).toBe(true);
+    expect(canCreateMatch()).toBe(true);
   });
 });

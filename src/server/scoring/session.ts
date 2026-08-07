@@ -14,22 +14,21 @@
 //     that lost the board as a board that lost its darts.
 //
 //   · **Tracked darts live exactly as long as the visit does.** Anything that ends a visit forgets
-//     them — a takeout, a manual Submit, a bust — because the board is cleared before the next one
-//     begins. The empty-board signal clears them too, for the visit that is still in progress when
+//     them — a takeout, a manual Submit, a voided visit — because the board is cleared before the
+//     next one begins. The empty-board signal clears them too, for the visit still in progress when
 //     a player pulls a single dart back out.
 //
 // One departure, because instadarts' server owns the visit where the reference's did not: the visit
-// is `game.currentVisit` rather than a local object. Darts go in through the ordinary
-// addDartToGame, so the existing turn check refuses an AI dart out of turn for free, and the
+// is `match.currentVisit` rather than a local object. Darts go in through the ordinary
+// addDartToMatch, so the existing turn check refuses an AI dart out of turn for free, and the
 // ordinary broadcast carries it — there is no separate rendering path for a camera dart.
 //
 // That is also what makes "the visit ended without us" free rather than a mechanism of its own: the
-// session watches the game for a visit boundary instead of being told about one, so a manual
-// Submit, a bust and a leg change are all the same event seen from here.
+// session watches the match for a visit boundary instead of being told about one, so a manual
+// Submit, a voided visit and a leg change are all the same event seen from here.
 
-import type { GameState } from '../../shared/types';
-import { addDartToGame, submitVisitToGame } from '../game';
-import { getModeHandler } from '../modes/types';
+import type { MatchState } from '../../shared/types';
+import { addDartToMatch, submitVisitToMatch } from '../match';
 import type { BoardTip } from '../../shared/vision/types';
 import { DartTracker } from './tracker';
 import { ThrowWindows, type WindowResult } from './throwWindow';
@@ -42,12 +41,12 @@ import { ThrowWindows, type WindowResult } from './throwWindow';
 const EMPTY_INFERENCES_FOR_TAKEOUT = 1;
 
 export interface ScoringSessionOptions {
-  /** The game these cameras are watching, or null once it is gone. Re-resolved on every use. */
-  getGame: () => GameState | null;
+  /** The match these cameras are watching, or null once it is gone. Re-resolved on every use. */
+  getMatch: () => MatchState | null;
   /** Which player the owning frontend controls. Ignored in a local match, where it scores for whoever is up. */
   ownerPlayerId: string | null;
-  /** Persist and broadcast a mutated game. */
-  commit: (game: GameState) => void;
+  /** Persist and broadcast a mutated match. */
+  commit: (match: MatchState) => void;
 }
 
 export class ScoringSession {
@@ -159,10 +158,10 @@ export class ScoringSession {
     this.consecutiveEmpty = 0;
     if (darts.length === 0) return;
 
-    const game = this.playableGame();
-    if (!game) return;
+    const match = this.playableMatch();
+    if (!match) return;
 
-    let current = game;
+    let current = match;
     let changed = false;
     for (const dart of darts) {
       const playerId = this.scoringPlayerId(current);
@@ -170,11 +169,11 @@ export class ScoringSession {
       const before = current.currentVisit?.darts.length ?? 0;
       // A refusal is not a failure: it is not this player's turn, or the visit has no room. Either
       // way the dart stays tracked, so it is never counted twice and never silently forgotten.
-      const outcome = addDartToGame(current, playerId, { x: dart.x, y: dart.y, score: dart.score });
+      const outcome = addDartToMatch(current, playerId, { x: dart.x, y: dart.y, score: dart.score });
       if (!outcome.success) break;
-      const after = outcome.game.currentVisit?.darts.length ?? 0;
+      const after = outcome.match.currentVisit?.darts.length ?? 0;
       if (after === before) break; // locked: the visit is full or already won
-      current = outcome.game;
+      current = outcome.match;
       changed = true;
     }
 
@@ -183,37 +182,37 @@ export class ScoringSession {
   }
 
   private onEmptyBoard(): void {
-    const game = this.playableGame();
-    if (!game) return;
+    const match = this.playableMatch();
+    if (!match) return;
 
-    const filled = game.currentVisit?.darts.length ?? 0;
+    const filled = match.currentVisit?.darts.length ?? 0;
     // Nothing to send. This is also the guard that stops a camera pointed at an empty board from
     // playing the match by itself: submitting an empty visit does not error, it commits three
     // misses and advances the turn.
     if (filled === 0) return;
-    if (!this.scoringPlayerId(game)) return;
+    if (!this.scoringPlayerId(match)) return;
 
     this.consecutiveEmpty += 1;
     if (this.consecutiveEmpty < EMPTY_INFERENCES_FOR_TAKEOUT) return;
-    if (filled < this.armThreshold(game)) return;
+    if (filled < this.armThreshold(match)) return;
 
-    const submitted = submitVisitToGame(game);
+    const submitted = submitVisitToMatch(match);
     if (!submitted.success) return;
     this.consecutiveEmpty = 0;
-    this.opts.commit(submitted.result.game);
+    this.opts.commit(submitted.match);
   }
 
   /**
    * Notice that the visit moved on, and forget the darts if it did.
    *
    * Tracked darts are per-visit: the board is cleared before the next one starts, so carrying them
-   * over would suppress the next player's throw. This is how a manual Submit, a bust, a leg change
-   * and anything else that ends a visit are all handled — by watching the game rather than by being
+   * over would suppress the next player's throw. This is how a manual Submit, a voided visit, a leg
+   * change and anything else that ends a visit are handled — by watching the match rather than being
    * told, which means there is no path that can forget to say so.
    */
   private syncVisit(): void {
-    const game = this.opts.getGame();
-    const mark = game ? `${game.visits.length}:${game.currentPlayerIndex}:${game.status}` : null;
+    const match = this.opts.getMatch();
+    const mark = match ? `${match.visits.length}:${match.currentPlayerIndex}:${match.status}` : null;
     if (mark === this.visitMark) return;
 
     const first = this.visitMark === null;
@@ -228,11 +227,11 @@ export class ScoringSession {
   // Who, and when
   // ============================================================
 
-  private playableGame(): GameState | null {
-    const game = this.opts.getGame();
-    if (!game || game.status !== 'in_progress') return null;
-    if (game.players.length === 0) return null;
-    return game;
+  private playableMatch(): MatchState | null {
+    const match = this.opts.getMatch();
+    if (!match || match.status !== 'in_progress') return null;
+    if (match.players.length === 0) return null;
+    return match;
   }
 
   /**
@@ -243,10 +242,10 @@ export class ScoringSession {
    * players at two different boards, so a camera only ever scores for the frontend that owns it,
    * and only on that player's turn.
    */
-  private scoringPlayerId(game: GameState): string | null {
-    const current = game.players[game.currentPlayerIndex];
+  private scoringPlayerId(match: MatchState): string | null {
+    const current = match.players[match.currentPlayerIndex];
     if (!current) return null;
-    if (game.isLocal) return current.id;
+    if (match.isLocal) return current.id;
     if (!this.opts.ownerPlayerId || this.opts.ownerPlayerId !== current.id) return null;
     return current.id;
   }
@@ -255,25 +254,15 @@ export class ScoringSession {
    * How many darts must be in the visit before an empty board is believed to be a takeout.
    *
    * One camera has to be wrong about two darts at once, so it arms at two. With several cameras an
-   * empty board they all agree on is strong enough that one dart is enough. A visit that is already
-   * over — locked by a checkout, or arithmetically bust — arms at one either way, because a player
-   * in that position pulls their darts early.
+   * empty board they all agree on is strong enough that one dart is enough. A visit the mode has
+   * locked — nothing more may be thrown into it — arms at one either way, because a player in that
+   * position pulls their darts early.
+   *
+   * `locked` is the whole question, and it is the mode's answer. This used to re-derive x01's bust
+   * arithmetic here, which meant the camera layer knew what a double-out was.
    */
-  private armThreshold(game: GameState): number {
-    if (game.currentVisit?.locked) return 1;
-    if (this.isAlreadyBust(game)) return 1;
+  private armThreshold(match: MatchState): number {
+    if (match.currentVisit?.locked) return 1;
     return this.cameras.size <= 1 ? 2 : 1;
-  }
-
-  /** Only busts that are arithmetically certain from the total; anything subtler is not ours to call. */
-  private isAlreadyBust(game: GameState): boolean {
-    const visit = game.currentVisit;
-    if (!visit) return false;
-    const handler = getModeHandler(game.settings.mode);
-    if (!handler) return false;
-    const remaining = handler.getRemainingScore(game, visit.playerId);
-    const points = visit.darts.reduce((sum, d) => sum + d.score.points, 0);
-    if (points > remaining) return true;
-    return game.settings.doubleOut && remaining - points === 1;
   }
 }

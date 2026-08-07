@@ -7,7 +7,7 @@ type MessageHandler = (msg: ServerMessage) => void;
 interface Options {
   /**
    * Whether to resume a lobby or match on connect. The gaming frontend does; the scoring app must
-   * not, or a scorer opened in the same tab would try to rejoin the player's game.
+   * not, or a scorer opened in the same tab would try to rejoin the player's match.
    */
   resumeSession?: boolean;
 }
@@ -51,7 +51,7 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
         ws.send(JSON.stringify({
           type: 'reconnect',
           lobbyId: info.lobbyId,
-          gameId: info.gameId,
+          matchId: info.matchId,
           playerId: info.playerId,
         }));
       }

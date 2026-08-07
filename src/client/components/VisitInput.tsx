@@ -1,8 +1,16 @@
-import type { DartThrow } from '../../shared/types';
+import type { DartThrow, ViewText } from '../../shared/types';
+import { textOf } from '../../shared/types';
 import { Dartboard } from './Dartboard';
+import { modeTextClasses, slotClasses } from './modeText';
 
 interface VisitInputProps {
   darts: DartThrow[];
+  /** How many slots the visit has. The game mode decides. */
+  dartsPerVisit: number;
+  /** Slot contents from the mode. Omitted → each dart's own label. */
+  slots?: ViewText[];
+  /** The `Visit: <total>` line. Empty text hides it. */
+  visitTotal: ViewText;
   onAddDart: (dart: DartThrow) => void;
   onUndoDart: () => void;
   onSubmit: () => void;
@@ -12,36 +20,48 @@ interface VisitInputProps {
   hideActions?: boolean;
 }
 
-export function VisitInput({ darts, onAddDart, onUndoDart, onSubmit, disabled, locked, readOnly, hideActions }: VisitInputProps) {
-  const boardDisabled = disabled || darts.length >= 3 || (locked ?? false) || (readOnly ?? false);
+export function VisitInput({
+  darts,
+  dartsPerVisit,
+  slots,
+  visitTotal,
+  onAddDart,
+  onUndoDart,
+  onSubmit,
+  disabled,
+  locked,
+  readOnly,
+  hideActions,
+}: VisitInputProps) {
+  const boardDisabled = disabled || darts.length >= dartsPerVisit || (locked ?? false) || (readOnly ?? false);
+  // A mode that says nothing about its slots gets each dart's own label, untoned.
+  const filled: ViewText[] = slots ?? darts.map((dart) => `${dart.score.label} (${dart.score.points})`);
+  const empty = Math.max(0, dartsPerVisit - filled.length);
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <Dartboard darts={darts} onDartClick={onAddDart} disabled={boardDisabled} />
+      <Dartboard darts={darts} maxDarts={dartsPerVisit} onDartClick={onAddDart} disabled={boardDisabled} />
 
-      {/* Dart labels and scores */}
+      {/* Dart slots */}
       <div className="flex gap-3 min-h-[40px]">
-        {darts.map((dart, i) => (
-          <div
-            key={i}
-            className={`w-[105px] py-1 rounded font-mono text-lg text-center ${
-              dart.score.points > 0 ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
-            }`}
-          >
-            {dart.score.label} ({dart.score.points})
+        {filled.map((slot, i) => (
+          <div key={i} className={slotClasses(slot, { size: 'lg' }, 'w-[105px] py-1 rounded font-mono text-center')}>
+            {textOf(slot)}
           </div>
         ))}
-        {Array.from({ length: 3 - darts.length }).map((_, i) => (
+        {Array.from({ length: empty }).map((_, i) => (
           <div key={`empty-${i}`} className="w-[105px] py-1 rounded bg-gray-800 text-gray-600 font-mono text-lg text-center">
             --
           </div>
         ))}
       </div>
 
-      {/* Visit total */}
-      <p className="text-xl font-bold text-yellow-400">
-        Visit: {darts.reduce((s, d) => s + d.score.points, 0)}
-      </p>
+      {/* Visit total — the mode decides whether there is one to show */}
+      {textOf(visitTotal) !== '' && (
+        <p className={modeTextClasses(visitTotal, { tone: 'warning', size: 'xl', weight: 'bold' })}>
+          Visit: {textOf(visitTotal)}
+        </p>
+      )}
 
       {/* Actions */}
       {!hideActions && (

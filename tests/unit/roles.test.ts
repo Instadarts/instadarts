@@ -1,81 +1,59 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { X01Handler } from '../../src/server/modes/x01';
-import { addDartToGame, submitVisitToGame, undoDartFromGame } from '../../src/server/game';
-import { registerModeHandler } from '../../src/server/modes/types';
-import { makeDart, makeGame } from '../helpers';
-
-// Register the x01 mode handler once for all tests
-beforeAll(() => {
-  registerModeHandler('x01', new X01Handler());
-});
-
-/** Add darts one by one then submit via game.ts layer */
-function addAndSubmit(game: any, playerId: string, labels: string[]) {
-  let g = game;
-  for (const label of labels) {
-    const r = addDartToGame(g, playerId, makeDart(label));
-    if (!r.success) throw new Error(r.error);
-    g = r.game;
-  }
-  return submitVisitToGame(g);
-}
+import { describe, it, expect } from 'vitest';
+import { addDartToMatch, undoDartFromMatch } from '../../src/server/match';
+import { makeDart, makeMatch, playVisit } from '../helpers';
 
 describe('Online match player limits', () => {
-  it('game properly tracks visit ownership', () => {
-    const game = makeGame({ isLocal: false });
-    const result = addAndSubmit(game, 'p1', ['T20', 'T20', 'T20']);
-    expect(result.success).toBe(true);
-    expect(result.result.valid).toBe(true);
-    expect(result.result.game.visits[0].playerId).toBe('p1');
+  it('match properly tracks visit ownership', () => {
+    const match = playVisit(makeMatch({ isLocal: false }), 'p1', ['T20', 'T20', 'T20']);
+    expect(match.visits[0].voided).toBe(false);
+    expect(match.visits[0].playerId).toBe('p1');
   });
 
   it('allows up to 2 players (1 per session) in online lobby', () => {
-    const game = makeGame({ isLocal: false, players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    const match = makeMatch({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', sessionId: 'session-b' },
     ] });
-    expect(game.players).toHaveLength(2);
-    expect(game.players[0].sessionId).toBe('session-a');
-    expect(game.players[1].sessionId).toBe('session-b');
-    expect(game.players[0].sessionId).not.toBe(game.players[1].sessionId);
+    expect(match.players).toHaveLength(2);
+    expect(match.players[0].sessionId).toBe('session-a');
+    expect(match.players[1].sessionId).toBe('session-b');
+    expect(match.players[0].sessionId).not.toBe(match.players[1].sessionId);
   });
 });
 
 describe('Local match behavior', () => {
-  const handler = new X01Handler();
-
-  it('local game has isLocal = true', () => {
-    const game = makeGame({ isLocal: true });
-    expect(game.isLocal).toBe(true);
+  it('local match has isLocal = true', () => {
+    const match = makeMatch({ isLocal: true });
+    expect(match.isLocal).toBe(true);
   });
 
-  it('local game can have multiple players', () => {
-    const game = makeGame({
+  it('local match can have multiple players', () => {
+    const match = makeMatch({
       isLocal: true,
       players: [
-        { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-        { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-a' },
+        { id: 'p1', name: 'Alice', sessionId: 'session-a' },
+        { id: 'p2', name: 'Bob', sessionId: 'session-a' },
       ],
     });
     // Same session for both players → local match
-    expect(game.players[0].sessionId).toBe(game.players[1].sessionId);
+    expect(match.players[0].sessionId).toBe(match.players[1].sessionId);
   });
 
   it('local match: creator disconnects → match cancelled with no winner', () => {
-    const game = makeGame({ isLocal: true, status: 'finished', winnerId: null, finishedAt: Date.now() });
-    expect(game.status).toBe('finished');
-    expect(game.winnerId).toBeNull();
+    const match = makeMatch({ isLocal: true, status: 'finished', winnerId: null, finishedAt: Date.now() });
+    expect(match.status).toBe('finished');
+    expect(match.winnerId).toBeNull();
     // Server sets winnerId = null for local match cancellation
   });
 });
 
 describe('Online match role enforcement', () => {
   it('creator sessionId is immutable', () => {
-    const game = makeGame({ isLocal: false, players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    const match = makeMatch({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', sessionId: 'session-b' },
     ] });
-    const creatorSession = game.players[0].sessionId;
+    const creatorSession = match.players[0].sessionId;
     expect(creatorSession).toBe('session-a');
     // Creator's sessionId should never change
     // This is enforced by the server: hostSessionId is set once
@@ -88,82 +66,80 @@ describe('Online match role enforcement', () => {
   });
 });
 
-describe('Game finish scenarios', () => {
+describe('Match finish scenarios', () => {
   it('online match: checkout wins', () => {
-    const game = makeGame({
+    const match = makeMatch({
       isLocal: false,
       settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 40 },
     });
-    const result = addAndSubmit(game, 'p1', ['D20']);
-    expect(result.success).toBe(true);
-    expect(result.result.won).toBe(true);
-    expect(result.result.game.winnerId).toBe('p1');
+    const finished = playVisit(match, 'p1', ['D20']);
+    expect(finished.status).toBe('finished');
+    expect(finished.winnerId).toBe('p1');
   });
 
   it('online match: opponent disconnects → remaining player wins', () => {
-    const game = makeGame({
+    const match = makeMatch({
       isLocal: false,
       status: 'finished',
       winnerId: 'p2',
       finishedAt: Date.now(),
     });
     // Simulating what handleClientLeave does for online
-    expect(game.winnerId).toBe('p2');
+    expect(match.winnerId).toBe('p2');
   });
 
   it('local match: creator leave cancels with no winner', () => {
-    const game = makeGame({
+    const match = makeMatch({
       isLocal: true,
       status: 'finished',
       winnerId: null,
       finishedAt: Date.now(),
     });
     // Simulating what handleClientLeave does for local
-    expect(game.winnerId).toBeNull();
-    expect(game.status).toBe('finished');
+    expect(match.winnerId).toBeNull();
+    expect(match.status).toBe('finished');
   });
 });
 
 describe('Visit submission ownership', () => {
   it('rejects dart for wrong player on their turn', () => {
-    const game = makeGame({ isLocal: false, currentPlayerIndex: 0 });
-    const result = addDartToGame(game, 'p2', makeDart('T20'));
+    const match = makeMatch({ isLocal: false, currentPlayerIndex: 0 });
+    const result = addDartToMatch(match, 'p2', makeDart('T20'));
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('Not your turn');
   });
 
   it('accepts dart for correct player on their turn', () => {
-    const game = makeGame({ isLocal: false, currentPlayerIndex: 0 });
-    const result = addAndSubmit(game, 'p1', ['T20']);
-    expect(result.success).toBe(true);
+    const match = makeMatch({ isLocal: false, currentPlayerIndex: 0 });
+    expect(addDartToMatch(match, 'p1', makeDart('T20')).success).toBe(true);
   });
 });
 
-describe('undoDart via game.ts (turn enforcement layer)', () => {
-  it('undoDart on an in-progress game succeeds', () => {
-    const game = makeGame({ currentPlayerIndex: 0 });
-    let r = addDartToGame(game, 'p1', makeDart('T20'));
+describe('undoDart via match.ts (turn enforcement layer)', () => {
+  it('undoDart on an in-progress match succeeds', () => {
+    const match = makeMatch({ currentPlayerIndex: 0 });
+    let r = addDartToMatch(match, 'p1', makeDart('T20'));
     expect(r.success).toBe(true);
-    r = addDartToGame(r.game, 'p1', makeDart('S20'));
+    r = addDartToMatch(r.match, 'p1', makeDart('S20'));
     expect(r.success).toBe(true);
-    const undo = undoDartFromGame(r.game);
+    const undo = undoDartFromMatch(r.match);
     expect(undo.success).toBe(true);
-    expect(undo.game.currentVisit?.darts).toHaveLength(1);
-    expect(undo.game.currentVisit!.darts[0].score.label).toBe('T20');
+    expect(undo.match.currentVisit?.darts).toHaveLength(1);
+    expect(undo.match.currentVisit!.darts[0].score.label).toBe('T20');
   });
 
-  it('undoDart on a finished game is rejected', () => {
-    const game = makeGame({ status: 'finished', winnerId: 'p1' });
-    const result = undoDartFromGame(game);
+  it('undoDart on a finished match is rejected', () => {
+    const match = makeMatch({ status: 'finished', winnerId: 'p1' });
+    const result = undoDartFromMatch(match);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toBe('Game is not in progress');
+    if (!result.success) expect(result.error).toBe('Match is not in progress');
   });
 
   it('undoDart with no darts returns clean state', () => {
-    const game = makeGame();
-    const result = undoDartFromGame(game);
+    const match = makeMatch();
+    const result = undoDartFromMatch(match);
     expect(result.success).toBe(true);
-    expect(result.game.currentVisit).toBeUndefined();
+    expect(result.match.currentVisit).toBeUndefined();
   });
 });
 
@@ -172,24 +148,24 @@ describe('Reconnect session validation', () => {
   // Unit-level assertions verify the expected sessionId relationships.
 
   it('player sessionId matches expected value', () => {
-    const game = makeGame({ isLocal: false, players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'session-b' },
+    const match = makeMatch({ isLocal: false, players: [
+      { id: 'p1', name: 'Alice', sessionId: 'session-a' },
+      { id: 'p2', name: 'Bob', sessionId: 'session-b' },
     ] });
-    const player = game.players.find((p) => p.id === 'p1')!;
+    const player = match.players.find((p) => p.id === 'p1')!;
     expect(player.sessionId).toBe('session-a');
     // Reconnect enforcement (mismatched sessionId → reject, matching → allow)
     // is handled by the wsHandler — see E2E tests.
   });
 
   it('local match allows same session for multiple players', () => {
-    const game = makeGame({
+    const match = makeMatch({
       isLocal: true,
       players: [
-        { id: 'p1', name: 'Alice', isRemote: false, sessionId: 'local-session' },
-        { id: 'p2', name: 'Bob', isRemote: false, sessionId: 'local-session' },
+        { id: 'p1', name: 'Alice', sessionId: 'local-session' },
+        { id: 'p2', name: 'Bob', sessionId: 'local-session' },
       ],
     });
-    expect(game.players[0].sessionId).toBe(game.players[1].sessionId);
+    expect(match.players[0].sessionId).toBe(match.players[1].sessionId);
   });
 });

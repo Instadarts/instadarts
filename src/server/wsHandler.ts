@@ -1,17 +1,16 @@
 import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { GameState, Lobby } from '../shared/types';
+import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createGame, getGame, findLobbyByInviteCode, updateGame, deleteLobby, swapLobbyPlayers } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
-import { addDartToGame, undoDartFromGame, submitVisitToGame } from './game';
+import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, viewOf } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims, validateTips } from './validation';
 import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
-import { getModeHandler } from './modes/types';
 import { getScoringSession, dropScoringSessions } from './scoring/store';
-import { canCreateLobby, canCreateGame } from './concurrencyLimit';
+import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
 import {
   claimDevice,
   createPairingCode,
@@ -39,7 +38,7 @@ const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
 function disconnectKey(client: Client): string | null {
   if (client.lobbyId && client.playerId) return `lobby:${client.lobbyId}:${client.playerId}`;
   if (client.lobbyId) return `lobby:${client.lobbyId}:`;
-  if (client.gameId && client.playerId) return `game:${client.gameId}:${client.playerId}`;
+  if (client.matchId && client.playerId) return `match:${client.matchId}:${client.playerId}`;
   return null;
 }
 
@@ -110,15 +109,15 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 function broadcastToLobby(lobbyId: string, msg: ServerMessage, excludeWs?: WebSocket): void {
   for (const [ws, client] of clients) {
     if (ws === excludeWs) continue;
-    if (client.lobbyId === lobbyId || client.gameId === lobbyId) {
+    if (client.lobbyId === lobbyId || client.matchId === lobbyId) {
       send(ws, msg);
     }
   }
 }
 
-function broadcastToGame(gameId: string, msg: ServerMessage): void {
+function broadcastToMatch(matchId: string, msg: ServerMessage): void {
   for (const [ws, client] of clients) {
-    if (client.gameId === gameId) {
+    if (client.matchId === matchId) {
       send(ws, msg);
     }
   }
@@ -128,14 +127,14 @@ function broadcastToGame(gameId: string, msg: ServerMessage): void {
 // Request guards
 // ============================================================
 
-/** Validates that the client is playing in an active game. Returns client+game or null (error already sent). */
-function requireGame(ws: WebSocket): { client: Client; game: GameState } | null {
+/** Validates that the client is playing in an active match. Returns client+match or null (error already sent). */
+function requireMatch(ws: WebSocket): { client: Client; match: MatchState } | null {
   const client = clients.get(ws);
-  if (!client?.gameId) return null;
+  if (!client?.matchId) return null;
   if (client.isSpectator) return null;
-  const game = getGame(client.gameId);
-  if (!game) { send(ws, { type: 'error', message: 'Game not found' }); return null; }
-  return { client, game };
+  const match = getMatch(client.matchId);
+  if (!match) { send(ws, { type: 'error', message: 'Match not found' }); return null; }
+  return { client, match };
 }
 
 /** Validates that the client is in a lobby. Returns client+lobby or null. Does NOT send errors for silent-return handlers. */
@@ -195,8 +194,8 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'set_player_name':
       handleSetPlayerName(ws, msg);
       break;
-    case 'start_game':
-      handleStartGame(ws, msg);
+    case 'start_match':
+      handleStartMatch(ws, msg);
       break;
     case 'add_dart':
       handleAddDart(ws, msg);
@@ -207,8 +206,8 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'submit_visit':
       handleSubmitVisit(ws, msg);
       break;
-    case 'leave_game':
-      handleLeaveGame(ws, msg);
+    case 'leave_match':
+      handleLeaveMatch(ws, msg);
       break;
     case 'reconnect':
       handleReconnect(ws, msg);
@@ -326,7 +325,6 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   const player = {
     id: generatePlayerId(),
     name,
-    isRemote: false,
     sessionId: client.sessionId,
   };
 
@@ -383,13 +381,13 @@ function handleUpdateSettings(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const validated = validateSettings(msg.settings);
+  const validated = validateSettings(msg.settings, lobby.settings);
   if (!validated) {
     send(ws, { type: 'error', message: 'Invalid settings' });
     return;
   }
 
-  lobby.settings = { ...lobby.settings, ...validated };
+  lobby.settings = validated;
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
@@ -417,7 +415,7 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
 }
 
-function handleStartGame(ws: WebSocket, msg: any): void {
+function handleStartMatch(ws: WebSocket, msg: any): void {
   const client = clients.get(ws);
   if (!client?.lobbyId) return;
   if (client.isSpectator) return;
@@ -428,13 +426,13 @@ function handleStartGame(ws: WebSocket, msg: any): void {
     return;
   }
 
-  // Only the host can start the game (local lobbies: anyone can)
+  // Only the host can start the match (local lobbies: anyone can)
   if (!lobby.isLocal && client.sessionId !== lobby.hostSessionId) {
-    send(ws, { type: 'error', message: 'Only the match creator can start the game' });
+    send(ws, { type: 'error', message: 'Only the match creator can start the match' });
     return;
   }
 
-  if (!canCreateGame()) {
+  if (!canCreateMatch()) {
     send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }
@@ -445,76 +443,76 @@ function handleStartGame(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const game = createGame(lobby);
+  const match = createMatch(lobby);
 
-  // Update all lobby clients to game
+  // Update all lobby clients to match
   for (const [w, c] of clients) {
     if (c.lobbyId === lobby.id) {
-      c.gameId = game.id;
+      c.matchId = match.id;
       c.lobbyId = null;
     }
   }
 
-  broadcastToGame(game.id, { type: 'game_started', game: { ...game } });
+  broadcastToMatch(match.id, { type: 'match_started', match: { ...match }, view: viewOf(match) });
 }
 
 function handleAddDart(ws: WebSocket, msg: any): void {
-  const req = requireGame(ws);
+  const req = requireMatch(ws);
   if (!req) return;
-  const { client, game } = req;
+  const { client, match } = req;
 
   const dart = validateDartThrow(msg.dart);
   if (!dart) { send(ws, { type: 'error', message: 'Invalid dart coordinates' }); return; }
 
-  const playerId = game.isLocal ? game.players[game.currentPlayerIndex].id : client.playerId;
+  const playerId = match.isLocal ? match.players[match.currentPlayerIndex].id : client.playerId;
   if (!playerId) { send(ws, { type: 'error', message: 'No player associated' }); return; }
-  if (!game.isLocal && playerId !== client.playerId) {
+  if (!match.isLocal && playerId !== client.playerId) {
     send(ws, { type: 'error', message: 'You can only throw darts for your own player' });
     return;
   }
 
-  const result = addDartToGame(game, playerId, dart);
+  const result = addDartToMatch(match, playerId, dart);
   if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
-  commitScoredGame(result.game);
+  commitScoredMatch(result.match);
 }
 
 function handleUndoDart(ws: WebSocket, _msg: any): void {
-  const req = requireGame(ws);
+  const req = requireMatch(ws);
   if (!req) return;
-  const { client, game } = req;
+  const { client, match } = req;
 
-  const cv = game.currentVisit;
+  const cv = match.currentVisit;
   if (!cv || cv.darts.length === 0) { send(ws, { type: 'error', message: 'No darts to undo' }); return; }
-  if (!game.isLocal && cv.playerId !== client.playerId) {
+  if (!match.isLocal && cv.playerId !== client.playerId) {
     send(ws, { type: 'error', message: 'You can only undo your own darts' });
     return;
   }
 
-  const result = undoDartFromGame(game);
+  const result = undoDartFromMatch(match);
   if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
-  commitScoredGame(result.game);
+  commitScoredMatch(result.match);
 }
 
 function handleSubmitVisit(ws: WebSocket, _msg: any): void {
-  const req = requireGame(ws);
+  const req = requireMatch(ws);
   if (!req) return;
-  const { client, game } = req;
+  const { client, match } = req;
 
-  const cv = game.currentVisit;
-  if (cv && !game.isLocal && cv.playerId !== client.playerId) {
+  const cv = match.currentVisit;
+  if (cv && !match.isLocal && cv.playerId !== client.playerId) {
     send(ws, { type: 'error', message: 'You can only submit your own visit' });
     return;
   }
 
-  const submitResult = submitVisitToGame(game);
+  const submitResult = submitVisitToMatch(match);
   if (!submitResult.success) { send(ws, { type: 'error', message: submitResult.error }); return; }
 
-  commitScoredGame(submitResult.result.game);
+  commitScoredMatch(submitResult.match);
 }
 
-function handleLeaveGame(ws: WebSocket, _msg: any): void {
+function handleLeaveMatch(ws: WebSocket, _msg: any): void {
   handleClientLeave(ws);
 }
 
@@ -530,8 +528,8 @@ export function handleClientLeave(ws: WebSocket): void {
     return;
   }
 
-  if (client.gameId) {
-    leaveGame(ws, client);
+  if (client.matchId) {
+    leaveMatch(ws, client);
     return;
   }
 
@@ -543,29 +541,29 @@ export function handleClientLeave(ws: WebSocket): void {
 function leaveAsSpectator(client: Client): void {
   client.isSpectator = false;
   client.lobbyId = null;
-  client.gameId = null;
+  client.matchId = null;
 }
 
-function leaveGame(_ws: WebSocket, client: Client): void {
-  const game = getGame(client.gameId!);
-  if (game && game.status === 'in_progress') {
-    if (game.isLocal) {
+function leaveMatch(_ws: WebSocket, client: Client): void {
+  const match = getMatch(client.matchId!);
+  if (match && match.status === 'in_progress') {
+    if (match.isLocal) {
       // Local match: creator left → cancel match, no winner
-      game.status = 'finished';
-      game.finishedAt = Date.now();
-      broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
+      match.status = 'finished';
+      match.finishedAt = Date.now();
+      broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
     } else {
       // Online match: declare other player winner
-      const otherPlayer = game.players.find((p) => p.id !== client.playerId);
-      if (otherPlayer && game.players.length === 2) {
-        game.status = 'finished';
-        game.winnerId = otherPlayer.id;
-        game.finishedAt = Date.now();
-        broadcastToGame(game.id, { type: 'game_finished', game: { ...game } });
+      const otherPlayer = match.players.find((p) => p.id !== client.playerId);
+      if (otherPlayer && match.players.length === 2) {
+        match.status = 'finished';
+        match.winnerId = otherPlayer.id;
+        match.finishedAt = Date.now();
+        broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
       }
     }
   }
-  client.gameId = null;
+  client.matchId = null;
   client.playerId = null;
 }
 
@@ -611,7 +609,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
     return;
   }
 
-  // Try to find as lobby first, then as game
+  // Try to find as lobby first, then as match
   const lobby = getLobby(id);
   if (lobby) {
     const client = clients.get(ws);
@@ -623,18 +621,18 @@ function handleSpectate(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const game = getGame(id);
-  if (game) {
+  const match = getMatch(id);
+  if (match) {
     const client = clients.get(ws);
     if (client) {
-      client.gameId = game.id;
+      client.matchId = match.id;
       client.isSpectator = true;
     }
-    send(ws, { type: 'game_state', game: { ...game } });
+    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match) });
     return;
   }
 
-  send(ws, { type: 'error', message: 'Lobby or game not found' });
+  send(ws, { type: 'error', message: 'Lobby or match not found' });
 }
 
 function handleReconnect(ws: WebSocket, msg: any): void {
@@ -684,30 +682,30 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     return;
   }
 
-  // Game reconnection (page reload during match)
-  if (msg.gameId) {
+  // Match reconnection (page reload during match)
+  if (msg.matchId) {
     // Cancel any pending disconnect for this player (page reload recovery)
-    cancelDisconnect(`game:${msg.gameId}:${msg.playerId}`);
+    cancelDisconnect(`match:${msg.matchId}:${msg.playerId}`);
 
-    const game = getGame(msg.gameId);
-    if (!game) {
-      send(ws, { type: 'error', message: 'Game not found' });
+    const match = getMatch(msg.matchId);
+    if (!match) {
+      send(ws, { type: 'error', message: 'Match not found' });
       return;
     }
-    const player = game.players.find((p) => p.id === msg.playerId);
+    const player = match.players.find((p) => p.id === msg.playerId);
     if (!player) {
-      send(ws, { type: 'error', message: 'Player not found in game' });
+      send(ws, { type: 'error', message: 'Player not found in match' });
       return;
     }
     // Update session reference on reconnect (page reload gives new WebSocket session)
     player.sessionId = client.sessionId;
-    client.gameId = game.id;
+    client.matchId = match.id;
     client.playerId = msg.playerId;
-    send(ws, { type: 'game_state', game: { ...game } });
+    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match) });
     return;
   }
 
-  send(ws, { type: 'error', message: 'No lobby or game ID provided for reconnect' });
+  send(ws, { type: 'error', message: 'No lobby or match ID provided for reconnect' });
 }
 
 // ============================================================
@@ -753,17 +751,17 @@ function activeCameras(ownerSessionId: string): string[] {
 /**
  * Which match a frontend's cameras score into, and for whom.
  *
- * The owner must be an actual player in a running match. Spectators get a `gameId` too, which is
+ * The owner must be an actual player in a running match. Spectators get a `matchId` too, which is
  * exactly why the check is here: a spectator with a paired camera must not become a scorer.
  */
-function resolveScoringTarget(ownerSessionId: string): { game: GameState; ownerPlayerId: string | null } | null {
+function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerId: string | null } | null {
   for (const client of clients.values()) {
     if (client.deviceId || client.sessionId !== ownerSessionId) continue;
-    if (client.isSpectator || !client.gameId) return null;
-    const game = getGame(client.gameId);
-    if (!game || game.status !== 'in_progress') return null;
+    if (client.isSpectator || !client.matchId) return null;
+    const match = getMatch(client.matchId);
+    if (!match || match.status !== 'in_progress') return null;
     // A local match is one board scored for whoever is up; an online one scores only for its owner.
-    return { game, ownerPlayerId: game.isLocal ? null : client.playerId };
+    return { match, ownerPlayerId: match.isLocal ? null : client.playerId };
   }
   return null;
 }
@@ -789,27 +787,27 @@ function handleScorerTips(ws: WebSocket, msg: any): void {
   const target = resolveScoringTarget(owner);
   if (!target) return;
 
-  const session = getScoringSession(target.game.id, target.ownerPlayerId, commitScoredGame);
+  const session = getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch);
   session.setCameras(activeCameras(owner));
   session.addTips(client.deviceId, tips);
 }
 
 /**
- * The game changed: persist it, tell everyone in it, and refresh the scoring devices watching it.
- * Used by manual darts and camera darts alike — there is only one way a game moves.
+ * The match changed: persist it, tell everyone in it, and refresh the scoring devices watching it.
+ * Used by manual darts and camera darts alike — there is only one way a match moves.
  */
-function commitScoredGame(game: GameState): void {
-  updateGame(game.id, game);
-  broadcastToGame(game.id, { type: 'game_state', game: { ...game } });
-  if (game.status !== 'in_progress') dropScoringSessions(game.id);
-  for (const deviceId of scoringDevicesFor(game.id)) publishScorerState(deviceId);
+function commitScoredMatch(match: MatchState): void {
+  updateMatch(match.id, match);
+  broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+  if (match.status !== 'in_progress') dropScoringSessions(match.id);
+  for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
 }
 
-/** Every scoring device whose owner is playing in this game. */
-function scoringDevicesFor(gameId: string): string[] {
+/** Every scoring device whose owner is playing in this match. */
+function scoringDevicesFor(matchId: string): string[] {
   const found: string[] = [];
   for (const client of clients.values()) {
-    if (client.deviceId || client.gameId !== gameId || client.isSpectator) continue;
+    if (client.deviceId || client.matchId !== matchId || client.isSpectator) continue;
     for (const device of devicesForSession(client.sessionId)) {
       if (device.online) found.push(device.deviceId);
     }
@@ -915,7 +913,7 @@ function handleScorerCamera(ws: WebSocket, msg: any): void {
     // report that is never coming.
     const target = resolveScoringTarget(owner);
     if (target) {
-      getScoringSession(target.game.id, target.ownerPlayerId, commitScoredGame).setCameras(activeCameras(owner));
+      getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
     }
     publishDevicesState(owner);
   }

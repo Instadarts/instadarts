@@ -1,6 +1,6 @@
 import type { Lobby } from '../../shared/types';
 import { PlayerList } from '../components/PlayerList';
-import { GameSettingsPanel } from '../components/GameSettingsPanel';
+import { ModeSettingsPanel } from '../components/ModeSettingsPanel';
 import { InvitePanel } from '../components/InvitePanel';
 
 interface LobbyPageProps {
@@ -46,7 +46,7 @@ export function LobbyPage({
       </h2>
       <p className="text-gray-500 text-sm mb-6">
         {mode === 'local'
-          ? 'Add players and configure the game'
+          ? 'Add players and configure the match'
           : 'Share the code below and wait for your opponent to connect'}
       </p>
 
@@ -61,7 +61,7 @@ export function LobbyPage({
         onSwap={onSwapPlayers}
       />
 
-      <GameSettingsPanel
+      <ModeSettingsPanel
         settings={lobby.settings}
         canEdit={canEdit}
         onChange={onUpdateSettings}

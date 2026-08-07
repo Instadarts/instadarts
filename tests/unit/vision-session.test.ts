@@ -1,16 +1,10 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { BOARD_CENTER } from '../../src/shared/scoring';
-import { registerModeHandler } from '../../src/server/modes/types';
-import { X01Handler } from '../../src/server/modes/x01';
 import { ScoringSession } from '../../src/server/scoring/session';
-import { submitVisitToGame } from '../../src/server/game';
-import type { GameState } from '../../src/shared/types';
+import { submitVisitToMatch } from '../../src/server/match';
+import type { MatchState } from '../../src/shared/types';
 import type { BoardTip } from '../../src/shared/vision/types';
-import { makeGame } from '../helpers';
-
-beforeAll(() => {
-  registerModeHandler('x01', new X01Handler());
-});
+import { makeMatch } from '../helpers';
 
 // ============================================================
 // Helpers
@@ -35,17 +29,17 @@ const D20 = polar(365_000, 0);
 const S1 = polar(150_000, 18);
 
 /**
- * A live game plus a session watching it, wired the way the server wires them: the session
- * re-resolves the game every time, and commits replace it.
+ * A live match plus a session watching it, wired the way the server wires them: the session
+ * re-resolves the match every time, and commits replace it.
  */
-function harness(overrides: Partial<GameState> = {}, ownerPlayerId: string | null = 'p1') {
-  let game = makeGame({ isLocal: true, ...overrides });
-  const commits: GameState[] = [];
+function harness(overrides: Partial<MatchState> = {}, ownerPlayerId: string | null = 'p1') {
+  let match = makeMatch({ isLocal: true, ...overrides });
+  const commits: MatchState[] = [];
   const session = new ScoringSession({
-    getGame: () => game,
+    getMatch: () => match,
     ownerPlayerId,
     commit: (next) => {
-      game = next;
+      match = next;
       commits.push(next);
     },
   });
@@ -54,8 +48,8 @@ function harness(overrides: Partial<GameState> = {}, ownerPlayerId: string | nul
   return {
     session,
     commits,
-    get game() {
-      return game;
+    get match() {
+      return match;
     },
     /** One inference from one camera, closing the window synchronously while it is the only one. */
     see(deviceId: string, ...tips: BoardTip[]) {
@@ -63,11 +57,11 @@ function harness(overrides: Partial<GameState> = {}, ownerPlayerId: string | nul
     },
     /** What a human pressing Submit in the UI does. */
     manualSubmit() {
-      const result = submitVisitToGame(game);
-      if (result.success) game = result.result.game;
+      const result = submitVisitToMatch(match);
+      if (result.success) match = result.match;
     },
     labels() {
-      return (game.currentVisit?.darts ?? []).map((d) => d.score.label);
+      return (match.currentVisit?.darts ?? []).map((d) => d.score.label);
     },
   };
 }
@@ -102,10 +96,10 @@ describe('ScoringSession — darts', () => {
   it('ignores a device that has not declared its camera', () => {
     const h = harness();
     h.see('cam-ghost', tip(T20));
-    expect(h.game.currentVisit).toBeUndefined();
+    expect(h.match.currentVisit).toBeUndefined();
   });
 
-  it('does nothing when the game is not in progress', () => {
+  it('does nothing when the match is not in progress', () => {
     const h = harness({ status: 'finished' });
     h.see('cam-a', tip(T20));
     expect(h.commits).toHaveLength(0);
@@ -116,19 +110,19 @@ describe('ScoringSession — whose darts', () => {
   it('scores for whoever is up in a local match', () => {
     const h = harness({ isLocal: true, currentPlayerIndex: 1 }, 'p1');
     h.see('cam-a', tip(T20));
-    expect(h.game.currentVisit?.playerId).toBe('p2');
+    expect(h.match.currentVisit?.playerId).toBe('p2');
   });
 
   it('scores for the owning player in an online match', () => {
     const h = harness({ isLocal: false, currentPlayerIndex: 0 }, 'p1');
     h.see('cam-a', tip(T20));
-    expect(h.game.currentVisit?.playerId).toBe('p1');
+    expect(h.match.currentVisit?.playerId).toBe('p1');
   });
 
   it('refuses to score in an online match when it is the opponent\'s turn', () => {
     const h = harness({ isLocal: false, currentPlayerIndex: 1 }, 'p1');
     h.see('cam-a', tip(T20));
-    expect(h.game.currentVisit).toBeUndefined();
+    expect(h.match.currentVisit).toBeUndefined();
     expect(h.commits).toHaveLength(0);
   });
 
@@ -153,27 +147,27 @@ describe('ScoringSession — takeout', () => {
   it('submits the visit when the darts come out', () => {
     const h = harness();
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
 
     h.see('cam-a'); // empty board
-    expect(h.game.visits).toHaveLength(1);
-    expect(h.game.visits[0].darts.map((d) => d.score.label)).toEqual(['T20', 'T20', 'T20']);
-    expect(h.game.currentVisit).toBeUndefined();
+    expect(h.match.visits).toHaveLength(1);
+    expect(h.match.visits[0].darts.map((d) => d.score.label)).toEqual(['T20', 'T20', 'T20']);
+    expect(h.match.currentVisit).toBeUndefined();
   });
 
   it('does NOT submit a full visit while the darts are still in the board', () => {
     const h = harness();
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
     expect(h.labels()).toHaveLength(3);
   });
 
   it('never submits an empty visit — a camera on an empty board does not play the match', () => {
     const h = harness();
     for (let i = 0; i < 20; i++) h.see('cam-a');
-    expect(h.game.visits).toHaveLength(0);
-    expect(h.game.currentPlayerIndex).toBe(0);
+    expect(h.match.visits).toHaveLength(0);
+    expect(h.match.currentPlayerIndex).toBe(0);
     expect(h.commits).toHaveLength(0);
   });
 
@@ -183,18 +177,18 @@ describe('ScoringSession — takeout', () => {
     h.see('cam-a');
     h.see('cam-a');
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(1);
+    expect(h.match.visits).toHaveLength(1);
   });
 
   it('arms at two darts with one camera', () => {
     const h = harness();
     h.see('cam-a', tip(T20));
     h.see('cam-a'); // one dart is not enough to believe an empty board
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
 
     h.see('cam-a', tip(T20), tip(S1));
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(1);
+    expect(h.match.visits).toHaveLength(1);
   });
 
   it('arms at one dart with two cameras agreeing', () => {
@@ -205,20 +199,20 @@ describe('ScoringSession — takeout', () => {
     expect(h.labels()).toEqual(['T20']);
 
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(0); // one camera's word is not enough
+    expect(h.match.visits).toHaveLength(0); // one camera's word is not enough
     h.see('cam-b');
-    expect(h.game.visits).toHaveLength(1);
+    expect(h.match.visits).toHaveLength(1);
   });
 
   it('arms at one dart once the visit is locked by a checkout', () => {
     const h = harness({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 40 } });
     h.see('cam-a', tip(D20));
-    expect(h.game.currentVisit?.locked).toBe(true);
+    expect(h.match.currentVisit?.locked).toBe(true);
 
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(1);
-    expect(h.game.status).toBe('finished');
-    expect(h.game.winnerId).toBe('p1');
+    expect(h.match.visits).toHaveLength(1);
+    expect(h.match.status).toBe('finished');
+    expect(h.match.winnerId).toBe('p1');
   });
 
   it('arms at one dart when the visit is already arithmetically bust', () => {
@@ -228,9 +222,9 @@ describe('ScoringSession — takeout', () => {
     expect(h.labels()).toEqual(['S20']);
 
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(1);
-    expect(h.game.visits[0].bust).toBe(true);
-    expect(h.game.currentPlayerIndex).toBe(1);
+    expect(h.match.visits).toHaveLength(1);
+    expect(h.match.visits[0].voided).toBe(true);
+    expect(h.match.currentPlayerIndex).toBe(1);
   });
 
   it('does not take a single camera\'s word for an empty board when two are watching', () => {
@@ -240,7 +234,7 @@ describe('ScoringSession — takeout', () => {
     h.see('cam-b', tip(T20));
     h.see('cam-a', tip(T20)); // cam-a still sees it
     h.see('cam-b'); // cam-b lost the board
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
   });
 
   it('a camera that goes away releases the visit it was holding open', () => {
@@ -254,12 +248,12 @@ describe('ScoringSession — takeout', () => {
 
     // The board is cleared, but cam-b's phone has gone to sleep and its report never arrives.
     h.see('cam-a');
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
 
     // Once it is gone for good the window it was blocking closes, and unanimity is now a claim
     // about cam-a alone — which has already said the board is empty.
     h.session.setCameraActive('cam-b', false);
-    expect(h.game.visits).toHaveLength(1);
+    expect(h.match.visits).toHaveLength(1);
   });
 });
 
@@ -272,12 +266,12 @@ describe('ScoringSession — alongside manual scoring', () => {
     const h = harness();
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
     h.manualSubmit();
-    expect(h.game.currentPlayerIndex).toBe(1);
+    expect(h.match.currentPlayerIndex).toBe(1);
 
     // Tracked darts are per-visit. The board is cleared before the next one starts, so Bob's throw
     // into the same treble is his own — not a re-sighting of Alice's.
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
-    expect(h.game.currentVisit?.playerId).toBe('p2');
+    expect(h.match.currentVisit?.playerId).toBe('p2');
     expect(h.labels()).toEqual(['T20', 'T20', 'T20']);
   });
 
@@ -286,12 +280,12 @@ describe('ScoringSession — alongside manual scoring', () => {
     const h = harness({ settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 121 } });
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p))); // 180 into 121 — bust
     h.manualSubmit();
-    expect(h.game.visits[0].bust).toBe(true);
+    expect(h.match.visits[0].voided).toBe(true);
 
     // Bob throws into the same treble Alice just busted in, which only counts if her darts were
     // forgotten with her visit.
     h.see('cam-a', tip(T20_GROUP[0]));
-    expect(h.game.currentVisit?.playerId).toBe('p2');
+    expect(h.match.currentVisit?.playerId).toBe('p2');
     expect(h.labels()).toEqual(['T20']);
   });
 
@@ -299,7 +293,7 @@ describe('ScoringSession — alongside manual scoring', () => {
     const h = harness();
     h.see('cam-a', tip(T20));
     h.see('cam-a'); // one dart is below the arm threshold, so nothing is submitted
-    expect(h.game.visits).toHaveLength(0);
+    expect(h.match.visits).toHaveLength(0);
     expect(h.session.trackedDarts).toBe(0);
 
     // Thrown again at the same spot, it counts again — the board really was empty in between.
@@ -312,10 +306,10 @@ describe('ScoringSession — alongside manual scoring', () => {
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
     h.manualSubmit();
     h.see('cam-a'); // board cleared, and the new visit has nothing to submit
-    expect(h.game.visits).toHaveLength(1);
+    expect(h.match.visits).toHaveLength(1);
 
     h.see('cam-a', tip(S20));
-    expect(h.game.currentVisit?.playerId).toBe('p2');
+    expect(h.match.currentVisit?.playerId).toBe('p2');
     expect(h.labels()).toEqual(['S20']);
   });
 
@@ -324,7 +318,7 @@ describe('ScoringSession — alongside manual scoring', () => {
     h.see('cam-a', tip(T20));
     // The scorer decides it was actually an S20 and fixes it by hand: undo, then enter the right
     // one. The physical dart is still in the board and still tracked.
-    const undone = { ...h.game, currentVisit: undefined };
+    const undone = { ...h.match, currentVisit: undefined };
     h.commits.push(undone);
 
     h.see('cam-a', tip(T20));

@@ -338,7 +338,7 @@ test.describe('Local 1-player x01 match', () => {
     await submitVisit(page);
     await expectVisitTotal(page, 141);
 
-    // Game should be finished, Alice wins
+    // Match should be finished, Alice wins
     await expect(page.locator('text=Alice wins!')).toBeVisible();
   });
 
@@ -460,13 +460,13 @@ test.describe('Online multiplayer match', () => {
     const doCheckbox = page1.locator('text=Double Out').locator('..').locator('input[type="checkbox"]');
     if (!await doCheckbox.isChecked()) await doCheckbox.check();
 
-    // Page 1 starts the game (button should now be enabled with 2 players)
+    // Page 1 starts the match (button should now be enabled with 2 players)
     await page1.waitForTimeout(500);
     await page1.click('button:has-text("Start Match")');
     await page1.waitForURL('**/match/**');
     await page2.waitForURL('**/match/**');
 
-    // Both pages should see the game
+    // Both pages should see the match
     await expect(page1.locator('text=501').first()).toBeVisible();
     await expect(page2.locator('text=501').first()).toBeVisible();
 
@@ -667,7 +667,7 @@ test.describe('In-match leave scenarios', () => {
     await submitVisit(page1);
 
     // Alice leaves the match
-    await page1.click('button:has-text("Leave Game")');
+    await page1.click('button:has-text("Leave Match")');
     await page1.waitForURL('/');
 
     // Bob should be declared winner

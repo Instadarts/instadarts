@@ -1,4 +1,10 @@
-import type { GameState, ScoreResult } from '../src/shared/types';
+import type { MatchState, ScoreResult } from '../src/shared/types';
+import { registerMode } from '../src/server/modes/types';
+import { x01 } from '../src/server/modes/x01';
+import { addDartToMatch, legContext, submitVisitToMatch, undoDartFromMatch } from '../src/server/match';
+
+// Every test that touches a match needs the mode registered; importing these helpers is what does it.
+registerMode(x01);
 
 /** Create a dart object from a label (e.g. "T20", "D16", "miss"). */
 export function makeDart(label: string, x = 500_000, y = 500_000) {
@@ -26,16 +32,27 @@ export function makeDart(label: string, x = 500_000, y = 500_000) {
   return { x, y, score };
 }
 
-/** Create a GameState with sensible defaults for testing. */
-export function makeGame(overrides: Partial<GameState> = {}): GameState {
-  const { settings: settingsOverride, ...rest } = overrides;
+/** x01's settings, flat, as tests find it natural to write them. */
+export interface X01Over {
+  mode?: string;
+  startScore?: number;
+  doubleIn?: boolean;
+  doubleOut?: boolean;
+}
+
+type MatchOver = Partial<Omit<MatchState, 'settings'>> & { settings?: X01Over };
+
+/** Create a MatchState with sensible defaults for testing. */
+export function makeMatch(overrides: MatchOver = {}): MatchState {
+  const { settings: over = {}, ...rest } = overrides;
+  const { mode = 'x01', ...modeSettings } = over;
   return {
-    id: 'test-game',
+    id: 'test-match',
     status: 'in_progress',
-    settings: { mode: 'x01', doubleIn: false, doubleOut: true, startScore: 501, ...settingsOverride },
+    settings: { mode, modeSettings: { startScore: 501, doubleIn: false, doubleOut: true, ...modeSettings } },
     players: [
-      { id: 'p1', name: 'Alice', isRemote: false, sessionId: 's1' },
-      { id: 'p2', name: 'Bob', isRemote: false, sessionId: 's2' },
+      { id: 'p1', name: 'Alice', sessionId: 's1' },
+      { id: 'p2', name: 'Bob', sessionId: 's2' },
     ],
     visits: [],
     currentPlayerIndex: 0,
@@ -45,4 +62,38 @@ export function makeGame(overrides: Partial<GameState> = {}): GameState {
     isLocal: false,
     ...rest,
   };
+}
+
+/**
+ * The current leg as the mode sees it — for testing a mode directly. The real one, deliberately: a
+ * second copy of it here is exactly the kind of drift these tests exist to catch.
+ */
+export const legOf = legContext;
+
+/** Throw one dart through the match layer. Throws if the match layer refused it. */
+export function throwDart(match: MatchState, playerId: string, label: string): { match: MatchState; locked: boolean } {
+  const result = addDartToMatch(match, playerId, makeDart(label));
+  if (!result.success) throw new Error(result.error);
+  return { match: result.match, locked: result.locked };
+}
+
+/** Take back the last dart through the match layer. */
+export function undoDart(match: MatchState): MatchState {
+  const result = undoDartFromMatch(match);
+  if (!result.success) throw new Error(result.error);
+  return result.match;
+}
+
+/** Submit the visit in progress through the match layer. */
+export function submitVisit(match: MatchState): MatchState {
+  const result = submitVisitToMatch(match);
+  if (!result.success) throw new Error(result.error);
+  return result.match;
+}
+
+/** Throw a whole visit and submit it. */
+export function playVisit(match: MatchState, playerId: string, labels: string[]): MatchState {
+  let current = match;
+  for (const label of labels) current = throwDart(current, playerId, label).match;
+  return submitVisit(current);
 }

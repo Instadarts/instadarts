@@ -14,6 +14,7 @@ interface ScorerPageProps {
   onRename: (name: string) => void;
   /** The user has finished typing the name — publish it. */
   onNameSettled: () => void;
+  onUnpair: () => void;
   onTips: (tips: BoardTip[], ms: number) => void;
   onCameraActive: (active: boolean) => void;
 }
@@ -21,7 +22,7 @@ interface ScorerPageProps {
 type View = 'scoring' | 'settings' | 'calibration';
 
 /** The scoring screen: what this device is looking at, and what the match it feeds looks like. */
-export function ScorerPage({ status, name, onRename, onNameSettled, onTips, onCameraActive }: ScorerPageProps) {
+export function ScorerPage({ status, name, onRename, onNameSettled, onUnpair, onTips, onCameraActive }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
   const [view, setView] = useState<View>('scoring');
   const [screensaver, setScreensaver] = useState(() => loadSettings().screensaver);
@@ -63,6 +64,7 @@ export function ScorerPage({ status, name, onRename, onNameSettled, onTips, onCa
           onCalibrate={() => setView('calibration')}
           screensaver={screensaver}
           onScreensaverChange={setScreensaver}
+          onUnpair={onUnpair}
         />
       )}
 

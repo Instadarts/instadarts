@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { saveSettings } from '../../lib/scorerStorage';
 import { Slider } from './Slider';
@@ -9,6 +10,7 @@ interface SettingsPanelProps {
   onCalibrate: () => void;
   onScreensaverChange: (enabled: boolean) => void;
   screensaver: boolean;
+  onUnpair: () => void;
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -21,7 +23,7 @@ const MODEL_LABELS: Record<string, string> = {
  * confident a detection has to be, the zoom, the lens, and what the screen does when nobody is
  * looking. It sits behind a toggle because the scoring screen should be the board, not a console.
  */
-export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screensaver }: SettingsPanelProps) {
+export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screensaver, onUnpair }: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
 
   return (
@@ -92,6 +94,56 @@ export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screen
           className="w-5 h-5"
         />
       </label>
+
+      <Unpair onUnpair={onUnpair} />
+    </div>
+  );
+}
+
+/**
+ * Letting go of the browser this device is paired to, so it can be paired to another one.
+ *
+ * Behind a confirmation because there is no undo: the old browser is not told and cannot give the
+ * pairing back, so a mis-tap here costs a trip to the other screen for a fresh code. Everything
+ * else on this panel survives it — the model, the thresholds and the lens describe this camera,
+ * not whoever it was scoring for.
+ */
+function Unpair({ onUnpair }: { onUnpair: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <div className="pt-3 border-t border-gray-800 flex items-center justify-between gap-3 text-sm">
+      <span>
+        Pairing
+        <span className="block text-xs text-gray-500">
+          {confirming
+            ? 'The other browser keeps no way back. You will need a new code.'
+            : 'Forget this browser to pair with another one.'}
+        </span>
+      </span>
+      {confirming ? (
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setConfirming(false)}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onUnpair}
+            className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded transition-colors"
+          >
+            Unpair
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          className="px-3 py-1 shrink-0 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+        >
+          Unpair
+        </button>
+      )}
     </div>
   );
 }

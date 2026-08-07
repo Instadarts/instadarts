@@ -101,6 +101,48 @@ test.describe('scoring device pairing', () => {
     await scorer.context.close();
   });
 
+  test('a device unpairs itself and pairs with another browser', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, await requestPairingCode(player));
+    await expect(player.getByText('connected')).toBeVisible();
+
+    // Named first, to show that unpairing takes the identity and leaves the settings.
+    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
+    await scorer.page.getByPlaceholder('Name this device').blur();
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByLabel('Screensaver').uncheck();
+
+    await scorer.page.getByRole('button', { name: 'Unpair' }).click();
+    await scorer.page.getByRole('button', { name: 'Unpair' }).click(); // the confirmation
+    await expect(scorer.page.getByPlaceholder('CODE')).toBeVisible();
+
+    // A different browser now, with no reload in between: the socket has to have been unbound.
+    const other = await browser.newContext();
+    const newOwner = await other.newPage();
+    await newOwner.goto('/');
+    await pairScorer(scorer.page, await requestPairingCode(newOwner));
+    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(newOwner.getByText('connected')).toBeVisible();
+
+    // The settings survived; the name did not, because that is part of the identity.
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
+    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('');
+
+    // And the browser it left holds a device that will never come back: it is told nothing about
+    // the unpairing, so what it sees is a phone that went offline and stayed there. Its device
+    // panel has been open since it showed the code, so there is nothing to open here.
+    await expect(player.getByText('offline')).toBeVisible();
+
+    await frontend.close();
+    await other.close();
+    await scorer.context.close();
+  });
+
   test('a wrong code is refused', async ({ browser }) => {
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, 'ZZZZZZ');

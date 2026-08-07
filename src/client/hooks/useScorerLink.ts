@@ -70,6 +70,22 @@ export function useScorerLink() {
     send({ type: 'scorer_pair', code });
   }, [send]);
 
+  /**
+   * Deliberately forget the pairing, so this phone can be paired to another browser.
+   *
+   * The settings stay: they describe this camera and this lens, which have not changed. Only the
+   * identity goes — and the server is told, because a connection may only pair while it is nobody's
+   * device, so an unpaired phone on a still-bound socket could not redeem a new code.
+   */
+  const unpair = useCallback(() => {
+    send({ type: 'scorer_unpair' });
+    forgetIdentity();
+    setIdentity(null);
+    setState(null);
+    setRefusal(null);
+    setPairing(false);
+  }, [send]);
+
   const setCameraActive = useCallback((active: boolean) => {
     send({ type: 'scorer_camera', active });
   }, [send]);
@@ -107,5 +123,5 @@ export function useScorerLink() {
         ? 'unpaired'
         : (state?.status ?? 'waiting');
 
-  return { identity, status, state, refusal, connected, pair, rename, publishName, setCameraActive, sendTips };
+  return { identity, status, state, refusal, connected, pair, unpair, rename, publishName, setCameraActive, sendTips };
 }

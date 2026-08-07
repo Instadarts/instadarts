@@ -17,8 +17,16 @@ export function JoinView({ onPair, pairing, badCode, connected }: JoinViewProps)
   const [code, setCode] = useState('');
 
   useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get('pair');
-    if (fromUrl) setCode(fromUrl.toUpperCase().slice(0, CODE_LENGTH));
+    const url = new URL(window.location.href);
+    const fromUrl = url.searchParams.get('pair');
+    if (!fromUrl) return;
+
+    setCode(fromUrl.toUpperCase().slice(0, CODE_LENGTH));
+    // Spent once it has been offered. A code is single-use, so leaving it in the address bar only
+    // means the next visit here — after a reload, or after unpairing — starts with a dead one
+    // filled in.
+    url.searchParams.delete('pair');
+    window.history.replaceState(null, '', url);
   }, []);
 
   const ready = code.length === CODE_LENGTH && connected && !pairing;

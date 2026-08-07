@@ -142,6 +142,18 @@ export interface ScorerHelloMessage {
   name?: string;
 }
 
+/**
+ * Scoring device: forget the pairing and go back to the code screen.
+ *
+ * One-sided on purpose. The device drops its token, the server drops the socket binding, and the
+ * frontend that paired it is told nothing — it holds a claim on an id that will never connect
+ * again, which looks to it exactly like a phone that was switched off for good. That is the price
+ * of the device being able to unpair itself without the other side's cooperation.
+ */
+export interface ScorerUnpairMessage {
+  type: 'scorer_unpair';
+}
+
 /** Scoring device: it was renamed. The device owns its own name; the frontend just displays it. */
 export interface ScorerNameMessage {
   type: 'scorer_name';
@@ -189,6 +201,7 @@ export type ClientMessage =
   | DeactivateDeviceMessage
   | ScorerPairMessage
   | ScorerHelloMessage
+  | ScorerUnpairMessage
   | ScorerNameMessage
   | ScorerCameraMessage
   | ScorerTipsMessage;

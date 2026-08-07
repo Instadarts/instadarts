@@ -29,6 +29,7 @@ export function ScorerApp() {
         name={link.identity.name}
         onRename={link.rename}
         onNameSettled={link.publishName}
+        onUnpair={link.unpair}
         onTips={link.sendTips}
         onCameraActive={link.setCameraActive}
       />

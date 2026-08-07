@@ -259,6 +259,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'scorer_hello':
       handleScorerHello(ws, msg);
       break;
+    case 'scorer_unpair':
+      handleScorerUnpair(ws);
+      break;
     case 'scorer_name':
       handleScorerName(ws, msg);
       break;
@@ -1009,6 +1012,32 @@ function handleScorerHello(ws: WebSocket, msg: any): void {
   bindDeviceSocket(ws, client, device.id);
   const owner = ownerOf(device.id);
   if (owner) publishDevicesState(owner);
+}
+
+/**
+ * A device giving up its pairing.
+ *
+ * The socket lives on and is unbound, which is the whole point: a connection may only pair while it
+ * is nobody's device, so without this the phone would forget its token and then be unable to redeem
+ * a new code without a reload. What the frontend holds is left alone — see ScorerUnpairMessage.
+ */
+function handleScorerUnpair(ws: WebSocket): void {
+  const client = clients.get(ws);
+  if (!client?.deviceId) return;
+
+  const owner = ownerOf(client.deviceId);
+  deviceSockets.delete(client.deviceId);
+  releaseDevice(client.deviceId);
+  client.deviceId = null;
+
+  if (!owner) return;
+  // A camera that has just left must leave the roster at once, or every throw window afterwards
+  // waits for a report that is never coming — the same reason handleScorerCamera does this.
+  const target = resolveScoringTarget(owner);
+  if (target) {
+    getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
+  }
+  publishDevicesState(owner);
 }
 
 /** A device renaming itself. It owns its own name; a frontend only displays what it is told. */

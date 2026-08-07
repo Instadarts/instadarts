@@ -20,6 +20,9 @@ interface VisitInputProps {
   hideActions?: boolean;
 }
 
+/** One dart's slot: an equal share of the row, within limits that keep a label readable. */
+const SLOT = 'flex-1 max-w-[10rem] py-1 rounded';
+
 export function VisitInput({
   darts,
   dartsPerVisit,
@@ -39,18 +42,24 @@ export function VisitInput({
   const empty = Math.max(0, dartsPerVisit - filled.length);
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <Dartboard darts={darts} maxDarts={dartsPerVisit} onDartClick={onAddDart} disabled={boardDisabled} />
+    <div className="flex flex-col items-center gap-2 w-full lg:flex-1 lg:min-h-0">
+      {/* The board gets whatever height the slots and buttons below it do not need, and is told
+          how much that is: `container-type: size` is what makes `cqh` inside mean this box, which
+          is how the board can be the largest square that fits without measuring anything in JS. */}
+      <div className="w-full flex justify-center lg:flex-1 lg:min-h-0 lg:[container-type:size]">
+        <Dartboard darts={darts} maxDarts={dartsPerVisit} onDartClick={onAddDart} disabled={boardDisabled} />
+      </div>
 
-      {/* Dart slots */}
-      <div className="flex gap-3 min-h-[40px]">
+      {/* Dart slots. They share the row the way the board shares its column, so the two stay in
+          proportion as the window grows rather than the board running away from them. */}
+      <div className="flex gap-3 min-h-[40px] w-full justify-center">
         {filled.map((slot, i) => (
-          <div key={i} className={slotClasses(slot, { size: 'lg' }, 'w-[105px] py-1 rounded font-mono text-center')}>
+          <div key={i} className={slotClasses(slot, { size: 'lg' }, `${SLOT} font-mono text-center`)}>
             {textOf(slot)}
           </div>
         ))}
         {Array.from({ length: empty }).map((_, i) => (
-          <div key={`empty-${i}`} className="w-[105px] py-1 rounded bg-gray-800 text-gray-600 font-mono text-lg text-center">
+          <div key={`empty-${i}`} className={`${SLOT} bg-gray-800 text-gray-600 font-mono text-lg text-center`}>
             --
           </div>
         ))}
@@ -65,7 +74,7 @@ export function VisitInput({
 
       {/* Actions */}
       {!hideActions && (
-      <div className="flex gap-4">
+      <div className="flex gap-2">
         <button
           onClick={onUndoDart}
           disabled={darts.length === 0 || (readOnly ?? false)}

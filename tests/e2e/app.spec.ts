@@ -63,6 +63,16 @@ async function clickD12(page: Page) {
   await clickBoard(page, Math.round(500_000 + r * Math.sin(angle)), Math.round(500_000 + r * Math.cos(angle)));
 }
 
+/**
+ * The rows of the visit history that hold a visit.
+ *
+ * The screen draws a fixed number of rows and leaves the spare ones blank, so that landing a visit
+ * does not resize anything; "no visits yet" is therefore about text, not about how many rows exist.
+ */
+function visitHistoryRows(page: Page): Locator {
+  return page.locator('text=Visit History').locator('..').locator('div.font-mono').filter({ hasText: '=' });
+}
+
 /** Submit the current visit. */
 async function submitVisit(page: Page) {
   await expect(page.locator('button:has-text("Submit Visit")')).toBeEnabled({ timeout: 5000 });
@@ -934,7 +944,7 @@ test.describe('Re-match', () => {
 
     // A new match, from scratch, with Bob leading off.
     await expect(page.locator('text=Play again?')).toHaveCount(0);
-    await expect(page.locator('text=Visit History').locator('..').locator('div.font-mono')).toHaveCount(0);
+    await expect(visitHistoryRows(page)).toHaveCount(0);
     await expect(page.locator('text=501').first()).toBeVisible();
     const cards = page.locator('p.text-sm.text-gray-400');
     await expect(cards.first()).toHaveText('Bob');
@@ -1011,7 +1021,7 @@ test.describe('Re-match', () => {
 
     // Dragged along to the new match, still spectating.
     await watcher.waitForURL((url) => url.href.includes('/spectate/') && !url.href.endsWith(firstMatch));
-    await expect(watcher.locator('text=Visit History').locator('..').locator('div.font-mono')).toHaveCount(0);
+    await expect(visitHistoryRows(watcher)).toHaveCount(0);
     await expect(watcher.locator('text=Submit Visit')).toHaveCount(0); // still read-only
   });
 
@@ -1128,13 +1138,15 @@ test.describe('Game modes', () => {
   test("the mode's own panel shows statistics across the match", async ({ page }) => {
     await setupLocalMatch(page, ['Alice', 'Bob'], 501);
 
-    // Up from the start, so the screen does not jump when the first dart lands.
-    await expect(page.locator('text=Statistics')).toBeVisible();
+    // Up from the start, so the screen does not jump when the first dart lands. The panel has no
+    // heading of its own, so what says it is there is what it always draws: the round, and a card
+    // per player.
+    await expect(page.locator('text=Round 1')).toBeVisible();
+    await expect(page.locator('text=3-DART AVERAGE')).toHaveCount(2);
 
     await clickT20(page); await clickT20(page); await clickT20(page);
     await submitVisit(page);
 
-    await expect(page.locator('text=Statistics')).toBeVisible();
     await expect(page.locator('text=Round 1')).toBeVisible();
 
     // x01 ships a component for its panel, so these read the rendered card rather than a table.

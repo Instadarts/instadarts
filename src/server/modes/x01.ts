@@ -247,7 +247,7 @@ export const x01: GameMode = {
       visitTotal: String(pointsOf(cv?.darts ?? [])),
       dartsPerVisit: MAX_DARTS,
       slots: (cv?.darts ?? []).map((dart) => ({
-        text: `${dart.score.label} (${dart.score.points})`,
+        text: `${dart.score.label}`,
         // A dart that scored nothing is worth seeing as such. That is x01's judgement, not the
         // screen's — a mode where a zero is unremarkable simply leaves the tone off.
         tone: dart.score.points > 0 ? ('positive' as const) : ('danger' as const),
@@ -275,7 +275,7 @@ export const x01: GameMode = {
     const playing = match.status === 'in_progress';
 
     return {
-      title: 'Statistics',
+      title: '',
       lines: playing ? [`Round ${roundNumber(match)}`] : undefined,
       // For x01's own component, which draws what a table cannot. A deployment without that file
       // still gets the rows above, so nothing here is load-bearing.

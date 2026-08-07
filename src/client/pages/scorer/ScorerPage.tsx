@@ -28,7 +28,7 @@ export function ScorerPage({ status, name, onRename, onNameSettled, onUnpair, on
   const [screensaver, setScreensaver] = useState(() => loadSettings().screensaver);
 
   return (
-    <div className="flex-1 flex flex-col items-center p-4 gap-4">
+    <div className="flex-1 flex flex-col items-center p-4 gap-2">
       <div className="w-full max-w-md flex items-center justify-between gap-2">
         <StatusBadge status={status} />
         <div className="flex items-center gap-2">

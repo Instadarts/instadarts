@@ -76,7 +76,11 @@ export function App() {
   }, [lobby, match, navigate]);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    // The shell is exactly the window, and `main` is what scrolls inside it. That is what lets a
+    // screen ask to fill the height it has been given — the match screen does, so that a board and
+    // a scoreboard behave like an app rather than a document — while pages that are simply long,
+    // like the lobby, still scroll normally.
+    <div className="h-[100dvh] flex flex-col">
       <TopBar
         connected={connected}
         devices={devices.devices}
@@ -87,7 +91,7 @@ export function App() {
         onRelease={devices.release}
         onForget={devices.forget}
       />
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">
       <Routes>
         <Route path="/" element={
           <HomePage

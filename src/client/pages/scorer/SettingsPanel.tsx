@@ -27,7 +27,7 @@ export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screen
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-4 p-4 bg-gray-900 rounded-lg">
+    <div className="w-full max-w-md flex flex-col gap-2 p-4 bg-gray-900 rounded-lg">
       <label className="flex flex-col gap-1 text-sm">
         <span>Model</span>
         <select

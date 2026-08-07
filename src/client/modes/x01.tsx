@@ -45,9 +45,11 @@ export default function X01Panel({ panel }: ModePanelProps) {
   const rest = panel.rows.filter((row) => row.label !== HEADLINE);
 
   return (
-    <div className="flex gap-4">
+    // Cards share whatever the column gives them and wrap only when even that is too little, so the
+    // panel reads the same in a narrow side column as it does across a phone.
+    <div className="flex flex-wrap justify-center gap-3 w-full">
       {playerIds.map((playerId) => (
-        <div key={playerId} className="bg-gray-900 rounded-lg px-4 py-3 min-w-[170px] flex flex-col gap-2">
+        <div key={playerId} className="bg-gray-900 rounded-lg px-4 py-2 flex-1 min-w-[8rem] max-w-[16rem] flex flex-col gap-2">
           {headline && (
             <div className="text-center">
               <p className={`text-2xl font-bold font-mono ${leads(headline, playerId, playerIds) ? 'text-green-400' : 'text-gray-300'}`}>

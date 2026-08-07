@@ -1,20 +1,49 @@
-// Board geometry in board units (0–1,000,000)
-// Derived from dart-scoring.ts constants
+// The board as it is drawn, and how that relates to the board as it is talked about.
+//
+// Two coordinate systems, deliberately:
+//
+//   · **board units** — 0…1,000,000, y-up, centre at 500,000. This is the wire: what a dart's
+//     `x`/`y` are, what the scoring rules and the camera work in. Nothing here changes it.
+//   · **SVG units** — 0…100, y-down. This is only how the picture is drawn.
+//
+// The drawing needs its own, smaller system because of text. A readable label in a million-unit
+// viewBox is tens of thousands of units tall, and Chrome clamps `font-size` at 10,000 — so the
+// sector numbers and the digits in the dart markers came out invisible and could not be fixed by
+// asking for more. At 1:10,000 a label is a few units and everything renders.
+//
+// The cost is fractional coordinates, which costs nothing: the radii below were already irrational
+// multiples of a millimetre, and the only integers in the old system were the dart positions, which
+// are converted at the two functions below and stay whole numbers on the wire.
 
-const MM_TO_BOARD = 0.5 / 225.5 * 1_000_000;
+/** The wire's coordinate space. See `BOARD_MAX` in shared/scoring — the same number, by definition. */
+export const BOARD_SIZE = 1_000_000;
+
+/** The drawing's coordinate space: the whole board, including the miss area, across 100 units. */
+export const SVG_SIZE = 100;
+
+const SVG_PER_BOARD = SVG_SIZE / BOARD_SIZE;
+
+/** A millimetre in SVG units. The board is 451mm across, which is `SVG_SIZE` wide. */
+const MM = 0.5 / 225.5 * SVG_SIZE;
 
 export const RADII = {
-  boardOuter: 225.0 * MM_TO_BOARD,         // ~498,891 — full board including miss area
-  doubleOuter: 170.0 * MM_TO_BOARD,        // ~376,935
-  doubleInner: 160.0 * MM_TO_BOARD,        // ~354,767
-  tripleOuter: 107.0 * MM_TO_BOARD,        // ~237,251
-  tripleInner: 97.0 * MM_TO_BOARD,         // ~215,078
-  outerBull: (32.0 / 2.0) * MM_TO_BOARD,   // ~35,477
-  innerBull: (13.0 / 2.0) * MM_TO_BOARD,   // ~14,412
+  boardOuter: 225.0 * MM,        // ~49.89 — full board including miss area
+  doubleOuter: 170.0 * MM,       // ~37.69
+  doubleInner: 160.0 * MM,       // ~35.48
+  tripleOuter: 107.0 * MM,       // ~23.73
+  tripleInner: 97.0 * MM,        // ~21.51
+  outerBull: (32.0 / 2.0) * MM,  // ~3.55
+  innerBull: (13.0 / 2.0) * MM,  // ~1.44
 };
 
-export const CENTER = 500_000;
-export const BOARD_SIZE = 1_000_000;
+export const CENTER = SVG_SIZE / 2;
+
+/** Wire thicknesses, in SVG units. A real spider wire is about a quarter of a millimetre thick. */
+export const WIRE = {
+  thin: 0.05,
+  normal: 0.06,
+  thick: 0.08,
+};
 
 // Sector order clockwise from top (y-up)
 export const SECTOR_ORDER = [
@@ -35,7 +64,19 @@ export function getDoubleTripleColor(sectorIndex: number): string {
   return DOUBLE_TRIPLE_COLORS[sectorIndex % 2];
 }
 
-// SVG: y-down, board: y-up. Convert board y to SVG y.
-export function boardYToSvgY(boardY: number): number {
-  return BOARD_SIZE - boardY;
+// ============================================================
+// Between the two systems
+// ============================================================
+
+/** A point on the wire, as the drawing sees it. Board y is up, SVG y is down. */
+export function toSvg(board: { x: number; y: number }): { x: number; y: number } {
+  return { x: board.x * SVG_PER_BOARD, y: (BOARD_SIZE - board.y) * SVG_PER_BOARD };
+}
+
+/** A point in the drawing, as the wire sees it. Rounded: a dart's position is a whole board unit. */
+export function toBoard(svg: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: Math.round(svg.x / SVG_PER_BOARD),
+    y: Math.round(BOARD_SIZE - svg.y / SVG_PER_BOARD),
+  };
 }

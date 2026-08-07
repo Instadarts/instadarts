@@ -86,7 +86,7 @@ export function LobbyPage({
         </p>
       )}
 
-      <div className="flex gap-4">
+      <div className="flex gap-2">
         {!isSpectator && isCreator && (
           <button
             onClick={onStartGame}

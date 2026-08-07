@@ -28,7 +28,10 @@ function sortedLabels(text: string | null): string[] {
  * `<player>   <labels> = <total|Bust>`.
  */
 async function visitHistory(player: Page): Promise<{ darts: string[]; total: string }[]> {
-  const lines = await player.locator('div:has(> h3:text("Visit History")) div.font-mono').allTextContents();
+  const rows = await player.locator(':has(> h3:text("Visit History")) div.font-mono').allTextContents();
+  // The history draws a fixed number of rows and leaves the spare ones blank, so that a landing
+  // visit resizes nothing. Only the ones with a total in them are visits.
+  const lines = rows.filter((row) => row.includes(' = '));
   return lines.map((line) => {
     const [thrown, total] = line.split(' = ');
     // Drop the thrower's name, which x01 puts in front of the darts.
@@ -96,8 +99,8 @@ test.describe('camera scoring, end to end', () => {
 
     // The darts reach the player's visit, scored by the server after fusion.
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });
-    await expect(player.getByText('T20 (60)')).toHaveCount(2);
-    await expect(player.getByText('S20 (20)')).toHaveCount(1);
+    await expect(player.getByText('T20', { exact: true })).toHaveCount(2);
+    await expect(player.getByText('S20', { exact: true })).toHaveCount(1);
 
     // A full visit does NOT submit: the player is still standing there, and that gap is where a
     // misread third dart gets fixed.

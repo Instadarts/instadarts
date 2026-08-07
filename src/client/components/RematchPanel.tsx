@@ -31,7 +31,7 @@ export function RematchPanel({ match, sessionId, onVote }: RematchPanelProps) {
         {declined ? 'No re-match' : 'Play again?'}
       </p>
 
-      <div className="flex gap-4">
+      <div className="flex gap-2">
         {match.players.map((player) => (
           <PlayerVote
             key={player.id}

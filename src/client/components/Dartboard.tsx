@@ -1,9 +1,9 @@
 import { useRef, useCallback } from 'react';
 import {
-  RADII, CENTER, BOARD_SIZE,
+  RADII, CENTER, SVG_SIZE, WIRE,
   SECTOR_ORDER,
   getSectorColor, getDoubleTripleColor,
-  boardYToSvgY,
+  toBoard,
 } from './boardGeometry';
 import { DartMarker } from './DartMarker';
 import type { DartThrow } from '../../shared/types';
@@ -16,6 +16,13 @@ interface DartboardProps {
   onDartClick: (dart: DartThrow) => void;
   disabled?: boolean;
 }
+
+/**
+ * How tall a sector number is, in SVG units — so about 4% of the board's width, whatever the board
+ * is currently being drawn at. It doubles as the distance the numbers sit outside the double ring,
+ * which is what keeps them clear of it at every size.
+ */
+const LABEL_SIZE = 4;
 
 /**
  * Generate SVG arc path for a sector ring segment.
@@ -33,14 +40,14 @@ function sectorPath(
   const a2 = toRad(endAngle);
 
   const x1i = CENTER + innerR * Math.sin(a1);
-  const y1i = boardYToSvgY(CENTER + innerR * Math.cos(a1));
+  const y1i = CENTER - innerR * Math.cos(a1);
   const x2i = CENTER + innerR * Math.sin(a2);
-  const y2i = boardYToSvgY(CENTER + innerR * Math.cos(a2));
+  const y2i = CENTER - innerR * Math.cos(a2);
 
   const x1o = CENTER + outerR * Math.sin(a1);
-  const y1o = boardYToSvgY(CENTER + outerR * Math.cos(a1));
+  const y1o = CENTER - outerR * Math.cos(a1);
   const x2o = CENTER + outerR * Math.sin(a2);
-  const y2o = boardYToSvgY(CENTER + outerR * Math.cos(a2));
+  const y2o = CENTER - outerR * Math.cos(a2);
 
   const largeArc = endAngle - startAngle > 180 ? 1 : 0;
 
@@ -65,23 +72,31 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
     if (!svg) return;
 
     const rect = svg.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * BOARD_SIZE;
-    const svgY = ((e.clientY - rect.top) / rect.height) * BOARD_SIZE;
+    const { x, y } = toBoard({
+      x: ((e.clientX - rect.left) / rect.width) * SVG_SIZE,
+      y: ((e.clientY - rect.top) / rect.height) * SVG_SIZE,
+    });
 
-    const boardX = Math.round(svgX);
-    const boardY = Math.round(BOARD_SIZE - svgY);
-
-    const score = scoreFromBoardCoords(boardX, boardY);
-
-    onDartClick({ x: boardX, y: boardY, score });
+    onDartClick({ x, y, score: scoreFromBoardCoords(x, y) });
   }, [disabled, darts.length, onDartClick]);
 
   return (
-    <div className="relative select-none">
+    // The size cap lives on the wrapper rather than the svg, so the board is as wide as it is
+    // allowed to be wherever it is put. On the svg alone it would have nothing to be a percentage
+    // of — the column that holds it centres its children, and a centred child is only as wide as
+    // its contents, which for an svg means whatever the viewBox happens to imply.
+    //
+    // The board is square, so its width is also its height, and it has to be capped by both. It
+    // takes the full width it is offered, up to the height of the box it sits in — `100cqh`, which
+    // resolves against the nearest size container. On the match screen that box is exactly the
+    // space left over once everything else has been laid out, so the board grows until it fills
+    // the window vertically and then stops. With no size container above it, `cqh` falls back to
+    // the viewport, which is the right answer anywhere else.
+    <div className="relative select-none w-full max-w-[600px] lg:max-w-[100cqh]">
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${BOARD_SIZE} ${BOARD_SIZE}`}
-        className="w-full max-w-[500px] cursor-crosshair"
+        viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
+        className="w-full cursor-crosshair"
         onClick={handleClick}
       >
         {/* Board background — full circle including miss area (225mm outer radius) */}
@@ -119,7 +134,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
         })}
 
         {/* Bull ring wire (between outer and inner bull, before bull fills) */}
-        <circle cx={CENTER} cy={CENTER} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth="500" />
+        <circle cx={CENTER} cy={CENTER} r={RADII.innerBull} fill="none" stroke="#333" strokeWidth={WIRE.thin} />
 
         {/* Bulls */}
         <circle cx={CENTER} cy={CENTER} r={RADII.outerBull} fill="#4a4" />
@@ -129,9 +144,9 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
         {SECTOR_ORDER.map((_, i) => {
           const angle = (i * 18 - 9) * Math.PI / 180;
           const x = CENTER + RADII.doubleOuter * Math.sin(angle);
-          const y = boardYToSvgY(CENTER + RADII.doubleOuter * Math.cos(angle));
+          const y = CENTER - RADII.doubleOuter * Math.cos(angle);
           const bx = CENTER + RADII.outerBull * Math.sin(angle);
-          const by = boardYToSvgY(CENTER + RADII.outerBull * Math.cos(angle));
+          const by = CENTER - RADII.outerBull * Math.cos(angle);
           return (
             <line
               key={`wire-${i}`}
@@ -140,18 +155,18 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
               x2={x}
               y2={y}
               stroke="#333"
-              strokeWidth="500"
+              strokeWidth={WIRE.thin}
             />
           );
         })}
 
         {/* Ring wires */}
         {[
-          [RADII.doubleInner, 600],
-          [RADII.doubleOuter, 800],
-          [RADII.tripleInner, 600],
-          [RADII.tripleOuter, 600],
-          [RADII.outerBull, 500],
+          [RADII.doubleInner, WIRE.normal],
+          [RADII.doubleOuter, WIRE.thick],
+          [RADII.tripleInner, WIRE.normal],
+          [RADII.tripleOuter, WIRE.normal],
+          [RADII.outerBull, WIRE.thin],
         ].map(([r, sw]) => (
           <circle key={`ring-${r}`} cx={CENTER} cy={CENTER} r={r} fill="none" stroke="#333" strokeWidth={sw} />
         ))}
@@ -159,9 +174,10 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
         {/* Sector numbers */}
         {SECTOR_ORDER.map((value, i) => {
           const angle = (i * 18 * Math.PI) / 180; // centered at top of sector
-          const labelR = RADII.doubleOuter + 30_000;
+          // Between the double ring and the edge of the board, where the numbers are printed.
+          const labelR = RADII.doubleOuter + LABEL_SIZE;
           const lx = CENTER + labelR * Math.sin(angle);
-          const ly = boardYToSvgY(CENTER + labelR * Math.cos(angle));
+          const ly = CENTER - labelR * Math.cos(angle);
 
           return (
             <text
@@ -171,7 +187,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
               textAnchor="middle"
               dominantBaseline="central"
               fill="white"
-              fontSize="18"
+              fontSize={LABEL_SIZE}
               fontWeight="bold"
               fontFamily="monospace"
             >

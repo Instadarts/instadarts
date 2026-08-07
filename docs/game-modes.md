@@ -225,6 +225,29 @@ Top to bottom:
 | 8 | History | the element | `history` |
 | 9 | Leave | all of it | — |
 
+### A screen that does not jump
+
+**An element should be its final size from the first frame, not the size of what it currently has to
+show.** A match screen fills up as it is played — visits land in the history, a panel's numbers
+appear once there is something to average — and anything that grows as that happens shoves whatever
+is under it down the page, under the hand of someone who is aiming at a dartboard.
+
+What this looks like in practice:
+
+- **Reserve the rows.** The visit history draws a fixed number of rows from the start and leaves the
+  ones it has nothing for blank ([`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx),
+  `HISTORY_ROWS`). It is not scrolled to a maximum height; it is that height throughout.
+- **Show the element before it has content.** x01's panel renders with `0` darts thrown and `—`
+  for the averages rather than waiting for a first visit, which is why the board does not move when
+  one is thrown.
+- **Keep a slot's width off its contents.** Dart slots and score cards have a width from the layout,
+  not from the label inside them, so `T20` and `miss` occupy the same space.
+- **A breakpoint may change the size; content may not.** Fewer history rows on a phone than in a
+  column of its own is fine. What must not happen is the same screen changing size under itself.
+
+This is good practice rather than an enforced rule, and there are places that do not follow it yet.
+Anything new on the match screen should.
+
 ### The summary
 
 Once the match is finished the screen becomes **the match's**, not the mode's. The input block (4–7)

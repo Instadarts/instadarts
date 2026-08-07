@@ -24,7 +24,7 @@ export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
   if (empty) return null;
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-1 w-full">
       {panel.title && <h3 className="text-gray-400 text-sm uppercase">{panel.title}</h3>}
 
       {panel.lines?.map((line, i) => (

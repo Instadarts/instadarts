@@ -159,8 +159,9 @@ describe('leaving a match', () => {
     guest.leave();
     expect(matchOf(host)!.departed).toHaveLength(1);
 
-    host.send({ type: 'rematch_vote', matchId, playerId: matchOf(host)!.players[0].id, accepted: true });
-    expect(matchOf(host)!.rematchVotes).toEqual([]);
+    // Bob's leaving already stands as his answer, so nothing Alice does can start one.
+    expect(matchOf(host)!.rematchVotes[matchOf(host)!.players[1].id]).toBe('declined');
+    host.send({ type: 'rematch_vote', matchId, playerId: matchOf(host)!.players[0].id, answer: 'accepted' });
     expect(startedOther(host, matchId)).toBeUndefined();
   });
 });
@@ -174,11 +175,11 @@ describe('re-match', () => {
     const [alice, bob] = matchOf(host)!.players;
     expect(matchOf(host)!.status).toBe('finished');
 
-    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
-    expect(matchOf(guest)!.rematchVotes).toEqual([alice.id]); // the other side sees it
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, answer: 'accepted' });
+    expect(matchOf(guest)!.rematchVotes).toEqual({ [alice.id]: 'accepted' }); // the other side sees it
     expect(startedOther(guest, matchId)).toBeUndefined();     // but nothing has started
 
-    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, answer: 'accepted' });
     expect(startedOther(host, matchId)).toBeDefined();
     expect(startedOther(guest, matchId)).toBeDefined();
   });
@@ -189,8 +190,8 @@ describe('re-match', () => {
     winIt(host, original.id);
     const [alice, bob] = original.players;
 
-    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
-    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, answer: 'accepted' });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, answer: 'accepted' });
 
     const rematch = startedOther(host, original.id)!;
     expect(rematch.id).not.toBe(original.id);
@@ -204,7 +205,7 @@ describe('re-match', () => {
     expect(rematch.currentVisit).toBeUndefined();
     expect(rematch.winnerId).toBeNull();
     expect(rematch.finishedAt).toBeNull();
-    expect(rematch.rematchVotes).toEqual([]);
+    expect(rematch.rematchVotes).toEqual({});
     expect(rematch.departed).toEqual([]);
   });
 
@@ -214,8 +215,8 @@ describe('re-match', () => {
     winIt(host, original.id);
     const [alice, bob] = original.players;
 
-    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
-    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, answer: 'accepted' });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, answer: 'accepted' });
     const rematch = startedOther(host, original.id)!;
 
     // Bob leads off, and it is his own connection that may throw for him.
@@ -230,11 +231,11 @@ describe('re-match', () => {
     winIt(host, matchId);
     const [alice, bob] = matchOf(host)!.players;
 
-    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
-    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: false });
-    expect(matchOf(guest)!.rematchVotes).toEqual([]);
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, answer: 'accepted' });
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, answer: 'neutral' });
+    expect(matchOf(guest)!.rematchVotes).toEqual({});
 
-    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, answer: 'accepted' });
     expect(startedOther(guest, matchId)).toBeUndefined(); // one player is not enough
   });
 
@@ -244,9 +245,9 @@ describe('re-match', () => {
     winIt(host, matchId);
     const bob = matchOf(host)!.players[1];
 
-    host.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    host.send({ type: 'rematch_vote', matchId, playerId: bob.id, answer: 'accepted' });
     expect(host.last('error')?.message).toBe('You can only answer for your own player');
-    expect(matchOf(guest)!.rematchVotes).toEqual([]);
+    expect(matchOf(guest)!.rematchVotes).toEqual({});
   });
 
   it('is not offered while the match is still being played', () => {
@@ -254,8 +255,8 @@ describe('re-match', () => {
     const matchId = match().id;
     const alice = match().players[0];
 
-    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
-    expect(matchOf(host)!.rematchVotes).toEqual([]);
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, answer: 'accepted' });
+    expect(matchOf(host)!.rematchVotes).toEqual({});
   });
 
   it('in a local match, the one user answers for both players', () => {
@@ -264,12 +265,69 @@ describe('re-match', () => {
     winIt(user, original.id);
     const [alice, bob] = original.players;
 
-    user.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
+    user.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, answer: 'accepted' });
     expect(startedOther(user, original.id)).toBeUndefined();
 
-    user.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+    user.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, answer: 'accepted' });
     const rematch = startedOther(user, original.id)!;
     expect(rematch.isLocal).toBe(true);
     expect(rematch.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
+  });
+});
+
+describe('a definitive answer', () => {
+  it('is settled by one decline, and no later acceptance revives it', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    const [alice, bob] = matchOf(host)!.players;
+
+    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, answer: 'declined' });
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, answer: 'accepted' });
+
+    expect(matchOf(host)!.rematchVotes).toEqual({ [bob.id]: 'declined', [alice.id]: 'accepted' });
+    expect(startedOther(host, matchId)).toBeUndefined();
+  });
+
+  it('is what leaving means, so nobody can leave the question open', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    const bob = matchOf(host)!.players[1];
+
+    guest.leave();
+    expect(matchOf(host)!.rematchVotes[bob.id]).toBe('declined');
+  });
+
+  it('cannot be cast for a player who has left', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    const bob = matchOf(host)!.players[1];
+
+    guest.leave();
+    // Even the one user of a local match could not talk a departed player back in; here Alice tries
+    // to answer for Bob, and is refused twice over.
+    host.send({ type: 'rematch_vote', matchId, playerId: bob.id, answer: 'accepted' });
+    expect(matchOf(host)!.rematchVotes[bob.id]).toBe('declined');
+  });
+});
+
+describe('spectators', () => {
+  it('are carried into the re-match', () => {
+    const { host, guest, match } = onlineMatch();
+    const original = match();
+    winIt(host, original.id);
+
+    const watcher = connect();
+    watcher.send({ type: 'spectate', id: original.id });
+    expect(matchOf(watcher)!.id).toBe(original.id);
+
+    const [alice, bob] = original.players;
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, answer: 'accepted' });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, answer: 'accepted' });
+
+    const rematch = startedOther(host, original.id)!;
+    expect(matchOf(watcher)!.id).toBe(rematch.id); // followed along, still watching
   });
 });

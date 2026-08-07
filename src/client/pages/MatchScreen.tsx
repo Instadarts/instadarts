@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { DartThrow, MatchState, ModeView } from '../../shared/types';
+import type { DartThrow, MatchState, ModeView, RematchAnswer } from '../../shared/types';
 import { textOf } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
 import { RematchPanel } from '../components/RematchPanel';
@@ -13,7 +13,7 @@ interface MatchScreenProps {
   onAddDart: (matchId: string, dart: DartThrow) => void;
   onUndoDart: (matchId: string) => void;
   onSubmitVisit: (matchId: string) => void;
-  onVoteRematch: (playerId: string, accepted: boolean) => void;
+  onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   ownPlayerId: string | null;
   isSpectator: boolean;
   sessionId: string | null;

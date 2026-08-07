@@ -124,9 +124,14 @@ How a match ends:
 | The game mode declares a winner (x01: a checkout) | `status: 'finished'`, `winnerId` set | "🎯 X wins!" |
 | A player leaves an **online** match | The other player is declared winner | "🎯 X wins!" |
 | The user leaves a **local** match | `status: 'finished'`, **no** winner | "Match cancelled" |
+| Nobody touches it for 10 minutes | `status: 'finished'`, **no** winner | "Match cancelled" |
 
 **A finished match with no `winnerId` was cancelled, not won** — that is what the screen keys on.
-Any leave also records the player in [`departed`](#departed), which rules out a re-match.
+Any leave also records the player in [`departed`](#departed), which stands as their answer to a
+re-match.
+
+A finished match is not the end of the story: it lives out its summary and is then
+[closed](#deadlines) for good.
 
 Finished matches are kept 5 minutes, then garbage-collected.
 
@@ -169,14 +174,20 @@ is an ordinary new match that skips the lobby because everything a lobby would a
 settled ([`createRematch`](../src/server/store.ts)). Nothing anywhere records that a match came from
 another one.
 
-- Each participant answers for themselves: `rematch_vote` per player, held in
-  `MatchState.rematchVotes` so both sides watch each other's toggle through the ordinary broadcast.
-  Every player accepting starts it at once.
+**Every participant gives a definite answer.** Each player starts *neutral* and either accepts or
+declines (`rematch_vote`, held in `MatchState.rematchVotes` so both sides watch each other's answer
+through the ordinary broadcast):
+
+| All accepted | A re-match starts at once |
+| --- | --- |
+| Anyone declined | Settled: no re-match. The summary stays up until the [deadline](#deadlines) |
+| Still neutral at the deadline | Becomes a decline, and the match closes |
+
+There is no way to leave the question open. **Leaving counts as declining** — see
+[Departed](#departed) — and the deadline answers for anyone who never did.
+
 - A user may only answer for a player of their own session — which in a local match is all of them.
-- **A match anybody has left offers no re-match** (see [Departed](#departed)), because the person who
-  would have to agree is gone.
-- When it starts, both participants' clients are moved to the new match. Spectators of the old match
-  are not — they stay with the finished one.
+- When a re-match starts, everyone on the old match moves to the new one, **spectators included**.
 
 ### Departed
 
@@ -184,8 +195,29 @@ another one.
 Leave, or by dropping the connection for longer than the reconnect grace period:
 
 - they cannot reconnect to it (`reconnect` is refused with "You have left this match");
-- the match offers no re-match to anyone;
+- it counts as **declining** a [re-match](#re-match), and cannot be taken back by anyone;
 - if it was still being played, it ends — see [Match](#match).
+
+### Deadlines
+
+Every lobby and every match carries an `expiresAt`, and
+[`lifecycle.ts`](../src/server/lifecycle.ts) is the only thing that reads it. The point is that
+nothing can sit on the server forever: a match is either being actively played, or counting down to
+a definite end.
+
+| State | Deadline | What happens |
+| --- | --- | --- |
+| Lobby | 10 min idle | Abandoned; everyone in it goes home (`lobby_abandoned`) |
+| Match in progress | 10 min idle | Cancelled — finished, no winner — and gets a summary like any other |
+| Match finished | 2 min | Neutral re-match votes become declines, then `match_closed`: everyone still on it, players and spectators, goes home and the match is deleted |
+
+**Input pushes the idle deadline back**; the summary deadline is fixed. Input means anything a
+participant does — darts (manual or from a scoring device), undo, submit, settings, adding or
+renaming players, swapping order, starting the match, re-match votes. Spectating and reconnecting do
+not count: an audience must not keep a dead match alive.
+
+The client counts the summary deadline down on the finished screen, since it is what turns an
+unanswered re-match into a decline.
 
 ### Invite code
 

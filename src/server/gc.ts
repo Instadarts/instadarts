@@ -2,8 +2,11 @@ import { getAllMatches, deleteMatch, getAllLobbies, deleteLobby } from './store'
 import { sweepScoringSessions } from './scoring/store';
 
 const GC_INTERVAL_MS = 30_000;
+/**
+ * A backstop, not the main event. Finished matches are torn down by the lifecycle sweep when their
+ * summary runs out; this reclaims anything that somehow outlived that.
+ */
 const FINISHED_MATCH_TTL_MS = 5 * 60 * 1000;
-const IDLE_LOBBY_TTL_MS = 10 * 60 * 1000;
 
 let lobbiesCollected = 0;
 let matchesCollected = 0;
@@ -35,8 +38,10 @@ export function startGC(): NodeJS.Timeout {
       }
     }
 
+    // Lobbies are abandoned by the lifecycle sweep, which tells the people in them. Anything still
+    // here well past its deadline had nobody to tell.
     for (const [id, lobby] of getAllLobbies()) {
-      if (now - lobby.createdAt > IDLE_LOBBY_TTL_MS) {
+      if (now > lobby.expiresAt + FINISHED_MATCH_TTL_MS) {
         deleteLobby(id);
         lobbiesCollected++;
       }

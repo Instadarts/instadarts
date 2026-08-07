@@ -901,11 +901,12 @@ test.describe('Re-match', () => {
     await playToAWin(page);
 
     await expect(page.locator('text=Play again?')).toBeVisible();
-    await page.click('button:has-text("Alice")');
-    await expect(page.locator('button:has-text("Alice")')).toHaveAttribute('aria-pressed', 'true');
+    const yes = (name: string) => page.getByRole('button', { name: `${name}: accept re-match` });
+    await yes('Alice').click();
+    await expect(yes('Alice')).toHaveAttribute('aria-pressed', 'true');
     expect(page.url()).toBe(firstMatch); // one player is not enough
 
-    await page.click('button:has-text("Bob")');
+    await yes('Bob').click();
     await page.waitForURL((url) => url.href !== firstMatch);
 
     // A new match, from scratch, with Bob leading off.
@@ -939,16 +940,56 @@ test.describe('Re-match', () => {
     await playToAWin(page1, page2);
     await expect(page2.locator('text=Alice wins!')).toBeVisible();
 
-    // Bob's toggle is Bob's to press: Alice sees it, but cannot press it.
-    await expect(page1.locator('button:has-text("Bob")')).toBeDisabled();
-    await page1.click('button:has-text("Alice")');
-    await expect(page2.locator('button:has-text("Alice")')).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
+    // Bob's buttons are Bob's to press: Alice sees them, but cannot press them.
+    const yes = (page: Page, name: string) =>
+      page.getByRole('button', { name: `${name}: accept re-match` });
+    await expect(yes(page1, 'Bob')).toBeDisabled();
+    await yes(page1, 'Alice').click();
+    await expect(yes(page2, 'Alice')).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
     expect(page2.url()).toBe(firstMatch);
 
-    await page2.click('button:has-text("Bob")');
+    await yes(page2, 'Bob').click();
     await page1.waitForURL((url) => url.href !== firstMatch);
     await page2.waitForURL((url) => url.href !== firstMatch);
     expect(page1.url()).toBe(page2.url());
+  });
+
+  test('a decline settles it, and the summary stays up', async ({ page }) => {
+    await setupLocalMatch(page, ['Alice', 'Bob'], 501);
+    const firstMatch = page.url();
+    await playToAWin(page);
+
+    await page.getByRole('button', { name: 'Alice: accept re-match' }).click();
+    await page.getByRole('button', { name: 'Bob: decline re-match' }).click();
+
+    // Settled: no re-match, no further answering, and the summary is still there to read.
+    await expect(page.locator('text=No re-match')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Alice: accept re-match' })).toBeDisabled();
+    await expect(page.locator('text=Alice wins!')).toBeVisible();
+    await expect(page.locator('text=Visit History')).toBeVisible();
+    expect(page.url()).toBe(firstMatch);
+  });
+
+  test('spectators are carried into the re-match', async ({ browser }) => {
+    const host = await (await browser.newContext()).newPage();
+    await setupLocalMatch(host, ['Alice', 'Bob'], 501);
+    const firstMatch = host.url().split('/match/')[1];
+
+    const watcher = await (await browser.newContext()).newPage();
+    await watcher.goto(`/spectate/${firstMatch}`);
+    await expect(watcher.locator('text=501 — Double Out')).toBeVisible();
+
+    await playToAWin(host);
+    // A spectator watches, and has no say.
+    await expect(watcher.locator('text=Play again?')).toHaveCount(0);
+
+    await host.getByRole('button', { name: 'Alice: accept re-match' }).click();
+    await host.getByRole('button', { name: 'Bob: accept re-match' }).click();
+
+    // Dragged along to the new match, still spectating.
+    await watcher.waitForURL((url) => url.href.includes('/spectate/') && !url.href.endsWith(firstMatch));
+    await expect(watcher.locator('text=Visit History').locator('..').locator('div.font-mono')).toHaveCount(0);
+    await expect(watcher.locator('text=Submit Visit')).toHaveCount(0); // still read-only
   });
 
   test('a cancelled match says so, and offers no re-match', async ({ browser }) => {

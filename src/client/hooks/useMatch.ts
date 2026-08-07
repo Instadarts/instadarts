@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { MatchState, Lobby, ModeView } from '../../shared/types';
+import type { MatchState, Lobby, ModeView, RematchAnswer } from '../../shared/types';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
@@ -60,6 +60,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
       case 'match_finished':
         setMatch(msg.match);
         setView(msg.view);
+        clearReconnectInfo();
+        break;
+      case 'match_closed':
+        // The match ran out its summary and is gone.
+        setMatch(null);
+        setView(null);
+        setOwnPlayerId(null);
+        setIsSpectator(false);
         clearReconnectInfo();
         break;
       case 'lobby_abandoned':
@@ -136,8 +144,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setIsSpectator(true);
   }, [send]);
 
-  const voteRematch = useCallback((matchId: string, playerId: string, accepted: boolean) => {
-    send({ type: 'rematch_vote', matchId, playerId, accepted });
+  const voteRematch = useCallback((matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => {
+    send({ type: 'rematch_vote', matchId, playerId, answer });
   }, [send]);
 
   const swapPlayers = useCallback((lobbyId: string) => {

@@ -94,7 +94,8 @@ export interface RematchVoteMessage {
   type: 'rematch_vote';
   matchId: string;
   playerId: string;
-  accepted: boolean;
+  /** 'neutral' takes an answer back; the deadline turns anything still neutral into a decline. */
+  answer: 'accepted' | 'declined' | 'neutral';
 }
 
 // ============================================================
@@ -228,6 +229,14 @@ export interface MatchFinishedMessage {
   view: ModeView;
 }
 
+/**
+ * This match is over and gone: its summary ran out. Everyone still on it — players and spectators —
+ * goes home. Nothing lingers on the server without an end.
+ */
+export interface MatchClosedMessage {
+  type: 'match_closed';
+}
+
 export interface LobbyAbandonedMessage {
   type: 'lobby_abandoned';
 }
@@ -296,6 +305,7 @@ export type ServerMessage =
   | MatchStartedMessage
   | MatchFinishedMessage
   | LobbyAbandonedMessage
+  | MatchClosedMessage
   | PairingCodeMessage
   | DevicePairedMessage
   | DevicesStateMessage

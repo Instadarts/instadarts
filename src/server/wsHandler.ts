@@ -3,7 +3,7 @@ import type { ServerMessage } from '../shared/protocol';
 import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, swapLobbyPlayers } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, deleteMatch, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, viewOf } from './match';
 import { generateInviteCode } from './invite';
@@ -11,6 +11,7 @@ import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims
 import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
 import { getScoringSession, dropScoringSessions } from './scoring/store';
 import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
+import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
   claimDevice,
   createPairingCode,
@@ -175,6 +176,11 @@ export function handleMessage(ws: WebSocket, raw: string): void {
   if (client?.deviceId && !isScorerMessage) return;
   if (isScorerMessage && !client?.deviceId && msg.type !== 'scorer_pair' && msg.type !== 'scorer_hello') return;
 
+  // Anything a participant does pushes the idle deadline back. Read after the handler has run, so
+  // that a message which moves the client — starting a match — touches what it moved them into.
+  // Deliberately not spectating or reconnecting: an audience must not keep a dead match alive.
+  const isInput = INPUT_TYPES.has(msg.type);
+
   switch (msg.type) {
     case 'create_lobby':
       handleCreateLobby(ws, msg);
@@ -248,7 +254,67 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     default:
       send(ws, { type: 'error', message: `Unknown message type: ${(msg as any).type}` });
   }
+
+  if (isInput && client && !client.isSpectator) {
+    const lobby = client.lobbyId ? getLobby(client.lobbyId) : undefined;
+    if (lobby) touch(lobby);
+    const match = client.matchId ? getMatch(client.matchId) : undefined;
+    // A finished match is counting down its summary; input must not push that back.
+    if (match && match.status === 'in_progress') touch(match);
+  }
 }
+
+// ============================================================
+// Deadlines
+//
+// Wired into the lifecycle sweep, which owns *when*; everything here is *what to tell people*.
+// ============================================================
+
+setLifecycleHandlers({
+  /** Nobody has touched this match for the idle period. It is over, with no winner. */
+  cancelIdleMatch(match: MatchState): void {
+    endMatch(match, null);
+    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
+  },
+
+  /**
+   * A finished match has run out its summary. Anyone who never answered the re-match has, in effect,
+   * declined — and then the match is gone and everyone still on it goes home.
+   */
+  closeMatch(match: MatchState): void {
+    for (const player of match.players) {
+      if (!match.rematchVotes[player.id]) match.rematchVotes[player.id] = 'declined';
+    }
+    broadcastToMatch(match.id, { type: 'match_closed' });
+    for (const client of clients.values()) {
+      if (client.matchId !== match.id) continue;
+      client.matchId = null;
+      client.playerId = null;
+      client.isSpectator = false;
+    }
+    dropScoringSessions(match.id);
+    deleteMatch(match.id);
+  },
+
+  /** A lobby nobody has touched for the idle period. */
+  expireLobby(lobby: Lobby): void {
+    for (const [ws, client] of clients) {
+      if (client.lobbyId !== lobby.id) continue;
+      send(ws, { type: 'lobby_abandoned' });
+      client.lobbyId = null;
+      client.playerId = null;
+      client.isSpectator = false;
+    }
+    deleteLobby(lobby.id);
+  },
+});
+
+/** Message types that count as input for the idle timeout. */
+const INPUT_TYPES = new Set([
+  'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name',
+  'update_settings', 'swap_players', 'start_match',
+  'add_dart', 'undo_dart', 'submit_visit', 'rematch_vote',
+]);
 
 // ============================================================
 // Handlers
@@ -550,32 +616,44 @@ function leaveAsSpectator(client: Client): void {
 /**
  * A participant leaving a match, whether by pressing the button or by dropping off for good.
  *
- * Leaving is final. The player is recorded as departed, which bars them from reconnecting and takes
- * the re-match off the table for everyone — the person who would have to agree to one has gone. That
- * holds for leaving a match that is already over, too: there is then nobody left to re-match with.
+ * Leaving is final. The player is recorded as departed, which bars them from reconnecting, and it
+ * stands as their answer to a re-match: **walking out is a decline.** That is what makes the answer
+ * always converge — there is no way to leave the question open by disappearing.
  */
 function leaveMatch(_ws: WebSocket, client: Client): void {
   const match = getMatch(client.matchId!);
   if (match) {
-    if (client.playerId && !match.departed.includes(client.playerId)) {
-      match.departed.push(client.playerId);
+    if (client.playerId) {
+      if (!match.departed.includes(client.playerId)) match.departed.push(client.playerId);
+      match.rematchVotes[client.playerId] = 'declined';
     }
-    // A departing player's vote goes with them.
-    match.rematchVotes = match.rematchVotes.filter((id) => id !== client.playerId);
 
     if (match.status === 'in_progress') {
-      match.status = 'finished';
-      match.finishedAt = Date.now();
       // A local match is one user's, so their leaving cancels it: no winner. An online match has an
       // opponent still standing, and they take it.
-      if (!match.isLocal && match.players.length === 2) {
-        match.winnerId = match.players.find((p) => p.id !== client.playerId)?.id ?? null;
-      }
+      const winnerId = !match.isLocal && match.players.length === 2
+        ? match.players.find((p) => p.id !== client.playerId)?.id ?? null
+        : null;
+      endMatch(match, winnerId);
     }
     broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
   }
   client.matchId = null;
   client.playerId = null;
+}
+
+/**
+ * A match is over: record how, and start its summary clock.
+ *
+ * Every route to a finished match goes through here, so every finished match has a deadline and none
+ * can sit on the server unfinished.
+ */
+function endMatch(match: MatchState, winnerId: string | null): void {
+  match.status = 'finished';
+  match.winnerId = winnerId;
+  match.finishedAt = Date.now();
+  touch(match, SUMMARY_TTL_MS);
+  dropScoringSessions(match.id);
 }
 
 function leaveLobby(ws: WebSocket, client: Client): void {
@@ -813,9 +891,16 @@ function handleScorerTips(ws: WebSocket, msg: any): void {
  * Used by manual darts and camera darts alike — there is only one way a match moves.
  */
 function commitScoredMatch(match: MatchState): void {
+  // A dart is input, so it pushes the idle deadline back; a match the mode has just decided swaps
+  // that deadline for its summary clock.
+  if (match.status === 'in_progress') {
+    touch(match);
+  } else {
+    touch(match, SUMMARY_TTL_MS);
+    dropScoringSessions(match.id);
+  }
   updateMatch(match.id, match);
   broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
-  if (match.status !== 'in_progress') dropScoringSessions(match.id);
   for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
 }
 
@@ -961,8 +1046,6 @@ function handleRematchVote(ws: WebSocket, msg: any): void {
 
   const match = getMatch(client.matchId);
   if (!match || match.status !== 'finished') return;
-  // Nobody is left to agree with.
-  if (match.departed.length > 0) return;
 
   const player = match.players.find((p) => p.id === msg.playerId);
   if (!player) return;
@@ -971,26 +1054,44 @@ function handleRematchVote(ws: WebSocket, msg: any): void {
     send(ws, { type: 'error', message: 'You can only answer for your own player' });
     return;
   }
+  // A player who has left has answered, by leaving.
+  if (match.departed.includes(player.id)) return;
 
-  const voted = match.rematchVotes.includes(player.id);
-  if (msg.accepted && !voted) match.rematchVotes.push(player.id);
-  if (!msg.accepted && voted) match.rematchVotes = match.rematchVotes.filter((id) => id !== player.id);
+  if (msg.answer === 'accepted' || msg.answer === 'declined') {
+    match.rematchVotes[player.id] = msg.answer;
+  } else {
+    delete match.rematchVotes[player.id];
+  }
 
-  if (match.rematchVotes.length < match.players.length) {
+  resolveRematch(ws, match);
+}
+
+/**
+ * Where a re-match vote lands.
+ *
+ * Everyone accepting starts one. Anything short of that only publishes the state: a decline settles
+ * the question, but the match still lives out its summary — the two minutes are for reading the
+ * result, and every match ends at its deadline whatever was voted.
+ */
+function resolveRematch(ws: WebSocket | null, match: MatchState): void {
+  const answers = match.players.map((p) => match.rematchVotes[p.id]);
+  const unanimous = answers.length > 0 && answers.every((a) => a === 'accepted');
+
+  if (!unanimous) {
     broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
     return;
   }
 
   if (!canCreateMatch()) {
-    send(ws, { type: 'error', message: 'Server is full, try again later' });
+    if (ws) send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }
 
-  // Everyone is in. The re-match is an ordinary new match; the only thing carried across is which
-  // clients are watching it.
+  // Everyone is in. The re-match is an ordinary new match; the only thing carried across is who is
+  // watching — spectators included, so an audience is not left behind on the finished one.
   const rematch = createRematch(match);
   for (const other of clients.values()) {
-    if (other.matchId !== match.id || other.isSpectator) continue;
+    if (other.matchId !== match.id) continue;
     other.matchId = rematch.id;
   }
   broadcastToMatch(rematch.id, { type: 'match_started', match: { ...rematch }, view: viewOf(rematch) });

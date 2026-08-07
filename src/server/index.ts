@@ -11,9 +11,12 @@ const QUIET = process.env.QUIET === '1';
 // Register game modes
 registerMode(x01);
 
-// Start garbage collector
+// Start garbage collector, and the clock that gives every lobby and match a definite end
 import { startGC, getGCStats } from './gc';
+import { startLifecycle } from './lifecycle';
+import './wsHandler'; // registers the lifecycle handlers
 startGC();
+startLifecycle();
 
 const PORT = Number(process.env.PORT) || 3000;
 

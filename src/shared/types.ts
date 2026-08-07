@@ -140,13 +140,26 @@ export interface MatchState {
   isLocal: boolean;
   currentVisit?: CurrentVisit;
   /**
-   * Participants who have left. Leaving is final: they cannot rejoin, and a match anybody has left
-   * offers no re-match, because the person who would have to agree to it is gone.
+   * Participants who have left. Leaving is final: they cannot rejoin, and it counts as declining a
+   * re-match, so a match anybody has left can never start one.
    */
   departed: string[];
-  /** Players who have accepted a re-match. All of them accepting starts one. */
-  rematchVotes: string[];
+  /**
+   * Each player's answer to a re-match. A player with no entry has not answered yet. Everyone
+   * accepting starts one; a single decline settles it for good.
+   */
+  rematchVotes: Record<string, RematchAnswer>;
+  /**
+   * When this match dies unless something happens first.
+   *
+   * While it is being played, that is the idle timeout: any input pushes it back. Once it is over,
+   * it is the summary deadline — at which point unanswered re-match votes become declines and the
+   * match is torn down, so no match can linger on the server without an end.
+   */
+  expiresAt: number;
 }
+
+export type RematchAnswer = 'accepted' | 'declined';
 
 // --- Lobby ---
 
@@ -160,4 +173,6 @@ export interface Lobby {
   isLocal: boolean;
   remoteConnected: boolean;
   createdAt: number;
+  /** When this lobby is abandoned unless something happens first. Any input pushes it back. */
+  expiresAt: number;
 }

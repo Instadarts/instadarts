@@ -1,5 +1,6 @@
 import type { MatchState, MatchSettings, Lobby, Player } from '../shared/types';
 import { DEFAULT_MODE, defaultSettingsFor } from '../shared/modes/catalog';
+import { IDLE_TTL_MS } from './lifecycle';
 
 // ============================================================
 // In-memory stores
@@ -32,6 +33,7 @@ export function createLobby(): Lobby {
     isLocal: true,
     remoteConnected: false,
     createdAt: Date.now(),
+    expiresAt: Date.now() + IDLE_TTL_MS,
   };
   lobbies.set(id, lobby);
   return lobby;
@@ -103,7 +105,8 @@ function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean
     finishedAt: null,
     isLocal,
     departed: [],
-    rematchVotes: [],
+    rematchVotes: {},
+    expiresAt: Date.now() + IDLE_TTL_MS,
   };
   matches.set(id, match);
   return match;

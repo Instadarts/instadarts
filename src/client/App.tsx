@@ -10,7 +10,7 @@ import { JoinHandler } from './pages/JoinHandler';
 import { TopBar } from './components/TopBar';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { Lobby, MatchState, ModeView } from '../shared/types';
+import type { Lobby, MatchState, ModeView, RematchAnswer } from '../shared/types';
 
 export function App() {
   // Scoring devices share the match socket, but the socket is created inside useMatch. The ref
@@ -55,12 +55,13 @@ export function App() {
   }, [lobby, navigate]);
 
   // Keyed on the match id, not merely on being somewhere under /match/: a re-match is a different
-  // match, and leaving the old id in the URL would hand out a link to the wrong one.
+  // match, and leaving the old id in the URL would hand out a link to the wrong one. Spectators are
+  // carried into a re-match too, and keep their own kind of link.
   useEffect(() => {
-    if (match && match.status === 'in_progress' && window.location.pathname !== `/match/${match.id}`) {
-      navigate(`/match/${match.id}`, { replace: true });
-    }
-  }, [match, navigate]);
+    if (!match || match.status !== 'in_progress') return;
+    const path = isSpectator ? `/spectate/${match.id}` : `/match/${match.id}`;
+    if (window.location.pathname !== path) navigate(path, { replace: true });
+  }, [match, isSpectator, navigate]);
 
   // Navigate to home when lobby/match is abandoned (skip if page reload with reconnect info)
   useEffect(() => {
@@ -188,7 +189,7 @@ interface MatchWrapperProps {
   addDart: (matchId: string, dart: any) => void;
   undoDart: (matchId: string) => void;
   submitVisit: (matchId: string) => void;
-  onVoteRematch: (matchId: string, playerId: string, accepted: boolean) => void;
+  onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
   sessionId: string | null;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
@@ -208,7 +209,7 @@ function MatchWrapper({ match, view, ownPlayerId, isSpectator, sessionId, leaveM
       onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
       onUndoDart={() => undoDart(match.id)}
       onSubmitVisit={() => submitVisit(match.id)}
-      onVoteRematch={(playerId: string, accepted: boolean) => onVoteRematch(match.id, playerId, accepted)}
+      onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
       sessionId={sessionId}
     />
   );

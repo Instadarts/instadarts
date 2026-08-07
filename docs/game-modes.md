@@ -63,7 +63,10 @@ blob to `LegContext` — deliberately, and after establishing that replay really
 
 ```ts
 interface GameMode {
-  readonly id: string;   // 'x01'
+  readonly id: string;              // 'x01'
+  readonly label: string;           // shown in the lobby's mode selector
+  readonly defaults: ModeSettings;  // ─┐ its settings, declared here and nowhere else
+  readonly fields: SettingsField[]; // ─┘
 
   /** How many darts a visit may hold. The match screen and validation both read this. */
   dartsPerVisit(settings: ModeSettings): number;
@@ -74,10 +77,25 @@ interface GameMode {
   /** Finalize the visit in progress: the mode decides padding, voiding, and who won the leg. */
   finalizeVisit(ctx: LegContext): { visit: Visit; legWinnerId: string | null };
 
-  /** Everything mode-specific the match screen displays. */
+  /** Everything mode-specific the match screen displays for the current leg. */
   view(ctx: LegContext): ModeView;
+
+  /** The mode's own block of the match screen, across the whole match. Optional. */
+  panel?(match: MatchState): ModePanel | undefined;
 }
 ```
+
+Note the asymmetry between the last two, which is the whole point of it:
+
+| | sees | may return |
+| --- | --- | --- |
+| the rules and `view` | one `LegContext` | rules outcomes, and strings |
+| `panel` | the whole `MatchState` | something to draw, and nothing else |
+
+`panel` is handed everything precisely because it can only draw. A statistic is about the match, not
+about a leg — an average read off a single leg would be a different number every time one ended — so
+the function that computes it needs the match. And since nothing it returns reaches the rules, giving
+it the match cannot make a mode's play depend on the format.
 
 Deliberately **not** in the contract:
 
@@ -123,11 +141,11 @@ type SettingsField =
     };
 ```
 
-Declared once in `src/shared/modes/catalog.ts` and used by both sides:
+Declared by the mode itself, and used by both sides:
 
-- the **lobby** renders the field list generically
-  ([`ModeSettingsPanel`](../src/client/components/ModeSettingsPanel.tsx)) — no mode-specific JSX
-  anywhere in the client;
+- the **lobby** renders the mode selector and the field list generically
+  ([`MatchSettingsPanel`](../src/client/components/MatchSettingsPanel.tsx)) from the catalog the
+  server sends on connect (`mode_catalog`) — the client imports no mode's code;
 - the **server** validates incoming settings against the same field list
   ([`validateSettings`](../src/server/validation.ts)), reading only declared keys.
 
@@ -232,18 +250,39 @@ Notes:
   `"Checkout!"` in place of a score without the screen knowing what a bust is.
 - **Slot contents default sensibly.** Without `slots`, the screen renders the dart's own label —
   `T20 (60)` — which is the right thing for most modes. A mode overrides it only if it needs to.
-- **The mode panel** (element 3) is the escape hatch: an arbitrary React component, keyed by mode id
-  in `src/client/modes/panels.ts`, receiving `view.panel`. It is the **only** client-side mode code
-  in the app. x01 does not use it, so nothing is rendered there in an x01 match.
+- **The mode panel** (element 3) is the mode's own block, described as data:
+
+  ```ts
+  interface ModePanel {
+    title?: string;
+    rows: { label: string; values: Record<PlayerId, ViewText> }[];
+    custom?: unknown;   // only for a mode that also ships a component
+  }
+  ```
+
+  Rendered generically, so a mode showing statistics needs no client code at all. x01 uses it for a
+  three-dart average, 180s, best leg and legs won — computed over every leg, which is why `panel`
+  takes the match.
 
 ---
 
-## Adding a game mode
+## Installing and removing a game mode
 
-1. Declare it in `src/shared/modes/catalog.ts` — id, label, defaults, settings fields.
-2. Implement `GameMode` in `src/server/modes/<id>.ts` and register it at boot in
-   `src/server/index.ts`.
-3. Optionally add a panel component to `src/client/modes/panels.ts`.
+**A mode is a file.** Write `src/server/modes/<id>.ts` exporting a `GameMode` — its rules, its
+settings and its panel together — and it is found at boot by scanning that directory. There is no
+registry to edit, in either direction: deleting the file removes the mode.
+
+Two consequences worth knowing:
+
+- **A file in there that does not export a mode stops the server.** A half-installed mode is worth
+  hearing about at boot rather than at the first dart.
+- **x01 is mandatory.** It is the default a new lobby starts on, and the server refuses to start
+  without it.
+
+If a mode needs to draw something the panel's rows cannot express, add
+`src/client/modes/<id>.tsx` exporting a component as default — picked up by filename, again with no
+registry to edit, and fed whatever the mode put in `panel.custom`. That file is the *only* reason a
+mode is ever more than one file, and it needs a client build to take effect, not just a restart.
 
 Nothing else in the app should need to change. The standing check is
 
@@ -251,8 +290,7 @@ Nothing else in the app should need to change. The standing check is
 grep -rE 'startScore|doubleIn|doubleOut|bust' src
 ```
 
-— outside `server/modes/x01.ts` and `shared/modes/catalog.ts` that should return nothing but comments
-and dartboard geometry. If your mode forces a change elsewhere, that is a leak: record it in the
+— outside `server/modes/x01.ts` that should return nothing but comments and dartboard geometry. If your mode forces a change elsewhere, that is a leak: record it in the
 glossary's
 [mode-specific vocabulary table](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers)
 rather than working around it quietly.

@@ -1,4 +1,7 @@
-import type { CurrentVisit, DartThrow, ModeSettings, ModeView, StyledText, ViewText, Visit } from '../../shared/types';
+import type {
+  CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, StyledText, ViewText, Visit,
+} from '../../shared/types';
+import type { ModeSettings } from '../../shared/settings';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
 
 /**
@@ -171,6 +174,25 @@ function finalizeDoubleIn(ctx: LegContext, darts: DartThrow[], playerId: string,
 
 export const x01: GameMode = {
   id: 'x01',
+  label: 'x01',
+
+  defaults: { startScore: 501, doubleIn: false, doubleOut: true },
+  fields: [
+    {
+      key: 'startScore',
+      label: 'Starting Score',
+      kind: 'number',
+      min: 101,
+      max: 999,
+      options: [
+        { value: 301, label: '301' },
+        { value: 501, label: '501' },
+        { value: 701, label: '701' },
+      ],
+    },
+    { key: 'doubleIn', label: 'Double In', kind: 'toggle' },
+    { key: 'doubleOut', label: 'Double Out', kind: 'toggle' },
+  ],
 
   dartsPerVisit(_settings: ModeSettings): number {
     return MAX_DARTS;
@@ -230,7 +252,66 @@ export const x01: GameMode = {
       history: [...ctx.visits].reverse().map((visit) => describeVisit(ctx, visit)),
     };
   },
+
+  /**
+   * x01's statistics, over the whole match.
+   *
+   * The one place the mode is handed the match rather than a leg — because an average is about the
+   * match, and reading it off a single leg would be a different number every time a leg ended.
+   */
+  panel(match: MatchState): ModePanel {
+    const legs = [...match.legs.map((leg) => leg.visits), match.visits].filter((visits) => visits.length > 0);
+    if (legs.length === 0) return { title: 'Statistics', rows: [] };
+
+    const visits = legs.flat();
+    const byPlayer = (of: (own: Visit[]) => string) => {
+      const values: Record<string, ViewText> = {};
+      for (const player of match.players) values[player.id] = of(visits.filter((v) => v.playerId === player.id));
+      return values;
+    };
+
+    return {
+      title: 'Statistics',
+      rows: [
+        { label: '3-dart average', values: byPlayer(average) },
+        { label: '180s', values: byPlayer((own) => String(own.filter((v) => !v.voided && pointsOf(v.darts) === 180).length)) },
+        { label: 'Best leg (darts)', values: bestLegDarts(match) },
+        { label: 'Legs won', values: legsWon(match) },
+      ],
+    };
+  },
 };
+
+// --- Statistics. Display only: nothing here is a rule. ---
+
+/**
+ * Points per visit, which for full visits is the three-dart average every darts player knows.
+ *
+ * A void visit scores nothing but was still thrown, so it counts in the denominator — that is what
+ * makes an average worth reading.
+ */
+function average(own: Visit[]): string {
+  if (own.length === 0) return '—';
+  const scored = own.reduce((sum, visit) => sum + (visit.voided ? 0 : pointsOf(visit.darts)), 0);
+  return (scored / own.length).toFixed(1);
+}
+
+/** The fewest darts any player took to win a leg. Only won legs count; an unfinished one has no total. */
+function bestLegDarts(match: MatchState): Record<string, ViewText> {
+  const best: Record<string, number> = {};
+  for (const leg of match.legs) {
+    const darts = leg.visits.filter((v) => v.playerId === leg.winnerId).reduce((sum, v) => sum + v.darts.length, 0);
+    const current = best[leg.winnerId];
+    if (current === undefined || darts < current) best[leg.winnerId] = darts;
+  }
+  return Object.fromEntries(match.players.map((p) => [p.id, best[p.id] === undefined ? '—' : String(best[p.id])]));
+}
+
+function legsWon(match: MatchState): Record<string, ViewText> {
+  const won: Record<string, number> = {};
+  for (const leg of match.legs) won[leg.winnerId] = (won[leg.winnerId] ?? 0) + 1;
+  return Object.fromEntries(match.players.map((p) => [p.id, String(won[p.id] ?? 0)]));
+}
 
 /**
  * What goes on a player's card.

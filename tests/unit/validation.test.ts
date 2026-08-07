@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import '../helpers'; // installs the x01 game mode
 import { sanitizeName, validateSettings, validateDartThrow } from '../../src/server/validation';
 import type { MatchSettings } from '../../src/shared/types';
 import { checkRateLimit, removeRateLimitBucket } from '../../src/server/rateLimit';

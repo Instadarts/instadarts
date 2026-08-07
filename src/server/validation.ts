@@ -1,6 +1,6 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
 import type { MatchSettings, ModeSettings, DartThrow } from '../shared/types';
-import { describeMode } from '../shared/modes/catalog';
+import { getMode } from './modes/types';
 import { MATCH_FIELDS } from '../shared/matchFormat';
 import type { SettingsField } from '../shared/settings';
 import type { BoardTip } from '../shared/vision/types';
@@ -29,8 +29,8 @@ export function sanitizeName(raw: unknown): string | null {
  * Settings arriving from a client, validated against what the match format and the mode declare.
  *
  * Nothing here names a setting: the fields, their bounds and their defaults come from `MATCH_FIELDS`
- * and the mode's descriptor, so both a new match-level setting and a new mode are validated
- * correctly the moment they are declared. The minimum of one leg and one set is a property of the
+ * and from the mode itself, so both a new match-level setting and a new mode are validated correctly
+ * the moment they are declared. The minimum of one leg and one set is a property of the
  * field list, not a check in this file.
  *
  * Returns a complete settings object — `current` supplies whatever the client did not send. Only a
@@ -41,21 +41,21 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const input = raw as Record<string, unknown>;
 
-  const mode = typeof input.mode === 'string' ? input.mode : current.mode;
-  const descriptor = describeMode(mode);
-  if (!descriptor) return null;
+  const modeId = typeof input.mode === 'string' ? input.mode : current.mode;
+  const mode = getMode(modeId);
+  if (!mode) return null;
 
   // Switching mode starts from that mode's defaults: the outgoing mode's values mean nothing here.
-  const cleaned: ModeSettings = mode === current.mode
+  const cleaned: ModeSettings = modeId === current.mode
     ? { ...current.modeSettings }
-    : { ...descriptor.defaults };
+    : { ...mode.defaults };
 
   const incoming = typeof input.modeSettings === 'object' && input.modeSettings !== null
     ? (input.modeSettings as Record<string, unknown>)
     : {};
 
   // Only declared fields are ever read, which is also what makes __proto__ and friends a non-event.
-  for (const field of descriptor.fields) {
+  for (const field of mode.fields) {
     if (!Object.prototype.hasOwnProperty.call(incoming, field.key)) continue;
     const value = validateField(field, incoming[field.key]);
     if (value !== undefined) cleaned[field.key] = value;
@@ -68,7 +68,7 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
     if (typeof value === 'number') format[field.key as keyof typeof format] = value;
   }
 
-  return { mode, modeSettings: cleaned, ...format };
+  return { mode: modeId, modeSettings: cleaned, ...format };
 }
 
 function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {

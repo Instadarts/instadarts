@@ -1,10 +1,12 @@
 import type { Lobby } from '../../shared/types';
+import type { ModeDescriptor } from '../../shared/settings';
 import { PlayerList } from '../components/PlayerList';
 import { MatchSettingsPanel } from '../components/MatchSettingsPanel';
 import { InvitePanel } from '../components/InvitePanel';
 
 interface LobbyPageProps {
   lobby: Lobby;
+  modes: ModeDescriptor[];
   mode: 'local' | 'online';
   isCreator: boolean;
   ownPlayerId: string | null;
@@ -20,6 +22,7 @@ interface LobbyPageProps {
 
 export function LobbyPage({
   lobby,
+  modes,
   mode,
   isCreator,
   ownPlayerId,
@@ -63,6 +66,7 @@ export function LobbyPage({
 
       <MatchSettingsPanel
         settings={lobby.settings}
+        modes={modes}
         canEdit={canEdit}
         onChange={onUpdateSettings}
       />

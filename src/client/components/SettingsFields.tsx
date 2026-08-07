@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { SettingsField, SettingsValue } from '../../shared/settings';
 
 interface SettingsFieldsProps {
@@ -6,6 +7,8 @@ interface SettingsFieldsProps {
   values: Record<string, SettingsValue | undefined>;
   canEdit: boolean;
   onChange: (key: string, value: SettingsValue) => void;
+  /** Anything that belongs in this block but is not a declared field — the mode selector. */
+  children?: ReactNode;
 }
 
 /**
@@ -14,7 +17,7 @@ interface SettingsFieldsProps {
  * Deliberately knows no setting by name — it is used for the match format and for whichever game
  * mode is selected, and neither of them needs anything here to change.
  */
-export function SettingsFields({ title, fields, values, canEdit, onChange }: SettingsFieldsProps) {
+export function SettingsFields({ title, fields, values, canEdit, onChange, children }: SettingsFieldsProps) {
   return (
     <div className="w-80 mb-6">
       <h3 className="text-gray-400 text-sm uppercase mb-2">
@@ -22,6 +25,7 @@ export function SettingsFields({ title, fields, values, canEdit, onChange }: Set
         {!canEdit && <span className="text-gray-600 ml-1">(read-only)</span>}
       </h3>
       <div className="space-y-3 bg-gray-900 rounded-lg p-4">
+        {children}
         {fields.map((field) => (
           <Field
             key={field.key}

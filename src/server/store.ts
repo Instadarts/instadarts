@@ -1,5 +1,5 @@
 import type { MatchState, MatchSettings, Lobby, Player } from '../shared/types';
-import { DEFAULT_MODE, defaultSettingsFor } from '../shared/modes/catalog';
+import { DEFAULT_MODE, getMode } from './modes/types';
 import { DEFAULT_FORMAT } from '../shared/matchFormat';
 import { IDLE_TTL_MS } from './lifecycle';
 
@@ -27,7 +27,7 @@ export function createLobby(): Lobby {
   const lobby: Lobby = {
     id,
     players: [],
-    settings: { mode: DEFAULT_MODE, modeSettings: defaultSettingsFor(DEFAULT_MODE)!, ...DEFAULT_FORMAT },
+    settings: { mode: DEFAULT_MODE, modeSettings: { ...getMode(DEFAULT_MODE)!.defaults }, ...DEFAULT_FORMAT },
     inviteCode: null,
     hostPlayerId: null,
     hostSessionId: null,

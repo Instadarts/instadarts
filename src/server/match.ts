@@ -4,7 +4,7 @@
 // play-through of the game mode — as well as whose visit it is and the lifecycle. It holds a dart in
 // the current visit and asks the mode what that means; it never interprets one itself.
 
-import type { DartThrow, MatchState, ModeView } from '../shared/types';
+import type { DartThrow, MatchState, ModePanel, ModeView } from '../shared/types';
 import { matchWinnerOf, standingsOf, starterIndex } from '../shared/matchFormat';
 import { getMode } from './modes/types';
 import type { GameMode, LegContext } from './modes/types';
@@ -140,4 +140,14 @@ export function viewOf(match: MatchState): ModeView {
   const mode = getMode(match.settings.mode);
   if (!mode) return { headline: '', playerScores: {}, visitTotal: '', dartsPerVisit: 0, history: [] };
   return mode.view(legContext(match));
+}
+
+/**
+ * The mode's own block of the match screen, if it draws one.
+ *
+ * Handed the whole match, unlike the view: this is the mode extending the match UI, not describing a
+ * leg. A mode without a panel simply has nothing here.
+ */
+export function panelOf(match: MatchState): ModePanel | undefined {
+  return getMode(match.settings.mode)?.panel?.(match);
 }

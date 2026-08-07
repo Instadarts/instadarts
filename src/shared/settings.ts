@@ -17,3 +17,18 @@ export type SettingsField =
       /** Usual values, offered as a dropdown. Suggestions — anything in range is still accepted. */
       options?: { value: number; label: string }[];
     };
+
+/** A mode's own settings. Validated against the mode's declared fields before they are stored. */
+export type ModeSettings = Record<string, SettingsValue>;
+
+/**
+ * What a game mode says about itself, so the lobby can offer it without importing a line of its
+ * code. Declared by the mode and shipped to the client on connect.
+ */
+export interface ModeDescriptor {
+  id: string;
+  /** Shown in the lobby's mode selector. */
+  label: string;
+  defaults: ModeSettings;
+  fields: SettingsField[];
+}

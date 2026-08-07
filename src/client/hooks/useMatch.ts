@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { MatchState, Lobby, ModeView, RematchAnswer } from '../../shared/types';
+import type { MatchState, Lobby, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
+import type { ModeDescriptor } from '../../shared/settings';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
@@ -12,6 +13,9 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [match, setMatch] = useState<MatchState | null>(null);
   const [view, setView] = useState<ModeView | null>(null);
+  const [panel, setPanel] = useState<ModePanel | undefined>(undefined);
+  /** What this deployment can play. Sent once on connect; the lobby is built from it. */
+  const [modes, setModes] = useState<ModeDescriptor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
@@ -45,10 +49,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
           saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: pid });
         }
         break;
+      case 'mode_catalog':
+        setModes(msg.modes);
+        break;
       case 'match_state':
       case 'match_started':
         setMatch(msg.match);
         setView(msg.view);
+        setPanel(msg.panel);
         setLobby(null);
         if (ownPlayerIdRef.current) {
           saveReconnectInfo({ matchId: msg.match.id, playerId: ownPlayerIdRef.current });
@@ -60,12 +68,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
       case 'match_finished':
         setMatch(msg.match);
         setView(msg.view);
+        setPanel(msg.panel);
         clearReconnectInfo();
         break;
       case 'match_closed':
         // The match ran out its summary and is gone.
         setMatch(null);
         setView(null);
+        setPanel(undefined);
         setOwnPlayerId(null);
         setIsSpectator(false);
         clearReconnectInfo();
@@ -156,6 +166,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     lobby,
     match,
     view,
+    panel,
+    modes,
     error,
     connected,
     send,

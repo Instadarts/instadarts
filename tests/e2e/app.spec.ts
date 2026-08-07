@@ -1109,3 +1109,32 @@ test.describe('Sets and legs', () => {
     await expect(page.locator('text=Alice wins!')).toBeVisible();
   });
 });
+
+test.describe('Game modes', () => {
+  test('the lobby offers the modes the server has installed', async ({ page }) => {
+    await page.goto('/');
+    await page.click('text=Local Match');
+
+    // The selector, its settings block and its contents all come from the server.
+    const selector = page.getByLabel('Game');
+    await expect(selector).toHaveValue('x01');
+    await expect(selector.locator('option')).toHaveText(['x01']);
+    await expect(page.locator('text=x01 settings')).toBeVisible();
+    await expect(page.getByLabel('Starting Score')).toBeVisible();
+  });
+
+  test("the mode's own panel shows statistics across the match", async ({ page }) => {
+    await setupLocalMatch(page, ['Alice', 'Bob'], 501);
+
+    // Nothing to report before a dart is thrown.
+    await expect(page.locator('text=Statistics')).toHaveCount(0);
+
+    await clickT20(page); await clickT20(page); await clickT20(page);
+    await submitVisit(page);
+
+    await expect(page.locator('text=Statistics')).toBeVisible();
+    await expect(page.locator('text=3-dart average')).toBeVisible();
+    await expect(page.locator('text=180s')).toBeVisible();
+    await expect(page.getByText('180.0')).toBeVisible(); // Alice's average after one maximum
+  });
+});

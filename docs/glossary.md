@@ -41,7 +41,8 @@ for the places where that has already gone wrong.
 | [Voided visit](#voided-visit) | A finalized visit that scored nothing | `Visit.voided` |
 | **[x01]** [Bust](#x01-bust) | x01's void: overthrown, or an impossible leave | `Visit.bust`, `isBustScore` |
 | **[x01]** [Checkout](#x01-checkout) | x01's win: reaching exactly zero | `VisitResult.won` |
-| [Mode view](#mode-view) | The mode's text for the match screen | `ModeView`, `ViewText`, `mode.view(ctx)` |
+| [Mode view](#mode-view) | The mode's text for the current leg | `ModeView`, `ViewText`, `mode.view(ctx)` |
+| [Mode panel](#mode-panel) | The mode's own block, across the match | `ModePanel`, `mode.panel(match)` |
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
 
 ---
@@ -377,9 +378,12 @@ How one [leg](#leg) is played and won, plus the settings those rules need. Curre
 - A mode is **pure functions over a [`LegContext`](../src/server/modes/types.ts)** — settings,
   players, whose visit it is, the committed visits and the visit in progress. It holds no state:
   anything it needs, it derives from the visit history.
-- A mode declares its own settings in
-  [`shared/modes/catalog.ts`](../src/shared/modes/catalog.ts) (`ModeDescriptor`), which is what both
-  the lobby panel and the server validator read. `MatchSettings` is `{ mode, modeSettings }`.
+- A mode declares its own settings — label, defaults and fields — in its own file, and the server
+  sends that catalog to the client on connect (`mode_catalog`). Both the lobby panel and the server
+  validator read the same declaration; the client imports no mode code.
+- **A mode is a file.** `src/server/modes/<id>.ts` is found by scanning the directory at boot, so a
+  deployment installs or removes one by adding or deleting a file. x01 is mandatory: the server
+  refuses to start without it.
 - A mode **cannot** end a match, advance the turn or write match state. It reports a leg winner and
   the match layer takes it from there.
 - A mode supplies the match screen's mode-specific strings through its [view](#mode-view).
@@ -403,9 +407,18 @@ supplies the defaults for whatever the mode leaves out, and
 [`modeText.ts`](../src/client/components/modeText.ts) is the only place that decides what a tone
 looks like. See [game-modes.md](./game-modes.md).
 
-The one exception is the optional panel: a component keyed by mode id in
-[`client/modes/panels.ts`](../src/client/modes/panels.ts), the only client-side mode code in the
-app. x01 registers none.
+### Mode panel
+
+`ModePanel` — the mode's own block of the match screen, and its vehicle for extending the match UI.
+
+Owned by the **match**, not by a leg: `panel(match)` is handed the whole `MatchState`, because a
+statistic is about the match and an average read off one leg would change every time a leg ended. It
+is safe to show it everything precisely because it can only return something to draw — nothing it
+returns reaches the rules.
+
+Declarative (a title and rows of label → per-player value), so a mode showing statistics needs no
+client code. A mode that must draw something rows cannot express puts a payload in `custom` and adds
+`src/client/modes/<id>.tsx`, picked up by filename. x01 uses the rows and no component.
 
 ---
 
@@ -419,8 +432,8 @@ Do not use these terms in match-level, protocol-level or scoring-device-level co
 ### [x01] Start score
 
 `modeSettings.startScore` — what each player counts down from. Declared by x01 in
-[`shared/modes/catalog.ts`](../src/shared/modes/catalog.ts): a number field, 101–999, offered as
-301 / 501 / 701. Defaults to 501.
+[its own file](../src/server/modes/x01.ts): a number field, 101–999, offered as 301 / 501 / 701.
+Defaults to 501.
 
 ### [x01] Remaining score
 
@@ -468,7 +481,7 @@ that remain are the constraints a second game mode will meet.
 | The store writing x01's defaults at lobby creation | writes `defaultSettingsFor(DEFAULT_MODE)` |
 | The camera layer re-deriving x01 bust rules (`isAlreadyBust`) | asks `currentVisit.locked` — the mode's own answer |
 | The match screen re-implementing remaining score, double-in and bust/checkout display | renders `ModeView` strings; knows no rule |
-| `GameSettingsPanel` rendering x01's three settings | `ModeSettingsPanel` renders the mode's declared fields |
+| `GameSettingsPanel` rendering x01's three settings | `MatchSettingsPanel` renders the mode's declared fields, from the catalog the server sends |
 | The screen deciding a card score was a verdict by testing whether the string was numeric | x01 sends a `danger`/`warning` tone with the word |
 | The screen colouring a dart slot by whether the dart scored above zero | x01 tones its own slots |
 
@@ -543,8 +556,8 @@ the distinctions are load-bearing, so keep them apart in prose too.
 - **Before using a rule word, check the layer.** The protocol, the store, the lobby, the scoring
   devices, the match screen and the match/leg/set structure must all work for a mode that has no
   busts, no countdown and no checkout. The standing check is
-  `grep -rE 'startScore|doubleIn|doubleOut|bust' src` — outside `server/modes/x01.ts` and
-  `shared/modes/catalog.ts` it should return nothing but comments and dartboard geometry. If you add
+  `grep -rE 'startScore|doubleIn|doubleOut|bust' src` — outside `server/modes/x01.ts`
+  it should return nothing but comments and dartboard geometry. If you add
   a row to
   [Mode-specific vocabulary in mode-agnostic layers](#mode-specific-vocabulary-in-mode-agnostic-layers),
   that is a deliberate exception, not a shortcut.

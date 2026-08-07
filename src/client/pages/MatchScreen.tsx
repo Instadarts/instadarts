@@ -1,16 +1,18 @@
 import { useCallback } from 'react';
-import type { DartThrow, MatchState, ModeView, RematchAnswer } from '../../shared/types';
+import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
 import { textOf } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
 import { RematchPanel } from '../components/RematchPanel';
 import { MatchHistory } from '../components/MatchHistory';
 import { modeTextClasses } from '../components/modeText';
 import { standingsOf } from '../../shared/matchFormat';
-import { MODE_PANELS } from '../modes/panels';
+import { ModePanelBlock } from '../components/ModePanelBlock';
 
 interface MatchScreenProps {
   match: MatchState;
   view: ModeView;
+  /** The mode's own block, if it draws one. */
+  panel?: ModePanel;
   onLeave: () => void;
   onAddDart: (matchId: string, dart: DartThrow) => void;
   onUndoDart: (matchId: string) => void;
@@ -49,7 +51,7 @@ function Verdict({ match, playerId }: { match: MatchState; playerId: string }) {
     : <p className="text-2xl font-bold text-gray-500">loser</p>;
 }
 
-export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -69,7 +71,6 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
     onSubmitVisit(match.id);
   }, [match.id, onSubmitVisit]);
 
-  const ModePanel = MODE_PANELS[match.settings.mode];
   const standings = standingsOf(match.legs, match.settings);
   const over = match.status === 'finished';
 
@@ -149,8 +150,8 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
         </p>
       )}
 
-      {/* The mode's own element. Nothing is rendered for a mode that does not use it. */}
-      {ModePanel && view.panel !== undefined && <ModePanel payload={view.panel} />}
+      {/* The mode's own block. Nothing is rendered for a mode that draws none. */}
+      {panel && <ModePanelBlock modeId={match.settings.mode} panel={panel} />}
 
       {/* Dartboard / Visit Input */}
       {!over && (

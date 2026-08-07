@@ -2,14 +2,15 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
-import { x01 } from './modes/x01';
-import { registerMode } from './modes/types';
+import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 
 const QUIET = process.env.QUIET === '1';
 
-// Register game modes
-registerMode(x01);
+// Find the installed game modes. A deployment adds or removes one by adding or removing a file in
+// src/server/modes/ — and one without x01 is not a deployment we will start.
+const installedModes = await loadModes();
+if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
 // Start garbage collector, and the clock that gives every lobby and match a definite end
 import { startGC, getGCStats } from './gc';

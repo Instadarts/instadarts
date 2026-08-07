@@ -1,4 +1,5 @@
-import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModeView } from './types';
+import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
+import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
 
 // ============================================================
@@ -203,13 +204,27 @@ export interface LobbyStateMessage {
 }
 
 /**
- * The match, and what the game mode says to show for it. The view travels with every match message
- * so the client never has to derive a mode-specific value itself.
+ * Which game modes this deployment has, and what each calls its settings.
+ *
+ * Sent once on connect. It is what lets the lobby offer modes and render their settings without
+ * importing a line of any mode's code — a mode is installed by adding a file to the server.
+ */
+export interface ModeCatalogMessage {
+  type: 'mode_catalog';
+  modes: ModeDescriptor[];
+}
+
+/**
+ * The match, what the game mode says to show for the current leg, and its own block of the screen.
+ *
+ * The view is the leg's; the panel is the match's. Both travel with every match message so the
+ * client never has to derive a mode-specific value itself.
  */
 export interface MatchStateMessage {
   type: 'match_state';
   match: MatchState;
   view: ModeView;
+  panel?: ModePanel;
 }
 
 export interface ErrorMessage {
@@ -221,12 +236,14 @@ export interface MatchStartedMessage {
   type: 'match_started';
   match: MatchState;
   view: ModeView;
+  panel?: ModePanel;
 }
 
 export interface MatchFinishedMessage {
   type: 'match_finished';
   match: MatchState;
   view: ModeView;
+  panel?: ModePanel;
 }
 
 /**
@@ -301,6 +318,7 @@ export interface ScorerRefusedMessage {
 export type ServerMessage =
   | LobbyStateMessage
   | MatchStateMessage
+  | ModeCatalogMessage
   | ErrorMessage
   | MatchStartedMessage
   | MatchFinishedMessage

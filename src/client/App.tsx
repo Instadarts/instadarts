@@ -10,7 +10,8 @@ import { JoinHandler } from './pages/JoinHandler';
 import { TopBar } from './components/TopBar';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { Lobby, MatchState, ModeView, RematchAnswer } from '../shared/types';
+import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
+import type { ModeDescriptor } from '../shared/settings';
 
 export function App() {
   // Scoring devices share the match socket, but the socket is created inside useMatch. The ref
@@ -21,6 +22,8 @@ export function App() {
     lobby,
     match,
     view,
+    panel,
+    modes,
     error,
     connected,
     ownPlayerId,
@@ -101,6 +104,7 @@ export function App() {
         <Route path="/lobby/:id" element={
           <LobbyWrapper
             lobby={lobby}
+            modes={modes}
             ownPlayerId={ownPlayerId}
             isSpectator={isSpectator}
             sessionId={sessionId}
@@ -119,6 +123,7 @@ export function App() {
           <MatchWrapper
             match={match}
             view={view}
+            panel={panel}
             ownPlayerId={ownPlayerId}
             isSpectator={isSpectator}
             leaveMatch={leaveMatch}
@@ -133,7 +138,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} leaveMatch={leaveMatch} navigate={navigate} />
+          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -145,6 +150,7 @@ export function App() {
 
 interface LobbyWrapperProps {
   lobby: Lobby | null;
+  modes: ModeDescriptor[];
   ownPlayerId: string | null;
   isSpectator: boolean;
   sessionId: string | null;
@@ -158,13 +164,14 @@ interface LobbyWrapperProps {
   error: string | null;
 }
 
-function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
+function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, sessionId, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
   return (
     <LobbyPage
       lobby={lobby}
+      modes={modes}
       mode={lobby.isLocal ? 'local' : 'online'}
       isCreator={sessionId === lobby.hostSessionId || lobby.isLocal}
       ownPlayerId={ownPlayerId}
@@ -183,6 +190,7 @@ function LobbyWrapper({ lobby, ownPlayerId, isSpectator, sessionId, startMatch, 
 interface MatchWrapperProps {
   match: MatchState | null;
   view: ModeView | null;
+  panel?: ModePanel;
   ownPlayerId: string | null;
   isSpectator: boolean;
   leaveMatch: (matchId: string) => void;
@@ -195,7 +203,7 @@ interface MatchWrapperProps {
   error: string | null;
 }
 
-function MatchWrapper({ match, view, ownPlayerId, isSpectator, sessionId, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -203,6 +211,7 @@ function MatchWrapper({ match, view, ownPlayerId, isSpectator, sessionId, leaveM
     <MatchScreen
       match={match}
       view={view}
+      panel={panel}
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
       onLeave={() => { leaveMatch(match.id); navigate('/'); }}
@@ -220,11 +229,13 @@ interface SpectateWrapperProps {
   lobby: Lobby | null;
   match: MatchState | null;
   view: ModeView | null;
+  panel?: ModePanel;
+  modes: ModeDescriptor[];
   leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
 }
 
-function SpectateWrapper({ spectate, lobby, match, view, leaveMatch, navigate }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -240,6 +251,7 @@ function SpectateWrapper({ spectate, lobby, match, view, leaveMatch, navigate }:
     return (
       <LobbyPage
         lobby={lobby}
+        modes={modes}
         mode={lobby.isLocal ? 'local' : 'online'}
         isCreator={false}
         ownPlayerId={null}
@@ -260,6 +272,7 @@ function SpectateWrapper({ spectate, lobby, match, view, leaveMatch, navigate }:
       <MatchScreen
         match={match}
         view={view}
+        panel={panel}
         ownPlayerId={null}
         isSpectator={true}
         onLeave={() => navigate('/')}

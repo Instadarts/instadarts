@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import '../helpers'; // installs the x01 game mode
 import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {

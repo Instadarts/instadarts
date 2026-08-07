@@ -38,12 +38,12 @@ export interface CurrentVisit {
 
 // --- Match configuration ---
 
-export type { ModeSettings } from './modes/catalog';
-import type { ModeSettings } from './modes/catalog';
+export type { ModeSettings } from './settings';
+import type { ModeSettings } from './settings';
 
 /**
  * Match-level settings. The format and the mode are universal; everything the mode itself needs
- * lives under `modeSettings`, declared by the mode in shared/modes/catalog.ts.
+ * lives under `modeSettings`, declared by the mode itself.
  *
  * Both counts have a minimum — and a default — of 1, so "first to 1 set, first to 1 leg" is a single
  * play-through and needs no special case anywhere.
@@ -124,8 +124,6 @@ export interface ModeView {
   slots?: ViewText[];
   /** Visit history, newest first, one entry per committed visit. */
   history: ViewText[];
-  /** Optional payload for the mode's own screen element. Absent → nothing is rendered there. */
-  panel?: unknown;
 }
 
 // --- Match state ---
@@ -190,4 +188,24 @@ export interface Lobby {
   createdAt: number;
   /** When this lobby is abandoned unless something happens first. Any input pushes it back. */
   expiresAt: number;
+}
+
+// --- What a game mode contributes to the match screen, beyond one leg ---
+
+/**
+ * A mode's own block on the match screen — its vehicle for extending the match UI.
+ *
+ * Owned by the **match**, not by a leg: the mode is handed the whole match to build it, and can only
+ * ever return something to draw. That is what makes it safe to show it everything — nothing it
+ * returns here can affect how a leg is played.
+ *
+ * Declarative, so a mode needs no code in the client. A mode that genuinely must draw something this
+ * cannot express puts a payload in `custom` and ships a component for it.
+ */
+export interface ModePanel {
+  title?: string;
+  /** One row per statistic; one value per player id. */
+  rows: { label: string; values: Record<string, ViewText> }[];
+  /** For a mode that also ships a client component. Rendered below the rows. */
+  custom?: unknown;
 }

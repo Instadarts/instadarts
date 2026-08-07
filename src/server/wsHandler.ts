@@ -5,11 +5,12 @@ import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
 import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, deleteMatch, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
-import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, viewOf } from './match';
+import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, panelOf, viewOf } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims, validateTips } from './validation';
 import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
 import { getScoringSession, dropScoringSessions } from './scoring/store';
+import { allModes, describeMode } from './modes/types';
 import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
@@ -81,6 +82,8 @@ function cancelDisconnectsForMatch(matchId: string): void {
 
 export function registerClient(ws: WebSocket, client: Client): void {
   clients.set(ws, client);
+  // What this deployment can play. The client renders the lobby from it and imports no mode code.
+  send(ws, { type: 'mode_catalog', modes: allModes().map(describeMode) });
 }
 
 export function getClient(ws: WebSocket): Client | undefined {
@@ -288,7 +291,7 @@ setLifecycleHandlers({
   /** Nobody has touched this match for the idle period. It is over, with no winner. */
   cancelIdleMatch(match: MatchState): void {
     endMatch(match, null);
-    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
+    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
   },
 
   /**
@@ -536,7 +539,7 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
     }
   }
 
-  broadcastToMatch(match.id, { type: 'match_started', match: { ...match }, view: viewOf(match) });
+  broadcastToMatch(match.id, { type: 'match_started', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
 }
 
 function handleAddDart(ws: WebSocket, msg: any): void {
@@ -650,7 +653,7 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
         : null;
       endMatch(match, winnerId);
     }
-    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
+    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
   }
   client.matchId = null;
   client.playerId = null;
@@ -731,7 +734,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
       client.matchId = match.id;
       client.isSpectator = true;
     }
-    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
     return;
   }
 
@@ -810,7 +813,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     player.sessionId = client.sessionId;
     client.matchId = match.id;
     client.playerId = msg.playerId;
-    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
     return;
   }
 
@@ -915,7 +918,7 @@ function commitScoredMatch(match: MatchState): void {
     dropScoringSessions(match.id);
   }
   updateMatch(match.id, match);
-  broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+  broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
   for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
 }
 
@@ -1093,7 +1096,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
   const unanimous = answers.length > 0 && answers.every((a) => a === 'accepted');
 
   if (!unanimous) {
-    broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+    broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
     return;
   }
 

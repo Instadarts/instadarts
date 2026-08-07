@@ -255,14 +255,18 @@ Notes:
   ```ts
   interface ModePanel {
     title?: string;
+    lines?: ViewText[];                                    // facts about the leg, not about a player
     rows: { label: string; values: Record<PlayerId, ViewText> }[];
-    custom?: unknown;   // only for a mode that also ships a component
+    custom?: unknown;                                      // only if the mode ships a component too
   }
   ```
 
-  Rendered generically, so a mode showing statistics needs no client code at all. x01 uses it for a
-  three-dart average, 180s, best leg and legs won — computed over every leg, which is why `panel`
-  takes the match.
+  Rendered generically, so a mode showing statistics needs no client code at all. x01 reports the
+  round, darts this leg, a three-dart average, a scoring average, 180s, best leg and legs won — some
+  about the current leg, some across every leg, which is why `panel` takes the match. The current-leg
+  rows disappear on the summary, where there is no leg in progress to describe.
+
+  A mode may also **draw its own panel**, and x01 does — see below.
 
 ---
 
@@ -279,10 +283,27 @@ Two consequences worth knowing:
 - **x01 is mandatory.** It is the default a new lobby starts on, and the server refuses to start
   without it.
 
-If a mode needs to draw something the panel's rows cannot express, add
-`src/client/modes/<id>.tsx` exporting a component as default — picked up by filename, again with no
-registry to edit, and fed whatever the mode put in `panel.custom`. That file is the *only* reason a
-mode is ever more than one file, and it needs a client build to take effect, not just a restart.
+### The optional second file
+
+A mode may add `src/client/modes/<id>.tsx`, exporting a component as default. It is picked up by
+filename — again with no registry to edit — and **replaces** the generic table, receiving the whole
+panel: the same rows, plus whatever the mode put in `custom` for its own use.
+
+The two halves degrade into each other, which is the property to preserve when writing one:
+
+| | with the file | without it |
+| --- | --- | --- |
+| the rows | drawn however the mode likes | a plain table |
+| `custom` | drawn | ignored |
+
+**x01 is the worked example** ([`x01.tsx`](../src/client/modes/x01.tsx)). It lays the same rows out
+per player rather than per statistic, highlights whoever leads each one — knowing that *fewer* darts
+is better, which is the sort of thing only a mode can know — and draws recent visit scores as bars
+from the `custom` payload, a shape a table has no way to express. Delete the file and the panel is a
+table of the same six numbers; nothing is lost but the presentation.
+
+That file is the *only* reason a mode is ever more than one file, and it needs a client build to take
+effect, not just a restart.
 
 Nothing else in the app should need to change. The standing check is
 

@@ -204,6 +204,8 @@ export interface Lobby {
  */
 export interface ModePanel {
   title?: string;
+  /** Facts about the match or the leg rather than about a player — a round number, a phase. */
+  lines?: ViewText[];
   /** One row per statistic; one value per player id. */
   rows: { label: string; values: Record<string, ViewText> }[];
   /** For a mode that also ships a client component. Rendered below the rows. */

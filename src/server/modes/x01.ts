@@ -125,14 +125,17 @@ function commit(
   voided: boolean,
   remainingAfter: number,
 ): FinalizedVisit {
+  const won = !voided && remainingAfter === 0;
   const visit: Visit = {
     playerId,
-    // A void visit keeps only what was thrown; anything that counted is padded out to full slots.
-    darts: !voided || darts.length === 0 ? padWithMisses(darts) : darts,
+    // A visit the player stopped throwing in keeps exactly the darts they threw: one cut short by a
+    // bust, and the one that won the leg — nobody throws after checking out. Anything else is padded
+    // out to full slots, because the turn cost three darts however few were aimed.
+    darts: darts.length > 0 && (voided || won) ? darts : padWithMisses(darts),
     visitNumber: ctx.visits.length + 1,
     voided,
   };
-  return { visit, legWinnerId: !voided && remainingAfter === 0 ? playerId : null };
+  return { visit, legWinnerId: won ? playerId : null };
 }
 
 function finalizeNormal(ctx: LegContext, darts: DartThrow[], playerId: string, remainingBefore: number): FinalizedVisit {
@@ -260,20 +263,27 @@ export const x01: GameMode = {
    * match, and reading it off a single leg would be a different number every time a leg ended.
    */
   panel(match: MatchState): ModePanel {
-    const legs = [...match.legs.map((leg) => leg.visits), match.visits].filter((visits) => visits.length > 0);
-    if (legs.length === 0) return { title: 'Statistics', rows: [] };
+    const visits = legsOf(match).flat();
 
-    const visits = legs.flat();
     const byPlayer = (of: (own: Visit[]) => string) => {
       const values: Record<string, ViewText> = {};
       for (const player of match.players) values[player.id] = of(visits.filter((v) => v.playerId === player.id));
       return values;
     };
 
+    // A finished match has no leg in progress, so what is happening in one is not worth reporting.
+    const playing = match.status === 'in_progress';
+
     return {
       title: 'Statistics',
+      lines: playing ? [`Round ${roundNumber(match)}`] : undefined,
+      // For x01's own component, which draws what a table cannot. A deployment without that file
+      // still gets the rows above, so nothing here is load-bearing.
+      custom: { recent: recentScores(match), max: MAX_VISIT },
       rows: [
-        { label: '3-dart average', values: byPlayer(average) },
+        ...(playing ? [{ label: 'Darts this leg', values: dartsThisLeg(match) }] : []),
+        { label: '3-dart average', values: threeDartAverages(match) },
+        { label: 'Scoring average', values: scoringAverages(match) },
         { label: '180s', values: byPlayer((own) => String(own.filter((v) => !v.voided && pointsOf(v.darts) === 180).length)) },
         { label: 'Best leg (darts)', values: bestLegDarts(match) },
         { label: 'Legs won', values: legsWon(match) },
@@ -285,26 +295,146 @@ export const x01: GameMode = {
 // --- Statistics. Display only: nothing here is a rule. ---
 
 /**
- * Points per visit, which for full visits is the three-dart average every darts player knows.
- *
- * A void visit scores nothing but was still thrown, so it counts in the denominator — that is what
- * makes an average worth reading.
+ * A player throwing at this or more is trying to score, not to finish: 170 is the highest checkout
+ * there is, so below it the darts are aimed at a double rather than at a treble twenty.
  */
-function average(own: Visit[]): string {
-  if (own.length === 0) return '—';
-  const scored = own.reduce((sum, visit) => sum + (visit.voided ? 0 : pointsOf(visit.darts)), 0);
-  return (scored / own.length).toFixed(1);
+const SCORING_FLOOR = 170;
+
+/** Three treble twenties. What a bar of recent scoring is measured against. */
+const MAX_VISIT = 180;
+
+/** How many recent visits the form bars show. */
+const RECENT_VISITS = 6;
+
+/** Every leg's visits, the one in progress last. */
+function legsOf(match: MatchState): Visit[][] {
+  return [...match.legs.map((leg) => leg.visits), match.visits];
 }
 
-/** The fewest darts any player took to win a leg. Only won legs count; an unfinished one has no total. */
+/**
+ * Which round the leg is in, counting from one.
+ *
+ * The visit about to be thrown counts, so a leg opens on round 1 before a dart is thrown, and the
+ * number turns over when the player who started the leg comes back to the board.
+ */
+function roundNumber(match: MatchState): number {
+  return Math.ceil((match.visits.length + 1) / Math.max(1, match.players.length));
+}
+
+/**
+ * Darts thrown in the current leg.
+ *
+ * A submitted visit is three darts whatever happened in it — a visit cut short by a bust still cost
+ * the player their turn, and counting it as one or two would flatter the average.
+ */
+function dartsThisLeg(match: MatchState): Record<string, ViewText> {
+  const cv = match.currentVisit;
+  return Object.fromEntries(match.players.map((player) => {
+    const submitted = match.visits.filter((v) => v.playerId === player.id).length * MAX_DARTS;
+    const inHand = cv?.playerId === player.id ? cv.darts.length : 0;
+    return [player.id, String(submitted + inHand)];
+  }));
+}
+
+/**
+ * Scoring average: points per visit, counting only visits thrown from 170 or more.
+ *
+ * Below that a player is working out a finish rather than scoring, and visits spent setting up a
+ * double say nothing about how hard they can score. Replayed leg by leg, because "what they were on"
+ * is a question only the leg can answer.
+ */
+function scoringAverages(match: MatchState): Record<string, ViewText> {
+  const startScore = read(match.settings.modeSettings).startScore;
+  const scored: Record<string, number> = {};
+  const counted: Record<string, number> = {};
+
+  for (const visits of legsOf(match)) {
+    const remaining: Record<string, number> = {};
+    for (const visit of visits) {
+      const before = remaining[visit.playerId] ?? startScore;
+      const points = visit.voided ? 0 : pointsOf(visit.darts);
+      if (before >= SCORING_FLOOR) {
+        scored[visit.playerId] = (scored[visit.playerId] ?? 0) + points;
+        counted[visit.playerId] = (counted[visit.playerId] ?? 0) + 1;
+      }
+      remaining[visit.playerId] = before - points;
+    }
+  }
+
+  return Object.fromEntries(match.players.map((player) => {
+    const visits = counted[player.id] ?? 0;
+    return [player.id, visits === 0 ? '—' : ((scored[player.id] ?? 0) / visits).toFixed(1)];
+  }));
+}
+
+/**
+ * How many darts a player threw, out of these visits.
+ *
+ * Every visit costs three whatever was in it: one cut short by a bust still ended the turn, and a
+ * player who submits early has still had their turn. The exception is **the visit that won the leg**
+ * — the player stopped on the winning dart, so only the darts up to it were thrown, and counting
+ * three there would flatter every leg and every average.
+ */
+function dartsThrownIn(visits: Visit[], playerId: string, legWinnerId: string | null): number {
+  const own = visits.filter((visit) => visit.playerId === playerId);
+  if (own.length === 0) return 0;
+
+  const closing = playerId === legWinnerId ? own[own.length - 1].darts.length : MAX_DARTS;
+  return (own.length - 1) * MAX_DARTS + closing;
+}
+
+/** Darts thrown across the whole match. A leg in progress has no winner, so nothing closes early. */
+function dartsThrown(match: MatchState, playerId: string): number {
+  const inLegs = match.legs.reduce((sum, leg) => sum + dartsThrownIn(leg.visits, playerId, leg.winnerId), 0);
+  return inLegs + dartsThrownIn(match.visits, playerId, null);
+}
+
+/**
+ * The three-dart average: what a player scores per three darts thrown.
+ *
+ * A void visit scores nothing but its darts were still thrown, so it counts against the average —
+ * that is what makes one worth reading.
+ */
+function threeDartAverages(match: MatchState): Record<string, ViewText> {
+  const visits = legsOf(match).flat();
+
+  return Object.fromEntries(match.players.map((player) => {
+    const darts = dartsThrown(match, player.id);
+    if (darts === 0) return [player.id, '—'];
+
+    const scored = visits
+      .filter((visit) => visit.playerId === player.id && !visit.voided)
+      .reduce((sum, visit) => sum + pointsOf(visit.darts), 0);
+    return [player.id, ((scored / darts) * MAX_DARTS).toFixed(1)];
+  }));
+}
+
+/** The fewest darts a player took to win a leg. Only won legs count; an unfinished one has no total. */
 function bestLegDarts(match: MatchState): Record<string, ViewText> {
   const best: Record<string, number> = {};
   for (const leg of match.legs) {
-    const darts = leg.visits.filter((v) => v.playerId === leg.winnerId).reduce((sum, v) => sum + v.darts.length, 0);
+    const darts = dartsThrownIn(leg.visits, leg.winnerId, leg.winnerId);
     const current = best[leg.winnerId];
     if (current === undefined || darts < current) best[leg.winnerId] = darts;
   }
   return Object.fromEntries(match.players.map((p) => [p.id, best[p.id] === undefined ? '—' : String(best[p.id])]));
+}
+
+/**
+ * What each player has been scoring lately: their last few visits, oldest first.
+ *
+ * Numbers rather than text, because this is for x01's own component to draw as bars — a shape the
+ * generic table has no way to express, and the reason x01 ships a second file at all.
+ */
+function recentScores(match: MatchState): Record<string, number[]> {
+  const visits = legsOf(match).flat();
+  return Object.fromEntries(match.players.map((player) => [
+    player.id,
+    visits
+      .filter((visit) => visit.playerId === player.id)
+      .slice(-RECENT_VISITS)
+      .map((visit) => (visit.voided ? 0 : pointsOf(visit.darts))),
+  ]));
 }
 
 function legsWon(match: MatchState): Record<string, ViewText> {

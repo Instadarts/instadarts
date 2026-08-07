@@ -416,9 +416,11 @@ statistic is about the match and an average read off one leg would change every 
 is safe to show it everything precisely because it can only return something to draw — nothing it
 returns reaches the rules.
 
-Declarative (a title and rows of label → per-player value), so a mode showing statistics needs no
-client code. A mode that must draw something rows cannot express puts a payload in `custom` and adds
-`src/client/modes/<id>.tsx`, picked up by filename. x01 uses the rows and no component.
+Declarative (a title, leg-wide `lines`, and rows of label → per-player value), so a mode showing
+statistics needs no client code. A mode may also add `src/client/modes/<id>.tsx` — picked up by
+filename — which **replaces** the generic table and receives the whole panel, including a `custom`
+payload of its own. x01 does both: the rows work on their own, and its component lays them out per
+player and draws recent scoring as bars.
 
 ---
 

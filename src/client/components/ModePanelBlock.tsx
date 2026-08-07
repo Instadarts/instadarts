@@ -11,21 +11,29 @@ interface ModePanelBlockProps {
 /**
  * The game mode's own block of the match screen.
  *
- * The rows are data the mode described, rendered here without the screen knowing what any of them
- * mean — one row per statistic, one column per player. A mode that also ships a component gets it
- * rendered underneath, fed whatever it put in `custom`.
+ * The title and any leg-wide lines are the screen's to render, so every mode's block reads the same
+ * way. The body is the mode's data: one row per statistic, one column per player, rendered here
+ * without the screen knowing what any of them mean — unless the mode ships a component, which then
+ * draws that same data itself.
  */
 export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
   const Custom = MODE_PANELS[modeId];
   const playerIds = [...new Set(panel.rows.flatMap((row) => Object.keys(row.values)))];
 
-  if (panel.rows.length === 0 && panel.custom === undefined) return null;
+  const empty = panel.rows.length === 0 && !panel.lines?.length && panel.custom === undefined;
+  if (empty) return null;
 
   return (
     <div className="flex flex-col items-center gap-2">
       {panel.title && <h3 className="text-gray-400 text-sm uppercase">{panel.title}</h3>}
 
-      {panel.rows.length > 0 && (
+      {panel.lines?.map((line, i) => (
+        <p key={i} className={modeTextClasses(line, { size: 'sm', tone: 'muted' })}>{textOf(line)}</p>
+      ))}
+
+      {Custom ? (
+        <Custom panel={panel} />
+      ) : panel.rows.length > 0 && (
         <table className="text-sm">
           <tbody>
             {panel.rows.map((row) => (
@@ -44,8 +52,6 @@ export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
           </tbody>
         </table>
       )}
-
-      {Custom && panel.custom !== undefined && <Custom payload={panel.custom} />}
     </div>
   );
 }

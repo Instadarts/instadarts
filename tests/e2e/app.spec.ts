@@ -1097,12 +1097,14 @@ test.describe('Sets and legs', () => {
     await page.click('text=Start Match');
     await page.waitForURL('**/match/**');
 
-    // One leg per set, so the cards count legs and never mention sets.
-    await expect(page.locator('text=0L')).toHaveCount(2);
-    await expect(page.locator('text=0S')).toHaveCount(0);
+    // One leg per set, so the cards count legs and never mention sets. Scoped to the cards and
+    // anchored, because a bare `text=0S` matches any substring — the panel's "180s" among them.
+    const standings = (name: string) => page.locator(`[data-player="${name}"]`).getByText(/^\d+[SL]$/);
+    await expect(standings('Alice')).toHaveText('0L');
+    await expect(standings('Bob')).toHaveText('0L');
 
     await winLegAt501(page);
-    await expect(page.locator('text=1L')).toBeVisible();
+    await expect(standings('Alice')).toHaveText('1L');
     await expect(page.locator('text=Alice wins!')).toHaveCount(0);
 
     await winLegAt501(page);
@@ -1126,15 +1128,23 @@ test.describe('Game modes', () => {
   test("the mode's own panel shows statistics across the match", async ({ page }) => {
     await setupLocalMatch(page, ['Alice', 'Bob'], 501);
 
-    // Nothing to report before a dart is thrown.
-    await expect(page.locator('text=Statistics')).toHaveCount(0);
+    // Up from the start, so the screen does not jump when the first dart lands.
+    await expect(page.locator('text=Statistics')).toBeVisible();
 
     await clickT20(page); await clickT20(page); await clickT20(page);
     await submitVisit(page);
 
     await expect(page.locator('text=Statistics')).toBeVisible();
-    await expect(page.locator('text=3-dart average')).toBeVisible();
-    await expect(page.locator('text=180s')).toBeVisible();
-    await expect(page.getByText('180.0')).toBeVisible(); // Alice's average after one maximum
+    await expect(page.locator('text=Round 1')).toBeVisible();
+
+    // x01 ships a component for its panel, so these read the rendered card rather than a table.
+    // A maximum from 501 counts towards both averages, and cost Alice a full visit of darts.
+    const cards = page.locator('text=3-DART AVERAGE').locator('../..');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.first()).toContainText('180.0');   // Alice
+    await expect(cards.first()).toContainText('Scoring average');
+    await expect(cards.first()).toContainText('180s');
+    // Bob has not thrown, so he has no average to report rather than an average of nothing.
+    await expect(cards.last()).toContainText('—');
   });
 });

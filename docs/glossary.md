@@ -34,7 +34,7 @@ for the places where that has already gone wrong.
 | [Game Mode](#game-mode) | The rules of a single play-through (x01) | `GameMode`, `MatchSettings.mode`, `ModeDescriptor` |
 | [Leg](#leg) | One play-through of the game mode | ⏳ no entity — a match currently *is* one leg |
 | [Set](#set) | A group of legs, "first to n legs" | ⏳ not implemented at all |
-| [Re-Match](#re-match) | Replay with same rules/players, no lobby | ⏳ not implemented at all |
+| [Re-Match](#re-match) | Replay with same rules/players, no lobby | `rematch_vote`, `MatchState.rematchVotes`, `createRematch` |
 | [Visit](#visit) | One player's turn, up to three darts | `Visit`, `CurrentVisit`, `visits[]` |
 | [Dart](#dart--throw) | One throw: board coordinates + score | `DartThrow` |
 | [Locked visit](#locked-visit) | The mode will accept no further dart this visit | `CurrentVisit.locked` |
@@ -119,11 +119,14 @@ will go.
 
 How a match ends:
 
-| Cause | Result |
-| --- | --- |
-| The game mode declares a winner (x01: a checkout) | `status: 'finished'`, `winnerId` set |
-| A player leaves an **online** match | The other player is declared winner |
-| The user leaves a **local** match | `status: 'finished'`, **no** winner (cancelled) |
+| Cause | Result | Screen says |
+| --- | --- | --- |
+| The game mode declares a winner (x01: a checkout) | `status: 'finished'`, `winnerId` set | "🎯 X wins!" |
+| A player leaves an **online** match | The other player is declared winner | "🎯 X wins!" |
+| The user leaves a **local** match | `status: 'finished'`, **no** winner | "Match cancelled" |
+
+**A finished match with no `winnerId` was cancelled, not won** — that is what the screen keys on.
+Any leave also records the player in [`departed`](#departed), which rules out a re-match.
 
 Finished matches are kept 5 minutes, then garbage-collected.
 
@@ -156,6 +159,34 @@ A read-only observer. A user becomes one via `spectate` on `/spectate/:id`, whic
 excluded from every gameplay guard, and explicitly from scoring: a spectator with a paired camera
 must not score ([`resolveScoringTarget`](../src/server/wsHandler.ts#L759)).
 
+### Re-Match
+
+A new match with the same rules and the same participants, started straight from a finished one with
+**no lobby phase**, and with the player order switched so the other player begins.
+
+A re-match is not a continuation and carries nothing over — not scores, not history, not who won. It
+is an ordinary new match that skips the lobby because everything a lobby would ask for is already
+settled ([`createRematch`](../src/server/store.ts)). Nothing anywhere records that a match came from
+another one.
+
+- Each participant answers for themselves: `rematch_vote` per player, held in
+  `MatchState.rematchVotes` so both sides watch each other's toggle through the ordinary broadcast.
+  Every player accepting starts it at once.
+- A user may only answer for a player of their own session — which in a local match is all of them.
+- **A match anybody has left offers no re-match** (see [Departed](#departed)), because the person who
+  would have to agree is gone.
+- When it starts, both participants' clients are moved to the new match. Spectators of the old match
+  are not — they stay with the finished one.
+
+### Departed
+
+`MatchState.departed` — participants who have left. **Leaving a match is final**, whether by pressing
+Leave, or by dropping the connection for longer than the reconnect grace period:
+
+- they cannot reconnect to it (`reconnect` is refused with "You have left this match");
+- the match offers no re-match to anyone;
+- if it was still being played, it ends — see [Match](#match).
+
 ### Invite code
 
 Six characters from an unambiguous alphabet (no `I`, `O`, `0`, `1`), attached to a lobby and used to
@@ -165,9 +196,9 @@ mechanism.
 
 ---
 
-## ⏳ Planned structure: legs, sets, re-match
+## ⏳ Planned structure: legs and sets
 
-None of this exists in the code yet. Do not name identifiers after it until it does.
+Neither exists in the code yet. Do not name identifiers after them until they do.
 
 ### Leg
 
@@ -188,14 +219,6 @@ A group of legs played as "first to *n* legs". A match is played as "first to *m
 Single-leg sets are allowed deliberately so there is only one code path: a match with
 "first to 3 sets, first to 1 leg" plays identically to "first to 3 legs with no sets". The UI may
 present the second case as legs only.
-
-### Re-Match
-
-After a match is decided, both participants may agree to a re-match: a new match with the same rules
-and participants, starting immediately with **no lobby phase**, with the player order switched so
-the other player throws first.
-
-Today, a finished match offers only "Exit", which calls `leave_game` and returns to the home screen.
 
 ### What legs/sets will have to touch
 

@@ -85,6 +85,18 @@ export interface SwapPlayersMessage {
   lobbyId: string;
 }
 
+/**
+ * A player accepting, or withdrawing, a re-match. Every participant accepting starts one.
+ *
+ * A user may only vote for a player of their own session — which in a local match is both of them.
+ */
+export interface RematchVoteMessage {
+  type: 'rematch_vote';
+  matchId: string;
+  playerId: string;
+  accepted: boolean;
+}
+
 // ============================================================
 // Client → Server: scoring devices
 //
@@ -169,6 +181,7 @@ export type ClientMessage =
   | ReconnectMessage
   | SpectateMessage
   | SwapPlayersMessage
+  | RematchVoteMessage
   | CreatePairingCodeMessage
   | ActivateDevicesMessage
   | DeactivateDeviceMessage

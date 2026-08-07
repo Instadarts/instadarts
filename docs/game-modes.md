@@ -204,6 +204,15 @@ Top to bottom:
 | 8 | History | the element | `history` |
 | 9 | Leave | all of it | — |
 
+Once the match is finished the input block (4–7) unmounts, and the screen becomes the summary: the
+headline, the player cards, how it ended, the [re-match](./glossary.md#re-match) toggles and the
+history. All of that is either universal or already in the view, so a mode contributes to the summary
+exactly as it does to a live match — a mode wanting match statistics puts them in its `view`, in the
+player cards or the panel, with no new mechanism.
+
+The re-match itself is **not** a mode concern: it starts an ordinary new match with the same settings
+and participants, and no mode is consulted.
+
 Notes:
 
 - **Player card scores are strings**, not numbers. That is what lets x01 show `"Bust!"` or

@@ -3,7 +3,7 @@ import type { ServerMessage } from '../shared/protocol';
 import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, swapLobbyPlayers } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, viewOf } from './match';
 import { generateInviteCode } from './invite';
@@ -217,6 +217,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'swap_players':
       handleSwapPlayers(ws, msg);
+      break;
+    case 'rematch_vote':
+      handleRematchVote(ws, msg);
       break;
     case 'create_pairing_code':
       handleCreatePairingCode(ws);
@@ -544,24 +547,32 @@ function leaveAsSpectator(client: Client): void {
   client.matchId = null;
 }
 
+/**
+ * A participant leaving a match, whether by pressing the button or by dropping off for good.
+ *
+ * Leaving is final. The player is recorded as departed, which bars them from reconnecting and takes
+ * the re-match off the table for everyone — the person who would have to agree to one has gone. That
+ * holds for leaving a match that is already over, too: there is then nobody left to re-match with.
+ */
 function leaveMatch(_ws: WebSocket, client: Client): void {
   const match = getMatch(client.matchId!);
-  if (match && match.status === 'in_progress') {
-    if (match.isLocal) {
-      // Local match: creator left → cancel match, no winner
+  if (match) {
+    if (client.playerId && !match.departed.includes(client.playerId)) {
+      match.departed.push(client.playerId);
+    }
+    // A departing player's vote goes with them.
+    match.rematchVotes = match.rematchVotes.filter((id) => id !== client.playerId);
+
+    if (match.status === 'in_progress') {
       match.status = 'finished';
       match.finishedAt = Date.now();
-      broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
-    } else {
-      // Online match: declare other player winner
-      const otherPlayer = match.players.find((p) => p.id !== client.playerId);
-      if (otherPlayer && match.players.length === 2) {
-        match.status = 'finished';
-        match.winnerId = otherPlayer.id;
-        match.finishedAt = Date.now();
-        broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
+      // A local match is one user's, so their leaving cancels it: no winner. An online match has an
+      // opponent still standing, and they take it.
+      if (!match.isLocal && match.players.length === 2) {
+        match.winnerId = match.players.find((p) => p.id !== client.playerId)?.id ?? null;
       }
     }
+    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match) });
   }
   client.matchId = null;
   client.playerId = null;
@@ -695,6 +706,11 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     const player = match.players.find((p) => p.id === msg.playerId);
     if (!player) {
       send(ws, { type: 'error', message: 'Player not found in match' });
+      return;
+    }
+    // Leaving is final: a player who walked out does not come back, however they walked out.
+    if (match.departed.includes(msg.playerId)) {
+      send(ws, { type: 'error', message: 'You have left this match' });
       return;
     }
     // Update session reference on reconnect (page reload gives new WebSocket session)
@@ -931,6 +947,53 @@ function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void
   client.deviceId = deviceId;
   deviceSockets.set(deviceId, ws);
   publishScorerState(deviceId);
+}
+
+/**
+ * A player accepting or withdrawing a re-match. Everyone accepting starts one immediately.
+ *
+ * The vote lives on the match, so both sides watch each other's toggle through the ordinary state
+ * broadcast rather than through a mechanism of its own.
+ */
+function handleRematchVote(ws: WebSocket, msg: any): void {
+  const client = clients.get(ws);
+  if (!client?.matchId || client.isSpectator) return;
+
+  const match = getMatch(client.matchId);
+  if (!match || match.status !== 'finished') return;
+  // Nobody is left to agree with.
+  if (match.departed.length > 0) return;
+
+  const player = match.players.find((p) => p.id === msg.playerId);
+  if (!player) return;
+  // You may answer for your own players — which in a local match is all of them.
+  if (!match.isLocal && player.sessionId !== client.sessionId) {
+    send(ws, { type: 'error', message: 'You can only answer for your own player' });
+    return;
+  }
+
+  const voted = match.rematchVotes.includes(player.id);
+  if (msg.accepted && !voted) match.rematchVotes.push(player.id);
+  if (!msg.accepted && voted) match.rematchVotes = match.rematchVotes.filter((id) => id !== player.id);
+
+  if (match.rematchVotes.length < match.players.length) {
+    broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match) });
+    return;
+  }
+
+  if (!canCreateMatch()) {
+    send(ws, { type: 'error', message: 'Server is full, try again later' });
+    return;
+  }
+
+  // Everyone is in. The re-match is an ordinary new match; the only thing carried across is which
+  // clients are watching it.
+  const rematch = createRematch(match);
+  for (const other of clients.values()) {
+    if (other.matchId !== match.id || other.isSpectator) continue;
+    other.matchId = rematch.id;
+  }
+  broadcastToMatch(rematch.id, { type: 'match_started', match: { ...rematch }, view: viewOf(rematch) });
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {

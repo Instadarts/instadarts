@@ -133,11 +133,19 @@ export interface MatchState {
   players: Player[];
   visits: Visit[];
   currentPlayerIndex: number;
+  /** Null on a finished match means it was cancelled rather than won. */
   winnerId: string | null;
   createdAt: number;
   finishedAt: number | null;
   isLocal: boolean;
   currentVisit?: CurrentVisit;
+  /**
+   * Participants who have left. Leaving is final: they cannot rejoin, and a match anybody has left
+   * offers no re-match, because the person who would have to agree to it is gone.
+   */
+  departed: string[];
+  /** Players who have accepted a re-match. All of them accepting starts one. */
+  rematchVotes: string[];
 }
 
 // --- Lobby ---

@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { DartThrow, MatchState, ModeView } from '../../shared/types';
 import { textOf } from '../../shared/types';
 import { VisitInput } from '../components/VisitInput';
+import { RematchPanel } from '../components/RematchPanel';
 import { modeTextClasses } from '../components/modeText';
 import { MODE_PANELS } from '../modes/panels';
 
@@ -12,8 +13,10 @@ interface MatchScreenProps {
   onAddDart: (matchId: string, dart: DartThrow) => void;
   onUndoDart: (matchId: string) => void;
   onSubmitVisit: (matchId: string) => void;
+  onVoteRematch: (playerId: string, accepted: boolean) => void;
   ownPlayerId: string | null;
   isSpectator: boolean;
+  sessionId: string | null;
 }
 
 /**
@@ -23,7 +26,7 @@ interface MatchScreenProps {
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSubmitVisit, ownPlayerId, isSpectator }: MatchScreenProps) {
+export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -84,13 +87,21 @@ export function MatchScreen({ match, view, onLeave, onAddDart, onUndoDart, onSub
         })}
       </div>
 
-      {/* Status bar */}
+      {/* How it ended. No winner on a finished match means it was cancelled, not won. */}
       {match.status === 'finished' && (
         <div className="text-center">
-          <p className="text-2xl text-yellow-400 font-bold">
-            🎯 {match.players.find((p) => p.id === match.winnerId)?.name ?? 'Unknown'} wins!
-          </p>
+          {match.winnerId ? (
+            <p className="text-2xl text-yellow-400 font-bold">
+              🎯 {match.players.find((p) => p.id === match.winnerId)?.name ?? 'Unknown'} wins!
+            </p>
+          ) : (
+            <p className="text-2xl text-gray-400 font-bold">Match cancelled</p>
+          )}
         </div>
+      )}
+
+      {match.status === 'finished' && !isSpectator && (
+        <RematchPanel match={match} sessionId={sessionId} onVote={onVoteRematch} />
       )}
 
       {view.notice && isMyTurn && (

@@ -37,6 +37,7 @@ export function App() {
     leaveMatch,
     spectate,
     swapPlayers,
+    voteRematch,
     addDart,
     undoDart,
   } = useMatch((msg) => devicesHandler.current?.(msg));
@@ -53,8 +54,10 @@ export function App() {
     }
   }, [lobby, navigate]);
 
+  // Keyed on the match id, not merely on being somewhere under /match/: a re-match is a different
+  // match, and leaving the old id in the URL would hand out a link to the wrong one.
   useEffect(() => {
-    if (match && match.status === 'in_progress' && !window.location.pathname.startsWith('/match/')) {
+    if (match && match.status === 'in_progress' && window.location.pathname !== `/match/${match.id}`) {
       navigate(`/match/${match.id}`, { replace: true });
     }
   }, [match, navigate]);
@@ -121,6 +124,8 @@ export function App() {
             addDart={addDart}
             undoDart={undoDart}
             submitVisit={submitVisit}
+            onVoteRematch={voteRematch}
+            sessionId={sessionId}
             navigate={navigate}
             error={error}
           />
@@ -183,11 +188,13 @@ interface MatchWrapperProps {
   addDart: (matchId: string, dart: any) => void;
   undoDart: (matchId: string) => void;
   submitVisit: (matchId: string) => void;
+  onVoteRematch: (matchId: string, playerId: string, accepted: boolean) => void;
+  sessionId: string | null;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ match, view, ownPlayerId, isSpectator, leaveMatch, addDart, undoDart, submitVisit, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, ownPlayerId, isSpectator, sessionId, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -201,6 +208,8 @@ function MatchWrapper({ match, view, ownPlayerId, isSpectator, leaveMatch, addDa
       onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
       onUndoDart={() => undoDart(match.id)}
       onSubmitVisit={() => submitVisit(match.id)}
+      onVoteRematch={(playerId: string, accepted: boolean) => onVoteRematch(match.id, playerId, accepted)}
+      sessionId={sessionId}
     />
   );
 }
@@ -256,6 +265,8 @@ function SpectateWrapper({ spectate, lobby, match, view, leaveMatch, navigate }:
         onAddDart={() => {}}
         onUndoDart={() => {}}
         onSubmitVisit={() => {}}
+        onVoteRematch={() => {}}
+        sessionId={null}
       />
     );
   }

@@ -1,0 +1,275 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import type { WebSocket } from 'ws';
+import { handleMessage, registerClient, removeClient, handleClientLeave } from '../../src/server/wsHandler';
+import { removeRateLimitBucket } from '../../src/server/rateLimit';
+import type { ServerMessage } from '../../src/shared/protocol';
+import '../helpers'; // registers the x01 mode
+
+// ============================================================
+// Harness — the real handlers, over a socket's worth of pretence
+// ============================================================
+
+let sessionCounter = 0;
+const openSockets: WebSocket[] = [];
+
+function connect() {
+  const sessionId = `rm${++sessionCounter}`;
+  const received: ServerMessage[] = [];
+  const ws = {
+    readyState: 1,
+    OPEN: 1,
+    send: (raw: string) => received.push(JSON.parse(raw)),
+  } as unknown as WebSocket;
+
+  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });
+  openSockets.push(ws);
+
+  return {
+    ws,
+    sessionId,
+    received,
+    send(msg: object) {
+      removeRateLimitBucket(sessionId);
+      handleMessage(ws, JSON.stringify(msg));
+    },
+    leave() {
+      handleClientLeave(ws);
+    },
+    last<T extends ServerMessage['type']>(type: T) {
+      const hits = received.filter((m) => m.type === type);
+      return hits[hits.length - 1] as Extract<ServerMessage, { type: T }> | undefined;
+    },
+  };
+}
+
+type Conn = ReturnType<typeof connect>;
+
+afterEach(() => {
+  for (const ws of openSockets.splice(0)) removeClient(ws);
+});
+
+/** The latest match this connection has been told about, whichever message carried it. */
+function matchOf(conn: Conn) {
+  const carriers = conn.received.filter(
+    (m) => m.type === 'match_state' || m.type === 'match_started' || m.type === 'match_finished',
+  );
+  const last = carriers[carriers.length - 1];
+  return last && 'match' in last ? last.match : undefined;
+}
+
+/** Straight out from 180, so one visit of three trebles wins it. */
+const QUICK_MATCH = { mode: 'x01', modeSettings: { startScore: 180, doubleIn: false, doubleOut: false } };
+/** Centre of the treble 20 bed. */
+const T20 = { x: 500_000, y: 726_000 };
+
+/** A local match with two players, played by one user. */
+function localMatch() {
+  const user = connect();
+  user.send({ type: 'create_lobby', isLocal: true });
+  user.send({ type: 'add_local_player', playerName: 'Alice' });
+  user.send({ type: 'add_local_player', playerName: 'Bob' });
+  user.send({ type: 'update_settings', settings: QUICK_MATCH });
+  user.send({ type: 'start_match' });
+  return { user, match: () => matchOf(user)! };
+}
+
+/** An online match: two users, one player each. */
+function onlineMatch() {
+  const host = connect();
+  host.send({ type: 'create_lobby', isLocal: false });
+  host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+  const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
+  const guest = connect();
+  guest.send({ type: 'join_lobby', inviteCode, playerName: 'Bob' });
+  guest.send({ type: 'add_local_player', playerName: 'Bob' });
+
+  host.send({ type: 'update_settings', settings: QUICK_MATCH });
+  host.send({ type: 'start_match' });
+  return { host, guest, match: () => matchOf(host)! };
+}
+
+/**
+ * A match this connection has been started into other than `exclude`.
+ *
+ * Needed because starting the original match also announces itself with `match_started`; "no
+ * re-match has begun" is therefore about which match, not about whether a message arrived.
+ */
+function startedOther(conn: Conn, exclude: string) {
+  const started = conn.received.filter((m) => m.type === 'match_started');
+  const other = started.map((m) => (m as { match: { id: string } }).match).filter((m) => m.id !== exclude);
+  return other[other.length - 1];
+}
+
+/** Whoever is up throws 180 and submits, which wins a straight-out match from 180. */
+function winIt(conn: Conn, matchId: string) {
+  for (let i = 0; i < 3; i++) conn.send({ type: 'add_dart', matchId, dart: T20 });
+  conn.send({ type: 'submit_visit', matchId });
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+describe('leaving a match', () => {
+  it('cancels a local match: no winner, and the state says so', () => {
+    const { user, match } = localMatch();
+    expect(match().status).toBe('in_progress');
+
+    user.leave();
+
+    const finished = user.last('match_finished')!.match;
+    expect(finished.status).toBe('finished');
+    expect(finished.winnerId).toBeNull(); // cancelled, not won
+    expect(finished.departed).toHaveLength(1);
+  });
+
+  it('hands an online match to the player who stayed', () => {
+    const { host, guest, match } = onlineMatch();
+    const [alice, bob] = match().players;
+
+    host.leave();
+
+    const finished = guest.last('match_finished')!.match;
+    expect(finished.status).toBe('finished');
+    expect(finished.winnerId).toBe(bob.id);
+    expect(finished.departed).toEqual([alice.id]);
+  });
+
+  it('is final — a departed player cannot reconnect', () => {
+    const { host, match } = onlineMatch();
+    const matchId = match().id;
+    const alice = match().players[0];
+
+    host.leave();
+
+    const returning = connect();
+    returning.send({ type: 'reconnect', matchId, playerId: alice.id });
+    expect(returning.last('error')?.message).toBe('You have left this match');
+    expect(matchOf(returning)).toBeUndefined();
+  });
+
+  it('takes the re-match off the table, even after the match was won', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    expect(matchOf(guest)!.winnerId).toBe(matchOf(guest)!.players[0].id);
+
+    // The loser closes the tab rather than answering.
+    guest.leave();
+    expect(matchOf(host)!.departed).toHaveLength(1);
+
+    host.send({ type: 'rematch_vote', matchId, playerId: matchOf(host)!.players[0].id, accepted: true });
+    expect(matchOf(host)!.rematchVotes).toEqual([]);
+    expect(startedOther(host, matchId)).toBeUndefined();
+  });
+});
+
+describe('re-match', () => {
+  it('needs every player, and starts the moment it has them', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+
+    const [alice, bob] = matchOf(host)!.players;
+    expect(matchOf(host)!.status).toBe('finished');
+
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
+    expect(matchOf(guest)!.rematchVotes).toEqual([alice.id]); // the other side sees it
+    expect(startedOther(guest, matchId)).toBeUndefined();     // but nothing has started
+
+    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    expect(startedOther(host, matchId)).toBeDefined();
+    expect(startedOther(guest, matchId)).toBeDefined();
+  });
+
+  it('is a new match from scratch, with the order switched', () => {
+    const { host, guest, match } = onlineMatch();
+    const original = match();
+    winIt(host, original.id);
+    const [alice, bob] = original.players;
+
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+
+    const rematch = startedOther(host, original.id)!;
+    expect(rematch.id).not.toBe(original.id);
+    expect(rematch.status).toBe('in_progress');
+    expect(rematch.players.map((p) => p.name)).toEqual(['Bob', 'Alice']); // the other player begins
+    expect(rematch.settings).toEqual(original.settings);                  // same rules
+    expect(rematch.isLocal).toBe(false);
+
+    // Nothing at all carries over.
+    expect(rematch.visits).toEqual([]);
+    expect(rematch.currentVisit).toBeUndefined();
+    expect(rematch.winnerId).toBeNull();
+    expect(rematch.finishedAt).toBeNull();
+    expect(rematch.rematchVotes).toEqual([]);
+    expect(rematch.departed).toEqual([]);
+  });
+
+  it('leaves both users playing the new match', () => {
+    const { host, guest, match } = onlineMatch();
+    const original = match();
+    winIt(host, original.id);
+    const [alice, bob] = original.players;
+
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+    const rematch = startedOther(host, original.id)!;
+
+    // Bob leads off, and it is his own connection that may throw for him.
+    winIt(guest, rematch.id);
+    expect(matchOf(guest)!.winnerId).toBe(bob.id);
+    expect(matchOf(host)!.id).toBe(rematch.id);
+  });
+
+  it('can be withdrawn before the other player answers', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    const [alice, bob] = matchOf(host)!.players;
+
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: false });
+    expect(matchOf(guest)!.rematchVotes).toEqual([]);
+
+    guest.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    expect(startedOther(guest, matchId)).toBeUndefined(); // one player is not enough
+  });
+
+  it('refuses a vote cast for somebody else', () => {
+    const { host, guest, match } = onlineMatch();
+    const matchId = match().id;
+    winIt(host, matchId);
+    const bob = matchOf(host)!.players[1];
+
+    host.send({ type: 'rematch_vote', matchId, playerId: bob.id, accepted: true });
+    expect(host.last('error')?.message).toBe('You can only answer for your own player');
+    expect(matchOf(guest)!.rematchVotes).toEqual([]);
+  });
+
+  it('is not offered while the match is still being played', () => {
+    const { host, match } = onlineMatch();
+    const matchId = match().id;
+    const alice = match().players[0];
+
+    host.send({ type: 'rematch_vote', matchId, playerId: alice.id, accepted: true });
+    expect(matchOf(host)!.rematchVotes).toEqual([]);
+  });
+
+  it('in a local match, the one user answers for both players', () => {
+    const { user, match } = localMatch();
+    const original = match();
+    winIt(user, original.id);
+    const [alice, bob] = original.players;
+
+    user.send({ type: 'rematch_vote', matchId: original.id, playerId: alice.id, accepted: true });
+    expect(startedOther(user, original.id)).toBeUndefined();
+
+    user.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, accepted: true });
+    const rematch = startedOther(user, original.id)!;
+    expect(rematch.isLocal).toBe(true);
+    expect(rematch.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
+  });
+});

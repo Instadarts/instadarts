@@ -1,4 +1,4 @@
-import type { MatchState, Lobby, Player } from '../shared/types';
+import type { MatchState, MatchSettings, Lobby, Player } from '../shared/types';
 import { DEFAULT_MODE, defaultSettingsFor } from '../shared/modes/catalog';
 
 // ============================================================
@@ -85,23 +85,45 @@ export function findLobbyByInviteCode(code: string): Lobby | undefined {
 // Match operations
 // ============================================================
 
-export function createMatch(lobby: Lobby): MatchState {
-  deleteLobby(lobby.id);
+/**
+ * A match at its beginning. The only way one is ever created, so a match started from a lobby and a
+ * re-match are the same thing to everything downstream.
+ */
+function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean): MatchState {
   const id = generateId();
   const match: MatchState = {
     id,
     status: 'in_progress',
-    settings: { ...lobby.settings },
-    players: lobby.players.map((p) => ({ ...p })),
+    settings: { mode: settings.mode, modeSettings: { ...settings.modeSettings } },
+    players: players.map((p) => ({ ...p })),
     visits: [],
     currentPlayerIndex: 0,
     winnerId: null,
     createdAt: Date.now(),
     finishedAt: null,
-    isLocal: lobby.isLocal,
+    isLocal,
+    departed: [],
+    rematchVotes: [],
   };
   matches.set(id, match);
   return match;
+}
+
+export function createMatch(lobby: Lobby): MatchState {
+  deleteLobby(lobby.id);
+  return startMatch(lobby.settings, lobby.players, lobby.isLocal);
+}
+
+/**
+ * A re-match: the same rules and the same participants, with the order switched so the other player
+ * begins.
+ *
+ * Nothing else carries over — it is an ordinary new match that happens to skip the lobby, not a
+ * continuation. Nothing anywhere needs to know it came from another match, which is why this
+ * function does not record that it did.
+ */
+export function createRematch(previous: MatchState): MatchState {
+  return startMatch(previous.settings, [...previous.players].reverse(), previous.isLocal);
 }
 
 export function getMatch(id: string): MatchState | undefined {

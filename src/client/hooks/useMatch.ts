@@ -136,6 +136,10 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setIsSpectator(true);
   }, [send]);
 
+  const voteRematch = useCallback((matchId: string, playerId: string, accepted: boolean) => {
+    send({ type: 'rematch_vote', matchId, playerId, accepted });
+  }, [send]);
+
   const swapPlayers = useCallback((lobbyId: string) => {
     send({ type: 'swap_players', lobbyId });
   }, [send]);
@@ -162,5 +166,6 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     leaveMatch,
     spectate,
     swapPlayers,
+    voteRematch,
   };
 }

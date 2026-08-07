@@ -9,7 +9,7 @@
     "start": "NODE_ENV=production node --import tsx src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; sleep 1; QUIET=1 npm run dev & sleep 3; npx playwright test; lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@litertjs/core": "^2.5.3",

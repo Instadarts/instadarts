@@ -85,7 +85,8 @@ describe('x01 view', () => {
     let r = throwDart(makeMatch(), 'p1', 'T20');
     r = throwDart(r.match, 'p1', 'miss');
     const slots = viewOf(r.match).slots!;
-    expect(slots.map(textOf)).toEqual(['T20 (60)', 'miss (0)']);
+    // A slot says what was hit. What it was worth is the visit total's job, not three labels'.
+    expect(slots.map(textOf)).toEqual(['T20', 'miss']);
     expect(styleOf(slots[0])).toMatchObject({ tone: 'positive' });
     expect(styleOf(slots[1])).toMatchObject({ tone: 'danger' });
   });

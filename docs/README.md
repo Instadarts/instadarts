@@ -13,6 +13,9 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
 - [Game modes](./game-modes.md) — the contract a game mode implements, what it may look at, and how
   the match screen is split between universal chrome and mode-provided values. Read this before
   adding a mode or touching the match screen.
+- [The scoring pipeline](./vision.md) — how a camera turns a thrown dart into a number, what the
+  tests cover, and the parts only real hardware can check. Read this before touching anything under
+  `vision/`.
 - [Working on this app](./development.md) — how to run the app, the tests and the typechecks, how to
   check a UI change, and the traps that have caught people here. Read this first if you are about to
   run something.

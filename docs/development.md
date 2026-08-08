@@ -35,7 +35,7 @@ src/client/     App.tsx         routes, and the one hook that holds match state
                 components/     the match screen's parts, the dartboard, the top bar
                 modes/          a mode's optional panel component, found by filename
                 hooks/          the socket, the match, the vision runtime, paired devices
-                vision/         the camera, the model, motion detection (plain JS, ported)
+                vision/         the camera, the model, the motion gate, the geometry
 ```
 
 The two rules worth knowing before moving anything: **the client holds no game rules** — every

@@ -1,6 +1,5 @@
-// The camera device's geometry step, ported from dartszentrale-ai-scorer
-// src/pipeline/prediction-pipeline.ts. The algorithm — threshold filter, dedup, undistort,
-// homography, project, clamp — is untouched; only the clamp bounds move into board space.
+// The camera device's geometry step: threshold filter, dedup, undistort, homography, project,
+// clamp into board space.
 //
 // This is where the camera's work ends. It produces board coordinates and stops: which of these
 // tips are new, and what they are worth, is the server's to decide.

@@ -1,5 +1,4 @@
 // Board-plane tips → darts with numbers on them.
-// Ported from dartszentrale-ai-scorer server/dart-tracker.ts.
 //
 // The camera does the lens, the model and the geometry — everything that is a property of one lens
 // on one mount — and hands over a board coordinate. From here on nothing knows or cares which

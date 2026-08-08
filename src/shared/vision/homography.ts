@@ -1,4 +1,4 @@
-// Per-frame image→board homography, ported from dartszentrale-ai-scorer src/pipeline/homography.ts.
+// Per-frame image→board homography.
 //
 // RANSAC over the eight double-ring keypoints the model finds, validated against real boards.
 // There is no stored board calibration: every inference re-solves this from the keypoints it just

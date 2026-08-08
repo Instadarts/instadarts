@@ -1,21 +1,104 @@
-// Ported from dartszentrale-ai-scorer src/vision/motion.js, with the five control nodes made
-// injectable (see createMotionDetector) and nothing else changed.
+// The motion gate: only run inference when the board actually changed.
 //
-// Motion gating: only run inference when the board actually changed. CPU and WebGPU analyzers,
-// dart-sized vs large-motion classification, quiet-frame debounce. This is the top-level
-// performance decision in the whole pipeline — it is what keeps a phone cool for four hours.
+// This is the top-level performance decision in the whole pipeline — it is what keeps a phone cool
+// for four hours. Two analyzers implement the same idea, a WebGPU one and a CPU one, and the gate
+// classifies what changed: dart-sized motion triggers an inference, a large motion (an arm, someone
+// walking past) waits for the picture to settle first.
 //
-// It reaches for these element ids, so the scorer's markup provides them (ui/scoring-view.ts):
-//   #motion-arm  #motion-disarm  #motion-trigger  #detector-metrics  #motion-highlight-layer
-// Wiring the DOM contract was cheaper than rewriting 975 lines of tuned detection.
+// The thresholds, the tile grid and the quiet-frame debounce are measurements against real boards
+// and real phones. Do not retune them without one in front of you.
+//
+// It owns no DOM. It reads the preview video for pixels and *reports* what it decided — armed or
+// not, how fast it is sampling, which tiles moved — and the host renders that however it likes.
+// Nothing here writes to a button or a badge, so React and this module never disagree about who
+// owns a node.
+
 import { getWebGpuDevice } from "@litertjs/core";
+import { diffMask, fillTileCounts, rgbaToGray, type MotionDefaults } from './motionAnalysis';
+
+export type { MotionDefaults };
+
+
+
+/** What the gate is doing, for whoever is drawing it. */
+export interface MotionReport {
+  armed: boolean;
+  /** Whether arming and manual triggering are currently possible at all. */
+  canArm: boolean;
+  canTrigger: boolean;
+  /** What the badge's dot shows: nothing happening, waiting for the picture to settle, or firing. */
+  dot: 'idle' | 'pending' | 'triggered';
+  /** How many analyzer passes a second, or null while nothing is being sampled. */
+  fps: number | null;
+  /** Which analyzer ran: cpu or webgpu. */
+  mode: string;
+}
+
+/** A tile of the analysis grid that just changed, for the preview overlay. */
+export interface MotionTile {
+  /** Position in the grid, as fractions of the preview: left, top, width, height. */
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** Distinct per flash, so a renderer can key on it. */
+  id: number;
+}
+
+export interface MotionDetectorOptions {
+  preview: HTMLVideoElement;
+  /** Whether arming is allowed at all — false while there is no camera. */
+  canArm: () => boolean;
+  canTrigger: () => boolean;
+  /** An inference is already running; a trigger now would queue behind it. */
+  isTriggerBusy: () => boolean;
+  getTileChangePercent?: () => number;
+  onArmedChange?: (armed: boolean) => void;
+  onTrigger: () => void;
+  /** Called whenever anything a renderer would show has changed. */
+  onReport?: (report: MotionReport) => void;
+  /** Tiles that changed in this pass, for the preview overlay. */
+  onTiles?: (tiles: MotionTile[]) => void;
+}
+
+/** What the pipeline above drives the gate with. */
+export interface MotionDetector {
+  arm: () => void;
+  disarm: () => void;
+  isArmed: () => boolean;
+  /** Disarms as well; this is how a caller puts the state back as it found it. */
+  reset: () => void;
+  /** Remember that a trigger was wanted while an inference was already running. */
+  queueTriggerIfArmed: () => void;
+  flushQueuedTrigger: () => void;
+}
+
+/**
+ * One pass over the picture: how many pixels changed in each tile of the grid.
+ *
+ * Two implementations, a compute shader and a canvas loop, and the gate above cannot tell them
+ * apart — which is what lets it fall back to the CPU mid-run when the GPU one throws.
+ */
+interface MotionAnalyzer {
+  analyze: (preview: HTMLVideoElement) => Promise<AnalyzeResult>;
+  reset?: () => void;
+  /** Latched by the WebGPU analyzer when its device goes away. */
+  disabled?: boolean;
+}
+
+interface AnalyzeResult {
+  mode: string;
+  /** False on the very first frame: with nothing to diff against, nothing has changed. */
+  hasPrevious: boolean;
+  tileCounts: Uint32Array;
+}
 
 const ENABLE_WEBGPU_MOTION_DETECTOR = true;
 const MOTION_ANALYZE_FPS_WINDOW = 2000;
 const DETECTOR_BADGE_UPDATE_MS = 500;
 const WEBGPU_MOTION_WORKGROUP_SIZE = 16;
 
-const MOTION_DEFAULTS = {
+const MOTION_DEFAULTS: MotionDefaults = {
   gridRows: 8,
   gridCols: 8,
   tileChangePercent: 10,
@@ -181,11 +264,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `;
 
-// The five elements this detector drives. The original resolved them with getElementById at
-// construction, which forced its host to provide a fixed set of ids; passing them in instead lets
-// React own its own nodes and — more importantly — stops two detectors from fighting over the same
-// ids if one is ever constructed twice. Behaviour is otherwise unchanged, and the id lookup is
-// kept as the fallback so this file still matches its original when read side by side.
+/**
+ * The nodes are passed in rather than looked up, so the host owns its own DOM and two detectors can
+ * never fight over one set of ids.
+ */
 export function createMotionDetector({
   preview,
   canArm,
@@ -194,13 +276,9 @@ export function createMotionDetector({
   getTileChangePercent = () => MOTION_DEFAULTS.tileChangePercent,
   onArmedChange = () => {},
   onTrigger,
-  elements = {},
-}) {
-  const motionArmBtn = elements.arm ?? document.getElementById("motion-arm");
-  const motionDisarmBtn = elements.disarm ?? document.getElementById("motion-disarm");
-  const motionTriggerBtn = elements.trigger ?? document.getElementById("motion-trigger");
-  const detectorMetricsEl = elements.metrics ?? document.getElementById("detector-metrics");
-  const motionHighlightLayer = elements.highlights ?? document.getElementById("motion-highlight-layer");
+  onReport = () => {},
+  onTiles = () => {},
+}: MotionDetectorOptions): MotionDetector {
 
   let motionArmed = false;
   let motionBusy = false;
@@ -212,25 +290,34 @@ export function createMotionDetector({
   let pendingQuietScale = 1;
   let motionQuietFrames = 0;
   let triggerQueued = false;
-  let analyzeTimestamps = [];
-  let detectorDotState = "idle";
+  let analyzeTimestamps: number[] = [];
+  let detectorDotState: MotionReport['dot'] = 'idle';
   let detectorMode = "cpu";
   let lastDetectorBadgeUpdatedAt = 0;
-  let detectorBadgeUpdateTimer = null;
-  let lastDetectorBadgeDisplay = "";
-  let lastDetectorBadgeHtml = "";
-  const activeMotionHighlights = new Map();
-  let cpuAnalyzer = null;
-  let gpuAnalyzer = null;
+  let detectorBadgeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  let nextTileId = 0;
+  let cpuAnalyzer: MotionAnalyzer | null = null;
+  let gpuAnalyzer: MotionAnalyzer | null = null;
   // Latches once the WebGPU analyzer fails to construct (e.g. no WebGPU device),
   // so getActiveAnalyzer doesn't retry — and re-log — every frame.
   let gpuAnalyzerUnavailable = false;
 
   function updateControls() {
-    const armable = canArm();
-    motionArmBtn.disabled = !armable;
-    motionDisarmBtn.disabled = !motionArmed;
-    motionTriggerBtn.disabled = !canTrigger() || motionArmed;
+    report();
+  }
+
+  /** Everything a renderer needs, in one call. Cheap: it is a small object, not a repaint. */
+  function report() {
+    onReport({
+      armed: motionArmed,
+      canArm: canArm(),
+      canTrigger: canTrigger() && !motionArmed,
+      dot: detectorDotState,
+      fps: analyzeTimestamps.length
+        ? Number((analyzeTimestamps.length / (MOTION_ANALYZE_FPS_WINDOW / 1000)).toFixed(1))
+        : null,
+      mode: detectorMode,
+    });
   }
 
   function arm() {
@@ -241,11 +328,9 @@ export function createMotionDetector({
     pendingQuietScale = 1;
     triggerQueued = false;
     clearMotionHighlights();
-    cpuAnalyzer?.reset();
-    gpuAnalyzer?.reset();
+    cpuAnalyzer?.reset?.();
+    gpuAnalyzer?.reset?.();
     motionLoopToken += 1;
-    motionArmBtn.style.display = "none";
-    motionDisarmBtn.style.display = "";
     updateControls();
     onArmedChange(true);
     updateDetectorDot("idle");
@@ -255,9 +340,6 @@ export function createMotionDetector({
   function disarm() {
     motionArmed = false;
     motionLoopToken += 1;
-    motionArmBtn.style.display = "";
-    motionDisarmBtn.style.display = "none";
-    motionTriggerBtn.disabled = !canTrigger();
     updateControls();
     onArmedChange(false);
   }
@@ -272,11 +354,9 @@ export function createMotionDetector({
     detectorDotState = "idle";
     clearDetectorBadgeUpdateTimer();
     clearMotionHighlights();
-    detectorMetricsEl.style.display = "none";
-    lastDetectorBadgeDisplay = "none";
-    lastDetectorBadgeHtml = "";
-    cpuAnalyzer?.reset();
-    gpuAnalyzer?.reset();
+    report();
+    cpuAnalyzer?.reset?.();
+    gpuAnalyzer?.reset?.();
   }
 
   function isArmed() {
@@ -296,7 +376,7 @@ export function createMotionDetector({
     }
   }
 
-  async function runMotionLoop(token) {
+  async function runMotionLoop(token: number) {
     if (token !== motionLoopToken || !motionArmed) return;
 
     const t0 = performance.now();
@@ -321,7 +401,7 @@ export function createMotionDetector({
     if (!preview.videoWidth || !preview.videoHeight) return;
 
     const analyzer = getActiveAnalyzer();
-    let result = null;
+    let result: AnalyzeResult;
     try {
       result = await analyzer.analyze(preview);
     } catch (e) {
@@ -394,7 +474,7 @@ export function createMotionDetector({
     return cpuAnalyzer;
   }
 
-  function classifyTileCounts(tileCounts) {
+  function classifyTileCounts(tileCounts: Uint32Array) {
     const tileThreshold = getTileChangePercent() / 100;
     const tilePixelCount = (MOTION_DEFAULTS.analyzeSize / MOTION_DEFAULTS.gridRows)
       * (MOTION_DEFAULTS.analyzeSize / MOTION_DEFAULTS.gridCols);
@@ -420,36 +500,19 @@ export function createMotionDetector({
     return { detected: 1, triggeredTiles };
   }
 
-  function showMotionHighlights(tileIndexes) {
-    if (!motionHighlightLayer || !tileIndexes.length) return;
-    for (const tileIndex of tileIndexes) {
-      const row = Math.floor(tileIndex / MOTION_DEFAULTS.gridCols);
-      const col = tileIndex % MOTION_DEFAULTS.gridCols;
-      const previousHighlight = activeMotionHighlights.get(tileIndex);
-      previousHighlight?.remove();
-
-      const highlight = document.createElement("div");
-      highlight.className = "motion-highlight";
-      highlight.style.left = `${(col / MOTION_DEFAULTS.gridCols) * 100}%`;
-      highlight.style.top = `${(row / MOTION_DEFAULTS.gridRows) * 100}%`;
-      highlight.style.width = `${100 / MOTION_DEFAULTS.gridCols}%`;
-      highlight.style.height = `${100 / MOTION_DEFAULTS.gridRows}%`;
-      highlight.addEventListener("animationend", () => {
-        if (activeMotionHighlights.get(tileIndex) === highlight) {
-          activeMotionHighlights.delete(tileIndex);
-        }
-        highlight.remove();
-      }, { once: true });
-      activeMotionHighlights.set(tileIndex, highlight);
-      motionHighlightLayer.appendChild(highlight);
-    }
+  function showMotionHighlights(tileIndexes: number[]) {
+    if (!tileIndexes.length) return;
+    onTiles(tileIndexes.map((tileIndex) => ({
+      left: ((tileIndex % MOTION_DEFAULTS.gridCols) / MOTION_DEFAULTS.gridCols) * 100,
+      top: (Math.floor(tileIndex / MOTION_DEFAULTS.gridCols) / MOTION_DEFAULTS.gridRows) * 100,
+      width: 100 / MOTION_DEFAULTS.gridCols,
+      height: 100 / MOTION_DEFAULTS.gridRows,
+      id: nextTileId++,
+    })));
   }
 
   function clearMotionHighlights() {
-    for (const highlight of activeMotionHighlights.values()) {
-      highlight.remove();
-    }
-    activeMotionHighlights.clear();
+    onTiles([]);
   }
 
   function checkMotionDebounce() {
@@ -463,16 +526,14 @@ export function createMotionDetector({
       pendingQuietScale = 1;
       motionQuietFrames = 0;
       updateDetectorDot("triggered");
-      detectorMetricsEl.classList.add("triggered");
       setTimeout(() => {
-        detectorMetricsEl.classList.remove("triggered");
         if (!motionPendingTrigger) updateDetectorDot("idle");
       }, 500);
       onTrigger();
     }
   }
 
-  function updateDetectorDot(state) {
+  function updateDetectorDot(state: MotionReport['dot']) {
     const changed = detectorDotState !== state;
     detectorDotState = state;
     if (changed) {
@@ -487,7 +548,7 @@ export function createMotionDetector({
     requestDetectorBadgeUpdate();
   }
 
-  function trimAnalyzeTimestamps(now) {
+  function trimAnalyzeTimestamps(now: number) {
     const cutoff = now - MOTION_ANALYZE_FPS_WINDOW;
     while (analyzeTimestamps.length && analyzeTimestamps[0] < cutoff) {
       analyzeTimestamps.shift();
@@ -517,23 +578,7 @@ export function createMotionDetector({
 
   function renderDetectorBadge() {
     lastDetectorBadgeUpdatedAt = performance.now();
-    if (!analyzeTimestamps.length && detectorDotState === "idle") {
-      updateDetectorBadgeDom("none", "");
-      return;
-    }
-    const fps = analyzeTimestamps.length
-      ? (analyzeTimestamps.length / (MOTION_ANALYZE_FPS_WINDOW / 1000)).toFixed(1)
-      : "0.0";
-    const html = `<span class="detector-dot ${detectorDotState}"></span>detector: ${fps}fps`; //${detectorMode}
-    updateDetectorBadgeDom("", html);
-  }
-
-  function updateDetectorBadgeDom(display, html) {
-    if (display === lastDetectorBadgeDisplay && html === lastDetectorBadgeHtml) return;
-    detectorMetricsEl.style.display = display;
-    detectorMetricsEl.innerHTML = html;
-    lastDetectorBadgeDisplay = display;
-    lastDetectorBadgeHtml = html;
+    report();
   }
 
   setInterval(() => {
@@ -542,14 +587,9 @@ export function createMotionDetector({
     requestDetectorBadgeUpdate();
   }, 1000);
 
-  motionArmBtn.addEventListener("click", arm);
-  motionDisarmBtn.addEventListener("click", disarm);
-  motionTriggerBtn.addEventListener("click", onTrigger);
-
   updateControls();
 
   return {
-    updateControls,
     arm,
     disarm,
     reset,
@@ -559,14 +599,14 @@ export function createMotionDetector({
   };
 }
 
-function createCpuMotionAnalyzer(defaults) {
-  let motionCanvas = null;
-  let motionCtx = null;
-  let previousGray = null;
+function createCpuMotionAnalyzer(defaults: MotionDefaults): MotionAnalyzer {
+  let motionCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  let motionCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+  let previousGray: Uint8Array | null = null;
   const tileCounts = new Uint32Array(defaults.gridRows * defaults.gridCols);
 
   function ensureCanvas() {
-    if (motionCanvas) return;
+    if (motionCanvas && motionCtx) return;
     if (typeof OffscreenCanvas === "function") {
       motionCanvas = new OffscreenCanvas(defaults.analyzeSize, defaults.analyzeSize);
     } else {
@@ -577,9 +617,15 @@ function createCpuMotionAnalyzer(defaults) {
     motionCtx = motionCanvas.getContext("2d", {
       alpha: false,
       willReadFrequently: true,
-    });
-    motionCtx.imageSmoothingEnabled = true;
-    motionCtx.imageSmoothingQuality = "high";
+    }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    motionCtx!.imageSmoothingEnabled = true;
+    motionCtx!.imageSmoothingQuality = "high";
+  }
+
+  /** The canvas and its context, built on first use. */
+  function context() {
+    ensureCanvas();
+    return motionCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   }
 
   return {
@@ -588,21 +634,21 @@ function createCpuMotionAnalyzer(defaults) {
       previousGray = null;
     },
     async analyze(sourceFrame) {
-      ensureCanvas();
+      const ctx = context();
       const { cropX, cropY, cropSize } = getCenterSquareCrop(sourceFrame);
-      motionCtx.drawImage(
+      ctx.drawImage(
         sourceFrame,
         cropX, cropY, cropSize, cropSize,
         0, 0, defaults.analyzeSize, defaults.analyzeSize
       );
 
-      const imageData = motionCtx.getImageData(0, 0, defaults.analyzeSize, defaults.analyzeSize);
+      const imageData = ctx.getImageData(0, 0, defaults.analyzeSize, defaults.analyzeSize);
       const currentGray = rgbaToGray(imageData.data);
       const hasPrevious = Boolean(previousGray);
       tileCounts.fill(0);
 
       if (hasPrevious) {
-        const mask = diffMask(previousGray, currentGray, defaults);
+        const mask = diffMask(previousGray as Uint8Array, currentGray, defaults);
         fillTileCounts(mask, tileCounts, defaults);
       }
       previousGray = currentGray;
@@ -615,95 +661,18 @@ function createCpuMotionAnalyzer(defaults) {
   };
 }
 
-function rgbaToGray(rgba) {
-  const out = new Uint8Array(rgba.length / 4);
-  for (let src = 0, dst = 0; src < rgba.length; src += 4, dst += 1) {
-    out[dst] = Math.round(rgba[src] * 0.299 + rgba[src + 1] * 0.587 + rgba[src + 2] * 0.114);
-  }
-  return out;
-}
 
-function diffMask(previous, current, defaults) {
-  const mask = new Uint8Array(current.length);
-  for (let i = 0; i < current.length; i += 1) {
-    if (Math.abs(current[i] - previous[i]) >= defaults.pixelThreshold) {
-      mask[i] = 1;
-    }
-  }
-  return erode(dilate(mask, defaults), defaults);
-}
 
-function dilate(mask, defaults) {
-  const size = defaults.analyzeSize;
-  const out = new Uint8Array(mask.length);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      let active = 0;
-      for (let oy = -1; oy <= 1; oy += 1) {
-        const yy = y + oy;
-        if (yy < 0 || yy >= size) continue;
-        const base = yy * size;
-        for (let ox = -1; ox <= 1; ox += 1) {
-          const xx = x + ox;
-          if (xx < 0 || xx >= size) continue;
-          active += mask[base + xx];
-        }
-      }
-      if (active >= 2) out[y * size + x] = 1;
-    }
-  }
-  return out;
-}
 
-function erode(mask, defaults) {
-  const size = defaults.analyzeSize;
-  const out = new Uint8Array(mask.length);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      let active = 0;
-      for (let oy = -1; oy <= 1; oy += 1) {
-        const yy = y + oy;
-        if (yy < 0 || yy >= size) { active = 0; break; }
-        const base = yy * size;
-        for (let ox = -1; ox <= 1; ox += 1) {
-          const xx = x + ox;
-          if (xx < 0 || xx >= size) { active = 0; break; }
-          active += mask[base + xx];
-        }
-      }
-      if (active >= 7) out[y * size + x] = 1;
-    }
-  }
-  return out;
-}
 
-function fillTileCounts(mask, tileCounts, defaults) {
-  const size = defaults.analyzeSize;
-  const tileHeight = size / defaults.gridRows;
-  const tileWidth = size / defaults.gridCols;
-  for (let row = 0; row < defaults.gridRows; row += 1) {
-    const y0 = Math.floor(row * tileHeight);
-    const y1 = Math.floor((row + 1) * tileHeight);
-    for (let col = 0; col < defaults.gridCols; col += 1) {
-      const x0 = Math.floor(col * tileWidth);
-      const x1 = Math.floor((col + 1) * tileWidth);
-      let changed = 0;
-      for (let y = y0; y < y1; y += 1) {
-        const base = y * size;
-        for (let x = x0; x < x1; x += 1) {
-          if (mask[base + x]) changed += 1;
-        }
-      }
-      tileCounts[row * defaults.gridCols + col] = changed;
-    }
-  }
-}
 
-function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
-  const device = getWebGpuDevice();
-  if (!device) {
+function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: MotionDefaults; onModeChange: (mode: string) => void }): MotionAnalyzer {
+  const maybeDevice = getWebGpuDevice();
+  if (!maybeDevice) {
     throw new Error("LiteRT WebGPU device is not available");
   }
+  // Bound again so it is non-null for the closures below: a narrowing does not survive into them.
+  const device: GPUDevice = maybeDevice;
 
   const preprocessPipeline = device.createComputePipeline({
     label: "ADPA motion preprocess pipeline",
@@ -751,14 +720,14 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
   const tileCountsBufferSize = tileCount * Uint32Array.BYTES_PER_ELEMENT;
   const tileCounts = new Uint32Array(tileCount);
   const zeroTileCounts = new Uint32Array(tileCount);
-  let sourceTexture = null;
+  let sourceTexture: GPUTexture | null = null;
   let sourceSize = 0;
   let disabled = false;
   let hasPrevious = false;
   const mode = "gpu-bitmap";
-  let preprocessBindGroup = null;
-  let dilateBindGroup = null;
-  let erodeAggregateBindGroup = null;
+  let preprocessBindGroup: GPUBindGroup | null = null;
+  let dilateBindGroup: GPUBindGroup | null = null;
+  let erodeAggregateBindGroup: GPUBindGroup | null = null;
 
   const currentGrayBuffer = createStorageBuffer("ADPA motion current gray", grayBufferSize);
   const previousGrayBuffer = createStorageBuffer("ADPA motion previous gray", grayBufferSize);
@@ -788,7 +757,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
 
   console.info("[ADPA] WebGPU motion detector enabled");
 
-  function createStorageBuffer(label, bufferSize) {
+  function createStorageBuffer(label: string, bufferSize: number): GPUBuffer {
     return device.createBuffer({
       label,
       size: bufferSize,
@@ -796,7 +765,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
     });
   }
 
-  function ensureSourceTexture(textureSize) {
+  function ensureSourceTexture(textureSize: number): void {
     if (sourceTexture && sourceSize === textureSize) return;
     sourceTexture?.destroy?.();
     sourceTexture = device.createTexture({
@@ -815,7 +784,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
       label: "ADPA motion preprocess bind group",
       layout: preprocessPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: sourceTexture.createView() },
+        { binding: 0, resource: sourceTexture!.createView() },
         { binding: 1, resource: sampler },
         { binding: 2, resource: { buffer: currentGrayBuffer } },
         { binding: 3, resource: { buffer: previousGrayBuffer } },
@@ -855,7 +824,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
     return erodeAggregateBindGroup;
   }
 
-  async function copyImageBitmapToTexture(sourceFrame) {
+  async function copyImageBitmapToTexture(sourceFrame: HTMLVideoElement) {
     if (typeof createImageBitmap !== "function") {
       throw new Error("createImageBitmap is not available");
     }
@@ -872,7 +841,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
       ensureSourceTexture(bitmap.width);
       device.queue.copyExternalImageToTexture(
         { source: bitmap },
-        { texture: sourceTexture },
+        { texture: sourceTexture! },
         { width: bitmap.width, height: bitmap.height }
       );
     } finally {
@@ -880,7 +849,7 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
     }
   }
 
-  async function analyze(sourceFrame) {
+  async function analyze(sourceFrame: HTMLVideoElement): Promise<AnalyzeResult> {
     // WebGPU reports copy/dispatch failures asynchronously rather than throwing, so wrap the GPU
     // region in error scopes (balanced in `finally`) to detect them and fall back to the CPU
     // detector instead of silently analyzing a garbage frame.
@@ -973,14 +942,16 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }) {
   };
 }
 
-function getSourceDimensions(source) {
-  const width = source.videoWidth || source.displayWidth || source.width || 0;
-  const height = source.videoHeight || source.displayHeight || source.height || 0;
+function getSourceDimensions(source: HTMLVideoElement): { width: number; height: number } {
+  // A video names its size three different ways depending on where it came from.
+  const any = source as { videoWidth?: number; displayWidth?: number; width?: number; videoHeight?: number; displayHeight?: number; height?: number };
+  const width = any.videoWidth || any.displayWidth || any.width || 0;
+  const height = any.videoHeight || any.displayHeight || any.height || 0;
   if (!width || !height) throw new Error("Invalid source dimensions");
   return { width, height };
 }
 
-function getCenterSquareCrop(source) {
+function getCenterSquareCrop(source: HTMLVideoElement): { cropX: number; cropY: number; cropSize: number } {
   const { width, height } = getSourceDimensions(source);
   const cropSize = Math.min(width, height);
   return {

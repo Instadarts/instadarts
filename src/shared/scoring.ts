@@ -1,6 +1,5 @@
 /**
  * Dartboard scoring from integer board coordinates.
- * Adapted from aidarts reference implementation.
  *
  * Board space: x, y ∈ [0, 1000000], center at [500000, 500000], y-up.
  * Top of board (above 20 segment) is [500000, 1000000].

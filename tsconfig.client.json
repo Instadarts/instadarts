@@ -5,7 +5,7 @@
     "jsx": "react-jsx",
     "outDir": "dist/client",
     "rootDir": "src",
-    "types": ["vite/client"],
+    "types": ["vite/client", "@webgpu/types"],
     "declaration": false,
     "declarationMap": false
   },

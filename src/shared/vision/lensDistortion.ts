@@ -1,5 +1,4 @@
-// Single-parameter radial lens distortion, ported unchanged from dartszentrale-ai-scorer
-// src/pipeline/lens-distortion.ts.
+// Single-parameter radial lens distortion.
 //
 // This one stays in normalized *image* space ([0,1], y-down, origin top-left of the input square),
 // because that is where a lens distorts: it is a property of the optics, not of the board. The

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createVisionRuntime, MODELS } from '../vision/visionRuntime.js';
-import type { CameraInfo, FrameInfo, VisionRuntime, VisionStatus } from '../vision/visionRuntime.js';
+import { createVisionRuntime, MODELS } from '../vision/visionRuntime';
+import type { CameraInfo, FrameInfo, VisionRuntime, VisionStatus } from '../vision/visionRuntime';
+import type { MotionReport, MotionTile } from '../vision/motion';
 import type { BoardTip } from '../../shared/vision/types';
+
+/** How long a changed tile stays lit in the preview, and how many may be lit at once. */
+const MOTION_TILE_MS = 450;
+const MAX_MOTION_TILES = 64;
 import { lensForCamera, loadSettings, saveSettings, setLensForCamera, type ScorerSettings } from '../lib/scorerStorage';
 
 interface Options {
@@ -19,7 +24,11 @@ function exposeForTests(): boolean {
 /**
  * Owns the vision runtime for the lifetime of the scoring page.
  *
- * The refs come back out rather than going in, because the motion detector binds its five control
+ * The video ref comes back out rather than going in, because the runtime needs the element to read
+ * pixels from and React owns when it exists. The motion gate's controls are ordinary React state:
+ * it reports, this renders.
+ *
+ * (was: the refs come back out rather than going in, because the motion detector binds its five control
  * nodes once at construction: owning them here is what guarantees they exist, and that their
  * identity never changes underneath it.
  *
@@ -29,11 +38,6 @@ function exposeForTests(): boolean {
  */
 export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   const video = useRef<HTMLVideoElement>(null);
-  const arm = useRef<HTMLButtonElement>(null);
-  const disarm = useRef<HTMLButtonElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const metrics = useRef<HTMLDivElement>(null);
-  const highlights = useRef<HTMLDivElement>(null);
 
   const runtimeRef = useRef<VisionRuntime | null>(null);
   const [ready, setReady] = useState(false);
@@ -46,6 +50,10 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [motion, setMotion] = useState<MotionReport>(
+    { armed: false, canArm: false, canTrigger: false, dot: 'idle', fps: null, mode: 'cpu' },
+  );
+  const [motionTiles, setMotionTiles] = useState<MotionTile[]>([]);
 
   // Held in refs so the runtime, built once, always calls the current callbacks.
   const onTipsRef = useRef(onTips);
@@ -79,12 +87,14 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
         frameRef.current = info;
         setFrame(info);
       },
-      elements: {
-        arm: arm.current,
-        disarm: disarm.current,
-        trigger: trigger.current,
-        metrics: metrics.current,
-        highlights: highlights.current,
+      onReport: setMotion,
+      onTiles: (tiles) => {
+        // Flashes, not state: each batch is added and then expires on its own, so a tile that
+        // keeps changing keeps flashing rather than staying lit.
+        if (tiles.length === 0) { setMotionTiles([]); return; }
+        setMotionTiles((current) => [...current, ...tiles].slice(-MAX_MOTION_TILES));
+        const ids = new Set(tiles.map((tile) => tile.id));
+        setTimeout(() => setMotionTiles((current) => current.filter((tile) => !ids.has(tile.id))), MOTION_TILE_MS);
       },
     });
     runtime.setModel(stored.model);
@@ -198,7 +208,9 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   }, []);
 
   return {
-    refs: { video, arm, disarm, trigger, metrics, highlights },
+    refs: { video },
+    motion,
+    motionTiles,
     runtimeRef,
     frameRef,
     ready,

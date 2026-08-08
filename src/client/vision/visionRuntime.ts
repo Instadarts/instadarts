@@ -7,25 +7,76 @@
 // server's, so that two cameras seeing one dart produce one number rather than two. The cut is
 // exactly where the coordinate stops being about a lens and starts being about a board.
 //
-// Ported from dartszentrale-ai-scorer. Heavily tuned for phone performance — motion gating, frame
-// pacing, tensor reuse, the WebGPU/WASM fallback chain. Do not "clean up" without a benchmark on a
-// real device.
+// Heavily tuned for phone performance — motion gating, frame pacing, tensor reuse, the WebGPU/WASM
+// fallback chain. Do not "clean up" without a benchmark on a real device.
 
-import { getCenterSquareCrop, loadModel, unloadModel } from './model.js';
-import { postprocess } from './postprocess.js';
-import { createMotionDetector } from './motion.js';
-import { createCamera, listCameras, preferredCamera } from './camera.js';
-import { processPredictions } from './predictionPipeline';
+import { getCenterSquareCrop, loadModel, unloadModel, type ModelRunner } from './model';
+import { postprocess } from './postprocess';
+import { createMotionDetector, type MotionDetector, type MotionReport, type MotionTile } from './motion';
+import { createCamera, listCameras, preferredCamera, type Camera, type CameraChoice } from './camera';
+import { processPredictions, type PipelineResult } from './predictionPipeline';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
+import type { BoardTip, Keypoint } from '../../shared/vision/types';
 
-export const MODELS = {
+export type VisionStatus = {
+  stage: 'model' | 'camera' | 'motion' | 'error';
+  text: string;
+};
+
+export type FrameInfo = {
+  keypoints: Keypoint[];
+  result: PipelineResult | null;
+  ms: number;
+  accelerator: string;
+};
+
+export type CameraInfo = CameraChoice;
+
+export interface VisionRuntimeOptions {
+  video: HTMLVideoElement;
+  /**
+   * Fires on every inference that produced a homography, including ones that found no tips at
+   * all — an empty array is the takeout signal. A frame with no homography fires nothing, because
+   * "the board is not visible" is not "the board is empty".
+   */
+  onTips: (tips: BoardTip[]) => void;
+  onStatus?: (status: VisionStatus) => void;
+  onFrame?: (frame: FrameInfo) => void;
+  /** What the motion gate is doing, for whoever draws it. */
+  onReport?: (report: MotionReport) => void;
+  onTiles?: (tiles: MotionTile[]) => void;
+}
+
+export interface VisionRuntime {
+  listCameras: () => Promise<CameraInfo[]>;
+  camera: Camera;
+  motion: MotionDetector;
+  preferredCamera: (cameras: CameraInfo[]) => CameraInfo | null;
+  infer: () => Promise<BoardTip[]>;
+  start: (deviceId: string) => Promise<{ label: string; settings: MediaTrackSettings }>;
+  stop: () => Promise<void>;
+  unload: () => Promise<void>;
+  setModel: (key: string) => void;
+  setLensCalibration: (value: number) => void;
+  readonly lensCalibration: number;
+  setThresholds: (thresholds: { board?: number; tip?: number }) => void;
+  readonly modelKey: string;
+  /** Side of the square the model is fed — the space keypoints are normalised in. */
+  readonly inputSize: number;
+  /** Keep a copy of each inference's input square, for the frozen calibration frame. */
+  setKeepInputFrame: (on: boolean) => void;
+  /** Paint that copy into a 2D context; false when no frame has been kept yet. */
+  drawInputFrame: (targetCtx: CanvasRenderingContext2D, size: number) => boolean;
+}
+
+export const MODELS: Record<string, { url: string; inputSize: number }> = {
   s_960: { url: '/models/s_960.tflite', inputSize: 960 },
   s_1280: { url: '/models/s_1280.tflite', inputSize: 1280 },
 };
 
-export function createVisionRuntime({ video, elements, onTips, onStatus = () => {}, onFrame = () => {} }) {
+export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFrame = () => {}, onReport, onTiles }: VisionRuntimeOptions): VisionRuntime {
   const camera = createCamera({ video });
-  let model = null;
+  let model: ModelRunner | null = null;
   let modelKey = 's_960';
   let lensCalibration = 0;
   let boardThreshold = DEFAULT_BOARD_THRESHOLD;
@@ -37,7 +88,7 @@ export function createVisionRuntime({ video, elements, onTips, onStatus = () => 
   // model was fed is kept, drawn here rather than read back from the preprocessing canvas — the
   // WebGPU path never populates that (model.js:215).
   let keepInputFrame = false;
-  let inputFrame = null;
+  let inputFrame: HTMLCanvasElement | null = null;
 
   function captureInputFrame() {
     if (!keepInputFrame) return;
@@ -46,7 +97,7 @@ export function createVisionRuntime({ video, elements, onTips, onStatus = () => 
     if (inputFrame.width !== size) { inputFrame.width = size; inputFrame.height = size; }
     try {
       const { cropX, cropY, cropSize } = getCenterSquareCrop(video);
-      inputFrame.getContext('2d').drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, size, size);
+      inputFrame.getContext('2d')!.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, size, size);
     } catch {
       // Frame not ready yet; the next inference brings another one.
     }
@@ -97,7 +148,7 @@ export function createVisionRuntime({ video, elements, onTips, onStatus = () => 
       onTips(tips);
       return tips;
     } catch (err) {
-      onStatus({ stage: 'error', text: String(err?.message ?? err) });
+      onStatus({ stage: 'error', text: err instanceof Error ? err.message : String(err) });
       return [];
     } finally {
       busy = false;
@@ -111,7 +162,8 @@ export function createVisionRuntime({ video, elements, onTips, onStatus = () => 
     isTriggerBusy: () => busy,
     onTrigger: () => { void infer(); },
     onArmedChange: (armed) => onStatus({ stage: 'motion', text: armed ? 'watching' : 'idle' }),
-    elements,
+    onReport,
+    onTiles,
   });
 
   return {
@@ -147,23 +199,23 @@ export function createVisionRuntime({ video, elements, onTips, onStatus = () => 
     // about darts (server/scoring/tracker.ts owns that), which is exactly what lets a second
     // camera join mid-visit with nothing to reconcile.
 
-    setModel(key) { if (MODELS[key] && key !== modelKey) { modelKey = key; model = null; } },
-    setLensCalibration(value) { lensCalibration = Number(value) || 0; },
+    setModel(key: string) { if (MODELS[key] && key !== modelKey) { modelKey = key; model = null; } },
+    setLensCalibration(value: number) { lensCalibration = Number(value) || 0; },
     get lensCalibration() { return lensCalibration; },
-    setThresholds({ board, tip }) {
-      if (Number.isFinite(board)) boardThreshold = board;
-      if (Number.isFinite(tip)) tipThreshold = tip;
+    setThresholds({ board, tip }: { board?: number; tip?: number }) {
+      if (typeof board === 'number' && Number.isFinite(board)) boardThreshold = board;
+      if (typeof tip === 'number' && Number.isFinite(tip)) tipThreshold = tip;
     },
     get modelKey() { return modelKey; },
     get inputSize() { return inputSize(); },
 
     /** Keep a copy of each inference's input square (calibration only — it costs a full draw). */
-    setKeepInputFrame(on) {
+    setKeepInputFrame(on: boolean) {
       keepInputFrame = Boolean(on);
       if (!keepInputFrame) inputFrame = null;
     },
     /** Paint the last kept input square into a 2D context. False when there is nothing to show. */
-    drawInputFrame(targetCtx, size) {
+    drawInputFrame(targetCtx: CanvasRenderingContext2D, size: number) {
       if (!inputFrame) return false;
       targetCtx.drawImage(inputFrame, 0, 0, size, size);
       return true;

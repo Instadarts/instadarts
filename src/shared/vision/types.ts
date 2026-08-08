@@ -1,5 +1,4 @@
-// Vision pipeline value types.
-// Ported from dartszentrale-ai-scorer src/pipeline/types.ts.
+// Vision pipeline value types: what a keypoint, a homography and a board tip are.
 
 export type Point2D = [number, number];
 

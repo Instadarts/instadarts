@@ -1,4 +1,4 @@
-// Throw windows across n cameras, ported from dartszentrale-ai-scorer server/throw-window.ts.
+// Throw windows across n cameras.
 //
 // Two cameras looking at the same board see the same throw a few tens of milliseconds apart, and
 // they must produce one set of darts rather than two. So a report does not go straight to the

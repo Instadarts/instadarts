@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { computeDistortionCorrectedSpider, type SpiderProjection } from '../../vision/lensGeometry.js';
+import { computeDistortionCorrectedSpider, type SpiderProjection } from '../../vision/lensGeometry';
 import { sliderValueToLensK1 } from '../../../shared/vision/lensDistortion';
 import type { Keypoint } from '../../../shared/vision/types';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';

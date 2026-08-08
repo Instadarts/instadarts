@@ -1,12 +1,60 @@
-// Ported verbatim from dartszentrale-ai-scorer src/vision/lens-geometry.js.
+// Projecting the board's spider back into image space.
 //
-// Pure geometry, no DOM: given the detected board keypoints and a lens k1, it projects the board's
-// spider (rings, radials, sector beds) back into IMAGE space. Overlaying that on the camera
-// preview is what makes lens calibration possible — you slide k1 until the drawn spider sits on
-// the real board's wires.
+// Pure geometry, no DOM: given the board keypoints one inference found and a lens k1, it draws the
+// rings, radials and sector beds where they should appear in the *camera's* picture. Overlaying
+// that on a frozen frame is what makes lens calibration possible — you slide k1 until the drawn
+// spider sits on the real board's wires.
 //
-// The companion's own renderer  animates this with sweep delays and per-section
-// highlighting; ours draws it plainly, because here it is a measuring tool rather than a flourish.
+// Self-contained: it builds its own board reference points and inverts its own homography, so it
+// never meets the board coordinates the rest of the app scores in. Its numbers are normalized
+// image space throughout, [0,1] on both axes.
+
+import type { Keypoint } from '../../shared/vision/types';
+
+/** A point in normalized image or board space. */
+type Point = [number, number];
+
+/** A 3x3 homography as three rows of three. */
+type Matrix = number[][];
+
+/** A sector boundary, as the two board-space points it runs between. */
+type Radial = { inner: Point; outer: Point };
+
+export type SpiderProjection = {
+  canCompute: boolean;
+  reason?: string;
+  keypointCount: number;
+  /** Closed ring polylines, in normalized image space. */
+  rings: Point[][];
+  /** Sector boundary polylines, in normalized image space. */
+  radials: Point[][];
+  sections: BoardSection[];
+  detections: BoardSpaceDetection[];
+};
+
+/** One bed of the board, as a closed polyline plus what it is worth. */
+export type BoardSection = {
+  id: string;
+  type: string;
+  number: number;
+  sectorIndex: number;
+  bedIndex: number;
+  points: Point[];
+};
+
+/** A detection placed on the board, so calibration can say which bed it landed in. */
+export type BoardSpaceDetection = {
+  index: number;
+  x: number;
+  y: number;
+  score: number;
+  classId: number;
+  boardX: number;
+  boardY: number;
+  sectionId: string | null;
+};
+
+type BoardKeypoint = { classId: number; x: number; y: number };
 const BOARD_SECTOR_ORDER = Object.freeze([
   20, 1, 18, 4, 13,
   6, 10, 15, 2, 17,
@@ -33,13 +81,13 @@ const BOARD_SECTIONS = buildBoardSections();
 const INVERSE_DISTORTION_ITERATIONS = 8;
 const NORMALIZED_HALF_DIAGONAL = Math.SQRT1_2;
 
-export function sliderValueToLensK1(value, maxK1) {
+export function sliderValueToLensK1(value: number, maxK1: number): number {
   const numericValue = Number(value);
   const clampedValue = Number.isFinite(numericValue) ? Math.min(Math.max(Math.round(numericValue), -100), 100) : 0;
   return (clampedValue / 100) * maxK1;
 }
 
-export function computeDistortionCorrectedSpider(detections, lensK1) {
+export function computeDistortionCorrectedSpider(detections: Keypoint[], lensK1: number): SpiderProjection {
   const keypoints = getBoardKeypoints(detections);
   const coverage = getBoardKeypointCoverage(keypoints);
   if (keypoints.length < 4 || coverage.coveredPairs < 3) {
@@ -54,16 +102,18 @@ export function computeDistortionCorrectedSpider(detections, lensK1) {
     };
   }
 
-  const source = [];
-  const target = [];
+  const source: Point[] = [];
+  const target: Point[] = [];
   for (const keypoint of keypoints) {
     source.push(undistortNormalizedPoint([keypoint.x, keypoint.y], lensK1));
     target.push(BOARD_REFERENCE_POINTS[keypoint.classId]);
   }
 
   const imageToBoard = findHomography(source, target);
-  const boardToUndistortedImage = invertHomography(imageToBoard);
-  if (!boardToUndistortedImage) {
+  const boardToUndistortedImage = imageToBoard ? invertHomography(imageToBoard) : null;
+  // One guard for both: without a homography there is nothing to invert, and an inversion that
+  // fails leaves nothing to project with. Either way the caller is told it cannot compute.
+  if (!imageToBoard || !boardToUndistortedImage) {
     return {
       canCompute: false,
       reason: "homography-failed",
@@ -89,7 +139,7 @@ export function computeDistortionCorrectedSpider(detections, lensK1) {
   };
 }
 
-function getBoardKeypoints(detections) {
+function getBoardKeypoints(detections: Keypoint[]): BoardKeypoint[] {
   if (!Array.isArray(detections)) return [];
   return detections
     .filter((detection) => detection && detection[3] >= 0 && detection[3] <= 7)
@@ -101,7 +151,7 @@ function getBoardKeypoints(detections) {
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 }
 
-function getBoardKeypointCoverage(keypoints) {
+function getBoardKeypointCoverage(keypoints: BoardKeypoint[]): { coveredPairs: number } {
   const seen = new Set(keypoints.map((keypoint) => keypoint.classId));
   let coveredPairs = 0;
   for (const [left, right] of BOARD_KEYPOINT_PAIRS) {
@@ -112,7 +162,7 @@ function getBoardKeypointCoverage(keypoints) {
   return { coveredPairs };
 }
 
-function getBoardSpaceDetections(detections, imageToBoard, lensK1) {
+function getBoardSpaceDetections(detections: Keypoint[], imageToBoard: Matrix, lensK1: number): BoardSpaceDetection[] {
   if (!Array.isArray(detections)) return [];
   const boardDetections = [];
   for (let index = 0; index < detections.length; index += 1) {
@@ -142,7 +192,7 @@ function getBoardSpaceDetections(detections, imageToBoard, lensK1) {
   return boardDetections;
 }
 
-function getBoardSectionId(boardPoint) {
+function getBoardSectionId(boardPoint: Point): string | null {
   const dx = boardPoint[0] - BOARD_CENTER[0];
   const dy = BOARD_CENTER[1] - boardPoint[1];
   const radius = Math.hypot(dx, dy);
@@ -158,13 +208,13 @@ function getBoardSectionId(boardPoint) {
   return `inner-single-${number}`;
 }
 
-function getBoardSectorIndex(dx, dy) {
+function getBoardSectorIndex(dx: number, dy: number): number {
   const theta = Math.atan2(dx, dy);
   const normalizedDegrees = ((theta * 180 / Math.PI) + 360) % 360;
   return Math.round(normalizedDegrees / 18) % BOARD_SECTOR_ORDER.length;
 }
 
-function projectBoardPath(boardPoints, boardToUndistortedImage, lensK1) {
+function projectBoardPath(boardPoints: Point[], boardToUndistortedImage: Matrix, lensK1: number): Point[] {
   const projectedPoints = [];
   for (const boardPoint of boardPoints) {
     const undistortedImagePoint = transformHomographyPoint(boardPoint, boardToUndistortedImage);
@@ -174,7 +224,7 @@ function projectBoardPath(boardPoints, boardToUndistortedImage, lensK1) {
   return projectedPoints;
 }
 
-function distortNormalizedPoint(point, lensK1) {
+function distortNormalizedPoint(point: Point, lensK1: number): Point {
   if (!Number.isFinite(lensK1) || Math.abs(lensK1) < 1e-12) {
     return point;
   }
@@ -189,12 +239,12 @@ function distortNormalizedPoint(point, lensK1) {
   ];
 }
 
-function undistortNormalizedPoint(distortedPoint, lensK1) {
+function undistortNormalizedPoint(distortedPoint: Point, lensK1: number): Point {
   if (!Number.isFinite(lensK1) || Math.abs(lensK1) < 1e-12) {
     return distortedPoint;
   }
 
-  let undistortedPoint = [distortedPoint[0], distortedPoint[1]];
+  let undistortedPoint: Point = [distortedPoint[0], distortedPoint[1]];
   for (let index = 0; index < INVERSE_DISTORTION_ITERATIONS; index += 1) {
     const redistortedPoint = distortNormalizedPoint(undistortedPoint, lensK1);
     undistortedPoint = [
@@ -205,8 +255,8 @@ function undistortNormalizedPoint(distortedPoint, lensK1) {
   return undistortedPoint;
 }
 
-function buildBoardReferencePoints() {
-  const centerAngles = new Map(BOARD_SECTOR_ORDER.map((number, index) => [number, index * 18]));
+function buildBoardReferencePoints(): Point[] {
+  const centerAngles = new Map<number, number>(BOARD_SECTOR_ORDER.map((number, index) => [number, index * 18]));
   return BOARD_KEYPOINT_NAMES.map((name) => {
     const [left, right] = name.split("-").map((value) => Number(value));
     const thetaDeg = 0.5 * ((centerAngles.get(left) ?? 0) + (centerAngles.get(right) ?? 0));
@@ -214,11 +264,11 @@ function buildBoardReferencePoints() {
     return [
       BOARD_CENTER[0] + (BOARD_RADII.doubleOuter * Math.sin(theta)),
       BOARD_CENTER[1] - (BOARD_RADII.doubleOuter * Math.cos(theta)),
-    ];
+    ] as Point;
   });
 }
 
-function buildBoardSpider() {
+function buildBoardSpider(): { rings: Point[][]; radials: Radial[] } {
   const segments = 128;
   const rings = [
     BOARD_RADII.doubleOuter,
@@ -228,7 +278,7 @@ function buildBoardSpider() {
     BOARD_RADII.outerBull,
     BOARD_RADII.innerBull,
   ].map((radius) => {
-    const points = [];
+    const points: Point[] = [];
     for (let index = 0; index <= segments; index += 1) {
       const theta = (index / segments) * Math.PI * 2;
       points.push([
@@ -239,7 +289,7 @@ function buildBoardSpider() {
     return points;
   });
 
-  const radials = [];
+  const radials: Radial[] = [];
   for (let index = 0; index < 20; index += 1) {
     const theta = (((index * 18) - 9) * Math.PI) / 180;
     radials.push({
@@ -256,9 +306,9 @@ function buildBoardSpider() {
   return { rings, radials };
 }
 
-function buildBoardSections() {
-  const sections = [];
-  const beds = [
+function buildBoardSections(): BoardSection[] {
+  const sections: BoardSection[] = [];
+  const beds: [string, number, number][] = [
     ["double", BOARD_RADII.doubleInner, BOARD_RADII.doubleOuter],
     ["outer-single", BOARD_RADII.tripleOuter, BOARD_RADII.doubleInner],
     ["triple", BOARD_RADII.tripleInner, BOARD_RADII.tripleOuter],
@@ -302,7 +352,7 @@ function buildBoardSections() {
   return sections;
 }
 
-function buildRingSectionPath(innerRadius, outerRadius, startDeg, endDeg) {
+function buildRingSectionPath(innerRadius: number, outerRadius: number, startDeg: number, endDeg: number): Point[] {
   const points = [];
   for (let index = 0; index <= SECTION_ARC_SAMPLE_COUNT; index += 1) {
     const theta = degreesToRadians(startDeg + (((endDeg - startDeg) * index) / SECTION_ARC_SAMPLE_COUNT));
@@ -315,7 +365,7 @@ function buildRingSectionPath(innerRadius, outerRadius, startDeg, endDeg) {
   return points;
 }
 
-function buildDiskPath(radius) {
+function buildDiskPath(radius: number): Point[] {
   const points = [];
   const samples = SECTION_ARC_SAMPLE_COUNT * 8;
   for (let index = 0; index <= samples; index += 1) {
@@ -324,19 +374,19 @@ function buildDiskPath(radius) {
   return points;
 }
 
-function pointAtRadius(radius, theta) {
+function pointAtRadius(radius: number, theta: number): Point {
   return [
     BOARD_CENTER[0] + (radius * Math.sin(theta)),
     BOARD_CENTER[1] - (radius * Math.cos(theta)),
   ];
 }
 
-function degreesToRadians(degrees) {
+function degreesToRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
-function sampleRadial(radial) {
-  const samples = [];
+function sampleRadial(radial: Radial): Point[] {
+  const samples: Point[] = [];
   for (let index = 0; index <= RADIAL_SAMPLE_COUNT; index += 1) {
     const t = index / RADIAL_SAMPLE_COUNT;
     samples.push([
@@ -347,12 +397,12 @@ function sampleRadial(radial) {
   return samples;
 }
 
-function findHomography(sourcePoints, destinationPoints) {
+function findHomography(sourcePoints: Point[], destinationPoints: Point[]): Matrix | null {
   if (!Array.isArray(sourcePoints) || !Array.isArray(destinationPoints)) return null;
   if (sourcePoints.length !== destinationPoints.length || sourcePoints.length < 4) return null;
 
   const combinations = generateCombinations(sourcePoints.length, 4);
-  const candidates = [];
+  const candidates: { matrix: Matrix; inliers: number; meanError: number }[] = [];
   for (const indices of combinations) {
     const sourceSubset = indices.map((index) => sourcePoints[index]);
     const destinationSubset = indices.map((index) => destinationPoints[index]);
@@ -375,9 +425,9 @@ function findHomography(sourcePoints, destinationPoints) {
   }, candidates[0]).matrix;
 }
 
-function solveFourPointHomography(sourcePoints, destinationPoints) {
-  const matrix = [];
-  const vector = [];
+function solveFourPointHomography(sourcePoints: Point[], destinationPoints: Point[]): Matrix | null {
+  const matrix: number[][] = [];
+  const vector: number[] = [];
   for (let index = 0; index < 4; index += 1) {
     const [x, y] = sourcePoints[index];
     const [u, v] = destinationPoints[index];
@@ -395,7 +445,7 @@ function solveFourPointHomography(sourcePoints, destinationPoints) {
   ]);
 }
 
-function transformHomographyPoint(point, matrix) {
+function transformHomographyPoint(point: Point, matrix: Matrix): Point | null {
   if (!matrix) return null;
   const [x, y] = point;
   const denominator = (matrix[2][0] * x) + (matrix[2][1] * y) + matrix[2][2];
@@ -405,7 +455,7 @@ function transformHomographyPoint(point, matrix) {
   return Number.isFinite(px) && Number.isFinite(py) ? [px, py] : null;
 }
 
-function invertHomography(matrix) {
+function invertHomography(matrix: Matrix): Matrix | null {
   if (!Array.isArray(matrix) || matrix.length !== 3) return null;
   const [[a, b, c], [d, e, f], [g, h, i]] = matrix;
   const determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
@@ -418,7 +468,7 @@ function invertHomography(matrix) {
   ]);
 }
 
-function evaluateHomography(matrix, sourcePoints, destinationPoints) {
+function evaluateHomography(matrix: Matrix, sourcePoints: Point[], destinationPoints: Point[]): { inliers: number; meanError: number } {
   let inliers = 0;
   let totalError = 0;
   const threshold = 0.005;
@@ -437,7 +487,7 @@ function evaluateHomography(matrix, sourcePoints, destinationPoints) {
   };
 }
 
-function gaussianElimination(matrix, vector) {
+function gaussianElimination(matrix: number[][], vector: number[]): number[] | null {
   const size = matrix.length;
   const augmented = matrix.map((row, index) => [...row, vector[index]]);
   for (let pivot = 0; pivot < size; pivot += 1) {
@@ -466,16 +516,16 @@ function gaussianElimination(matrix, vector) {
   return augmented.map((row) => row[size]);
 }
 
-function normalizeHomography(matrix) {
+function normalizeHomography(matrix: Matrix): Matrix {
   const scale = matrix[2][2];
   if (!Number.isFinite(scale) || Math.abs(scale) < 1e-12) return matrix;
   return matrix.map((row) => row.map((value) => value / scale));
 }
 
-function generateCombinations(count, size) {
-  const result = [];
-  const current = [];
-  function visit(start) {
+function generateCombinations(count: number, size: number): number[][] {
+  const result: number[][] = [];
+  const current: number[] = [];
+  function visit(start: number) {
     if (current.length === size) {
       result.push(current.slice());
       return;

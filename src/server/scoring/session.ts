@@ -1,7 +1,6 @@
 // When a camera's tips become darts in a visit, and when a visit ends because the darts came out.
 //
-// Ported from dartszentrale-ai-scorer's src/visit/visit-controller.ts plus the camera half of
-// server/visit-host.ts. The rules it enforces are theirs, field-proven:
+// The rules it enforces were arrived at against real players on real boards:
 //
 //   · **A full visit does NOT submit.** Three darts in the board is not the end of a visit — the
 //     player is still standing there, and that gap is exactly when a misread third dart gets fixed.

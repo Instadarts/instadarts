@@ -1,9 +1,8 @@
-// Which tips are the same dart, ported from dartszentrale-ai-scorer
-// src/pipeline/prediction-cluster.ts.
+// Which tips are the same dart.
 //
 // Kept whole, including the cross-camera attach path a single camera never exercises: it is the
 // fusion a second camera needs, and deleting it would be the one simplification that is expensive
-// to undo. The only change is that a tip's camera key is its device id outright — every tip here
+// to undo. A tip's camera key is its device id outright — every tip here
 // arrives from an authenticated scoring device, so there is no null case to defend against.
 
 import { THROW_WINDOW_DART_RADIUS, REPEAT_FILTER_RADIUS } from '../../shared/vision/constants';

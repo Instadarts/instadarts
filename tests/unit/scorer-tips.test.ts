@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { resetDeviceRegistry } from '../../src/server/devices';
 import { resetScoringSessions } from '../../src/server/scoring/store';
-import { removeRateLimitBucket } from '../../src/server/rateLimit';
+import { releaseRateLimit } from '../../src/server/rateLimit';
 import { BOARD_CENTER } from '../../src/shared/scoring';
 import { validateTips } from '../../src/server/validation';
 import type { MatchState } from '../../src/shared/types';
@@ -35,7 +35,7 @@ function connect() {
     sessionId,
     received,
     send(msg: object) {
-      removeRateLimitBucket(sessionId);
+      releaseRateLimit(sessionId, null);
       handleMessage(ws, JSON.stringify(msg));
     },
     last<T extends ServerMessage['type']>(type: T) {

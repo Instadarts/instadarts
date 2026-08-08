@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
-import { startGC, getGCStats } from './gc';
+import { scoringSessionCount } from './scoring/store';
 import { startLifecycle } from './lifecycle';
 import { IS_PRODUCTION, QUIET } from './env';
 
@@ -15,8 +15,8 @@ import { IS_PRODUCTION, QUIET } from './env';
 const installedModes = await loadModes();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
-// The garbage collector, and the clock that gives every lobby and match a definite end.
-startGC();
+// The clock that gives every lobby and match a definite end. There is no collector besides it:
+// nothing here is reclaimed by being noticed later, only by its own deadline arriving.
 startLifecycle();
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -29,7 +29,17 @@ const wss = new WebSocketServer({
   maxPayload: 16 * 1024, // 16KB max message size
 });
 
-// Server stats endpoint
+/**
+ * What the server is currently holding, and how much memory that is costing.
+ *
+ * Also the readiness probe the e2e run waits on, so it must stay cheap and must not depend on
+ * anything that is still starting up.
+ *
+ * These are retention numbers rather than activity numbers. Every object counted here has a
+ * deadline, so each should return to zero on an idle server; one that climbs while nothing is being
+ * played is the shape a leak would take. `heldMatches` above `runningMatches` is only summaries
+ * counting down — it is the two together, staying up, that would mean something.
+ */
 app.get('/server-stats', (_req, res) => {
   const lobbies = getAllLobbies();
   const matches = getAllMatches();
@@ -37,10 +47,10 @@ app.get('/server-stats', (_req, res) => {
   const mem = process.memoryUsage();
   res.json({
     openLobbies: lobbies.size,
-    runningMatches: runningMatches,
-    totalMatches: matches.size,
+    runningMatches,
+    heldMatches: matches.size,
+    scoringSessions: scoringSessionCount(),
     connectedClients: wss.clients.size,
-    gc: getGCStats(),
     memory: {
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),

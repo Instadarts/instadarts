@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
-import { removeRateLimitBucket } from '../../src/server/rateLimit';
+import { releaseRateLimit } from '../../src/server/rateLimit';
 import { IDLE_TTL_MS, SUMMARY_TTL_MS, sweepLifecycle } from '../../src/server/lifecycle';
 import { getMatch } from '../../src/server/store';
 import type { ServerMessage } from '../../src/shared/protocol';
@@ -30,7 +30,7 @@ function connect() {
   return {
     received,
     send(msg: object) {
-      removeRateLimitBucket(sessionId);
+      releaseRateLimit(sessionId, null);
       handleMessage(ws, JSON.stringify(msg));
     },
     has(type: ServerMessage['type']) {

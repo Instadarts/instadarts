@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import '../helpers'; // installs the x01 game mode
 import { sanitizeName, validateSettings, validateDartThrow } from '../../src/server/validation';
 import type { MatchSettings } from '../../src/shared/types';
-import { checkRateLimit, removeRateLimitBucket } from '../../src/server/rateLimit';
+import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { canCreateLobby, canCreateMatch } from '../../src/server/concurrencyLimit';
 
 // ============================================================
@@ -260,7 +260,7 @@ describe('rate limiting', () => {
     }
     // 11th should be rejected
     expect(checkRateLimit(id)).toBe(false);
-    removeRateLimitBucket(id);
+    releaseRateLimit(id, null);
   });
 
   it('different connections have independent limits', () => {
@@ -274,8 +274,8 @@ describe('rate limiting', () => {
     expect(checkRateLimit(id1)).toBe(false);
     expect(checkRateLimit(id2)).toBe(true);
 
-    removeRateLimitBucket(id1);
-    removeRateLimitBucket(id2);
+    releaseRateLimit(id1, null);
+    releaseRateLimit(id2, null);
   });
 });
 

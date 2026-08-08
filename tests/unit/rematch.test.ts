@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave } from '../../src/server/wsHandler';
-import { removeRateLimitBucket } from '../../src/server/rateLimit';
+import { releaseRateLimit } from '../../src/server/rateLimit';
 import type { ServerMessage } from '../../src/shared/protocol';
 import '../helpers'; // registers the x01 mode
 
@@ -29,7 +29,7 @@ function connect() {
     sessionId,
     received,
     send(msg: object) {
-      removeRateLimitBucket(sessionId);
+      releaseRateLimit(sessionId, null);
       handleMessage(ws, JSON.stringify(msg));
     },
     leave() {

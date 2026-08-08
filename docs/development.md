@@ -26,8 +26,9 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 scoring/        turning camera reports into darts: throw windows, clustering, fusion
                 devices.ts      the pairing registry: which phone belongs to which browser
                 validation.ts   everything arriving from a client, checked before it is believed
-                lifecycle.ts    deadlines — the idle timeout and the summary clock
-                gc.ts, rateLimit.ts, concurrencyLimit.ts, env.ts, invite.ts, player.ts
+                lifecycle.ts    deadlines — the idle timeout and the summary clock, and the
+                                only thing that deletes a lobby or a match
+                rateLimit.ts, concurrencyLimit.ts, env.ts, invite.ts, player.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it

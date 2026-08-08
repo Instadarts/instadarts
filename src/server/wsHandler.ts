@@ -19,7 +19,7 @@ import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow } from './validation';
-import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
+import { checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { dropScoringSessions } from './scoring/store';
 import { allModes, describeMode } from './modes/types';
 import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
@@ -110,10 +110,12 @@ export function registerClient(ws: WebSocket, client: Client): void {
 }
 
 export function removeClient(ws: WebSocket): void {
-  // Clean up rate limit bucket
   const client = getClient(ws);
   if (client) {
-    removeRateLimitBucket(client.playerId ?? '');
+    // The keys the buckets were actually filled under: a frontend spends from its session's
+    // budget, a scoring device from its device's. This used to pass `playerId`, which is neither,
+    // and so deleted a bucket called "".
+    releaseRateLimit(client.sessionId, client.deviceId);
     releaseScoringState(client);
   }
   dropClient(ws);

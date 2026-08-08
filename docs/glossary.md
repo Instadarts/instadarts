@@ -99,7 +99,9 @@ configured here. It is a distinct entity (`Lobby`), not a status of a match.
 - `remoteConnected` means a second user is present in an online lobby.
 - Starting the match **destroys** the lobby: `createMatch(lobby)` calls `deleteLobby` and copies
   players and settings into the new match ([`createMatch`](../src/server/store.ts)).
-- Idle lobbies are garbage-collected after 10 minutes ([`gc.ts`](../src/server/gc.ts)).
+- A lobby idle for 10 minutes is abandoned and deleted, and everyone in it is told
+  ([`lifecycle.ts`](../src/server/lifecycle.ts)). Nothing collects it later: its deadline is
+  the only way it ends.
 
 ### Match
 
@@ -214,6 +216,14 @@ a definite end.
 participant does — darts (manual or from a scoring device), undo, submit, settings, adding or
 renaming players, swapping order, starting the match, re-match votes. Spectating and reconnecting do
 not count: an audience must not keep a dead match alive.
+
+**A deadline is the only way anything is reclaimed.** There is no collector sweeping for abandoned
+objects, and deliberately so: one would hide the bug it exists for, quietly tidying away whatever a
+broken path forgot to delete and leaving nobody any the wiser. Every lobby, match and scoring
+session is deleted by the path that ends it —
+[`tests/unit/retention.test.ts`](../tests/unit/retention.test.ts) plays a match to each of its
+endings and asserts the stores are empty afterwards, which is what holds that true. `/server-stats`
+reports the same counts live, so a leak would show as a number that never returns to zero.
 
 The client counts the summary deadline down on the finished screen, since it is what turns an
 unanswered re-match into a decline.

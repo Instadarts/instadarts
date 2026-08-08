@@ -51,7 +51,23 @@ export function dropScoringSessions(matchId: string): void {
   }
 }
 
-/** Collect sessions whose match is gone or over. Called by the garbage collector. */
+/**
+ * How many sessions are being held.
+ *
+ * Reported by /server-stats, because a session holds a live throw-window timer and a reference to
+ * its match: if this number climbs while `runningMatches` does not, something is not letting go.
+ */
+export function scoringSessionCount(): number {
+  return sessions.size;
+}
+
+/**
+ * Collect sessions whose match is gone or over, and say how many there were.
+ *
+ * Nothing in the server calls this: every path that ends a match drops its sessions, and
+ * `tests/unit/retention.test.ts` is what holds that true. It is kept as the assertion those tests
+ * make — "and there was nothing left to collect" — which is a claim that needs a way to be checked.
+ */
 export function sweepScoringSessions(): number {
   let collected = 0;
   for (const [key, session] of sessions) {

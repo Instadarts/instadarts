@@ -42,12 +42,22 @@ function take(store: Map<string, { tokens: number; lastRefill: number }>, id: st
   return false;
 }
 
-export function removeRateLimitBucket(connId: string): void {
-  buckets.delete(connId);
-  tipsBuckets.delete(connId);
+/**
+ * Give back what a departing connection was spending from.
+ *
+ * The two budgets are keyed differently — a frontend by its session, a scoring device by its
+ * device — so both are named here rather than assuming one key fits both.
+ *
+ * Not load bearing: the sweep below reclaims an idle bucket within a minute whatever happens, which
+ * is what covers a connection that never says goodbye. This just does not wait for it.
+ */
+export function releaseRateLimit(sessionId: string, deviceId: string | null): void {
+  buckets.delete(sessionId);
+  if (deviceId) tipsBuckets.delete(deviceId);
 }
 
-// Clean up stale buckets periodically
+// A bucket is one number and a timestamp, and an untouched one is indistinguishable from a fresh
+// one — so anything idle for a minute is dropped rather than tracked to its owner's disconnection.
 setInterval(() => {
   const now = Date.now();
   for (const store of [buckets, tipsBuckets]) {

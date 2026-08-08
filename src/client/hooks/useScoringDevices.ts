@@ -51,6 +51,8 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
   const [grabs, setGrabs] = useState(() => loadActiveGrabs());
   const [status, setStatus] = useState<Record<string, DeviceStatus>>({});
   const [pairingCode, setPairingCode] = useState<PairingCode | null>(null);
+  /** Whether the pairing dialog is open. Owned here, because pairing a device is what ends it. */
+  const [pairing, setPairing] = useState(false);
   /** Camera requests waiting on the device's own answer, by id — what it was asked for. */
   const [pending, setPending] = useState<Record<string, boolean>>({});
   /**
@@ -101,7 +103,10 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
         };
         setPaired(savePairedDevice(device));
         setGrabs(setActiveGrab(msg.deviceId));
+        // A code is single-use, so pairing one device ends the exercise. Leaving the dialog open
+        // meant it either sat on "Requesting a code…" or minted a second code nobody asked for.
         setPairingCode(null);
+        setPairing(false);
         send({
           type: 'activate_devices',
           devices: [{ deviceId: device.deviceId, tokenHash: device.tokenHash, grabbedAt: Date.now() }],
@@ -171,9 +176,29 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
     }
   }, [send]);
 
-  const requestPairingCode = useCallback(() => {
+  /**
+   * Open the pairing dialog and ask for a code.
+   *
+   * The request is made here rather than from the dialog's mount effect. Minting a code invalidates
+   * the session's previous one, and an effect is not a promise that it runs once — StrictMode fires
+   * it twice on purpose — so asking from an effect could put a dead code on screen.
+   */
+  const startPairing = useCallback(() => {
+    setPairing(true);
+    setPairingCode(null);
     send({ type: 'create_pairing_code' });
   }, [send]);
+
+  /** The "New code" button: a fresh one, without leaving the dialog. */
+  const requestPairingCode = useCallback(() => {
+    setPairingCode(null);
+    send({ type: 'create_pairing_code' });
+  }, [send]);
+
+  const cancelPairing = useCallback(() => {
+    setPairing(false);
+    setPairingCode(null);
+  }, []);
 
   const grab = useCallback((deviceId: string) => {
     const grabbedAt = Date.now();
@@ -250,10 +275,12 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
 
   return {
     devices,
+    pairing,
     pairingCode,
     handleMessage,
+    startPairing,
     requestPairingCode,
-    cancelPairing: () => setPairingCode(null),
+    cancelPairing,
     grab,
     release,
     forget,

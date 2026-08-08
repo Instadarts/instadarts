@@ -161,7 +161,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     canTrigger: () => camera.active,
     isTriggerBusy: () => busy,
     onTrigger: () => { void infer(); },
-    onArmedChange: (armed) => onStatus({ stage: 'motion', text: armed ? 'watching' : 'idle' }),
+    onArmedChange: (armed) => onStatus({ stage: 'motion', text: armed ? 'scanning automatically' : 'idle' }),
     onReport,
     onTiles,
   });
@@ -184,8 +184,12 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     },
 
     async stop() {
-      motion.reset();
+      // The camera goes first. `motion.reset()` publishes what the controls should look like, and
+      // what it publishes for `canArm` is "is there a camera" — so resetting first announced one
+      // that was still open, and the automatic-scan button sat there live and green with nothing
+      // left to scan.
       camera.stop();
+      motion.reset();
       onStatus({ stage: 'camera', text: 'stopped' });
     },
 

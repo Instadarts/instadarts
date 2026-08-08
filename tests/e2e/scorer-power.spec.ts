@@ -49,7 +49,7 @@ async function pairCamera(player: Page, scorer: Page) {
 
 async function startCamera(page: Page) {
   await page.getByRole('button', { name: /Start camera|Resume/ }).click();
-  await expect(page.getByRole('button', { name: 'Stop watching' })).toBeEnabled({ timeout: 90_000 });
+  await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
 }
 
 /** Whether a camera is actually open, asked of the runtime rather than of the picture. */
@@ -95,6 +95,12 @@ test.describe('a scoring device managing its own power', () => {
     await expect(scorer.page.getByTestId('powered-down')).toBeVisible({ timeout: GRACE_MS + ROUND_TRIP_MS });
     expect(await cameraOn(scorer.page)).toBe(false);
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Idle — camera off', { timeout: ROUND_TRIP_MS });
+
+    // And the controls that need a camera say so. Stopping one used to publish the control state
+    // *before* closing the track, so this button stayed live and green with nothing left to scan.
+    const scanAutomatically = scorer.page.getByRole('button', { name: 'Scan automatically' });
+    await expect(scanAutomatically).toBeDisabled();
+    await expect(scorer.page.getByRole('button', { name: 'Scan now' })).toBeDisabled();
 
     // The owner is told, and by the device rather than by a guess.
     await expect(player.getByTestId('device-status')).toHaveText('connected', { timeout: ROUND_TRIP_MS });

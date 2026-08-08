@@ -6,7 +6,10 @@ import { PairDeviceDialog } from './PairDeviceDialog';
 interface TopBarProps {
   connected: boolean;
   devices: DeviceView[];
+  /** Whether the pairing dialog is open. Owned by useScoringDevices — pairing a device ends it. */
+  pairing: boolean;
   pairingCode: PairingCode | null;
+  onStartPairing: () => void;
   onRequestPairingCode: () => void;
   onCancelPairing: () => void;
   onGrab: (deviceId: string) => void;
@@ -24,7 +27,9 @@ interface TopBarProps {
 export function TopBar({
   connected,
   devices,
+  pairing,
   pairingCode,
+  onStartPairing,
   onRequestPairingCode,
   onCancelPairing,
   onGrab,
@@ -34,15 +39,9 @@ export function TopBar({
   onPowerOff,
 }: TopBarProps) {
   const [open, setOpen] = useState(false);
-  const [pairing, setPairing] = useState(false);
 
   const scoring = devices.filter((d) => d.active && d.cameraActive).length;
   const summary = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
-
-  const closePairing = () => {
-    setPairing(false);
-    onCancelPairing();
-  };
 
   return (
     <header className="sticky top-0 z-50 bg-gray-900 border-b border-gray-800">
@@ -81,10 +80,10 @@ export function TopBar({
           ))}
 
           {pairing ? (
-            <PairDeviceDialog code={pairingCode} onRequest={onRequestPairingCode} onCancel={closePairing} />
+            <PairDeviceDialog code={pairingCode} onRequest={onRequestPairingCode} onCancel={onCancelPairing} />
           ) : (
             <button
-              onClick={() => setPairing(true)}
+              onClick={onStartPairing}
               disabled={!connected}
               className="self-start px-3 py-1 text-sm bg-green-700 hover:bg-green-600 disabled:bg-gray-800 rounded transition-colors"
             >

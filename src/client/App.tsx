@@ -84,7 +84,9 @@ export function App() {
       <TopBar
         connected={connected}
         devices={devices.devices}
+        pairing={devices.pairing}
         pairingCode={devices.pairingCode}
+        onStartPairing={devices.startPairing}
         onRequestPairingCode={devices.requestPairingCode}
         onCancelPairing={devices.cancelPairing}
         onGrab={devices.grab}

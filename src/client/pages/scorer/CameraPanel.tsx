@@ -122,26 +122,29 @@ export function CameraPanel({ vision, poweredDown }: CameraPanelProps) {
       )}
 
       <div className="flex gap-2">
+        {/* "Watch board" described how it works — a motion detector — to somebody who has no reason
+            to know there is one. What it means to whoever mounted the phone is that scanning either
+            happens by itself or only when they ask, so these two say exactly that. */}
         {vision.motion.armed ? (
           <button
             onClick={() => vision.runtimeRef.current?.motion.disarm()}
-            className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 rounded transition-colors"
+            className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
           >
-            Stop watching
+            Stop scanning
           </button>
         ) : (
           <button
             onClick={() => vision.runtimeRef.current?.motion.arm()}
             disabled={!vision.motion.canArm}
-            className="flex-1 px-3 py-2 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 rounded transition-colors"
+            className="flex-1 px-3 py-2 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
           >
-            Watch board
+            Scan automatically
           </button>
         )}
         <button
           onClick={() => void vision.runtimeRef.current?.infer()}
           disabled={!vision.motion.canTrigger}
-          className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 rounded transition-colors"
+          className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
         >
           Scan now
         </button>

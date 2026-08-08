@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PairingCode } from '../hooks/useScoringDevices';
 
 interface PairDeviceDialogProps {
@@ -15,23 +15,8 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
   const remaining = useCountdown(code?.expiresAt ?? null);
   const scorerUrl = `${window.location.origin}/scorer`;
 
-  /**
-   * One code per opening of this dialog, asked for exactly once.
-   *
-   * Minting a code **invalidates the session's previous one** (`createPairingCode`), so asking twice
-   * puts a dead code on screen until the second arrives — briefly, but long enough for somebody to
-   * have started typing it. A ref rather than the effect's own guard because it has to survive
-   * StrictMode's deliberate second mount, which is exactly the case that produced two.
-   *
-   * "New code" is a button, and still mints one on demand.
-   */
-  const asked = useRef(false);
-  useEffect(() => {
-    if (code || asked.current) return;
-    asked.current = true;
-    onRequest();
-  }, [code, onRequest]);
-
+  // Nothing is requested from here. Whoever opened this dialog asked for the code, because minting
+  // one invalidates the session's previous one and an effect is not a promise that it runs once.
   if (!code) {
     return <p className="text-sm text-gray-400">Requesting a code…</p>;
   }

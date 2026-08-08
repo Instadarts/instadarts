@@ -45,6 +45,17 @@ test.describe('scoring device pairing', () => {
     await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
     await expect(player.getByText('connected')).toBeVisible();
 
+    // A code pairs one device, so pairing one ends the exercise: the dialog closes rather than
+    // sitting on "Requesting a code…" or minting a second code nobody asked for. Another device
+    // means pressing the button again.
+    await expect(player.getByText('Requesting a code…')).toHaveCount(0);
+    await expect(player.locator('p.font-mono.tracking-\\[0\\.3em\\]')).toHaveCount(0);
+    await expect(player.getByRole('button', { name: 'Pair scoring device' })).toBeVisible();
+
+    // And it still works a second time, from the panel it left open.
+    await player.getByRole('button', { name: 'Pair scoring device' }).click();
+    await expect(player.locator('p.font-mono.tracking-\\[0\\.3em\\]')).toBeVisible();
+
     // The scoring screen is the one that spends a whole evening mounted, so it is the one that most
     // wants the browser's chrome out of the way.
     await expect(scorer.page.getByTestId('fullscreen')).toBeVisible();

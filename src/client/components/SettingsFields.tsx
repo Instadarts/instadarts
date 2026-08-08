@@ -47,6 +47,9 @@ interface FieldProps {
   onChange: (value: SettingsValue) => void;
 }
 
+/** Every control in this block looks the same; only what it edits differs. */
+const SELECT = 'w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed';
+
 function Field({ field, value, canEdit, onChange }: FieldProps) {
   if (field.kind === 'toggle') {
     return (
@@ -63,6 +66,25 @@ function Field({ field, value, canEdit, onChange }: FieldProps) {
     );
   }
 
+  if (field.kind === 'select') {
+    return (
+      <div>
+        <label className="text-gray-400 text-sm">{field.label}</label>
+        <select
+          value={typeof value === 'string' ? value : field.options[0].value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={!canEdit}
+          aria-label={field.label}
+          className={SELECT}
+        >
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
   const numeric = typeof value === 'number' ? value : field.min;
 
   return (
@@ -74,7 +96,7 @@ function Field({ field, value, canEdit, onChange }: FieldProps) {
           onChange={(e) => onChange(Number(e.target.value))}
           disabled={!canEdit}
           aria-label={field.label}
-          className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className={SELECT}
         >
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -89,7 +111,7 @@ function Field({ field, value, canEdit, onChange }: FieldProps) {
           onChange={(e) => onChange(Number(e.target.value))}
           disabled={!canEdit}
           aria-label={field.label}
-          className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className={SELECT}
         />
       )}
     </div>

@@ -74,6 +74,12 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
 function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {
   if (field.kind === 'toggle') return Boolean(raw);
 
+  // A select is its option list and nothing else: anything unrecognised is dropped, which leaves
+  // the current value standing rather than letting a client invent a state the mode never declared.
+  if (field.kind === 'select') {
+    return field.options.some((option) => option.value === raw) ? (raw as string) : undefined;
+  }
+
   const value = Number(raw);
   if (!Number.isFinite(value) || !Number.isInteger(value)) return undefined;
   if (value < field.min || value > field.max) return undefined;

@@ -1,8 +1,9 @@
 import type {
   CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, StyledText, ViewText, Visit,
 } from '../../shared/types';
-import type { ModeSettings } from '../../shared/settings';
+import type { ModeSettings, SettingsField } from '../../shared/settings';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
+import { IS_DEV } from '../env';
 
 /**
  * x01 game mode (301, 501, 701, …).
@@ -175,11 +176,23 @@ function finalizeDoubleIn(ctx: LegContext, darts: DartThrow[], playerId: string,
 // The mode
 // ============================================================
 
+/** Which of x01's two panel renderings to use, or neither. Development builds only — see `fields`. */
+const STATS_FIELD: SettingsField = {
+  key: 'stats',
+  label: 'Statistics',
+  kind: 'select',
+  options: [
+    { value: 'graphic', label: 'Graphic' },
+    { value: 'text', label: 'Text' },
+    { value: 'off', label: 'Off' },
+  ],
+};
+
 export const x01: GameMode = {
   id: 'x01',
   label: 'x01',
 
-  defaults: { startScore: 501, doubleIn: false, doubleOut: true },
+  defaults: { startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' },
   fields: [
     {
       key: 'startScore',
@@ -195,6 +208,11 @@ export const x01: GameMode = {
     },
     { key: 'doubleIn', label: 'Double In', kind: 'toggle' },
     { key: 'doubleOut', label: 'Double Out', kind: 'toggle' },
+    // A knob for working on the panel, offered only in a development build. Left out of the field
+    // list rather than hidden in the lobby, so the validator drops it too: in production `stats`
+    // keeps its default and no crafted message can change it. The setting itself always exists —
+    // production is simply always 'graphic'.
+    ...(IS_DEV ? [STATS_FIELD] : []),
   ],
 
   dartsPerVisit(_settings: ModeSettings): number {
@@ -262,7 +280,12 @@ export const x01: GameMode = {
    * The one place the mode is handed the match rather than a leg — because an average is about the
    * match, and reading it off a single leg would be a different number every time a leg ended.
    */
-  panel(match: MatchState): ModePanel {
+  panel(match: MatchState): ModePanel | undefined {
+    // Off is not a hidden panel but no panel: undefined is already how a mode says it draws
+    // nothing, so the statistics are not computed and `custom` never goes over the wire.
+    const stats = match.settings.modeSettings.stats;
+    if (stats === 'off') return undefined;
+
     const visits = legsOf(match).flat();
 
     const byPlayer = (of: (own: Visit[]) => string) => {
@@ -277,6 +300,9 @@ export const x01: GameMode = {
     return {
       title: '',
       lines: playing ? [`Round ${roundNumber(match)}`] : undefined,
+      // x01 ships a component, so `auto` draws the cards. Text asks for the plain table instead —
+      // the same rows, without the bars a table cannot hold.
+      render: stats === 'text' ? 'table' : 'auto',
       // For x01's own component, which draws what a table cannot. A deployment without that file
       // still gets the rows above, so nothing here is load-bearing.
       custom: { recent: recentScores(match), max: MAX_VISIT },

@@ -16,6 +16,13 @@ export type SettingsField =
       max: number;
       /** Usual values, offered as a dropdown. Suggestions — anything in range is still accepted. */
       options?: { value: number; label: string }[];
+    }
+  | {
+      key: string;
+      label: string;
+      kind: 'select';
+      /** The whole of what this setting may be. Unlike a number's options, nothing else is accepted. */
+      options: { value: string; label: string }[];
     };
 
 /** A mode's own settings. Validated against the mode's declared fields before they are stored. */

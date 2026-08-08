@@ -138,6 +138,11 @@ type SettingsField =
       min: number; max: number;
       /** Usual values, offered as a dropdown. Suggestions — anything in range is still accepted. */
       options?: { value: number; label: string }[];
+    }
+  | {
+      key: string; label: string; kind: 'select';
+      /** The whole of what this setting may be. Unlike a number's options, nothing else is accepted. */
+      options: { value: string; label: string }[];
     };
 ```
 
@@ -157,6 +162,14 @@ Switching mode starts from the new mode's defaults — the outgoing mode's value
 `MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to
 `mode`, never inside `modeSettings`, and is validated against `MATCH_FIELDS` by the same code that
 validates a mode's own fields.
+
+**A field may be conditional, and leaving it out is what hides it.** x01 offers its `stats` knob —
+which of its two panel renderings to use, or neither — only in a development build
+(`IS_DEV` in [`server/env.ts`](../src/server/env.ts)). Because the lobby and the validator read the
+same list, a field that is not declared is not merely absent from the form: it cannot be set at all,
+so no crafted message reaches it. The **default** is unconditional, so the setting still exists and
+production simply always has the value it defaults to. Hiding a field is therefore never the same as
+removing a setting — the mode must still work when the field is not there.
 
 ---
 

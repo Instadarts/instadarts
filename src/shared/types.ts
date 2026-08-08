@@ -210,4 +210,13 @@ export interface ModePanel {
   rows: { label: string; values: Record<string, ViewText> }[];
   /** For a mode that also ships a client component. Rendered below the rows. */
   custom?: unknown;
+  /**
+   * How the mode would like the body drawn.
+   *
+   * `auto` (the default) uses the mode's own component where the deployment has one, and the
+   * generic table where it does not; `table` asks for the table either way. A preference and not an
+   * instruction: the server half of a mode cannot see whether its client half is installed, so
+   * `auto` can promise the component only where there is one to use.
+   */
+  render?: 'auto' | 'table';
 }

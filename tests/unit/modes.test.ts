@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_MODE, allModes, describeMode, getMode, loadModes } from '../../src/server/modes/types';
 import { panelOf } from '../../src/server/match';
 import { textOf } from '../../src/shared/types';
@@ -35,8 +35,26 @@ describe('installed modes', () => {
 
     const x01 = described.find((d) => d.id === 'x01')!;
     expect(x01.label).toBe('x01');
-    expect(x01.defaults).toEqual({ startScore: 501, doubleIn: false, doubleOut: true });
-    expect(x01.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut']);
+    expect(x01.defaults).toEqual({ startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' });
+    expect(x01.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut', 'stats']);
+  });
+
+  it('keeps the statistics knob out of a production build', async () => {
+    // The tests are a development build, so the production branch is only reachable by loading the
+    // mode again under a different environment.
+    vi.resetModules();
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const { x01: shipped } = await import('../../src/server/modes/x01');
+
+      // Not offered, and — because the validator reads the same list — not settable either.
+      expect(shipped.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut']);
+      // The setting still exists. Production is simply always the one it defaults to.
+      expect(shipped.defaults.stats).toBe('graphic');
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });
 
@@ -176,6 +194,20 @@ describe('the x01 panel', () => {
     expect(rows['Darts this leg']).toEqual({ p1: '0', p2: '0' });
     expect(rows['3-dart average']).toEqual({ p1: '—', p2: '—' });
     expect(rows['Legs won']).toEqual({ p1: '0', p2: '0' });
+  });
+
+  it('draws itself the way the match asked, or not at all', () => {
+    // Graphic and text are the same statistics drawn differently — the mode says which, the screen
+    // obeys, and the rows do not change.
+    const graphic = panelOf(makeMatch())!;
+    expect(graphic.render).toBe('auto');
+
+    const text = panelOf(makeMatch({ settings: { stats: 'text' } }))!;
+    expect(text.render).toBe('table');
+    expect(text.rows.map((r) => r.label)).toEqual(graphic.rows.map((r) => r.label));
+
+    // Off is not a hidden panel: there is no panel, so nothing is computed and nothing is sent.
+    expect(panelOf(makeMatch({ settings: { stats: 'off' } }))).toBeUndefined();
   });
 
   it('counts a void visit as thrown, which is what makes an average honest', () => {

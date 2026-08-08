@@ -16,6 +16,7 @@ if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', '
 import { startGC, getGCStats } from './gc';
 import { startLifecycle } from './lifecycle';
 import './wsHandler'; // registers the lifecycle handlers
+import { IS_PRODUCTION } from './env';
 startGC();
 startLifecycle();
 
@@ -51,7 +52,7 @@ app.get('/server-stats', (_req, res) => {
 });
 
 // Only serve static files in production (dev uses Vite on port 5173)
-if (process.env.NODE_ENV === 'production') {
+if (IS_PRODUCTION) {
   // Cross-origin isolation, or LiteRT silently runs single-threaded on the scoring device. The
   // headers have to reach the WASM worker script itself too, which is why they go on everything
   // rather than only on the document. Nothing this app loads is cross-origin, so that costs us

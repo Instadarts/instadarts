@@ -15,9 +15,13 @@ interface ModePanelBlockProps {
  * way. The body is the mode's data: one row per statistic, one column per player, rendered here
  * without the screen knowing what any of them mean — unless the mode ships a component, which then
  * draws that same data itself.
+ *
+ * Which of the two is used is the mode's to say (`panel.render`) and the deployment's to make
+ * possible: asking for the table always gets it, and asking for the component gets it only where
+ * that file exists. Both draw the same rows, so neither answer can leave the block empty.
  */
 export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
-  const Custom = MODE_PANELS[modeId];
+  const Custom = panel.render === 'table' ? undefined : MODE_PANELS[modeId];
   const playerIds = [...new Set(panel.rows.flatMap((row) => Object.keys(row.values)))];
 
   const empty = panel.rows.length === 0 && !panel.lines?.length && panel.custom === undefined;

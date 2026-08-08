@@ -150,6 +150,19 @@ describe('validateSettings', () => {
     expect(doubleIn(0)).toBe(false);
   });
 
+  it('holds a select field to its declared options', () => {
+    const stats = (value: unknown) =>
+      validateSettings(settings({ stats: value }), current)!.modeSettings.stats;
+
+    expect(stats('text')).toBe('text');
+    expect(stats('off')).toBe('off');
+    // A select is a closed list, so anything else leaves the current value standing rather than
+    // putting the mode into a state it never declared.
+    expect(stats('sideways')).toBeUndefined();   // nothing current to keep, in this fixture
+    expect(stats(1)).toBeUndefined();
+    expect(stats(null)).toBeUndefined();
+  });
+
   it('ignores undeclared keys (no prototype pollution)', () => {
     const result = validateSettings(
       settings({ startScore: 301, __proto__: { isAdmin: true }, constructor: 'evil', extraField: 'ignored' }),

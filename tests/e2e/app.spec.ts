@@ -948,6 +948,12 @@ test.describe('Re-match', () => {
     await expect(page.locator('text=501').first()).toBeVisible();
     const cards = page.locator('p.text-sm.text-gray-400');
     await expect(cards.first()).toHaveText('Bob');
+
+    // The mode's panel is up before the first dart here too. It once was not: a re-match arrives on
+    // a broadcast of its own, and that one left the panel out, so the block appeared only after
+    // somebody threw.
+    await expect(page.locator('text=Round 1')).toBeVisible();
+    await expect(page.locator('text=3-DART AVERAGE')).toHaveCount(2);
   });
 
   test('online: each user answers for their own player', async ({ browser }) => {

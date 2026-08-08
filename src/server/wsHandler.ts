@@ -133,6 +133,20 @@ function broadcastToLobby(lobbyId: string, msg: ServerMessage, excludeWs?: WebSo
   }
 }
 
+/**
+ * A match as it goes on the wire: the state, the mode's view of the current leg, and the mode's
+ * panel. The three messages that carry a match all carry the same three things.
+ *
+ * Assembled here rather than at each of the seven places that send one, because a place that builds
+ * it by hand can leave a part out — and one did. The re-match broadcast omitted the panel, so a
+ * re-match started with no statistics block at all and only grew one when the first dart produced a
+ * message that happened to include it. The client sets its panel from whatever arrives, so a
+ * message missing the field does not leave the old one standing; it clears it.
+ */
+function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(type: T, match: MatchState) {
+  return { type, match: { ...match }, view: viewOf(match), panel: panelOf(match) };
+}
+
 function broadcastToMatch(matchId: string, msg: ServerMessage): void {
   for (const [ws, client] of clients) {
     if (client.matchId === matchId) {
@@ -294,7 +308,7 @@ setLifecycleHandlers({
   /** Nobody has touched this match for the idle period. It is over, with no winner. */
   cancelIdleMatch(match: MatchState): void {
     endMatch(match, null);
-    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+    broadcastToMatch(match.id, matchMessage('match_finished', match));
   },
 
   /**
@@ -542,7 +556,7 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
     }
   }
 
-  broadcastToMatch(match.id, { type: 'match_started', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+  broadcastToMatch(match.id, matchMessage('match_started', match));
 }
 
 function handleAddDart(ws: WebSocket, msg: any): void {
@@ -656,7 +670,7 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
         : null;
       endMatch(match, winnerId);
     }
-    broadcastToMatch(match.id, { type: 'match_finished', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+    broadcastToMatch(match.id, matchMessage('match_finished', match));
   }
   client.matchId = null;
   client.playerId = null;
@@ -737,7 +751,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
       client.matchId = match.id;
       client.isSpectator = true;
     }
-    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+    send(ws, matchMessage('match_state', match));
     return;
   }
 
@@ -816,7 +830,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     player.sessionId = client.sessionId;
     client.matchId = match.id;
     client.playerId = msg.playerId;
-    send(ws, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+    send(ws, matchMessage('match_state', match));
     return;
   }
 
@@ -921,7 +935,7 @@ function commitScoredMatch(match: MatchState): void {
     dropScoringSessions(match.id);
   }
   updateMatch(match.id, match);
-  broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+  broadcastToMatch(match.id, matchMessage('match_state', match));
   for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
 }
 
@@ -1125,7 +1139,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
   const unanimous = answers.length > 0 && answers.every((a) => a === 'accepted');
 
   if (!unanimous) {
-    broadcastToMatch(match.id, { type: 'match_state', match: { ...match }, view: viewOf(match), panel: panelOf(match) });
+    broadcastToMatch(match.id, matchMessage('match_state', match));
     return;
   }
 
@@ -1141,7 +1155,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     if (other.matchId !== match.id) continue;
     other.matchId = rematch.id;
   }
-  broadcastToMatch(rematch.id, { type: 'match_started', match: { ...rematch }, view: viewOf(rematch) });
+  broadcastToMatch(rematch.id, matchMessage('match_started', rematch));
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {

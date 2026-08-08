@@ -16,6 +16,7 @@ export function ScorerApp() {
           onPair={link.pair}
           pairing={link.status === 'pairing'}
           badCode={link.refusal === 'bad_code'}
+          serverFull={link.refusal === 'server_full'}
           connected={link.connected}
         />
       </div>

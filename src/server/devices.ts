@@ -17,6 +17,7 @@
 // restart and lock the real device out for good.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
+import { DEVICES_PER_USER, MAX_DEVICE_RECORDS } from './capacity';
 
 // ============================================================
 // Limits
@@ -27,8 +28,7 @@ const CODE_LENGTH = 6;
 const CODE_TTL_MS = 120_000;
 /** Wrong codes a single connection may try before it is cut off. */
 const MAX_PAIR_ATTEMPTS = 5;
-/** Ceiling on remembered devices, so an unauthenticated flood cannot grow the map forever. */
-const MAX_DEVICES = 500;
+
 
 // ============================================================
 // State
@@ -66,6 +66,17 @@ interface PendingCode {
 const devices = new Map<string, DeviceRecord>();
 /** Which frontend wants each device. Only effective once the device's own hash agrees. */
 const claims = new Map<string, Claim>();
+/**
+ * The same claims, the other way round: which devices each session holds.
+ *
+ * Two jobs. It bounds the registry — a session may hold `DEVICES_PER_USER` and no more, so `claims`
+ * is bounded by users rather than by nothing, which is what stops a client parking ids forever. And
+ * it keeps `devicesForSession` off a scan of every claim on the server, which it runs on each
+ * device-state publish.
+ *
+ * A Set keeps insertion order, so its first entry is that session's oldest claim — the one to drop.
+ */
+const claimsBySession = new Map<string, Set<string>>();
 const codes = new Map<string, PendingCode>();
 const pairAttempts = new Map<string, number>();
 
@@ -173,7 +184,10 @@ export function verifyDevice(deviceId: unknown, token: unknown, name = ''): Devi
 
   // A claim parked against this id before we knew the real hash was a squat if it disagrees.
   const claim = claims.get(deviceId);
-  if (claim && !sameSecret(claim.tokenHash, tokenHash)) claims.delete(deviceId);
+  if (claim && !sameSecret(claim.tokenHash, tokenHash)) {
+    claims.delete(deviceId);
+    unindex(claim.sessionId, deviceId);
+  }
 
   return record;
 }
@@ -227,8 +241,38 @@ export function claimDevice(
     if (incumbentIsReal && incumbent.grabbedAt > grabbedAt) return 'stale';
   }
 
+  // A session may hold only so many at once. The sixth does not fail — it costs them their first,
+  // because someone pairing another camera means to use it, and the stale claim is the one they
+  // have forgotten about. This is also what bounds the registry: without it a client can name new
+  // ids forever, and nothing but its own disconnection would ever release them.
+  const held = claimsBySession.get(sessionId) ?? new Set<string>();
+  if (!held.has(deviceId) && held.size >= DEVICES_PER_USER) {
+    const oldest = held.values().next().value;
+    if (oldest) unclaimDevice(oldest, sessionId);
+  }
+
+  // A device changing hands leaves the previous holder's list, or it would still be counted
+  // against their allowance and still be reported to them as theirs.
+  if (incumbent && incumbent.sessionId !== sessionId) unindex(incumbent.sessionId, deviceId);
+
   claims.set(deviceId, { tokenHash, sessionId, grabbedAt });
+  index(sessionId, deviceId);
   return 'ok';
+}
+
+/** Record that a session holds a device. */
+function index(sessionId: string, deviceId: string): void {
+  const held = claimsBySession.get(sessionId) ?? new Set<string>();
+  held.add(deviceId);
+  claimsBySession.set(sessionId, held);
+}
+
+/** Forget that it does. The empty set goes too, or a busy server accumulates one per session seen. */
+function unindex(sessionId: string, deviceId: string): void {
+  const held = claimsBySession.get(sessionId);
+  if (!held) return;
+  held.delete(deviceId);
+  if (held.size === 0) claimsBySession.delete(sessionId);
 }
 
 /** Give a device up, if this session is the one holding it. */
@@ -236,6 +280,7 @@ export function unclaimDevice(deviceId: string, sessionId: string): boolean {
   const claim = claims.get(deviceId);
   if (!claim || claim.sessionId !== sessionId) return false;
   claims.delete(deviceId);
+  unindex(sessionId, deviceId);
   forgetIfOrphaned(deviceId);
   return true;
 }
@@ -243,11 +288,11 @@ export function unclaimDevice(deviceId: string, sessionId: string): boolean {
 /** Release every claim this frontend connection holds. Returns the devices it was holding. */
 export function releaseSession(sessionId: string): string[] {
   const released: string[] = [];
-  for (const [deviceId, claim] of claims) {
-    if (claim.sessionId !== sessionId) continue;
+  for (const deviceId of claimsBySession.get(sessionId) ?? []) {
     claims.delete(deviceId);
     released.push(deviceId);
   }
+  claimsBySession.delete(sessionId);
   for (const deviceId of released) forgetIfOrphaned(deviceId);
   clearPairingCodes(sessionId);
   return released;
@@ -279,8 +324,11 @@ export function devicesForSession(
   sessionId: string,
 ): { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] {
   const owned: { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] = [];
-  for (const [deviceId, claim] of claims) {
-    if (claim.sessionId !== sessionId) continue;
+  for (const deviceId of claimsBySession.get(sessionId) ?? []) {
+    const claim = claims.get(deviceId);
+    // Still checked rather than assumed: the index says what this session asked for, the claim says
+    // what it actually holds, and a device that changed hands is no longer its to report.
+    if (claim?.sessionId !== sessionId) continue;
     const device = devices.get(deviceId);
     const paired = device !== undefined && sameSecret(claim.tokenHash, device.tokenHash);
     const online = paired && device!.connected;
@@ -309,7 +357,7 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 function evictIfFull(): void {
-  if (devices.size < MAX_DEVICES) return;
+  if (devices.size < MAX_DEVICE_RECORDS) return;
   // Drop something nobody is holding rather than refuse the honest device in front of us.
   for (const [deviceId] of devices) {
     if (!claims.has(deviceId)) {
@@ -325,6 +373,7 @@ function evictIfFull(): void {
 export function resetDeviceRegistry(): void {
   devices.clear();
   claims.clear();
+  claimsBySession.clear();
   codes.clear();
   pairAttempts.clear();
 }

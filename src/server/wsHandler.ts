@@ -22,7 +22,7 @@ import { sanitizeName, validateSettings, validateDartThrow } from './validation'
 import { checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { dropScoringSessions } from './scoring/store';
 import { allModes, describeMode } from './modes/types';
-import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
+import { canCreateLobby, canCreateMatch } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
   addClient,

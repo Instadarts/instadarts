@@ -13,7 +13,16 @@
 
 const PAIRED_KEY = 'instadarts_devices';
 const ACTIVE_KEY = 'instadarts_active_devices';
-const MAX_DEVICES = 8;
+
+/**
+ * How many pairings this browser keeps, oldest dropped first.
+ *
+ * Deliberately the same as the server's `DEVICES_PER_USER` (src/server/capacity.ts), which is the
+ * number of claims one session may hold. Remembering more than the server will honour would mean
+ * quietly re-presenting pairings on every connect only for the server to evict them again — the
+ * browser would show devices it can never actually use.
+ */
+const MAX_DEVICES = 5;
 
 export interface PairedDevice {
   deviceId: string;

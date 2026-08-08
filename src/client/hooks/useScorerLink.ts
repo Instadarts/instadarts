@@ -4,7 +4,7 @@ import type { BoardTip } from '../../shared/vision/types';
 import { useWebSocket } from './useWebSocket';
 import { forgetIdentity, loadIdentity, saveIdentity, type ScorerIdentity } from '../lib/scorerStorage';
 
-export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting' | 'active';
+export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting' | 'active' | 'full';
 
 /**
  * The scoring device's side of the link: prove who we are, publish what the camera saw, and hold
@@ -16,7 +16,7 @@ export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting'
 export function useScorerLink() {
   const [identity, setIdentity] = useState<ScorerIdentity | null>(() => loadIdentity());
   const [state, setState] = useState<ScorerStateMessage | null>(null);
-  const [refusal, setRefusal] = useState<'unpaired' | 'bad_code' | null>(null);
+  const [refusal, setRefusal] = useState<'unpaired' | 'bad_code' | 'server_full' | null>(null);
   const [pairing, setPairing] = useState(false);
 
   const identityRef = useRef(identity);
@@ -45,6 +45,9 @@ export function useScorerLink() {
           setIdentity(null);
           setState(null);
         }
+        // `server_full` deliberately keeps the identity: the server having no room says nothing
+        // about whether the pairing is good, and throwing it away would turn a busy minute into a
+        // trip to the other screen for a new code.
         break;
     }
   }, []);
@@ -117,11 +120,13 @@ export function useScorerLink() {
 
   const status: ScorerLinkStatus = !connected
     ? 'connecting'
-    : pairing
-      ? 'pairing'
-      : !identity
-        ? 'unpaired'
-        : (state?.status ?? 'waiting');
+    : refusal === 'server_full'
+      ? 'full'
+      : pairing
+        ? 'pairing'
+        : !identity
+          ? 'unpaired'
+          : (state?.status ?? 'waiting');
 
   return { identity, status, state, refusal, connected, pair, unpair, rename, publishName, setCameraActive, sendTips };
 }

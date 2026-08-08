@@ -15,6 +15,7 @@ import { getMatch, updateMatch } from './store';
 import { sanitizeName, validateDeviceClaims, validateTips } from './validation';
 import { getScoringSession, dropScoringSessions } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
+import { canAcceptDevice } from './capacity';
 import {
   allClients,
   broadcastToMatch,
@@ -207,7 +208,9 @@ export function handleScorerPair(ws: WebSocket, msg: any): void {
     return;
   }
 
-  bindDeviceSocket(ws, client, paired.deviceId);
+  // Refused for room means the code is spent and the device has no identity to keep — nothing is
+  // sent to the frontend either, so nobody is told a pairing exists that does not.
+  if (!bindDeviceSocket(ws, client, paired.deviceId)) return;
   send(ws, { type: 'scorer_paired', deviceId: paired.deviceId, token: paired.token });
 
   // The frontend that showed the code has to persist the hash: the server will not remember it,
@@ -226,7 +229,7 @@ export function handleScorerHello(ws: WebSocket, msg: any): void {
     return;
   }
 
-  bindDeviceSocket(ws, client, device.id);
+  if (!bindDeviceSocket(ws, client, device.id)) return;
   const owner = ownerOf(device.id);
   if (owner) publishDevicesState(owner);
 }
@@ -286,8 +289,24 @@ export function handleScorerCamera(ws: WebSocket, msg: any): void {
 }
 
 /** One socket per device: a second connection for the same id displaces the first. */
-function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void {
+/**
+ * Whether there is room for another scoring device.
+ *
+ * Counted from the live sockets rather than from the registry, because it is the connection that
+ * costs something. Asked here because binding is the first moment a connection is known to be a
+ * device at all — at the handshake it is just a socket.
+ */
+function deviceConnectionCount(): number {
+  return deviceSockets.size;
+}
+
+function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): boolean {
   const existing = deviceSockets.get(deviceId);
+  // A device already holding a slot is reconnecting into it, not asking for another.
+  if (!existing && !canAcceptDevice(deviceConnectionCount())) {
+    send(ws, { type: 'scorer_refused', reason: 'server_full' });
+    return false;
+  }
   if (existing && existing !== ws) {
     const stale = getClient(existing);
     if (stale) stale.deviceId = null;
@@ -296,4 +315,5 @@ function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void
   client.deviceId = deviceId;
   deviceSockets.set(deviceId, ws);
   publishScorerState(deviceId);
+  return true;
 }

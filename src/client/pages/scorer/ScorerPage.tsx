@@ -110,6 +110,8 @@ function describe(status: ScorerLinkStatus): [string, string] {
       return ['Paired — not in use', 'bg-blue-500'];
     case 'connecting':
       return ['Connecting…', 'bg-yellow-500'];
+    case 'full':
+      return ['Server is full — try again shortly', 'bg-yellow-500'];
     default:
       return ['Not paired', 'bg-gray-600'];
   }

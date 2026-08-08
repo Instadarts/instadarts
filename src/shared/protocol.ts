@@ -322,10 +322,18 @@ export interface ScorerStateMessage {
   cameras: number;
 }
 
-/** To a scoring device: its identity was not accepted. Terminal — stop and pair again. */
+/**
+ * To a scoring device: it cannot go on, and why.
+ *
+ * The reason decides what the device does with what it holds, so the three are not interchangeable:
+ * `unpaired` means the server does not know this identity and it is worth nothing, so the device
+ * discards it; `bad_code` is a failed pairing attempt, with nothing to discard; `server_full` is
+ * the server having no room right now, which says nothing about the pairing — a device told this
+ * **keeps its identity** and can come back later.
+ */
 export interface ScorerRefusedMessage {
   type: 'scorer_refused';
-  reason: 'unpaired' | 'bad_code';
+  reason: 'unpaired' | 'bad_code' | 'server_full';
 }
 
 export type ServerMessage =

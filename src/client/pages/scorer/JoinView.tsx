@@ -4,6 +4,8 @@ interface JoinViewProps {
   onPair: (code: string) => void;
   pairing: boolean;
   badCode: boolean;
+  /** The server has no room for another scoring device right now. Nothing to do but wait. */
+  serverFull: boolean;
   connected: boolean;
 }
 
@@ -13,7 +15,7 @@ const CODE_LENGTH = 6;
  * Where a phone joins a browser. The code is auto-submitted from `?pair=CODE`, because the usual
  * way to get here is following a link from the screen that is showing the code.
  */
-export function JoinView({ onPair, pairing, badCode, connected }: JoinViewProps) {
+export function JoinView({ onPair, pairing, badCode, serverFull, connected }: JoinViewProps) {
   const [code, setCode] = useState('');
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export function JoinView({ onPair, pairing, badCode, connected }: JoinViewProps)
       />
 
       {badCode && <p className="text-red-400 text-sm">That code was not accepted. Ask for a new one.</p>}
+      {serverFull && <p className="text-yellow-400 text-sm">The server is full. Try again in a moment.</p>}
       {!connected && <p className="text-yellow-400 text-sm">Connecting to server…</p>}
 
       <button

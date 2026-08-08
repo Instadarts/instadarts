@@ -7,6 +7,8 @@ import { handleMessage, registerClient, removeClient, handleClientLeave, schedul
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
+import { canAcceptConnection, capacityLimits } from './capacity';
+import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { IS_PRODUCTION, QUIET } from './env';
 
@@ -51,6 +53,7 @@ app.get('/server-stats', (_req, res) => {
     heldMatches: matches.size,
     scoringSessions: scoringSessionCount(),
     connectedClients: wss.clients.size,
+    capacity: capacityLimits(),
     memory: {
       heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
@@ -81,6 +84,14 @@ if (IS_PRODUCTION) {
 }
 
 wss.on('connection', (ws) => {
+  // Refused here rather than later: a connection turned away at the handshake costs nothing to
+  // hold, and holding it is the resource that ran out. 1013 is "try again later", which the
+  // client's reconnect already treats as a reason to come back.
+  if (!canAcceptConnection(clientCount())) {
+    ws.close(1013, 'Server at capacity');
+    return;
+  }
+
   if (!QUIET) console.log('Client connected');
   const sessionId = crypto.randomUUID();
   registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });

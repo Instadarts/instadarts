@@ -34,6 +34,11 @@ export function allClients(): IterableIterator<[WebSocket, Client]> {
   return clients.entries();
 }
 
+/** How many sockets are open, of either kind. The registry is the only thing that should count. */
+export function clientCount(): number {
+  return clients.size;
+}
+
 // ============================================================
 // Addressing
 // ============================================================

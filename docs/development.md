@@ -28,7 +28,8 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 validation.ts   everything arriving from a client, checked before it is believed
                 lifecycle.ts    deadlines — the idle timeout and the summary clock, and the
                                 only thing that deletes a lobby or a match
-                rateLimit.ts, concurrencyLimit.ts, env.ts, invite.ts, player.ts
+                capacity.ts     how big this server may get, all of it derived from one number
+                rateLimit.ts, env.ts, invite.ts, player.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
@@ -51,6 +52,19 @@ npm test        # unit tests (vitest). A couple of seconds; run them freely
 npm run test:e2e  # the whole browser suite. Around twenty seconds
 npm run build   # production build — and see the warning below
 ```
+
+### Scaling the server
+
+`MAX_MATCHES` is the only capacity number a deployment sets; everything the server refuses or evicts
+by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
+
+```sh
+MAX_MATCHES=50000 npm start     # default is 10000
+curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
+```
+
+Anything that is not a positive whole number is ignored in favour of the default — a `NaN` there
+would make every comparison false and silently disable the limits that divide from it.
 
 ### `npm run build` does not typecheck the client
 

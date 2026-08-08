@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
-import { resetDeviceRegistry } from '../../src/server/devices';
+import { claimDevice, devicesForSession, releaseSession, resetDeviceRegistry } from '../../src/server/devices';
+import { DEVICES_PER_USER } from '../../src/server/capacity';
+import { createHash, randomBytes } from 'crypto';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import type { ServerMessage } from '../../src/shared/protocol';
 
@@ -465,5 +467,73 @@ describe('scoring devices and frontends are different kinds of client', () => {
 
     expect(scorer.last('scorer_refused')!.reason).toBe('unpaired');
     expect(replacement.last('scorer_state')!.status).toBe('active');
+  });
+});
+
+/**
+ * How many devices one user may hold.
+ *
+ * This is what bounds the claims registry, and it is the only thing that does: a claim can be
+ * parked against an id the server has never seen — deliberately, so a pairing survives a restart —
+ * so without a per-session cap a client can name new ids for as long as it stays connected. It was
+ * measured doing exactly that: 5000 claims from one session, released only on disconnect.
+ */
+describe('what one user may hold', () => {
+  const someId = () => randomBytes(16).toString('base64url');
+  const someHash = () => createHash('sha256').update(randomBytes(8)).digest('hex');
+
+  /** Claim `count` fresh devices for a session, oldest first. Returns the ids in that order. */
+  function claimMany(session: string, count: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const id = someId();
+      claimDevice(id, someHash(), session, i + 1);
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  const heldBy = (session: string) => devicesForSession(session).map((d) => d.deviceId);
+
+  it('stops at the allowance, dropping the oldest to make room', () => {
+    const ids = claimMany('s', DEVICES_PER_USER + 1);
+    const held = heldBy('s');
+
+    expect(held).toHaveLength(DEVICES_PER_USER);
+    // The first one claimed is the one gone — someone pairing another camera means to use it, and
+    // the stale claim is the one they have forgotten about.
+    expect(held).not.toContain(ids[0]);
+    expect(held).toContain(ids[ids.length - 1]);
+  });
+
+  it('holds at the allowance however long a client keeps asking', () => {
+    // The measurement that prompted the cap, kept as the regression: 5000 claims, one session.
+    claimMany('flood', 5000);
+    expect(heldBy('flood')).toHaveLength(DEVICES_PER_USER);
+  });
+
+  it('does not evict when a session re-claims something it already holds', () => {
+    const ids = claimMany('s', DEVICES_PER_USER);
+    claimDevice(ids[0], someHash(), 's', 99);
+    expect(heldBy('s')).toHaveLength(DEVICES_PER_USER);
+    expect(heldBy('s')).toContain(ids[0]);
+  });
+
+  it('is per user, so one cannot cost another theirs', () => {
+    const mine = claimMany('mine', DEVICES_PER_USER);
+    claimMany('theirs', 5000);
+
+    expect(heldBy('mine')).toHaveLength(DEVICES_PER_USER);
+    expect(heldBy('mine').sort()).toEqual(mine.sort());
+  });
+
+  it('gives the whole allowance back when the session goes', () => {
+    claimMany('s', DEVICES_PER_USER);
+    releaseSession('s');
+    expect(heldBy('s')).toEqual([]);
+
+    // And the allowance is genuinely free again, not merely reported as such.
+    claimMany('s', DEVICES_PER_USER);
+    expect(heldBy('s')).toHaveLength(DEVICES_PER_USER);
   });
 });

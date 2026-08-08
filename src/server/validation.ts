@@ -4,6 +4,7 @@ import { getMode } from './modes/types';
 import { MATCH_FIELDS } from '../shared/matchFormat';
 import type { SettingsField } from '../shared/settings';
 import type { BoardTip } from '../shared/vision/types';
+import { DEVICES_PER_USER } from './capacity';
 
 // ============================================================
 // Player name
@@ -140,11 +141,16 @@ export function validateTips(raw: unknown): BoardTip[] | null {
   return tips;
 }
 
-/** The device list a frontend claims on connect. Anything malformed drops that entry, not the lot. */
+/**
+ * The device list a frontend claims on connect. Anything malformed drops that entry, not the lot.
+ *
+ * Cut to what a session may hold: claiming more than that would only evict its own earlier ones, so
+ * reading past the allowance is work with nothing to show for it.
+ */
 export function validateDeviceClaims(raw: unknown): { deviceId: string; tokenHash: string; grabbedAt: number }[] {
   if (!Array.isArray(raw)) return [];
   const claims: { deviceId: string; tokenHash: string; grabbedAt: number }[] = [];
-  for (const item of raw.slice(0, MAX_CLAIMS)) {
+  for (const item of raw.slice(0, DEVICES_PER_USER)) {
     if (typeof item !== 'object' || item === null) continue;
     const c = item as Record<string, unknown>;
     if (typeof c.deviceId !== 'string' || c.deviceId.length < 16 || c.deviceId.length > 64) continue;
@@ -156,4 +162,3 @@ export function validateDeviceClaims(raw: unknown): { deviceId: string; tokenHas
   return claims;
 }
 
-const MAX_CLAIMS = 8;

@@ -47,7 +47,7 @@ nothing about matches, sockets or sets**. See [game modes](./game-modes.md) for 
 ```sh
 npm run dev     # the API/WebSocket server on 3000 and Vite on 5173, together
 npm test        # unit tests (vitest). A couple of seconds; run them freely
-npm run test:e2e  # the whole browser suite. Around a minute and a half
+npm run test:e2e  # the whole browser suite. Around twenty seconds
 npm run build   # production build — and see the warning below
 ```
 
@@ -84,6 +84,12 @@ nothing about whether the socket the first test opens has anyone listening on 30
 `reuseExistingServer` is on outside CI, so a dev server you already have running is the one the tests
 use. That is usually what you want; be aware the tests are then running against your dev server's
 state.
+
+**Keep spec files small, because Playwright parallelises per file.** Tests inside one file run
+serially in a single worker, so a spec that grows to hold everything runs alone however many cores
+are free. Splitting the one big spec into six took the suite from 1m20s on one worker to 20s on
+eight — the same 48 tests. Shared setup goes in [`appHelpers.ts`](../tests/e2e/appHelpers.ts), which
+is imported and never collected: Playwright only runs `*.spec.ts`.
 
 If a run fails with `EADDRINUSE` instead of reusing what is already up, something is on the port that
 the readiness probe cannot see. `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server-stats`

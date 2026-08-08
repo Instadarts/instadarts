@@ -2,6 +2,7 @@ import type {
   CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, StyledText, ViewText, Visit,
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
+import { boolOr, numberOr, stringOr } from '../../shared/settings';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
 import { IS_DEV } from '../env';
 
@@ -37,9 +38,9 @@ interface X01Settings {
 
 function read(settings: ModeSettings): X01Settings {
   return {
-    startScore: typeof settings.startScore === 'number' ? settings.startScore : 501,
-    doubleIn: settings.doubleIn === true,
-    doubleOut: settings.doubleOut !== false,
+    startScore: numberOr(settings, 'startScore', 501),
+    doubleIn: boolOr(settings, 'doubleIn', false),
+    doubleOut: boolOr(settings, 'doubleOut', true),
   };
 }
 
@@ -283,7 +284,7 @@ export const x01: GameMode = {
   panel(match: MatchState): ModePanel | undefined {
     // Off is not a hidden panel but no panel: undefined is already how a mode says it draws
     // nothing, so the statistics are not computed and `custom` never goes over the wire.
-    const stats = match.settings.modeSettings.stats;
+    const stats = stringOr(match.settings.modeSettings, 'stats', 'graphic');
     if (stats === 'off') return undefined;
 
     const visits = legsOf(match).flat();

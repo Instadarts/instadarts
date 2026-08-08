@@ -65,10 +65,6 @@ export function sweepScoringSessions(): number {
   return collected;
 }
 
-export function scoringSessionCount(): number {
-  return sessions.size;
-}
-
 /** Test seam: forget everything, as a restart would. */
 export function resetScoringSessions(): void {
   for (const session of sessions.values()) session.stop();

@@ -55,7 +55,7 @@ A **user** is one frontend instance — practically, one browser tab running the
 are no accounts, no logins and no persistent identity.
 
 A user is identified by its **session id**: `crypto.randomUUID()`, minted by the server for every
-WebSocket connection ([`src/server/index.ts:71`](../src/server/index.ts#L71)) and pushed to the
+WebSocket connection (the `connection` handler in [`src/server/index.ts`](../src/server/index.ts)) and pushed to the
 client in the non-`ServerMessage` `connected` frame. Server-side, the per-connection record is
 `Client` ([`src/server/types.ts`](../src/server/types.ts)).
 
@@ -98,7 +98,7 @@ configured here. It is a distinct entity (`Lobby`), not a status of a match.
 - `isLocal` decides who may do what (see [Local vs. online](#local-match--online-match)).
 - `remoteConnected` means a second user is present in an online lobby.
 - Starting the match **destroys** the lobby: `createMatch(lobby)` calls `deleteLobby` and copies
-  players and settings into the new match ([`store.ts:92`](../src/server/store.ts#L92)).
+  players and settings into the new match ([`createMatch`](../src/server/store.ts)).
 - Idle lobbies are garbage-collected after 10 minutes ([`gc.ts`](../src/server/gc.ts)).
 
 ### Match
@@ -161,7 +161,7 @@ Pick one word in new code: **host** for the server-side session, **creator** in 
 A read-only observer. A user becomes one via `spectate` on `/spectate/:id`, which sets
 `client.isSpectator` and binds it to a lobby or match without adding a player. Spectators are
 excluded from every gameplay guard, and explicitly from scoring: a spectator with a paired camera
-must not score ([`resolveScoringTarget`](../src/server/wsHandler.ts#L759)).
+must not score ([`resolveScoringTarget`](../src/server/scoringDevices.ts)).
 
 ### Re-Match
 
@@ -349,7 +349,7 @@ legs, first to *m* sets) is built on it holding for every mode.
 `ScoreResult`. Use **dart** for the object; *throw* is fine in prose for the act.
 
 The server **always recomputes** the score from the coordinates and ignores any client-supplied
-score ([`validateDartThrow`](../src/server/validation.ts#L73)). A dart is its position; the number is
+score ([`validateDartThrow`](../src/server/validation.ts)). A dart is its position; the number is
 derived.
 
 ### Board coordinates
@@ -579,6 +579,6 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | Mismatch | Where |
 | --- | --- |
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
-| "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), `tests/e2e/app.spec.ts` |
+| "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), the e2e specs |
 | `visitNumber` counts across the leg and both players, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
 | The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` and are summarised, never replayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

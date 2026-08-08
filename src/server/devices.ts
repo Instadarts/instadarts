@@ -178,10 +178,6 @@ export function verifyDevice(deviceId: unknown, token: unknown, name = ''): Devi
   return record;
 }
 
-export function getDevice(deviceId: string): DeviceRecord | undefined {
-  return devices.get(deviceId);
-}
-
 export function setCameraActive(deviceId: string, active: boolean): void {
   const device = devices.get(deviceId);
   if (device) device.cameraActive = active;

@@ -1,22 +1,21 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+// Importing wsHandler also registers the lifecycle handlers — it is the module that knows what to
+// tell people when a deadline passes, and it says so to `lifecycle` on load.
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
-
-const QUIET = process.env.QUIET === '1';
+import { startGC, getGCStats } from './gc';
+import { startLifecycle } from './lifecycle';
+import { IS_PRODUCTION, QUIET } from './env';
 
 // Find the installed game modes. A deployment adds or removes one by adding or removing a file in
 // src/server/modes/ — and one without x01 is not a deployment we will start.
 const installedModes = await loadModes();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
-// Start garbage collector, and the clock that gives every lobby and match a definite end
-import { startGC, getGCStats } from './gc';
-import { startLifecycle } from './lifecycle';
-import './wsHandler'; // registers the lifecycle handlers
-import { IS_PRODUCTION } from './env';
+// The garbage collector, and the clock that gives every lobby and match a definite end.
 startGC();
 startLifecycle();
 

@@ -1,15 +1,13 @@
 const NAMES_KEY = 'instadarts_player_names';
 const MAX_NAMES = 5;
 
-export interface ClientStorage {
-  getPlayerNames(): string[];
-  addPlayerName(name: string): void;
-}
-
 /**
  * Persisted player names list (FIFO, max 5, most-recently-used first).
+ *
+ * Every access is wrapped, because localStorage throws in private mode rather than returning
+ * nothing — a remembered name is worth having and never worth failing over.
  */
-export const storage: ClientStorage = {
+export const storage = {
   getPlayerNames(): string[] {
     try {
       const raw = localStorage.getItem(NAMES_KEY);

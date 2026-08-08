@@ -1,39 +1,62 @@
+// The gameplay half of the socket layer: lobbies, matches, spectating, re-matches, and the routing
+// that every message arrives through.
+//
+// Two things it deliberately does not hold. **Who is connected** is connections.ts — the registry
+// and the ways of addressing it, which the scoring-device handlers need just as much as these do.
+// **Scoring devices** are scoringDevices.ts, which shares nothing with this file but that registry
+// and `commitScoredMatch` — the one function through which a match moves, whether its darts were
+// clicked here or seen by a camera there.
+//
+// Every handler below takes a message that has been parsed but not validated: `parseMessage` checks
+// that a `type` is present and nothing else, so the shape each handler reads is its own to check.
+
 import type { WebSocket } from 'ws';
-import type { ServerMessage } from '../shared/protocol';
 import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
-import { parseMessage, formatMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, updateMatch, deleteLobby, deleteMatch, swapLobbyPlayers } from './store';
+import { parseMessage } from '../shared/protocol';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, swapLobbyPlayers } from './store';
 import { generatePlayerId } from './player';
-import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, panelOf, viewOf } from './match';
+import { addDartToMatch, undoDartFromMatch, submitVisitToMatch } from './match';
 import { generateInviteCode } from './invite';
-import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims, validateTips } from './validation';
+import { sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkRateLimit, checkTipsRateLimit, removeRateLimitBucket } from './rateLimit';
-import { getScoringSession, dropScoringSessions } from './scoring/store';
+import { dropScoringSessions } from './scoring/store';
 import { allModes, describeMode } from './modes/types';
 import { canCreateLobby, canCreateMatch } from './concurrencyLimit';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
-  claimDevice,
-  createPairingCode,
-  devicesForSession,
-  ownerOf,
-  redeemPairingCode,
-  releaseDevice,
-  releaseSession,
-  setCameraActive,
-  setDeviceName,
-  unclaimDevice,
-  verifyDevice,
-} from './devices';
+  addClient,
+  allClients,
+  broadcastToLobby,
+  broadcastToMatch,
+  dropClient,
+  getClient,
+  lobbyMessage,
+  matchMessage,
+  send,
+} from './connections';
+import {
+  commitScoredMatch,
+  handleActivateDevices,
+  handleCreatePairingCode,
+  handleDeactivateDevice,
+  handleScorerCamera,
+  handleScorerHello,
+  handleScorerName,
+  handleScorerPair,
+  handleScorerTips,
+  handleScorerUnpair,
+  releaseScoringState,
+} from './scoringDevices';
 
 // ============================================================
-// Client registry
+// Connection lifetime
+//
+// Who is connected lives in connections.ts. What is here is what a *disconnection* means, which is
+// not the same thing: a page reload looks exactly like leaving, so leaving is deferred long enough
+// for a reload to come back and claim its place.
 // ============================================================
 
-const clients = new Map<WebSocket, Client>();
-
-// Pending disconnect timers for page reload recovery
 const DISCONNECT_GRACE_MS = 3000;
 const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -45,7 +68,7 @@ function disconnectKey(client: Client): string | null {
 }
 
 export function scheduleDisconnect(ws: WebSocket, onTimeout: () => void): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client) { onTimeout(); return; }
 
   const key = disconnectKey(client);
@@ -81,78 +104,19 @@ function cancelDisconnectsForMatch(matchId: string): void {
 }
 
 export function registerClient(ws: WebSocket, client: Client): void {
-  clients.set(ws, client);
+  addClient(ws, client);
   // What this deployment can play. The client renders the lobby from it and imports no mode code.
   send(ws, { type: 'mode_catalog', modes: allModes().map(describeMode) });
 }
 
-export function getClient(ws: WebSocket): Client | undefined {
-  return clients.get(ws);
-}
-
 export function removeClient(ws: WebSocket): void {
   // Clean up rate limit bucket
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (client) {
     removeRateLimitBucket(client.playerId ?? '');
     releaseScoringState(client);
   }
-  clients.delete(ws);
-}
-
-/** Whichever side of the pairing this connection was, let go of it. */
-function releaseScoringState(client: Client): void {
-  if (client.deviceId) {
-    const owner = ownerOf(client.deviceId);
-    deviceSockets.delete(client.deviceId);
-    releaseDevice(client.deviceId);
-    if (owner) publishDevicesState(owner);
-    return;
-  }
-  for (const deviceId of releaseSession(client.sessionId)) {
-    publishScorerState(deviceId);
-  }
-}
-
-// ============================================================
-// Broadcasting
-// ============================================================
-
-function send(ws: WebSocket, msg: ServerMessage): void {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(formatMessage(msg));
-  }
-}
-
-function broadcastToLobby(lobbyId: string, msg: ServerMessage, excludeWs?: WebSocket): void {
-  for (const [ws, client] of clients) {
-    if (ws === excludeWs) continue;
-    if (client.lobbyId === lobbyId || client.matchId === lobbyId) {
-      send(ws, msg);
-    }
-  }
-}
-
-/**
- * A match as it goes on the wire: the state, the mode's view of the current leg, and the mode's
- * panel. The three messages that carry a match all carry the same three things.
- *
- * Assembled here rather than at each of the seven places that send one, because a place that builds
- * it by hand can leave a part out — and one did. The re-match broadcast omitted the panel, so a
- * re-match started with no statistics block at all and only grew one when the first dart produced a
- * message that happened to include it. The client sets its panel from whatever arrives, so a
- * message missing the field does not leave the old one standing; it clears it.
- */
-function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(type: T, match: MatchState) {
-  return { type, match: { ...match }, view: viewOf(match), panel: panelOf(match) };
-}
-
-function broadcastToMatch(matchId: string, msg: ServerMessage): void {
-  for (const [ws, client] of clients) {
-    if (client.matchId === matchId) {
-      send(ws, msg);
-    }
-  }
+  dropClient(ws);
 }
 
 // ============================================================
@@ -161,7 +125,7 @@ function broadcastToMatch(matchId: string, msg: ServerMessage): void {
 
 /** Validates that the client is playing in an active match. Returns client+match or null (error already sent). */
 function requireMatch(ws: WebSocket): { client: Client; match: MatchState } | null {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client?.matchId) return null;
   if (client.isSpectator) return null;
   const match = getMatch(client.matchId);
@@ -171,7 +135,7 @@ function requireMatch(ws: WebSocket): { client: Client; match: MatchState } | nu
 
 /** Validates that the client is in a lobby. Returns client+lobby or null. Does NOT send errors for silent-return handlers. */
 function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client?.lobbyId) return null;
   if (client.isSpectator) return null;
   const lobby = getLobby(client.lobbyId);
@@ -184,7 +148,7 @@ function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
 // ============================================================
 
 export function handleMessage(ws: WebSocket, raw: string): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
 
   const msg = parseMessage(raw);
   if (!msg) {
@@ -320,7 +284,7 @@ setLifecycleHandlers({
       if (!match.rematchVotes[player.id]) match.rematchVotes[player.id] = 'declined';
     }
     broadcastToMatch(match.id, { type: 'match_closed' });
-    for (const client of clients.values()) {
+    for (const [, client] of allClients()) {
       if (client.matchId !== match.id) continue;
       client.matchId = null;
       client.playerId = null;
@@ -332,7 +296,7 @@ setLifecycleHandlers({
 
   /** A lobby nobody has touched for the idle period. */
   expireLobby(lobby: Lobby): void {
-    for (const [ws, client] of clients) {
+    for (const [ws, client] of allClients()) {
       if (client.lobbyId !== lobby.id) continue;
       send(ws, { type: 'lobby_abandoned' });
       client.lobbyId = null;
@@ -362,14 +326,14 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
 
   const lobby = createLobby();
   lobby.isLocal = msg.isLocal !== false;
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (client) {
     client.lobbyId = lobby.id;
     lobby.hostSessionId = client.sessionId;
   }
 
   generateInviteCode(lobby.id);
-  send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+  send(ws, lobbyMessage(lobby));
 }
 
 function handleJoinLobby(ws: WebSocket, msg: any): void {
@@ -388,7 +352,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   }
 
   // Associate client with lobby — player is added manually via add_local_player
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (client) {
     client.lobbyId = lobby.id;
     // Mark opponent as connected for the creator
@@ -398,12 +362,12 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   }
 
   // Send direct response to joining client (in case not yet in clients map)
-  send(ws, { type: 'lobby_state', lobby: { ...lobby } });
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } }, ws);
+  send(ws, lobbyMessage(lobby));
+  broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
 
 function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client?.lobbyId) return;
   if (client.isSpectator) return;
 
@@ -445,13 +409,10 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     lobby.hostPlayerId = player.id;
   }
 
-  // Broadcast to all; send yourPlayerId for online so client knows which player it owns
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
-  if (!lobby.isLocal) {
-    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: player.id });
-  } else {
-    send(ws, { type: 'lobby_state', lobby: { ...lobby } });
-  }
+  // Everyone sees the lobby; only this connection is told which player is its own — and in a local
+  // match, where one user holds them all, that question has no answer.
+  broadcastToLobby(lobby.id, lobbyMessage(lobby));
+  send(ws, lobbyMessage(lobby, lobby.isLocal ? undefined : player.id));
 }
 
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
@@ -470,7 +431,7 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
 
   client.playerId = null;
   removePlayerFromLobby(lobby.id, msg.playerId);
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+  broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
 function handleUpdateSettings(ws: WebSocket, msg: any): void {
@@ -491,7 +452,7 @@ function handleUpdateSettings(ws: WebSocket, msg: any): void {
   }
 
   lobby.settings = validated;
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+  broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
 function handleSetPlayerName(ws: WebSocket, msg: any): void {
@@ -515,11 +476,11 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   }
 
   player.name = name;
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+  broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
 function handleStartMatch(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client?.lobbyId) return;
   if (client.isSpectator) return;
 
@@ -549,7 +510,7 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
   const match = createMatch(lobby);
 
   // Update all lobby clients to match
-  for (const [w, c] of clients) {
+  for (const [w, c] of allClients()) {
     if (c.lobbyId === lobby.id) {
       c.matchId = match.id;
       c.lobbyId = null;
@@ -623,7 +584,7 @@ function handleLeaveMatch(ws: WebSocket, _msg: any): void {
  * Called when a client explicitly leaves or disconnects.
  */
 export function handleClientLeave(ws: WebSocket): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client) return;
 
   if (client.isSpectator) {
@@ -699,7 +660,7 @@ function leaveLobby(ws: WebSocket, client: Client): void {
 
   if (client.sessionId === lobby.hostSessionId) {
     // Host left → abandon lobby, kick everyone
-    for (const [otherWs, otherClient] of clients) {
+    for (const [otherWs, otherClient] of allClients()) {
       if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
         send(otherWs, { type: 'lobby_abandoned' });
         otherClient.lobbyId = null;
@@ -717,7 +678,7 @@ function leaveLobby(ws: WebSocket, client: Client): void {
       removePlayerFromLobby(lobby.id, leavingPlayerId);
     }
     generateInviteCode(lobby.id);
-    broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+    broadcastToLobby(lobby.id, lobbyMessage(lobby));
     return;
   }
 
@@ -735,18 +696,18 @@ function handleSpectate(ws: WebSocket, msg: any): void {
   // Try to find as lobby first, then as match
   const lobby = getLobby(id);
   if (lobby) {
-    const client = clients.get(ws);
+    const client = getClient(ws);
     if (client) {
       client.lobbyId = lobby.id;
       client.isSpectator = true;
     }
-    send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+    send(ws, lobbyMessage(lobby));
     return;
   }
 
   const match = getMatch(id);
   if (match) {
-    const client = clients.get(ws);
+    const client = getClient(ws);
     if (client) {
       client.matchId = match.id;
       client.isSpectator = true;
@@ -759,7 +720,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
 }
 
 function handleReconnect(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client) {
     send(ws, { type: 'error', message: 'Session not found' });
     return;
@@ -783,7 +744,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
       if (lobby.isLocal) {
         lobby.hostSessionId = client.sessionId;
       }
-      send(ws, { type: 'lobby_state', lobby: { ...lobby } });
+      send(ws, lobbyMessage(lobby));
       return;
     }
 
@@ -801,7 +762,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
 
     client.lobbyId = lobby.id;
     client.playerId = msg.playerId;
-    send(ws, { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId: lobby.isLocal ? undefined : msg.playerId });
+    send(ws, lobbyMessage(lobby, lobby.isLocal ? undefined : msg.playerId));
     return;
   }
 
@@ -837,264 +798,6 @@ function handleReconnect(ws: WebSocket, msg: any): void {
   send(ws, { type: 'error', message: 'No lobby or match ID provided for reconnect' });
 }
 
-// ============================================================
-// Scoring devices
-// ============================================================
-
-/** Live scoring-device sockets, by device id. The registry in devices.ts holds no sockets. */
-const deviceSockets = new Map<string, WebSocket>();
-
-function findSessionSocket(sessionId: string): WebSocket | null {
-  for (const [ws, client] of clients) {
-    if (!client.deviceId && client.sessionId === sessionId) return ws;
-  }
-  return null;
-}
-
-/** Tell a frontend how its devices are doing. */
-function publishDevicesState(sessionId: string): void {
-  const ws = findSessionSocket(sessionId);
-  if (!ws) return;
-  send(ws, { type: 'devices_state', devices: devicesForSession(sessionId) });
-}
-
-/** Tell a scoring device where it stands. A retained topic: pushed on connect and on every change. */
-function publishScorerState(deviceId: string): void {
-  const ws = deviceSockets.get(deviceId);
-  if (!ws) return;
-  const owner = ownerOf(deviceId);
-  send(ws, {
-    type: 'scorer_state',
-    status: owner ? 'active' : 'waiting',
-    cameras: owner ? activeCameras(owner).length : 0,
-  });
-}
-
-/** The devices this frontend has active with a running camera. */
-function activeCameras(ownerSessionId: string): string[] {
-  return devicesForSession(ownerSessionId)
-    .filter((d) => d.online && d.cameraActive)
-    .map((d) => d.deviceId);
-}
-
-/**
- * Which match a frontend's cameras score into, and for whom.
- *
- * The owner must be an actual player in a running match. Spectators get a `matchId` too, which is
- * exactly why the check is here: a spectator with a paired camera must not become a scorer.
- */
-function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerId: string | null } | null {
-  for (const client of clients.values()) {
-    if (client.deviceId || client.sessionId !== ownerSessionId) continue;
-    if (client.isSpectator || !client.matchId) return null;
-    const match = getMatch(client.matchId);
-    if (!match || match.status !== 'in_progress') return null;
-    // A local match is one board scored for whoever is up; an online one scores only for its owner.
-    return { match, ownerPlayerId: match.isLocal ? null : client.playerId };
-  }
-  return null;
-}
-
-/**
- * One inference's dart tips from a scoring device.
- *
- * Everything here is a reason to drop the report silently rather than to answer: a scoring device
- * that has lost its right to speak should learn that from `scorer_state`, not from an error frame
- * arriving once per frame.
- */
-function handleScorerTips(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.deviceId) return;
-
-  // A malformed report is dropped whole. It is never salvaged into an empty array, because an
-  // empty array means the darts came out.
-  const tips = validateTips(msg.tips);
-  if (!tips) return;
-
-  const owner = ownerOf(client.deviceId);
-  if (!owner) return;
-  const target = resolveScoringTarget(owner);
-  if (!target) return;
-
-  const session = getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch);
-  session.setCameras(activeCameras(owner));
-  session.addTips(client.deviceId, tips);
-}
-
-/**
- * The match changed: persist it, tell everyone in it, and refresh the scoring devices watching it.
- * Used by manual darts and camera darts alike — there is only one way a match moves.
- */
-function commitScoredMatch(match: MatchState): void {
-  // A dart is input, so it pushes the idle deadline back; a match the mode has just decided swaps
-  // that deadline for its summary clock.
-  if (match.status === 'in_progress') {
-    touch(match);
-  } else {
-    touch(match, SUMMARY_TTL_MS);
-    dropScoringSessions(match.id);
-  }
-  updateMatch(match.id, match);
-  broadcastToMatch(match.id, matchMessage('match_state', match));
-  for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
-}
-
-/** Every scoring device whose owner is playing in this match. */
-function scoringDevicesFor(matchId: string): string[] {
-  const found: string[] = [];
-  for (const client of clients.values()) {
-    if (client.deviceId || client.matchId !== matchId || client.isSpectator) continue;
-    for (const device of devicesForSession(client.sessionId)) {
-      if (device.online) found.push(device.deviceId);
-    }
-  }
-  return found;
-}
-
-function handleCreatePairingCode(ws: WebSocket): void {
-  const client = clients.get(ws);
-  if (!client) return;
-  const { code, expiresAt } = createPairingCode(client.sessionId);
-  send(ws, { type: 'pairing_code', code, expiresAt });
-}
-
-/**
- * A frontend taking devices for this session — sent on every connect for whatever this tab has
- * active, which is what re-establishes a pairing after a server restart.
- */
-function handleActivateDevices(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client) return;
-
-  for (const claim of validateDeviceClaims(msg.devices)) {
-    const previousOwner = ownerOf(claim.deviceId);
-    const result = claimDevice(claim.deviceId, claim.tokenHash, client.sessionId, claim.grabbedAt);
-    if (result === 'stale') {
-      // Another tab of this browser holds it with a newer grab. Say so, so this one stops asking.
-      send(ws, { type: 'device_lost', deviceId: claim.deviceId });
-      continue;
-    }
-    if (result === 'mismatch') continue;
-    if (previousOwner && previousOwner !== client.sessionId) {
-      const loser = findSessionSocket(previousOwner);
-      if (loser) send(loser, { type: 'device_lost', deviceId: claim.deviceId });
-      publishDevicesState(previousOwner);
-    }
-    publishScorerState(claim.deviceId);
-  }
-
-  publishDevicesState(client.sessionId);
-}
-
-function handleDeactivateDevice(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client || typeof msg.deviceId !== 'string') return;
-  if (!unclaimDevice(msg.deviceId, client.sessionId)) return;
-  publishScorerState(msg.deviceId);
-  publishDevicesState(client.sessionId);
-}
-
-function handleScorerPair(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client || client.deviceId) return;
-
-  const paired = redeemPairingCode(msg.code, client.sessionId);
-  if (!paired) {
-    send(ws, { type: 'scorer_refused', reason: 'bad_code' });
-    return;
-  }
-
-  bindDeviceSocket(ws, client, paired.deviceId);
-  send(ws, { type: 'scorer_paired', deviceId: paired.deviceId, token: paired.token });
-
-  // The frontend that showed the code has to persist the hash: the server will not remember it,
-  // and it is what proves the pairing again after a restart.
-  const owner = findSessionSocket(paired.ownerSessionId);
-  if (owner) send(owner, { type: 'device_paired', deviceId: paired.deviceId, tokenHash: paired.tokenHash });
-}
-
-function handleScorerHello(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client || client.deviceId) return;
-
-  const device = verifyDevice(msg.deviceId, msg.token, sanitizeName(msg.name) ?? '');
-  if (!device) {
-    send(ws, { type: 'scorer_refused', reason: 'unpaired' });
-    return;
-  }
-
-  bindDeviceSocket(ws, client, device.id);
-  const owner = ownerOf(device.id);
-  if (owner) publishDevicesState(owner);
-}
-
-/**
- * A device giving up its pairing.
- *
- * The socket lives on and is unbound, which is the whole point: a connection may only pair while it
- * is nobody's device, so without this the phone would forget its token and then be unable to redeem
- * a new code without a reload. What the frontend holds is left alone — see ScorerUnpairMessage.
- */
-function handleScorerUnpair(ws: WebSocket): void {
-  const client = clients.get(ws);
-  if (!client?.deviceId) return;
-
-  const owner = ownerOf(client.deviceId);
-  deviceSockets.delete(client.deviceId);
-  releaseDevice(client.deviceId);
-  client.deviceId = null;
-
-  if (!owner) return;
-  // A camera that has just left must leave the roster at once, or every throw window afterwards
-  // waits for a report that is never coming — the same reason handleScorerCamera does this.
-  const target = resolveScoringTarget(owner);
-  if (target) {
-    getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
-  }
-  publishDevicesState(owner);
-}
-
-/** A device renaming itself. It owns its own name; a frontend only displays what it is told. */
-function handleScorerName(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.deviceId) return;
-
-  setDeviceName(client.deviceId, sanitizeName(msg.name) ?? '');
-  const owner = ownerOf(client.deviceId);
-  if (owner) publishDevicesState(owner);
-}
-
-function handleScorerCamera(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
-  if (!client?.deviceId) return;
-
-  setCameraActive(client.deviceId, Boolean(msg.active));
-  const owner = ownerOf(client.deviceId);
-  if (owner) {
-    // A camera leaving must leave the roster at once, or every throw window afterwards waits for a
-    // report that is never coming.
-    const target = resolveScoringTarget(owner);
-    if (target) {
-      getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
-    }
-    publishDevicesState(owner);
-  }
-  publishScorerState(client.deviceId);
-}
-
-/** One socket per device: a second connection for the same id displaces the first. */
-function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void {
-  const existing = deviceSockets.get(deviceId);
-  if (existing && existing !== ws) {
-    const stale = clients.get(existing);
-    if (stale) stale.deviceId = null;
-    send(existing, { type: 'scorer_refused', reason: 'unpaired' });
-  }
-  client.deviceId = deviceId;
-  deviceSockets.set(deviceId, ws);
-  publishScorerState(deviceId);
-}
-
 /**
  * A player accepting or withdrawing a re-match. Everyone accepting starts one immediately.
  *
@@ -1102,7 +805,7 @@ function bindDeviceSocket(ws: WebSocket, client: Client, deviceId: string): void
  * broadcast rather than through a mechanism of its own.
  */
 function handleRematchVote(ws: WebSocket, msg: any): void {
-  const client = clients.get(ws);
+  const client = getClient(ws);
   if (!client?.matchId || client.isSpectator) return;
 
   const match = getMatch(client.matchId);
@@ -1151,7 +854,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
   // Everyone is in. The re-match is an ordinary new match; the only thing carried across is who is
   // watching — spectators included, so an audience is not left behind on the finished one.
   const rematch = createRematch(match);
-  for (const other of clients.values()) {
+  for (const [, other] of allClients()) {
     if (other.matchId !== match.id) continue;
     other.matchId = rematch.id;
   }
@@ -1174,5 +877,5 @@ function handleSwapPlayers(ws: WebSocket, _msg: any): void {
     return;
   }
 
-  broadcastToLobby(lobby.id, { type: 'lobby_state', lobby: { ...lobby } });
+  broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }

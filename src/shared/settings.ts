@@ -29,6 +29,31 @@ export type SettingsField =
 export type ModeSettings = Record<string, SettingsValue>;
 
 /**
+ * Reading a setting out of that bag.
+ *
+ * The bag is untyped because a mode declares its own keys, so every mode ends up writing the same
+ * "is it the right type, and if not what do I do" line for each of its settings. These are that
+ * line, once. The fallback is not a second copy of the default — it is what to do with a value that
+ * should have been validated and was not, which happens whenever a settings object is built by
+ * something other than a lobby (a test, a re-match of an older match, a mode that has since gained
+ * a field).
+ */
+export function numberOr(settings: ModeSettings, key: string, fallback: number): number {
+  const value = settings[key];
+  return typeof value === 'number' ? value : fallback;
+}
+
+export function boolOr(settings: ModeSettings, key: string, fallback: boolean): boolean {
+  const value = settings[key];
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+export function stringOr(settings: ModeSettings, key: string, fallback: string): string {
+  const value = settings[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+/**
  * What a game mode says about itself, so the lobby can offer it without importing a line of its
  * code. Declared by the mode and shipped to the client on connect.
  */

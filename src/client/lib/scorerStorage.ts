@@ -4,6 +4,8 @@
 // run in one browser without either overwriting the other. A device stores its token; a frontend
 // stores only a hash of it. Neither ever holds the other's secret.
 
+import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
+
 const DEVICE_KEY = 'instadarts_scorer_device';
 const SETTINGS_KEY = 'instadarts_scorer_settings';
 
@@ -25,10 +27,13 @@ export interface ScorerSettings {
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
 // module that knows a camera by its label and applies the zoom to the track.
 
+// The two confidence thresholds start at the tuned values from the vision constants rather than at
+// numbers copied out of them: they are the reference pipeline's, marked there as not to be
+// re-tuned, and a second copy here is a second thing to forget.
 const SETTINGS_DEFAULTS: ScorerSettings = {
   model: 's_960',
-  boardThreshold: 0.8,
-  tipThreshold: 0.75,
+  boardThreshold: DEFAULT_BOARD_THRESHOLD,
+  tipThreshold: DEFAULT_TIP_THRESHOLD,
   lensByCamera: {},
   screensaver: true,
 };

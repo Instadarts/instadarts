@@ -319,6 +319,56 @@ Two consequences worth knowing:
 - **x01 is mandatory.** It is the default a new lobby starts on, and the server refuses to start
   without it.
 
+### Writing one
+
+Four methods are required and everything else is optional. A whole mode, small enough to read:
+
+```ts
+import type { ModeView, Visit } from '../../shared/types';
+import { numberOr } from '../../shared/settings';
+import type { FinalizedVisit, GameMode, LegContext } from './types';
+
+export const highscore: GameMode = {
+  id: 'highscore',
+  label: 'Highscore',
+
+  // Declared once: the lobby renders the field and the server validates against the same list.
+  defaults: { target: 200 },
+  fields: [{ key: 'target', label: 'Target', kind: 'number', min: 50, max: 900 }],
+
+  dartsPerVisit: () => 3,
+  isVisitLocked: () => false,
+
+  finalizeVisit(ctx: LegContext): FinalizedVisit {
+    const darts = ctx.currentVisit?.darts ?? [];
+    const visit: Visit = { playerId: ctx.currentPlayerId, darts, visitNumber: ctx.visits.length + 1, voided: false };
+    const total = scored(ctx.visits, ctx.currentPlayerId) + points(darts);
+    // A leg always ends with a winner. That guarantee is what the match layer is built on.
+    return { visit, legWinnerId: total >= numberOr(ctx.settings, 'target', 200) ? ctx.currentPlayerId : null };
+  },
+
+  view(ctx: LegContext): ModeView { /* headline, playerScores, visitTotal, dartsPerVisit, history */ },
+};
+```
+
+What is *not* in there is the point of the layering. No match, set or leg number; no sockets,
+lobbies or spectators; no state of its own — a mode is handed a `LegContext` and derives everything
+from it, which is what makes undo, reconnect and starting the next leg free. Adding this file and
+restarting is the whole installation: no registry, no client code, no route.
+
+Things that catch people:
+
+- **Settings arrive as an untyped bag.** Use `numberOr` / `boolOr` / `stringOr` from
+  [`shared/settings.ts`](../src/shared/settings.ts) rather than writing the type check per setting.
+  The fallback is not a second copy of the default — it is what to do with a settings object that
+  did not come from a lobby.
+- **Padding a visit is the mode's decision.** x01 pads a short visit out to three darts, because a
+  turn costs three however few were aimed; a mode where that is untrue simply does not.
+- **`view` is computed on the server and shipped.** It may hold text and styling hints, never
+  markup — it has to survive `JSON.stringify`.
+- **A `panel` is optional, and so is the client file that draws it.** Both halves degrade: no panel
+  method draws nothing, no client file draws a plain table.
+
 ### The optional second file
 
 A mode may add `src/client/modes/<id>.tsx`, exporting a component as default. It is picked up by

@@ -4,6 +4,44 @@ Practical notes: how to run things, what the traps are, and the mistakes that ha
 made here. Not a tour of the architecture — for that read the [glossary](./glossary.md) and
 [game modes](./game-modes.md).
 
+## Where things live
+
+Three trees. `shared/` is the only one both of the others may import, and it holds no I/O.
+
+```
+src/shared/     types.ts        the match, the visit, the mode's view of both — the wire's vocabulary
+                protocol.ts     every message, in both directions, and the parse/format pair
+                settings.ts     how a setting declares itself, and how to read one out of the bag
+                matchFormat.ts  sets and legs: standings, the winner, whose throw it is
+                scoring.ts      board coordinates → a dart's score. The one authority on what was hit
+                vision/         geometry and constants the camera pipeline shares with the server
+
+src/server/     index.ts        boot: modes, express, the socket server, the clocks
+                wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
+                connections.ts  who is connected and how to address them; nothing about meaning
+                scoringDevices.ts  the pairing and camera-report handlers
+                store.ts        lobbies and matches in memory, and the only place either is created
+                match.ts        the match layer: a leg's context, and a won leg becoming a won match
+                modes/          one file per game mode, found by scanning this directory
+                scoring/        turning camera reports into darts: throw windows, clustering, fusion
+                devices.ts      the pairing registry: which phone belongs to which browser
+                validation.ts   everything arriving from a client, checked before it is believed
+                lifecycle.ts    deadlines — the idle timeout and the summary clock
+                gc.ts, rateLimit.ts, concurrencyLimit.ts, env.ts, invite.ts, player.ts
+
+src/client/     App.tsx         routes, and the one hook that holds match state
+                ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
+                pages/          a screen each; pages/scorer/ is the phone's
+                components/     the match screen's parts, the dartboard, the top bar
+                modes/          a mode's optional panel component, found by filename
+                hooks/          the socket, the match, the vision runtime, paired devices
+                vision/         the camera, the model, motion detection (plain JS, ported)
+```
+
+The two rules worth knowing before moving anything: **the client holds no game rules** — every
+mode-specific value is computed on the server and shipped in `ModeView` — and **a game mode knows
+nothing about matches, sockets or sets**. See [game modes](./game-modes.md) for both.
+
 ## Running it
 
 ```sh
@@ -118,7 +156,7 @@ Selector traps that have all actually bitten here:
   carry `data-player` for exactly this reason — or at least do not pin the tag name.
 - **Reserved blank rows are still rows.** The visit history draws a fixed number of rows and leaves
   the spare ones blank, so "no visits yet" is about text, not element count. `visitHistoryRows()` in
-  `app.spec.ts` filters to rows that contain a total; count-based assertions would pass on an empty
+  `appHelpers.ts` filters to rows that contain a total; count-based assertions would pass on an empty
   screen and fail on a full one.
 - **Assertions on mode-provided strings go stale when a mode changes.** Changing an x01 dart slot
   from `T20 (60)` to `T20` and blanking the panel title broke three tests that had nothing to do

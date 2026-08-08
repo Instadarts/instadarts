@@ -2,9 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ScorerStateMessage, ServerMessage } from '../../shared/protocol';
 import type { BoardTip } from '../../shared/vision/types';
 import { useWebSocket } from './useWebSocket';
-import { forgetIdentity, loadIdentity, saveIdentity, type ScorerIdentity } from '../lib/scorerStorage';
+import {
+  forgetIdentity,
+  loadDeviceName,
+  loadIdentity,
+  saveDeviceName,
+  saveIdentity,
+  type ScorerIdentity,
+} from '../lib/scorerStorage';
 
 export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting' | 'active' | 'full';
+
+/**
+ * A command from the owner, with the count of how many have arrived.
+ *
+ * The count is the message: a command is an event, and React state is not, so the sequence is what
+ * lets whoever acts on one tell a repeat from a re-render.
+ */
+export interface PendingCommand {
+  name: 'camera_on' | 'camera_off' | 'power_off';
+  seq: number;
+}
 
 /**
  * The scoring device's side of the link: prove who we are, publish what the camera saw, and hold
@@ -13,28 +31,42 @@ export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting'
  * `scorer_hello` goes out on every (re)connect, which is what makes a pairing survive a server
  * restart — the server keeps nothing, and our token is the proof it needs.
  */
-export function useScorerLink() {
+export function useScorerLink({ standby = false }: { standby?: boolean } = {}) {
   const [identity, setIdentity] = useState<ScorerIdentity | null>(() => loadIdentity());
+  const [name, setName] = useState(() => loadDeviceName());
   const [state, setState] = useState<ScorerStateMessage | null>(null);
   const [refusal, setRefusal] = useState<'unpaired' | 'bad_code' | 'server_full' | null>(null);
   const [pairing, setPairing] = useState(false);
+  const [command, setCommand] = useState<PendingCommand | null>(null);
 
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  /** Set once `send` exists, so the pairing handler below can answer with this device's name. */
+  const sendRef = useRef<(msg: object) => void>(() => {});
 
   const handleMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
       case 'scorer_paired': {
-        const next = { deviceId: msg.deviceId, token: msg.token, name: identityRef.current?.name ?? '' };
+        const next = { deviceId: msg.deviceId, token: msg.token };
         saveIdentity(next);
         setIdentity(next);
         setRefusal(null);
         setPairing(false);
+        // A device that already had a name keeps it through a re-pairing, so say so straight away
+        // rather than letting the new owner sit on the placeholder it just invented.
+        if (nameRef.current) sendRef.current({ type: 'scorer_name', name: nameRef.current });
         break;
       }
       case 'scorer_state':
         setState(msg);
         setRefusal(null);
+        break;
+      case 'scorer_command':
+        // Numbered, because the same command twice in a row is two instructions: the owner turning
+        // a camera off, back on, and off again must not collapse into one.
+        setCommand((current) => ({ name: msg.command, seq: (current?.seq ?? 0) + 1 }));
         break;
       case 'scorer_refused':
         setRefusal(msg.reason);
@@ -52,7 +84,8 @@ export function useScorerLink() {
     }
   }, []);
 
-  const { send, connected } = useWebSocket(handleMessage, { resumeSession: false });
+  const { send, connected } = useWebSocket(handleMessage, { resumeSession: false, standby });
+  sendRef.current = send;
 
   // Identify on every connection, not once on mount: a reconnect after a server restart is exactly
   // when this matters most.
@@ -63,7 +96,7 @@ export function useScorerLink() {
     }
     const current = identityRef.current;
     if (current) {
-      send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: current.name });
+      send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: nameRef.current });
     }
   }, [connected, send]);
 
@@ -76,9 +109,10 @@ export function useScorerLink() {
   /**
    * Deliberately forget the pairing, so this phone can be paired to another browser.
    *
-   * The settings stay: they describe this camera and this lens, which have not changed. Only the
-   * identity goes — and the server is told, because a connection may only pair while it is nobody's
-   * device, so an unpaired phone on a still-bound socket could not redeem a new code.
+   * The settings stay: they describe this camera, this lens and this phone's own name, none of
+   * which changed. Only the identity goes — and the server is told, because a connection may only
+   * pair while it is nobody's device, so an unpaired phone on a still-bound socket could not redeem
+   * a new code.
    */
   const unpair = useCallback(() => {
     send({ type: 'scorer_unpair' });
@@ -89,24 +123,37 @@ export function useScorerLink() {
     setPairing(false);
   }, [send]);
 
-  const setCameraActive = useCallback((active: boolean) => {
-    send({ type: 'scorer_camera', active });
+  /**
+   * What this device's camera is doing, and why it is not doing it.
+   *
+   * The owner's screen renders this and never its own request, because a camera can refuse to open
+   * for reasons only this phone knows — a backgrounded tab, a permission that was never granted.
+   */
+  const setCameraActive = useCallback((active: boolean, error?: string) => {
+    send({ type: 'scorer_camera', active, ...(error ? { error } : {}) });
   }, [send]);
+
+  const scoring = state?.scoring === true;
+  const scoringRef = useRef(scoring);
+  scoringRef.current = scoring;
 
   /**
    * One inference's board-space tips. An empty array is the takeout signal and must only ever be
    * sent for a frame that solved a homography — see visionRuntime's guard.
+   *
+   * Dropped entirely outside a match. The server discards them there anyway (`resolveScoringTarget`
+   * refuses before they reach a scoring session), so every one sent was a frame's worth of bandwidth
+   * spent on nothing — and a camera run for aiming or calibration produces them continuously.
    */
   const sendTips = useCallback((tips: BoardTip[], ms?: number) => {
+    if (!scoringRef.current) return;
     send({ type: 'scorer_tips', tips, ms });
   }, [send]);
 
-  const rename = useCallback((name: string) => {
-    const current = identityRef.current;
-    if (!current) return;
-    const next = { ...current, name };
-    saveIdentity(next);
-    setIdentity(next);
+  /** Renaming needs no pairing: a phone is allowed to be called something before it belongs to anyone. */
+  const rename = useCallback((next: string) => {
+    saveDeviceName(next);
+    setName(next);
   }, []);
 
   /**
@@ -114,8 +161,7 @@ export function useScorerLink() {
    * has finished typing rather than once per keystroke — a name is not worth a message a character.
    */
   const publishName = useCallback(() => {
-    const current = identityRef.current;
-    if (current) send({ type: 'scorer_name', name: current.name });
+    if (identityRef.current) send({ type: 'scorer_name', name: nameRef.current });
   }, [send]);
 
   const status: ScorerLinkStatus = !connected
@@ -128,5 +174,20 @@ export function useScorerLink() {
           ? 'unpaired'
           : (state?.status ?? 'waiting');
 
-  return { identity, status, state, refusal, connected, pair, unpair, rename, publishName, setCameraActive, sendTips };
+  return {
+    identity,
+    name,
+    status,
+    state,
+    scoring,
+    command,
+    refusal,
+    connected,
+    pair,
+    unpair,
+    rename,
+    publishName,
+    setCameraActive,
+    sendTips,
+  };
 }

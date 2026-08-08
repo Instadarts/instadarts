@@ -95,6 +95,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
     <div className="relative select-none w-full max-w-[600px] lg:max-w-[100cqh]">
       <svg
         ref={svgRef}
+        data-testid="dartboard"
         viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
         className="w-full cursor-crosshair"
         onClick={handleClick}

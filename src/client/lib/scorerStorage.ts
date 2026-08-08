@@ -5,14 +5,18 @@
 // stores only a hash of it. Neither ever holds the other's secret.
 
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
+import { clampMinutes, GRACE_MINUTES, STANDBY_MINUTES } from './scorerPower';
 
 const DEVICE_KEY = 'instadarts_scorer_device';
 const SETTINGS_KEY = 'instadarts_scorer_settings';
 
+/**
+ * What this device is to the server. Deliberately just the credentials — see `deviceName`, which
+ * used to live here and was destroyed every time somebody unpaired.
+ */
 export interface ScorerIdentity {
   deviceId: string;
   token: string;
-  name: string;
 }
 
 export interface ScorerSettings {
@@ -22,6 +26,18 @@ export interface ScorerSettings {
   /** Slider position (-100…100), per camera *label* — the value describes a lens, not a device. */
   lensByCamera: Record<string, number>;
   screensaver: boolean;
+  /**
+   * What this device calls itself.
+   *
+   * A setting rather than part of the identity, for the same reason the lens calibration and the
+   * zoom are: it describes this phone on this mount, which is exactly what does *not* change when
+   * it is paired to somebody else.
+   */
+  deviceName: string;
+  /** Idle minutes before the camera and motion detector stop. See lib/scorerPower.ts. */
+  cameraOffAfterMinutes: number;
+  /** Idle minutes before the wake lock is released and the socket closed. */
+  standbyAfterMinutes: number;
 }
 
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
@@ -36,6 +52,9 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   tipThreshold: DEFAULT_TIP_THRESHOLD,
   lensByCamera: {},
   screensaver: true,
+  deviceName: '',
+  cameraOffAfterMinutes: GRACE_MINUTES.default,
+  standbyAfterMinutes: STANDBY_MINUTES.default,
 };
 
 export function loadIdentity(): ScorerIdentity | null {
@@ -44,11 +63,38 @@ export function loadIdentity(): ScorerIdentity | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed?.deviceId !== 'string' || typeof parsed?.token !== 'string') return null;
-    return { deviceId: parsed.deviceId, token: parsed.token, name: parsed.name ?? '' };
+    return { deviceId: parsed.deviceId, token: parsed.token };
   } catch {
     // Corrupt storage is not worth failing the boot over — pair again.
     return null;
   }
+}
+
+/**
+ * What this device calls itself, surviving anything that happens to the pairing.
+ *
+ * Names used to be stored inside the identity, so unpairing — which throws the identity away —
+ * threw the name away with it, and a phone somebody had labelled "Board camera" came back nameless.
+ * A name left over from a build that did that is carried across here, once.
+ */
+export function loadDeviceName(): string {
+  const stored = loadSettings().deviceName;
+  if (stored) return stored;
+
+  try {
+    const legacy = JSON.parse(localStorage.getItem(DEVICE_KEY) ?? 'null')?.name;
+    if (typeof legacy === 'string' && legacy) {
+      saveSettings({ deviceName: legacy });
+      return legacy;
+    }
+  } catch {
+    // Nothing to carry across.
+  }
+  return '';
+}
+
+export function saveDeviceName(name: string): void {
+  saveSettings({ deviceName: name });
 }
 
 export function saveIdentity(identity: ScorerIdentity): void {
@@ -77,6 +123,10 @@ export function loadSettings(): ScorerSettings {
       ...SETTINGS_DEFAULTS,
       ...stored,
       lensByCamera: { ...stored.lensByCamera },
+      // Clamped on the way out rather than on the way in, so a value hand-edited into storage — or
+      // left behind by an older build — cannot switch off a limit that exists to protect a battery.
+      cameraOffAfterMinutes: clampMinutes(stored.cameraOffAfterMinutes, GRACE_MINUTES),
+      standbyAfterMinutes: clampMinutes(stored.standbyAfterMinutes, STANDBY_MINUTES),
     };
   } catch {
     return { ...SETTINGS_DEFAULTS };

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
+import { FullscreenButton } from './FullscreenButton';
 import { PairDeviceDialog } from './PairDeviceDialog';
 
 interface TopBarProps {
@@ -11,6 +12,8 @@ interface TopBarProps {
   onGrab: (deviceId: string) => void;
   onRelease: (deviceId: string) => void;
   onForget: (deviceId: string) => void;
+  onSetCamera: (deviceId: string, active: boolean) => void;
+  onPowerOff: (deviceId: string) => void;
 }
 
 /**
@@ -27,6 +30,8 @@ export function TopBar({
   onGrab,
   onRelease,
   onForget,
+  onSetCamera,
+  onPowerOff,
 }: TopBarProps) {
   const [open, setOpen] = useState(false);
   const [pairing, setPairing] = useState(false);
@@ -46,6 +51,7 @@ export function TopBar({
           className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-yellow-500'}`}
           title={connected ? 'Connected' : 'Connecting…'}
         />
+        <FullscreenButton />
         <button
           onClick={() => setOpen((v) => !v)}
           className={`px-3 py-1 text-sm rounded transition-colors bg-gray-800 hover:bg-gray-700 ${
@@ -69,6 +75,8 @@ export function TopBar({
               onGrab={() => onGrab(device.deviceId)}
               onRelease={() => onRelease(device.deviceId)}
               onForget={() => onForget(device.deviceId)}
+              onSetCamera={(active) => onSetCamera(device.deviceId, active)}
+              onPowerOff={() => onPowerOff(device.deviceId)}
             />
           ))}
 
@@ -94,30 +102,84 @@ interface DeviceRowProps {
   onGrab: () => void;
   onRelease: () => void;
   onForget: () => void;
+  onSetCamera: (active: boolean) => void;
+  onPowerOff: () => void;
 }
 
-function DeviceRow({ device, onGrab, onRelease, onForget }: DeviceRowProps) {
+function DeviceRow({ device, onGrab, onRelease, onForget, onSetCamera, onPowerOff }: DeviceRowProps) {
+  const [confirmingPowerOff, setConfirmingPowerOff] = useState(false);
+  // Only a device this tab holds and can reach will hear anything.
+  const reachable = device.active && device.online;
+
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(device)}`} />
-        <span className="truncate">{device.name}</span>
-        <span className="text-gray-500 shrink-0">{statusLabel(device)}</span>
-      </div>
-      <div className="flex gap-2 shrink-0">
-        {device.active ? (
-          <button onClick={onRelease} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
-            Release
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(device)}`} />
+          <span className="truncate">{device.name}</span>
+          <span className="text-gray-500 shrink-0" data-testid="device-status">{statusLabel(device)}</span>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {reachable && (
+            <button
+              onClick={() => onSetCamera(!device.cameraActive)}
+              disabled={device.cameraPending}
+              title={device.cameraActive ? 'Turn this camera off' : 'Turn this camera on'}
+              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
+            >
+              {device.cameraPending ? '…' : device.cameraActive ? 'Camera off' : 'Camera on'}
+            </button>
+          )}
+          {device.active ? (
+            <button onClick={onRelease} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
+              Release
+            </button>
+          ) : (
+            <button onClick={onGrab} className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded transition-colors">
+              Use here
+            </button>
+          )}
+          <button onClick={onForget} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
+            Forget
           </button>
-        ) : (
-          <button onClick={onGrab} className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded transition-colors">
-            Use here
-          </button>
-        )}
-        <button onClick={onForget} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
-          Forget
-        </button>
+        </div>
       </div>
+
+      {/* The device's own words for why its camera is not on. Nothing here could have guessed them. */}
+      {device.cameraError && <p className="text-xs text-yellow-500 pl-4">{device.cameraError}</p>}
+
+      {reachable && (
+        <div className="flex items-center justify-between gap-3 pl-4 text-xs">
+          {confirmingPowerOff ? (
+            <>
+              <span className="text-gray-500">
+                It will disconnect. You will have to walk over to wake it.
+              </span>
+              <span className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => setConfirmingPowerOff(false)}
+                  className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { setConfirmingPowerOff(false); onPowerOff(); }}
+                  className="px-2 py-1 bg-red-700 hover:bg-red-600 rounded transition-colors"
+                >
+                  Power off
+                </button>
+              </span>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmingPowerOff(true)}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              Power off
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -129,7 +191,12 @@ function statusColor(device: DeviceView): string {
   return 'bg-gray-600';
 }
 
+/**
+ * A device that was sent to sleep looks exactly like one whose battery died — the server sees a
+ * closed socket either way — so saying which happened is only possible here, where we know we asked.
+ */
 function statusLabel(device: DeviceView): string {
+  if (device.poweredOff) return 'powered off';
   if (!device.active) return 'not in use here';
   if (device.cameraActive) return 'camera on';
   if (device.online) return 'connected';

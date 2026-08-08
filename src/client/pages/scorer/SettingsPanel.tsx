@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
-import { saveSettings } from '../../lib/scorerStorage';
+import { saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
+import { GRACE_MINUTES, STANDBY_MINUTES, type MinuteBounds } from '../../lib/scorerPower';
 import { Slider } from './Slider';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
@@ -8,8 +9,8 @@ type Vision = ReturnType<typeof useVisionRuntime>;
 interface SettingsPanelProps {
   vision: Vision;
   onCalibrate: () => void;
-  onScreensaverChange: (enabled: boolean) => void;
-  screensaver: boolean;
+  settings: ScorerSettings;
+  onSettingsChange: (settings: ScorerSettings) => void;
   onUnpair: () => void;
 }
 
@@ -23,8 +24,9 @@ const MODEL_LABELS: Record<string, string> = {
  * confident a detection has to be, the zoom, the lens, and what the screen does when nobody is
  * looking. It sits behind a toggle because the scoring screen should be the board, not a console.
  */
-export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screensaver, onUnpair }: SettingsPanelProps) {
+export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange, onUnpair }: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
+  const update = (patch: Partial<ScorerSettings>) => onSettingsChange(saveSettings(patch));
 
   return (
     <div className="w-full max-w-md flex flex-col gap-2 p-4 bg-gray-900 rounded-lg">
@@ -86,17 +88,72 @@ export function SettingsPanel({ vision, onCalibrate, onScreensaverChange, screen
         </span>
         <input
           type="checkbox"
-          checked={screensaver}
-          onChange={(e) => {
-            saveSettings({ screensaver: e.target.checked });
-            onScreensaverChange(e.target.checked);
-          }}
+          checked={settings.screensaver}
+          onChange={(e) => update({ screensaver: e.target.checked })}
           className="w-5 h-5"
         />
       </label>
 
+      <Minutes
+        label="Camera off after"
+        hint="Idle time outside a match. A match starting turns it back on."
+        value={settings.cameraOffAfterMinutes}
+        bounds={GRACE_MINUTES}
+        onChange={(v) => update({ cameraOffAfterMinutes: v })}
+      />
+
+      <Minutes
+        label="Sleep after"
+        hint="Releases the screen and disconnects. Only a tap on this phone brings it back."
+        value={settings.standbyAfterMinutes}
+        bounds={STANDBY_MINUTES}
+        onChange={(v) => update({ standbyAfterMinutes: v })}
+      />
+
       <Unpair onUnpair={onUnpair} />
     </div>
+  );
+}
+
+interface MinutesProps {
+  label: string;
+  hint: string;
+  value: number;
+  bounds: MinuteBounds;
+  onChange: (minutes: number) => void;
+}
+
+/**
+ * One of the two power delays.
+ *
+ * A number rather than a slider: these are set once at a mount and then meant to be forgotten, and
+ * the bounds carry a promise — the floor keeps a device from switching off mid-setup, and the
+ * ceiling is what stops a phone on a charger running its camera all night.
+ */
+function Minutes({ label, hint, value, bounds, onChange }: MinutesProps) {
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm">
+      <span>
+        {label}
+        <span className="block text-xs text-gray-500">{hint}</span>
+      </span>
+      <span className="flex items-center gap-1 shrink-0">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={bounds.min}
+          max={bounds.max}
+          value={value}
+          aria-label={label}
+          // Committed on blur, not per keystroke: clamping mid-typing turns "30" into "3" and then
+          // into the floor before the second digit lands.
+          onChange={(e) => onChange(Number(e.target.value))}
+          onBlur={(e) => onChange(Math.min(Math.max(Math.round(Number(e.target.value)) || bounds.default, bounds.min), bounds.max))}
+          className="w-16 px-2 py-1 text-right bg-gray-950 border border-gray-700 rounded"
+        />
+        <span className="text-gray-500">min</span>
+      </span>
+    </label>
   );
 }
 

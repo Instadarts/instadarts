@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import { e2eNumber } from '../../lib/e2e';
 
 /** The reference's numbers, field-worn, and there is no reason to differ. */
 const IDLE_MS = 30_000;
 const DRIFT_MS = 10_000;
+
+/**
+ * How long to keep watching for the click a touch leaves behind.
+ *
+ * A touch that ends over an element fires `pointerup`, and then the browser synthesises a `click`
+ * shortly afterwards, hit-testing wherever the finger was *at that moment*. By then this overlay is
+ * gone, so without swallowing it the wake tap arrives at whatever button it was covering.
+ */
+const GHOST_CLICK_MS = 500;
 
 interface ScreensaverProps {
   enabled: boolean;
@@ -19,10 +29,14 @@ interface ScreensaverProps {
  *
  * Three things it deliberately does not do:
  *
- *   · **stop the camera.** This is a display state and nothing else — inference, motion gating and
- *     tips all carry on underneath, so a blacked-out phone is still scoring.
- *   · **cover a gesture.** The tap that wakes the screen must not also press whatever was under it,
- *     so the overlay stays up until the finger lifts.
+ *   · **stop the camera, or hold the screen awake.** This is a display state and nothing else —
+ *     inference, motion gating and tips all carry on underneath, so a blacked-out phone is still
+ *     scoring. Powering anything down belongs to [lib/scorerPower.ts](../../lib/scorerPower.ts),
+ *     which owns the wake lock this file used to take.
+ *   · **cover a gesture.** The tap that wakes the screen must not also press whatever was under it.
+ *     The screen stops looking asleep the instant a finger lands, but the overlay itself stays up —
+ *     invisible — until that finger lifts, and then swallows the click the touch leaves behind.
+ *     Waking a phone should never score a dart.
  *   · **dim while somebody is setting the device up.** That is what `suppressed` is for.
  *
  * It also wakes on its own when the scoring state changes, which is what a live connection buys
@@ -31,6 +45,8 @@ interface ScreensaverProps {
  */
 export function Screensaver({ enabled, suppressed, active }: ScreensaverProps) {
   const [asleep, setAsleep] = useState(false);
+  /** A finger is down: the screen already looks awake, but the overlay is still catching the press. */
+  const [revealed, setRevealed] = useState(false);
   const [drift, setDrift] = useState({ x: 30, y: 30 });
   const lastActivity = useRef(Date.now());
 
@@ -45,21 +61,47 @@ export function Screensaver({ enabled, suppressed, active }: ScreensaverProps) {
       setAsleep(false);
       return;
     }
-    const wake = () => {
+    const note = () => {
       lastActivity.current = Date.now();
+    };
+    /**
+     * A key press has nothing to swallow, so it wakes the screen outright.
+     *
+     * A pointer press deliberately does **not**: it only pushes the deadline back, and the overlay
+     * below decides when to go. Dismissing here instead — which is what this used to do — unmounted
+     * the overlay while the finger was still down, so the press landed on whatever it was covering.
+     */
+    const wakeOnKey = () => {
+      note();
       setAsleep(false);
     };
-    for (const event of ['pointerdown', 'keydown'] as const) window.addEventListener(event, wake);
+    window.addEventListener('pointerdown', note);
+    window.addEventListener('keydown', wakeOnKey);
 
+    // Half a minute is too long for a test to sit through, and the behaviour does not change with
+    // the number. Does nothing in a shipped build — see lib/e2e.ts.
+    const idleMs = e2eNumber('screensaverMs') ?? IDLE_MS;
     const timer = setInterval(() => {
-      if (Date.now() - lastActivity.current >= IDLE_MS) setAsleep(true);
-    }, 1000);
+      if (Date.now() - lastActivity.current >= idleMs) setAsleep(true);
+    }, Math.min(1000, idleMs));
 
     return () => {
-      for (const event of ['pointerdown', 'keydown'] as const) window.removeEventListener(event, wake);
+      window.removeEventListener('pointerdown', note);
+      window.removeEventListener('keydown', wakeOnKey);
       clearInterval(timer);
     };
   }, [enabled, suppressed]);
+
+  // Nothing is being caught while the screen is up.
+  useEffect(() => {
+    if (!asleep) setRevealed(false);
+  }, [asleep]);
+
+  const dismiss = () => {
+    lastActivity.current = Date.now();
+    setAsleep(false);
+    swallowGhostClick();
+  };
 
   useEffect(() => {
     if (!asleep) return;
@@ -69,57 +111,45 @@ export function Screensaver({ enabled, suppressed, active }: ScreensaverProps) {
     return () => clearInterval(timer);
   }, [asleep]);
 
-  useScreenWakeLock(enabled);
-
   if (!asleep) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black"
-      // pointerup, not pointerdown: the tap that wakes the screen must not also land on whatever
-      // is underneath it.
-      onPointerUp={() => setAsleep(false)}
+      // Still covering the screen once revealed, and still opaque to pointers — it just stopped
+      // being visible. That gap is the whole trick: the screen responds at once, and the press that
+      // woke it has nowhere else to go.
+      data-testid="screensaver"
+      className={`fixed inset-0 z-50 ${revealed ? 'bg-transparent' : 'bg-black'}`}
+      onPointerDown={() => setRevealed(true)}
+      onPointerUp={dismiss}
+      // A press that turns into a scroll or is taken over by the browser never gets its `pointerup`.
+      onPointerCancel={dismiss}
     >
-      <div
-        className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-1000 text-center"
-        style={{ left: `${drift.x}%`, top: `${drift.y}%` }}
-      >
-        <p className="text-gray-800">InstaDarts</p>
-      </div>
+      {!revealed && (
+        <div
+          className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-1000 text-center"
+          style={{ left: `${drift.x}%`, top: `${drift.y}%` }}
+        >
+          <p className="text-gray-800">InstaDarts</p>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Stop the OS locking the phone, which would kill the camera along with the screen. */
-function useScreenWakeLock(enabled: boolean): void {
-  useEffect(() => {
-    if (!enabled) return;
-    type Sentinel = { release: () => Promise<void> };
-    const api = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<Sentinel> } }).wakeLock;
-    if (!api) return;
-
-    let sentinel: Sentinel | null = null;
-    let released = false;
-
-    const acquire = () => {
-      if (document.visibilityState !== 'visible') return;
-      api.request('screen').then(
-        (lock) => {
-          if (released) void lock.release().catch(() => {});
-          else sentinel = lock;
-        },
-        () => {},
-      );
-    };
-
-    // The lock is dropped whenever the page is hidden, so it has to be taken again on return.
-    acquire();
-    document.addEventListener('visibilitychange', acquire);
-
-    return () => {
-      released = true;
-      document.removeEventListener('visibilitychange', acquire);
-      void sentinel?.release().catch(() => {});
-    };
-  }, [enabled]);
+/**
+ * Take the click a finished touch is about to leave behind, once.
+ *
+ * Capture phase, so it never reaches the button it was aimed at; and on a timer, because a mouse
+ * release and a cancelled gesture produce no click at all and this must not lie in wait for the
+ * next real one.
+ */
+function swallowGhostClick(): void {
+  const swallow = (event: MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    window.removeEventListener('click', swallow, true);
+  };
+  window.addEventListener('click', swallow, true);
+  setTimeout(() => window.removeEventListener('click', swallow, true), GHOST_CLICK_MS);
 }

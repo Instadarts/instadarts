@@ -47,6 +47,11 @@ interface DeviceRecord {
    */
   connected: boolean;
   cameraActive: boolean;
+  /**
+   * Why the camera is not on, when the device tried to start one and could not. Cleared by any
+   * successful start, so it never outlives the condition it describes.
+   */
+  cameraError?: string;
 }
 
 interface Claim {
@@ -192,9 +197,12 @@ export function verifyDevice(deviceId: unknown, token: unknown, name = ''): Devi
   return record;
 }
 
-export function setCameraActive(deviceId: string, active: boolean): void {
+export function setCameraActive(deviceId: string, active: boolean, error?: string): void {
   const device = devices.get(deviceId);
-  if (device) device.cameraActive = active;
+  if (!device) return;
+  device.cameraActive = active;
+  // A camera that is on cannot also have failed to start, so success is what clears the reason.
+  device.cameraError = active ? undefined : error;
 }
 
 export function setDeviceName(deviceId: string, name: string): void {
@@ -211,6 +219,9 @@ export function releaseDevice(deviceId: string): void {
   if (!device) return;
   device.connected = false;
   device.cameraActive = false;
+  // A device that is gone is not a device that refused: an offline row should not also carry the
+  // last thing its camera complained about.
+  device.cameraError = undefined;
   if (!claims.has(deviceId)) devices.delete(deviceId);
 }
 
@@ -319,11 +330,17 @@ export function ownerOf(deviceId: string): string | null {
   return sameSecret(claim.tokenHash, device.tokenHash) ? claim.sessionId : null;
 }
 
+export interface DeviceView {
+  deviceId: string;
+  name: string;
+  cameraActive: boolean;
+  online: boolean;
+  cameraError?: string;
+}
+
 /** Which devices this frontend currently has active, and how each is doing. */
-export function devicesForSession(
-  sessionId: string,
-): { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] {
-  const owned: { deviceId: string; name: string; cameraActive: boolean; online: boolean }[] = [];
+export function devicesForSession(sessionId: string): DeviceView[] {
+  const owned: DeviceView[] = [];
   for (const deviceId of claimsBySession.get(sessionId) ?? []) {
     const claim = claims.get(deviceId);
     // Still checked rather than assumed: the index says what this session asked for, the claim says
@@ -337,6 +354,7 @@ export function devicesForSession(
       name: paired ? device!.name : '',
       cameraActive: online ? device!.cameraActive : false,
       online,
+      ...(online && device!.cameraError ? { cameraError: device!.cameraError } : {}),
     });
   }
   return owned;

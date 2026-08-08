@@ -44,6 +44,8 @@ for the places where that has already gone wrong.
 | [Mode view](#mode-view) | The mode's text for the current leg | `ModeView`, `ViewText`, `mode.view(ctx)` |
 | [Mode panel](#mode-panel) | The mode's own block, across the match | `ModePanel`, `mode.panel(match)` |
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
+| [Scoring](#scoring-and-the-two-power-stages) | A match is running that this device feeds | `scorer_state.scoring`, `resolveScoringTarget` |
+| [Standby](#scoring-and-the-two-power-stages) | Device asleep: wake lock released, socket closed | `PowerStage`, `useScorerPower` |
 
 ---
 
@@ -519,6 +521,10 @@ reports **dart tips** to the server. Several can be combined for one board to im
 - A WebSocket connection is **either** a frontend **or** a scoring device, never both — that
   distinction is `Client.deviceId` and it gates message routing.
 - A scoring device never holds match state. It receives only a projection (`scorer_state`).
+- A device **decides its own power**. The owner can *ask* — `set_device_camera`, `power_off_device`,
+  forwarded to the device as `scorer_command` — but stopping a camera is the only one of those that
+  cannot fail, and the device's own `scorer_camera` report is the only account of what actually
+  happened. Never render a request as if it were a state.
 
 ### Pairing, claiming ("grabbing"), and the camera
 
@@ -537,6 +543,36 @@ Three separate states, in order:
 
 **Online** means the device currently has a socket open. Paired ≠ online ≠ active ≠ camera active;
 the distinctions are load-bearing, so keep them apart in prose too.
+
+### Scoring, and the two power stages
+
+- **Scoring** (`scorer_state.scoring`) — a match is running that this device's tips would feed. A
+  fourth state after the three above, and not the same as *active*: a device claimed all evening
+  between legs is active the whole time and scoring only during it. The server answers it with
+  `resolveScoringTarget`, the same call that decides whether tips are accepted, so the device and
+  the server cannot disagree.
+- **Camera off** — the first power stage. Camera and motion detector stopped after the grace period
+  (default 2 min) with nothing to score. Reversible without anyone present: a match starting brings
+  it back.
+- **Standby** — the second. Wake lock released and the socket deliberately closed, after the longer
+  delay (default 30 min). **One-way**: nothing can wake a sleeping phone, so only a tap on the
+  device itself comes back from it. Say "standby" or "asleep", not "off" — the app is still loaded.
+- **Power off** — the owner sending a device to standby from the frontend. The same end state,
+  reached deliberately rather than by a clock. There is no matching power *on*.
+
+Both stages are decided by [`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts) and belong to
+the device: the server never switches anything off, it only says whether a device is scoring.
+
+### What belongs to the pairing, and what belongs to the phone
+
+Unpairing throws away the **identity** — the `deviceId` and token — and nothing else. Everything
+that describes the hardware survives it: the device's **name**, its lens calibration, its remembered
+camera and zoom, and its power delays. A phone somebody labelled "Board camera" and mounted above
+their board is still that phone after it is handed to another browser, and it says so as soon as it
+pairs.
+
+The distinction is worth keeping in prose too: a *pairing* is a relationship, a *device* is a thing
+on a wall.
 
 ### Tip, throw window, tracked dart, takeout
 

@@ -12,14 +12,14 @@ import { lensForCamera, loadSettings, saveSettings, setLensForCamera, type Score
 interface Options {
   /** Fires for every inference that solved a homography — an empty array is the takeout signal. */
   onTips: (tips: BoardTip[], ms: number) => void;
-  onCameraActive: (active: boolean) => void;
+  /**
+   * Whether a camera is open, and why not when a start was attempted and failed. The reason travels
+   * because the person who asked for the camera may be looking at a different screen entirely.
+   */
+  onCameraActive: (active: boolean, error?: string) => void;
 }
 
-/** `?e2e=1`, and only in a build that is allowed to have it. It must never ship enabled. */
-function exposeForTests(): boolean {
-  if (!import.meta.env.DEV && !import.meta.env.VITE_E2E) return false;
-  return new URLSearchParams(window.location.search).get('e2e') === '1';
-}
+import { e2eEnabled } from '../lib/e2e';
 
 /**
  * Owns the vision runtime for the lifetime of the scoring page.
@@ -105,7 +105,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     // The e2e seam. It replaces nothing in the pipeline — the model, the preprocessor, the
     // homography and the wire are all the real ones; a test just needs a way to ask for one
     // inference at a known moment instead of waiting on a motion gate it cannot control.
-    if (exposeForTests()) {
+    if (e2eEnabled()) {
       (window as unknown as { __scorer?: VisionRuntime }).__scorer = runtime;
     }
 
@@ -155,9 +155,33 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
       setCameraActive(true);
       onCameraActiveRef.current(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      onCameraActiveRef.current(false, message);
     }
   }, [syncZoom]);
+
+  /**
+   * Open whichever camera this device used last, without being told which.
+   *
+   * The single way in. The button, a match starting and the owner's remote switch all arrive here,
+   * which is what stops them drifting into three slightly different ways to open a camera. Returns
+   * whether one actually opened — a caller that told somebody else it would has to know.
+   */
+  const startPreferred = useCallback(async (): Promise<boolean> => {
+    const runtime = runtimeRef.current;
+    if (!runtime) return false;
+    const found = await listCameras();
+    if (found.length === 0) {
+      // listCameras has already put the reason in `error`; it still has to travel, because a start
+      // nobody sees fail is a start that looks like it worked.
+      onCameraActiveRef.current(false, 'No camera available');
+      return false;
+    }
+    const preferred = runtime.preferredCamera(found) ?? found[0];
+    await start(preferred.deviceId);
+    return runtime.camera.active;
+  }, [listCameras, start]);
 
   const stop = useCallback(async () => {
     const runtime = runtimeRef.current;
@@ -225,6 +249,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     error,
     listCameras,
     start,
+    startPreferred,
     stop,
     applyZoom,
     setModel,

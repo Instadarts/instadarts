@@ -10,6 +10,7 @@ import { scoringSessionCount } from './scoring/store';
 import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
+import { startHeartbeat } from './heartbeat';
 import { IS_PRODUCTION, QUIET } from './env';
 
 // Find the installed game modes. A deployment adds or removes one by adding or removing a file in
@@ -82,6 +83,10 @@ if (IS_PRODUCTION) {
     res.sendFile('index.html', { root: 'dist/client' });
   });
 }
+
+// Cuts connections that stopped answering without closing — the only way a vanished phone is ever
+// noticed, since nothing else on the server distinguishes it from a quiet one.
+startHeartbeat(wss);
 
 wss.on('connection', (ws) => {
   // Refused here rather than later: a connection turned away at the handshake costs nothing to

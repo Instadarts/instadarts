@@ -14,9 +14,11 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * SVG is y-down, so we flip: svgY = 1_000_000 - boardY.
  */
 export async function clickBoard(page: Page, boardX: number, boardY: number) {
-  const svg = page.locator('svg').first();
+  // Named, not "the first svg on the page": that used to be the board, and then an icon appeared
+  // above it in the top bar and every dart in the suite landed on a button instead.
+  const svg = page.getByTestId('dartboard');
   const box = await svg.boundingBox();
-  if (!box) throw new Error('SVG bounding box not found');
+  if (!box) throw new Error('dartboard bounding box not found');
 
   const px = box.width * (boardX / 1_000_000);
   const py = box.height * (1 - boardY / 1_000_000);

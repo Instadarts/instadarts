@@ -107,6 +107,46 @@ that.
 expected — both that throws are picked up and that it stays quiet when it should. If it does not,
 `MOTION_DEFAULTS` in `motion.ts` is where that is decided.
 
+### Power management
+
+A scoring device switches its own camera off, and eventually itself, when nothing needs it — see
+[`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts). The rules are pinned by unit tests and the
+e2e suite drives the delays down to seconds, but three of the browser behaviours the design rests on
+are unreachable from a headless run:
+
+- **Re-opening a camera without a prompt.** After `track.stop()`, a later `getUserMedia` should
+  resolve straight away because the origin's permission is already granted. The virtual camera in
+  tests grants everything, so it can never show this failing.
+- **iOS Safari's permission lifetime.** Safari's grant is per page-session rather than per origin,
+  so a device that reloaded may be prompted again — and a prompt raised from a timer rather than a
+  tap is one nobody is there to answer.
+- **A camera asked for from the other room.** The owner's switch, and the automatic start when a
+  match begins, both need the phone's page to be visible. A backgrounded tab may refuse or mute the
+  track. It is expected to fail there; what matters is that it *says* so, through `scorer_camera`'s
+  error, and that the owner's row shows it.
+- **The wake lock actually being released, and the phone actually sleeping.** Releasing it does not
+  turn the screen off — it lets the OS do so on its own schedule, which no test environment has.
+- **Whether the socket survives sleep on Android.** It may not, which is fine: the device closes it
+  deliberately on the way into standby, and the server's heartbeat
+  ([`heartbeat.ts`](../src/server/heartbeat.ts)) reclaims anything that dies without closing.
+
+*To check:* mount the phone, pair it, and leave it alone through an evening. Confirm the camera
+stops when it should and comes back when a match starts, that the device sleeps and that a tap
+wakes it, and — the only measurement that answers the question this was built for — that the battery
+is in a reasonable state the next morning.
+
+### Full screen
+
+There is no fullscreen button on iPhone, because Safari there has no element fullscreen at all —
+only a `<video>` can go fullscreen. [`FullscreenButton`](../src/client/components/FullscreenButton.tsx)
+renders nothing when `requestFullscreen` is missing rather than offering something that throws. The
+only route to a chrome-less app on that platform is Add to Home Screen with a web manifest, which
+this repository does not have.
+
+*To check:* on an iPhone, confirm no button appears and nothing looks broken by its absence. On
+Android, confirm the back gesture leaving full screen puts the button back into its "enter" state
+rather than desyncing it.
+
 ## Changing the tuning
 
 The constants in [`shared/vision/constants.ts`](../src/shared/vision/constants.ts) and

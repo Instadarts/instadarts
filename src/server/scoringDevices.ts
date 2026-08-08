@@ -12,7 +12,7 @@ import type { WebSocket } from 'ws';
 import type { MatchState } from '../shared/types';
 import type { Client } from './types';
 import { getMatch, updateMatch } from './store';
-import { sanitizeName, validateDeviceClaims, validateTips } from './validation';
+import { sanitizeCameraError, sanitizeName, validateDeviceClaims, validateTips } from './validation';
 import { getScoringSession, dropScoringSessions } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
 import { canAcceptDevice } from './capacity';
@@ -62,7 +62,13 @@ function publishDevicesState(sessionId: string): void {
   send(ws, { type: 'devices_state', devices: devicesForSession(sessionId) });
 }
 
-/** Tell a scoring device where it stands. A retained topic: pushed on connect and on every change. */
+/**
+ * Tell a scoring device where it stands. A retained topic: pushed on connect and on every change.
+ *
+ * `scoring` is the one the device acts on. It comes from `resolveScoringTarget` — the same call
+ * that decides whether tips are accepted — so a device powering its camera down because it is not
+ * scoring can never be a device whose tips would have been taken.
+ */
 function publishScorerState(deviceId: string): void {
   const ws = deviceSockets.get(deviceId);
   if (!ws) return;
@@ -70,8 +76,14 @@ function publishScorerState(deviceId: string): void {
   send(ws, {
     type: 'scorer_state',
     status: owner ? 'active' : 'waiting',
+    scoring: owner ? resolveScoringTarget(owner) !== null : false,
     cameras: owner ? activeCameras(owner).length : 0,
   });
+}
+
+/** Push to a set of devices captured earlier — see `devicesScoringInto`. */
+export function publishScorerStateFor(deviceIds: readonly string[]): void {
+  for (const deviceId of deviceIds) publishScorerState(deviceId);
 }
 
 /** The devices this frontend has active with a running camera. */
@@ -140,11 +152,16 @@ export function commitScoredMatch(match: MatchState): void {
   }
   updateMatch(match.id, match);
   broadcastToMatch(match.id, matchMessage('match_state', match));
-  for (const deviceId of scoringDevicesFor(match.id)) publishScorerState(deviceId);
+  publishScorerStateFor(devicesScoringInto(match.id));
 }
 
-/** Every scoring device whose owner is playing in this match. */
-function scoringDevicesFor(matchId: string): string[] {
+/**
+ * Every scoring device whose owner is playing in this match.
+ *
+ * Exported because a match ending clears `client.matchId` before anyone can be told, so the callers
+ * that tear a match down have to capture the list first and push afterwards.
+ */
+export function devicesScoringInto(matchId: string): string[] {
   const found: string[] = [];
   for (const [, client] of allClients()) {
     if (client.deviceId || client.matchId !== matchId || client.isSpectator) continue;
@@ -196,6 +213,42 @@ export function handleDeactivateDevice(ws: WebSocket, msg: any): void {
   if (!unclaimDevice(msg.deviceId, client.sessionId)) return;
   publishScorerState(msg.deviceId);
   publishDevicesState(client.sessionId);
+}
+
+/**
+ * A frontend asking one of its devices to start or stop its camera.
+ *
+ * Nothing is recorded here and nothing is answered. The device reports what actually happened
+ * through `scorer_camera`, and that report — not this request — is what the owner's screen shows.
+ * Sending an optimistic `devices_state` would put a camera "on" that may never have opened.
+ */
+export function handleSetDeviceCamera(ws: WebSocket, msg: any): void {
+  const device = commandableDevice(ws, msg.deviceId);
+  if (!device) return;
+  send(device, { type: 'scorer_command', command: msg.active ? 'camera_on' : 'camera_off' });
+}
+
+/** A frontend sending one of its devices to standby. One-way: nothing here can bring it back. */
+export function handlePowerOffDevice(ws: WebSocket, msg: any): void {
+  const device = commandableDevice(ws, msg.deviceId);
+  if (!device) return;
+  send(device, { type: 'scorer_command', command: 'power_off' });
+}
+
+/**
+ * The socket of a device this connection is allowed to command, if there is one.
+ *
+ * The claim is the authority: a device answers to whoever currently holds it and to nobody else, so
+ * a stale tab or another user naming a device id gets silence rather than a camera. Silence rather
+ * than an error for the same reason the other device handlers are silent — the owner learns what
+ * its devices are doing from `devices_state`, which is where a command that did nothing shows up as
+ * nothing changing.
+ */
+function commandableDevice(ws: WebSocket, deviceId: unknown): WebSocket | null {
+  const client = getClient(ws);
+  if (!client || client.deviceId || typeof deviceId !== 'string') return null;
+  if (ownerOf(deviceId) !== client.sessionId) return null;
+  return deviceSockets.get(deviceId) ?? null;
 }
 
 export function handleScorerPair(ws: WebSocket, msg: any): void {
@@ -274,7 +327,7 @@ export function handleScorerCamera(ws: WebSocket, msg: any): void {
   const client = getClient(ws);
   if (!client?.deviceId) return;
 
-  setCameraActive(client.deviceId, Boolean(msg.active));
+  setCameraActive(client.deviceId, Boolean(msg.active), sanitizeCameraError(msg.error) ?? undefined);
   const owner = ownerOf(client.deviceId);
   if (owner) {
     // A camera leaving must leave the roster at once, or every throw window afterwards waits for a

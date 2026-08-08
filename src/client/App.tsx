@@ -90,6 +90,8 @@ export function App() {
         onGrab={devices.grab}
         onRelease={devices.release}
         onForget={devices.forget}
+        onSetCamera={devices.setCamera}
+        onPowerOff={devices.powerOff}
       />
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">
       <Routes>

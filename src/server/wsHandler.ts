@@ -37,15 +37,19 @@ import {
 } from './connections';
 import {
   commitScoredMatch,
+  devicesScoringInto,
   handleActivateDevices,
   handleCreatePairingCode,
   handleDeactivateDevice,
+  handlePowerOffDevice,
   handleScorerCamera,
   handleScorerHello,
   handleScorerName,
   handleScorerPair,
   handleScorerTips,
   handleScorerUnpair,
+  handleSetDeviceCamera,
+  publishScorerStateFor,
   releaseScoringState,
 } from './scoringDevices';
 
@@ -233,6 +237,12 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'deactivate_device':
       handleDeactivateDevice(ws, msg);
       break;
+    case 'set_device_camera':
+      handleSetDeviceCamera(ws, msg);
+      break;
+    case 'power_off_device':
+      handlePowerOffDevice(ws, msg);
+      break;
     case 'scorer_pair':
       handleScorerPair(ws, msg);
       break;
@@ -275,6 +285,7 @@ setLifecycleHandlers({
   cancelIdleMatch(match: MatchState): void {
     endMatch(match, null);
     broadcastToMatch(match.id, matchMessage('match_finished', match));
+    publishScorerStateFor(devicesScoringInto(match.id));
   },
 
   /**
@@ -286,6 +297,9 @@ setLifecycleHandlers({
       if (!match.rematchVotes[player.id]) match.rematchVotes[player.id] = 'declined';
     }
     broadcastToMatch(match.id, { type: 'match_closed' });
+    // Captured before the clients are sent home: a device is found through its owner's `matchId`,
+    // and the loop below is about to erase every one of them.
+    const devices = devicesScoringInto(match.id);
     for (const [, client] of allClients()) {
       if (client.matchId !== match.id) continue;
       client.matchId = null;
@@ -294,6 +308,7 @@ setLifecycleHandlers({
     }
     dropScoringSessions(match.id);
     deleteMatch(match.id);
+    publishScorerStateFor(devices);
   },
 
   /** A lobby nobody has touched for the idle period. */
@@ -520,6 +535,9 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
   }
 
   broadcastToMatch(match.id, matchMessage('match_started', match));
+  // The one push a scoring device cannot do without: it is what starts a camera that powered itself
+  // down between matches. A device only ever learns it is wanted from `scorer_state`.
+  publishScorerStateFor(devicesScoringInto(match.id));
 }
 
 function handleAddDart(ws: WebSocket, msg: any): void {
@@ -618,6 +636,9 @@ function leaveAsSpectator(client: Client): void {
  * always converge — there is no way to leave the question open by disappearing.
  */
 function leaveMatch(_ws: WebSocket, client: Client): void {
+  // Captured up front: below, this client's own `matchId` is cleared, and its devices are found
+  // through it.
+  const devices = devicesScoringInto(client.matchId!);
   const match = getMatch(client.matchId!);
   if (match) {
     if (client.playerId) {
@@ -637,6 +658,7 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
   }
   client.matchId = null;
   client.playerId = null;
+  publishScorerStateFor(devices);
 }
 
 /**
@@ -861,6 +883,8 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     other.matchId = rematch.id;
   }
   broadcastToMatch(rematch.id, matchMessage('match_started', rematch));
+  // Looked up on the new match, because the clients have already been moved onto it.
+  publishScorerStateFor(devicesScoringInto(rematch.id));
 }
 
 function handleSwapPlayers(ws: WebSocket, _msg: any): void {

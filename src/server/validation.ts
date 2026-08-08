@@ -22,6 +22,21 @@ export function sanitizeName(raw: unknown): string | null {
   return trimmed;
 }
 
+/**
+ * A scoring device's reason for not having a camera on, on its way to the owner's screen.
+ *
+ * Longer than a name because it carries a browser's own wording for a refused camera, and trusted
+ * no further than one: a device is a browser like any other, and this string is rendered by the
+ * frontend that claimed it. Absent and unusable both come back as null.
+ */
+const CAMERA_ERROR_MAX = 120;
+
+export function sanitizeCameraError(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(CONTROL_CHARS, '').slice(0, CAMERA_ERROR_MAX);
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 // ============================================================
 // Match settings
 // ============================================================

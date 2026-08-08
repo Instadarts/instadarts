@@ -10,10 +10,19 @@ interface Options {
    * not, or a scorer opened in the same tab would try to rejoin the player's match.
    */
   resumeSession?: boolean;
+  /**
+   * Hang up and stay hung up. A scoring device that has given up waiting closes its socket to save
+   * both ends the cost of holding it, and the backoff below must not immediately undo that — which
+   * it would, one second later, since every other close here is one worth retrying.
+   */
+  standby?: boolean;
 }
 
 export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
   const resumeSession = options.resumeSession !== false;
+  const standby = options.standby === true;
+  const standbyRef = useRef(standby);
+  standbyRef.current = standby;
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -68,7 +77,7 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
 
     ws.onclose = () => {
       setConnected(false);
-      if (intentionalClose.current) return;
+      if (intentionalClose.current || standbyRef.current) return;
       // Auto-reconnect with exponential backoff
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 10000);
       reconnectAttempt.current++;
@@ -85,13 +94,21 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
   }, []);
 
   useEffect(() => {
+    if (standby) {
+      // Anything queued while asleep would be sent on waking, minutes later, describing a moment
+      // that has passed. Nothing here is worth that.
+      pendingMessages.current = [];
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+      return;
+    }
     connect();
     return () => {
       intentionalClose.current = true;
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [connect, standby]);
 
   return { send, connected };
 }

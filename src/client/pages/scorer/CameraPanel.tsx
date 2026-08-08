@@ -6,6 +6,8 @@ type Vision = ReturnType<typeof useVisionRuntime>;
 
 interface CameraPanelProps {
   vision: Vision;
+  /** The device switched the camera off to save battery, rather than the camera failing. */
+  poweredDown: boolean;
 }
 
 /**
@@ -22,7 +24,7 @@ const DOT: Record<string, string> = {
   triggered: 'bg-green-400',
 };
 
-export function CameraPanel({ vision }: CameraPanelProps) {
+export function CameraPanel({ vision, poweredDown }: CameraPanelProps) {
   const { refs } = vision;
   const [selected, setSelected] = useState('');
 
@@ -32,14 +34,13 @@ export function CameraPanel({ vision }: CameraPanelProps) {
     setSelected(vision.cameras[0].deviceId);
   }, [vision.cameras, selected]);
 
-  const enable = async () => {
-    const found = await vision.listCameras();
-    if (found.length === 0) return;
-    const runtime = vision.runtimeRef.current;
-    const preferred = runtime?.preferredCamera(found) ?? found[0];
-    setSelected(preferred.deviceId);
-    await vision.start(preferred.deviceId);
-  };
+  // Whichever camera opened is the one the picker should be showing.
+  useEffect(() => {
+    if (vision.cameraActive && vision.cameraLabel) {
+      const opened = vision.cameras.find((c) => c.label === vision.cameraLabel);
+      if (opened) setSelected(opened.deviceId);
+    }
+  }, [vision.cameraActive, vision.cameraLabel, vision.cameras]);
 
   return (
     <div className="w-full max-w-md flex flex-col gap-3">
@@ -69,13 +70,20 @@ export function CameraPanel({ vision }: CameraPanelProps) {
           </div>
         )}
         {!vision.cameraActive && (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            {/* A camera that was switched off on purpose is not a camera that failed, and the
+                difference is the whole answer to "why is this thing not working". */}
+            {poweredDown && (
+              <p className="text-sm text-gray-400" data-testid="powered-down">
+                Camera off to save battery
+              </p>
+            )}
             <button
-              onClick={enable}
+              onClick={() => void vision.startPreferred()}
               disabled={!vision.ready}
               className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
             >
-              {vision.ready ? 'Start camera' : 'Loading model…'}
+              {!vision.ready ? 'Loading model…' : poweredDown ? 'Resume' : 'Start camera'}
             </button>
           </div>
         )}

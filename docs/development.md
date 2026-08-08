@@ -66,6 +66,47 @@ curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is hel
 Anything that is not a positive whole number is ignored in favour of the default — a `NaN` there
 would make every comparison false and silently disable the limits that divide from it.
 
+### Connections that vanish without closing
+
+A phone whose radio drops sends no FIN, so its socket, its client record and its device claim would
+otherwise sit there until TCP keepalive gives up — a little over two hours on Linux.
+[`heartbeat.ts`](../src/server/heartbeat.ts) pings every 30 s and cuts anything that missed the last
+round, so the worst case is about a minute. It cuts with `terminate()`, which fires the socket's
+ordinary `close`, so everything that already happens on a disconnect still happens.
+
+It is the backstop, not the main path: a scoring device that powers itself down closes cleanly and
+frees its slot at once.
+
+## How a scoring device manages its own power
+
+Two timers, in [`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts), and nothing else:
+
+```
+short timer   runs while   !scoring        fires → camera and motion detector off
+long timer    runs while   !cameraActive   fires → wake lock released, socket closed
+```
+
+Both reset on a touch, a key, or a command from the owner. The defaults are 2 and 30 minutes,
+settable on the device between 1–10 and 10–600.
+
+`scoring` is a field on `scorer_state`, and it is the server's own answer to "would I accept this
+device's tips" — `resolveScoringTarget`, the same call that gates the tips themselves. That is what
+makes a match starting, a match ending, a re-match, being unclaimed, being disconnected and being
+claimed mid-match all one condition rather than six rules. The one push that must not be missed is
+`handleStartMatch`'s: a camera that powered down has nothing else to bring it back.
+
+Two things worth knowing before changing any of it:
+
+- **A stage never starts a camera.** Stages only power things down. Coming back is a match starting
+  or a person pressing something — otherwise the touch that resets the timers would turn the camera
+  back on the instant somebody pressed "Off".
+- **The camera is started on the *edge* of a match beginning**, not whenever one is running, so
+  turning it off mid-match sticks.
+
+The e2e suite drives the delays down through `?e2e=1&graceMs=…&standbyMs=…`
+([`lib/e2e.ts`](../src/client/lib/e2e.ts)), which does nothing in a shipped build. What it cannot
+reach is in [vision.md](vision.md#power-management).
+
 ### `npm run build` does not typecheck the client
 
 It is `vite build && tsc -p tsconfig.server.json --noEmit`. Vite transpiles the client with esbuild,

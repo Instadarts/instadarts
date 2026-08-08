@@ -42,8 +42,12 @@ test.describe('scoring device pairing', () => {
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
 
-    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
     await expect(player.getByText('connected')).toBeVisible();
+
+    // The scoring screen is the one that spends a whole evening mounted, so it is the one that most
+    // wants the browser's chrome out of the way.
+    await expect(scorer.page.getByTestId('fullscreen')).toBeVisible();
 
     await frontend.close();
     await scorer.context.close();
@@ -57,7 +61,7 @@ test.describe('scoring device pairing', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
-    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
 
     await scorer.page.reload();
     await player.reload();
@@ -65,7 +69,7 @@ test.describe('scoring device pairing', () => {
     // Neither side asks anyone to pair again: the device still has its token, the browser still
     // has the hash, and that is all the server needs to recognise them.
     await expect(scorer.page.getByPlaceholder('CODE')).toHaveCount(0);
-    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
 
     await player.getByRole('button', { name: 'Cameras' }).first().click();
     await expect(player.getByText('connected')).toBeVisible();
@@ -110,7 +114,8 @@ test.describe('scoring device pairing', () => {
     await pairScorer(scorer.page, await requestPairingCode(player));
     await expect(player.getByText('connected')).toBeVisible();
 
-    // Named first, to show that unpairing takes the identity and leaves the settings.
+    // Named first, to show that unpairing takes the identity and leaves everything describing the
+    // phone itself.
     await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
     await scorer.page.getByPlaceholder('Name this device').blur();
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
@@ -125,13 +130,17 @@ test.describe('scoring device pairing', () => {
     const newOwner = await other.newPage();
     await newOwner.goto('/');
     await pairScorer(scorer.page, await requestPairingCode(newOwner));
-    await expect(scorer.page.getByText('Scoring for a player')).toBeVisible();
+    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
     await expect(newOwner.getByText('connected')).toBeVisible();
 
-    // The settings survived; the name did not, because that is part of the identity.
+    // The name and the settings both survived: they describe this phone on this mount, and none of
+    // that changed by it being handed to somebody else. The new owner is told the name at once,
+    // rather than being left with the placeholder it invented.
+    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('Board camera');
+    await expect(newOwner.getByText('Board camera')).toBeVisible();
+
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
     await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
-    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('');
 
     // And the browser it left holds a device that will never come back: it is told nothing about
     // the unpairing, so what it sees is a phone that went offline and stayed there. Its device

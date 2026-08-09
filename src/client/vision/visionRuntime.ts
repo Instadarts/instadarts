@@ -16,7 +16,10 @@ import { createMotionDetector, type MotionDetector, type MotionReport, type Moti
 import { createCamera, listCameras, preferredCamera, type Camera, type CameraChoice } from './camera';
 import { processPredictions, type PipelineResult } from './predictionPipeline';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
-import type { BoardTip, Keypoint } from '../../shared/vision/types';
+import type { BoardTip, Keypoint, Matrix3x3 } from '../../shared/vision/types';
+import type { Region } from '../../shared/media';
+import { STILL, clampRegion } from '../../shared/media';
+import { captureCrop, frameGeometry, regionToCrop, type Capture } from './stillCapture';
 
 export type VisionStatus = {
   stage: 'model' | 'camera' | 'motion' | 'error';
@@ -63,6 +66,16 @@ export interface VisionRuntime {
   readonly modelKey: string;
   /** Side of the square the model is fed — the space keypoints are normalised in. */
   readonly inputSize: number;
+  /**
+   * Photograph a square of the board, as a still request asks for.
+   *
+   * Null when there is nothing to answer with: no camera running, or the board has not been located
+   * since it started. Both are honest answers — a crop this device could not place is not evidence
+   * of anything, and a picture of the wrong part of the board is worse than no picture.
+   */
+  captureStill: (region: Region) => Promise<Capture | null>;
+  /** Whether the board has been located since the camera started, so a region can be placed at all. */
+  readonly located: boolean;
   /** Keep a copy of each inference's input square, for the frozen calibration frame. */
   setKeepInputFrame: (on: boolean) => void;
   /** Paint that copy into a 2D context; false when no frame has been kept yet. */
@@ -89,6 +102,16 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   // WebGPU path never populates that (model.js:215).
   let keepInputFrame = false;
   let inputFrame: HTMLCanvasElement | null = null;
+  /**
+   * The last homography this camera solved, kept so a still can be framed from a moment when the
+   * board did not happen to resolve.
+   *
+   * A mounted camera stands still, so yesterday's answer is almost always today's — and the cost of
+   * insisting on a fresh one is losing the evidence for a dart because a hand was in the way. It is
+   * dropped in `stop()`, so it can never outlive the camera session that produced it. (A maximum age
+   * would be the next refinement, and is deliberately not here.)
+   */
+  let lastHomography: Matrix3x3 | null = null;
 
   function captureInputFrame() {
     if (!keepInputFrame) return;
@@ -140,6 +163,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // NOT an empty board. Reporting it as one would read as a takeout and submit the visit
       // while the darts are still in it, so nothing is published for such a frame.
       if (!result) return [];
+      lastHomography = result.homography;
 
       const tips = result.tips.map((tip) => ({ x: tip.x, y: tip.y, confidence: tip.confidence }));
       // Published on EVERY inference that solved a homography, including ones that found nothing:
@@ -190,7 +214,28 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // left to scan.
       camera.stop();
       motion.reset();
+      // The homography described where a board was in *that* camera session's frames. Kept across
+      // one, it would frame a still from a picture that no longer exists.
+      lastHomography = null;
       onStatus({ stage: 'camera', text: 'stopped' });
+    },
+
+    get located() { return lastHomography !== null; },
+
+    async captureStill(region: Region) {
+      if (!camera.active || !lastHomography) return null;
+      if (!video.videoWidth || !video.videoHeight) return null;
+
+      const { crop, frame } = frameGeometry(video);
+      const rect = regionToCrop({
+        region: clampRegion(region),
+        homography: lastHomography,
+        lensCalibration,
+        crop,
+        frame,
+      });
+      if (!rect) return null;
+      return captureCrop(video, rect, STILL.size, STILL.mime, STILL.quality);
     },
 
     async unload() {

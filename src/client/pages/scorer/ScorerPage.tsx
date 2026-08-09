@@ -5,6 +5,7 @@ import type { PendingCommand, ScorerLinkStatus } from '../../hooks/useScorerLink
 import type { PowerStage } from '../../lib/scorerPower';
 import type { BoardTip } from '../../../shared/vision/types';
 import type { MediaTier } from '../../../shared/media';
+import type { StillSource } from '../../hooks/useStillResponder';
 import { loadSettings } from '../../lib/scorerStorage';
 import { e2eNumber } from '../../lib/e2e';
 import { CameraPanel } from './CameraPanel';
@@ -34,6 +35,11 @@ interface ScorerPageProps {
    * should stop a stream somebody is watching right now rather than at the next reload.
    */
   onMediaChange: (tier: MediaTier) => void;
+  /**
+   * Filled in with whatever can currently take a picture, for the still responder that lives above.
+   * The camera is here and the mesh is up there; this is how the two meet.
+   */
+  stillSource: React.MutableRefObject<StillSource | null>;
 }
 
 type View = 'scoring' | 'settings' | 'calibration';
@@ -51,8 +57,13 @@ export function ScorerPage({
   onTips,
   onCameraActive,
   onMediaChange,
+  stillSource,
 }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
+
+  // Assigned during render rather than in an effect: a still request can arrive before effects have
+  // run, and the honest answer to one is the camera as it is now.
+  stillSource.current = { capture: vision.captureStill, located: vision.located };
   const [view, setView] = useState<View>('scoring');
   const [settings, setSettings] = useState(() => loadSettings());
 

@@ -4,9 +4,10 @@ The optional feature that lets the people in a match see something: a board, and
 other. It is off in one place and on in one place, and where a peer connection cannot be made it is
 simply unavailable rather than degraded.
 
-**What exists today is the transport.** Links come up between every pair that needs one, each with
-two datachannels, and nothing yet sends a picture through them. The encoder, the decoder, the policy
-for which link to open when, and every piece of user interface are ⏳ — see
+**What exists today is the transport, and stills on top of it.** Links come up between every pair
+that needs one, each with two datachannels, and a camera will photograph a square of its board on
+request — which is what puts a picture of each dart under the dart slots. Live video is ⏳: the
+encoder, the decoder and the policy for which link to open when are all still to come. See
 [What is not built](#what-is-not-built).
 
 ---
@@ -68,6 +69,101 @@ Between two frontends it stays symmetric: either may grow a player camera later.
 
 Both rules are about *media*. The control channel is open in both directions regardless, or a viewer
 could not ask a camera for a keyframe or a still.
+
+## Asking a camera for a picture
+
+A **still request** names a square of a board and gets a photograph of it back. Dart evidence is the
+first thing built on it and deliberately not the last: the protocol is "a region of a board, on
+demand", and it knows nothing about darts.
+
+### A region
+
+```ts
+interface Region { cx: number; cy: number; size: number }   // normalized [0,1], board space
+```
+
+**Board space**, so a request says *what to look at* and never *where to point*. The same region
+means the same thing from any camera, and the asking side needs to know nothing about lenses, mounts
+or angles. `{0.5, 0.5, 1}` is the whole board and is what an absent region means; dart evidence is
+`(dart.x / BOARD_MAX, dart.y / BOARD_MAX, 0.25)`.
+
+**The capturing device is the authority on what is valid**, and runs `clampRegion` over anything that
+arrives however friendly the sender looked. A region that would fall off the edge has its centre
+*moved towards the middle* rather than being rejected or shrunk — a dart in the 20 bed is near the
+top, and the useful answer is the closest square that still holds it. So `{0.5, 1, 1}` becomes
+`{0.5, 0.5, 1}`.
+
+### From board space to pixels
+
+The one place in the app where the geometry runs backwards
+([`stillCapture.ts`](../src/client/vision/stillCapture.ts)):
+
+```
+board point ──(inverse homography)──▶ undistorted normalized
+             ──(distortNormalizedPoint)──▶ normalized frame
+             ──(the model's centre-square crop)──▶ video pixels
+```
+
+The forward trip is what the pipeline does on every inference; only the inverse is new. The region's
+four corners are mapped and the **bounding square** is cut out — a board seen at an angle is not a
+rectangle, and the dart then looks the way the camera saw it, which is what makes it evidence rather
+than a diagram.
+
+**The device keeps the last homography it solved**, because a mounted camera stands still: a frame in
+which the board happens not to resolve does not cost the evidence. It is dropped when the camera
+stops, so it can never outlive the session that produced it.
+
+### What a capture costs
+
+One `drawImage` with a source rectangle — crop and scale in a single operation, straight into a
+canvas that is already the still's size — and then the JPEG. The canvas and its context are **made
+once and kept**, like the preprocessing canvas in `model.ts`; a capture allocates nothing but the
+picture it returns. A burst of three darts shares them.
+
+Measured in the e2e container: **1–2ms to draw, 1–9ms to encode, ~9–24ms round trip** for a ~29kB
+still, the first of a run being the slow one.
+
+The capture draws on the **CPU** (`DRAW_ON_CPU` in
+[`stillCapture.ts`](../src/client/vision/stillCapture.ts)), which measured marginally slower and is
+right anyway: at a twenty-millisecond round trip nobody can feel those milliseconds, and the scarce
+resource on a scoring device is the GPU the detection model is using, not them. The diagnostics panel
+shows `capture · wait/draw/encode` on a real device if that ever needs revisiting, and the **spread
+matters more than the median** — a readback stalling behind the model is an occasional slow capture,
+not a uniformly slow one.
+
+### On the wire
+
+All of it on the **control channel** — reliable and ordered, because an image that arrives in pieces
+is not an image. This is the first traffic that flows *towards* a scoring device, which is why
+`send`/`recv` are documented as being about media only.
+
+| Message | |
+| --- | --- |
+| `still_request` | `{ id, region?, tag? }` |
+| `still` | `{ id, tag?, width, height, mime }` **and the JPEG bytes, in the same message** |
+| `still_refused` | `{ id, reason }` — `no_frame`, `not_located` or `busy` |
+
+A still is one self-describing binary message: `[uint32 headerLength][JSON][bytes]`. A header sent
+separately and paired with "whatever binary arrives next" stops working the moment two are in
+flight, and three darts landing in one throw window makes that ordinary.
+
+`id` is the requester's, echoed back, so an answer is matched to its own request. `tag` is an opaque
+value the device echoes without interpreting — dart evidence puts `{ dart: <index> }` in it, and that
+is what lets an **observer**, who never sent a request and has no id to match, place the picture under
+the right slot.
+
+### Who may ask, and who receives
+
+**Only the owner asks.** A camera honours a request from the peer its roster marks
+[`own`](#the-two-gates-on-a-board-camera) and from nobody else; anyone else gets silence rather than a
+refusal, since a peer with no business asking learns nothing from an answer.
+
+**Everybody receives.** One capture, one encode, written to every open link — owner, opponent,
+spectators. That is what the device↔opponent link is for, it keeps the camera the single account of
+what its board looks like, and it means an observer's copy cannot drift from the owner's.
+
+Together those two make observers exactly what they should be: they see what the owner's camera was
+asked for, and have no say in what that is.
 
 ## The roster is the authorization
 
@@ -213,8 +309,12 @@ asked to do.
 src/shared/media.ts          peers, rosters, the profile, the channel names, MAX_SDP_BYTES
 src/server/media.ts          the peer map, the plan, the roster, the relay
 src/client/media/peerLink.ts one RTCPeerConnection: perfect negotiation, half-trickle, two channels
-src/client/media/mesh.ts     the set of links, and where part 3's single encoder will live
-src/client/hooks/useMediaMesh.ts   mounted by App and ScorerApp alike
+src/client/media/mesh.ts     the set of links, and where the single encoder will live
+src/client/media/frames.ts   a still and its header, in one self-describing message
+src/client/vision/stillCapture.ts  a board region → a crop of this camera's frame → a JPEG
+src/client/hooks/useMediaMesh.ts     mounted by App and ScorerApp alike
+src/client/hooks/useStillResponder.ts  the camera's side: who may ask, and who gets the answer
+src/client/hooks/useDartEvidence.ts    the only place that knows what a still is *for*
 ```
 
 ## Reading a real link

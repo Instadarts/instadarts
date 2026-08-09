@@ -330,6 +330,11 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
       peerId: other.peerId,
       kind: other.kind,
       tier: other.tier,
+      // The ownership edge, stated to both ends: a device and the frontend that claimed it share a
+      // session id, and nobody else in the room does. It is what lets a device refuse a command from
+      // an opponent, and what lets a frontend pick its own board camera out of a list of opaque ids.
+      // Exactly one of the pair is a device, so this can never be true between two frontends.
+      own: other.kind !== self.kind && other.sessionId === self.sessionId,
       ...(other.playerId ? { playerId: other.playerId } : {}),
       ...(other.label ? { label: other.label } : {}),
       polite: self.peerId < other.peerId,

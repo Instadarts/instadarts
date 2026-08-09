@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ServerMessage } from '../shared/protocol';
+import type { Mesh } from './media/mesh';
+import { useStillResponder, type StillSource } from './hooks/useStillResponder';
 import { useScorerLink } from './hooks/useScorerLink';
 import { useMediaMesh } from './hooks/useMediaMesh';
 import { JoinView } from './pages/scorer/JoinView';
@@ -24,11 +26,21 @@ export function ScorerApp() {
   // two be introduced without either owning the other — the same arrangement App.tsx uses.
   const mediaHandler = useRef<((msg: ServerMessage) => void) | null>(null);
 
+  // The camera lives inside ScorerPage and the mesh lives here, so the two are introduced through
+  // refs rather than one owning the other — the same arrangement as the message handler above.
+  const meshRef = useRef<Mesh | null>(null);
+  const stillSource = useRef<StillSource | null>(null);
+  const stills = useStillResponder(meshRef, stillSource);
+
   const link = useScorerLink({ standby, onServerMessage: (msg) => mediaHandler.current?.(msg) });
   // A sleeping phone holds no peer connections: the socket is deliberately shut in standby, and the
   // links would have nothing to renegotiate with and nobody to tell.
-  const mesh = useMediaMesh(link.send, link.connected && !standby, { tier: wantsMedia });
+  const mesh = useMediaMesh(link.send, link.connected && !standby, {
+    tier: wantsMedia,
+    onControl: stills.handleControl,
+  });
   mediaHandler.current = mesh.handleMessage;
+  meshRef.current = mesh.mesh;
 
   if (!link.identity) {
     return (
@@ -58,8 +70,9 @@ export function ScorerApp() {
         onTips={link.sendTips}
         onCameraActive={link.setCameraActive}
         onMediaChange={setWantsMedia}
+        stillSource={stillSource}
       />
-      <MediaDebugPanel media={mesh} />
+      <MediaDebugPanel media={mesh} stillTimings={stills.timings} />
     </div>
   );
 }

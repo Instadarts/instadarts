@@ -17,8 +17,9 @@
 // deliberately, because it is what a video track would need if WebCodecs ever disappoints on a real
 // phone, and it is far cheaper to keep thirty lines than to reason them out again later.
 
-import type { IceServerConfig, SignalDescription } from '../../shared/media';
+import type { ControlMessage, IceServerConfig, SignalDescription } from '../../shared/media';
 import { CONTROL_CHANNEL, MEDIA_CHANNEL } from '../../shared/media';
+import { packFrame, unpackFrame } from './frames';
 
 /**
  * How long to wait for ICE gathering before sending what we have.
@@ -50,8 +51,11 @@ export interface PeerLinkOptions {
    * waits only on the connection state will find a link it cannot yet write to.
    */
   onChange: (state: LinkState) => void;
-  /** A control-channel message: JSON already parsed, or the binary that followed one. */
-  onControl: (data: unknown) => void;
+  /**
+   * A control-channel message, already parsed. `payload` is present only for the kinds that carry
+   * bytes — a still — and arrives in the same message as its header, never separately.
+   */
+  onControl: (message: ControlMessage, payload?: Uint8Array) => void;
   /** One encoded chunk off the media channel. */
   onMedia: (data: ArrayBuffer) => void;
 }
@@ -65,7 +69,13 @@ export interface PeerLink {
   readonly bufferedAmount: number;
   /** A description has arrived from this peer. */
   accept(description: SignalDescription): Promise<void>;
-  sendControl(message: unknown): void;
+  /**
+   * Send a control message, with bytes attached for the kinds that carry them.
+   *
+   * Reports whether it actually went. A channel that is not open yet drops the message, and a caller
+   * that records "asked" regardless will wait forever for an answer to a question nobody heard.
+   */
+  sendControl(message: ControlMessage, payload?: Uint8Array): boolean;
   sendMedia(chunk: ArrayBufferView | ArrayBuffer): void;
   close(): void;
   /** What the connection actually settled on, for the diagnostics panel. */
@@ -165,14 +175,21 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
 
   function bindControl(channel: RTCDataChannel): void {
     control = channel;
+    channel.binaryType = 'arraybuffer';
     channel.onopen = () => onChange(state);
     channel.onclose = () => onChange(state);
     channel.onmessage = (event) => {
+      // Anything unreadable is dropped rather than thrown: this is data from another machine, and
+      // one bad message must not take the channel down with it.
       if (typeof event.data === 'string') {
-        try { onControl(JSON.parse(event.data)); } catch { /* not ours */ }
-      } else {
-        onControl(event.data);
+        try {
+          const message = JSON.parse(event.data) as ControlMessage;
+          if (typeof message?.kind === 'string') onControl(message);
+        } catch { /* not ours */ }
+        return;
       }
+      const frame = unpackFrame(event.data as ArrayBuffer);
+      if (frame) onControl(frame.header, frame.payload);
     };
   }
 
@@ -237,9 +254,11 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
     },
     get bufferedAmount() { return media?.bufferedAmount ?? 0; },
     accept,
-    sendControl(message: unknown) {
-      if (control?.readyState !== 'open') return;
-      control.send(typeof message === 'string' ? message : JSON.stringify(message));
+    sendControl(message: ControlMessage, payload?: Uint8Array): boolean {
+      if (control?.readyState !== 'open') return false;
+      if (payload) control.send(packFrame(message, payload));
+      else control.send(JSON.stringify(message));
+      return true;
     },
     sendMedia(chunk: ArrayBufferView | ArrayBuffer) {
       if (media?.readyState !== 'open') return;

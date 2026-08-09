@@ -9,7 +9,7 @@
 // writing the same chunks to every open media channel is the entire reason a link carries no video
 // track. `publish` below is the seam that will drive it.
 
-import type { MediaPeer, SignalDescription, VideoProfile } from '../../shared/media';
+import type { ControlMessage, MediaPeer, SignalDescription, VideoProfile } from '../../shared/media';
 import { createPeerLink, type LinkState, type PeerLink } from './peerLink';
 import type { IceServerConfig } from '../../shared/media';
 
@@ -25,8 +25,8 @@ export interface MeshOptions {
   signal: (to: string, description: SignalDescription) => void;
   /** Something about the links changed and anything watching should look again. */
   onChange: () => void;
-  /** A control-channel message from a peer. */
-  onControl?: (from: string, data: unknown) => void;
+  /** A control-channel message from a peer, with bytes for the kinds that carry them. */
+  onControl?: (from: string, message: ControlMessage, payload?: Uint8Array) => void;
   /** One encoded chunk from a peer. */
   onMedia?: (from: string, data: ArrayBuffer) => void;
 }
@@ -46,8 +46,12 @@ export interface Mesh {
   links(): MeshLink[];
   /** The link to one peer, for anything that talks to one directly. */
   link(peerId: string): PeerLink | undefined;
-  /** Every peer that may receive from us — where one encoder's output goes. */
+  /** Every peer that may receive from us — where one encoder's output, or one still, goes. */
   viewers(): PeerLink[];
+  /** Whether a peer is the one that claimed us, or the one we claimed. See MediaPeer.own. */
+  isOwn(peerId: string): boolean;
+  /** The peers this client owns — for a frontend, its own board camera. */
+  ownPeers(): MediaPeer[];
   /** Close everything. The mesh may be used again afterwards; a new roster reopens it. */
   closeAll(): void;
 }
@@ -73,13 +77,12 @@ export function createMesh(options: MeshOptions): Mesh {
       iceServers,
       signal: (description) => signal(peer.peerId, description),
       onChange: () => onChange(),
-      onControl: (data) => {
+      onControl: (message, payload) => {
         // Answered here rather than by whoever is listening, so that "is this link alive" has an
         // answer even when nothing is watching and nothing is being sent. It is also the only
         // round-trip a link has before there is any media to carry.
-        const message = data as { kind?: string; seq?: number };
-        if (message?.kind === 'ping') link.sendControl({ kind: 'pong', seq: message.seq });
-        onControl?.(peer.peerId, data);
+        if (message.kind === 'ping') link.sendControl({ kind: 'pong', seq: message.seq });
+        onControl?.(peer.peerId, message, payload);
       },
       onMedia: (data) => onMedia?.(peer.peerId, data),
     });
@@ -148,6 +151,14 @@ export function createMesh(options: MeshOptions): Mesh {
 
     viewers(): PeerLink[] {
       return [...links.values()].filter((link) => peers.get(link.peerId)?.recv);
+    },
+
+    isOwn(peerId: string): boolean {
+      return peers.get(peerId)?.own === true;
+    },
+
+    ownPeers(): MediaPeer[] {
+      return [...peers.values()].filter((peer) => peer.own);
     },
 
     closeAll(): void {

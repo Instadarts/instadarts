@@ -21,6 +21,8 @@ interface MatchScreenProps {
   ownPlayerId: string | null;
   isSpectator: boolean;
   sessionId: string | null;
+  /** A photograph per dart slot from the board camera, or null where no camera is in play. */
+  evidence: (string | undefined)[] | null;
 }
 
 /**
@@ -84,7 +86,7 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId, evidence }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -135,6 +137,7 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
                 </p>
               )}
               <VisitInput
+                evidence={evidence}
                 darts={currentDarts}
                 dartsPerVisit={view.dartsPerVisit}
                 slots={view.slots}

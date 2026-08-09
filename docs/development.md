@@ -171,8 +171,9 @@ supposed to start the camera, and from the phone that is indistinguishable from 
 is left alone for now. Two things hold it at bay in the meantime, and **both should go when the
 cause is dealt with**:
 
-- `media-codec.spec.ts` encodes real H.264 in software, so `playwright.config.ts` puts it in its own
-  project with a `dependencies` on the rest and it never runs beside anything else;
+- `media-codec.spec.ts` encodes real H.264 in software and `media-stills.spec.ts` drives the
+  detection model, so `playwright.config.ts` puts both in a `heavy` project with a `dependencies` on
+  the rest, and neither ever runs beside anything else;
 - that one describe block carries `test.describe.configure({ retries: 1 })`, and the interaction that
   hangs has an explicit wait rather than the whole test budget, so a miss costs seconds.
 

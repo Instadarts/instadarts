@@ -87,6 +87,42 @@ export function transformPoint(point: Point2D, matrix: Matrix3x3): Point2D | nul
   return [px, py];
 }
 
+/**
+ * The other way round: board→image, for asking where a known board position appears in a frame.
+ *
+ * The pipeline only ever needs image→board — a keypoint arrives and a board coordinate comes out —
+ * so this exists for the one job that runs backwards: a **still request** names a square of the
+ * board, and the camera has to find it in its own picture.
+ *
+ * Adjugate over determinant, which for 3×3 is exact arithmetic rather than an elimination, so it
+ * adds no error of its own to a matrix that already spent digits mixing 1e6 destinations with unit
+ * sources (see the note at the top of this file). Scale is irrelevant — a homography is projective,
+ * and `transformPoint` divides it out.
+ *
+ * Returns null for a singular matrix, which a solved homography never is, but a hand-made one in a
+ * test might be.
+ */
+export function invertMatrix3x3(m: Matrix3x3): Matrix3x3 | null {
+  const [[a, b, c], [d, e, f], [g, h, i]] = m;
+
+  const A = e * i - f * h;
+  const B = f * g - d * i;
+  const C = d * h - e * g;
+
+  const det = a * A + b * B + c * C;
+  if (!isFinite(det) || Math.abs(det) < 1e-12) return null;
+
+  const inverse: Matrix3x3 = [
+    [A / det, (c * h - b * i) / det, (b * f - c * e) / det],
+    [B / det, (a * i - c * g) / det, (c * d - a * f) / det],
+    [C / det, (b * g - a * h) / det, (a * e - b * d) / det],
+  ];
+  for (const row of inverse) {
+    for (const value of row) if (!isFinite(value)) return null;
+  }
+  return inverse;
+}
+
 // ============================================================
 // RANSAC
 // ============================================================

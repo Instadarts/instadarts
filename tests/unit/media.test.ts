@@ -313,6 +313,42 @@ describe('a board camera', () => {
     expect(host.last('devices_state')!.devices[0].media).toBe('video');
   });
 
+  it('is marked as its owner’s, and as nobody else’s', () => {
+    const { host, guest, lobbyId } = onlineLobby();
+    const camera = pairDevice(host, 'Alice board');
+    const watcher = spectate(lobbyId);
+
+    // The one edge that carries ownership, stated from both ends.
+    expect(entryFor(camera, host)!.own).toBe(true);
+    expect(entryFor(host, camera)!.own).toBe(true);
+
+    // And nowhere else. This is what a device checks before it will photograph anything, so an
+    // opponent or a spectator being marked here would be them deciding what somebody else's camera
+    // points at.
+    expect(entryFor(camera, guest)!.own).toBe(false);
+    expect(entryFor(guest, camera)!.own).toBe(false);
+    expect(entryFor(camera, watcher)!.own).toBe(false);
+    expect(entryFor(watcher, camera)!.own).toBe(false);
+    // Never between two frontends: neither of them is anybody's camera.
+    expect(entryFor(host, guest)!.own).toBe(false);
+  });
+
+  it('is its owner’s even when the owner holds every player', () => {
+    const user = connect();
+    user.send({ type: 'create_lobby', isLocal: true });
+    const lobbyId = user.last('lobby_state')!.lobby.id;
+    user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    user.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
+    user.send({ type: 'media_ready', tier: 'video' });
+    const camera = pairDevice(user);
+
+    // A local match has no player id to identify anybody by, which is exactly why `own` exists as a
+    // flag of its own: it is the only way this frontend can pick its own camera out of the roster.
+    expect(entryFor(user, camera)!.playerId).toBeUndefined();
+    expect(entryFor(user, camera)!.own).toBe(true);
+    expect(entryFor(camera, user)!.own).toBe(true);
+  });
+
   it('never receives, at either end of the sentence', () => {
     const { host, guest } = onlineLobby();
     const camera = pairDevice(host, 'Alice board');

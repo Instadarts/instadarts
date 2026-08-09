@@ -63,25 +63,26 @@ export default defineConfig({
     },
   },
   /**
-   * Two projects, so the one genuinely CPU-hungry spec runs on its own.
+   * Two projects, so the genuinely CPU-hungry specs run on their own.
    *
    * `media-codec` encodes and decodes real H.264 in software — there is no hardware encoder in a
-   * headless container — and it does it beside specs that are driving a detection model. That is
-   * enough contention to starve a scoring device's page until it misses a heartbeat, and a scoring
+   * headless container — and `media-stills` drives a detection model to solve a homography before it
+   * can crop anything. Either beside the specs that are already driving a model is enough contention
+   * to starve a scoring device's page until it misses a heartbeat, and a scoring
    * device that reconnects mid-match restarts a camera its owner had switched off
    * (`useScorerLink` clears `scoring` on disconnect; `useScorerPower` reads its return as a match
    * beginning). The test that then fails is `scorer-power`, which has nothing to do with any of it.
    *
    * That underlying behaviour is a separate question and is deliberately not addressed here. This
-   * only stops the expensive newcomer from being the thing that provokes it: `dependencies` makes
-   * the codec spec wait until everything else has finished, which costs about four seconds.
+   * only stops the expensive newcomers from being the thing that provokes it: `dependencies` makes
+   * the `heavy` project wait until everything else has finished.
    *
    * Note worker count is *not* the lever — the suite has failed at eight workers and passed at
    * thirteen. What matters is which files happen to overlap, not how many run at once.
    */
   projects: [
-    { name: 'app', testIgnore: /media-codec/ },
-    { name: 'codec', testMatch: /media-codec/, dependencies: ['app'] },
+    { name: 'app', testIgnore: /media-codec|media-stills/ },
+    { name: 'heavy', testMatch: /media-codec|media-stills/, dependencies: ['app'] },
   ],
   // An explicit base URL means somebody else is running the app; there is nothing here to start.
   webServer: process.env.E2E_BASE_URL ? undefined : webServer,

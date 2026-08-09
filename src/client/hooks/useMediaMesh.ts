@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { MediaConfig, MediaPeer, MediaTier } from '../../shared/media';
+import type { ControlMessage, MediaConfig, MediaPeer, MediaTier } from '../../shared/media';
 import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
 import { createMesh, type Mesh, type MeshLink } from '../media/mesh';
 import { e2eEnabled } from '../lib/e2e';
@@ -47,8 +47,8 @@ interface Options {
    * Re-sent on every connect, like `activate_devices`, since the server keeps nothing across one.
    */
   boardCamera?: string | null;
-  /** A control-channel message from a peer. */
-  onControl?: (from: string, data: unknown) => void;
+  /** A control-channel message from a peer, with bytes for the kinds that carry them. */
+  onControl?: (from: string, message: ControlMessage, payload?: Uint8Array) => void;
   /** One encoded chunk from a peer. */
   onMedia?: (from: string, data: ArrayBuffer) => void;
 }
@@ -99,9 +99,9 @@ export function useMediaMesh(
       video: config.video ?? DEFAULT_VIDEO_PROFILE,
       signal: (to, description) => sendRef.current({ type: 'media_signal', to, description }),
       onChange: () => setLinks(meshRef.current?.links() ?? []),
-      onControl: (from, data) => {
-        if (tapping) inbox.current.control = [...inbox.current.control, { from, data }].slice(-INBOX_LIMIT);
-        handlersRef.current.onControl?.(from, data);
+      onControl: (from, message, payload) => {
+        if (tapping) inbox.current.control = [...inbox.current.control, { from, data: message }].slice(-INBOX_LIMIT);
+        handlersRef.current.onControl?.(from, message, payload);
       },
       onMedia: (from, data) => {
         if (tapping) {

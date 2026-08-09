@@ -53,6 +53,9 @@ for the places where that has already gone wrong.
 | [Mesh](#link--mesh) | The links one client holds, and its one encoder | `Mesh`, `useMediaMesh` |
 | [Media tier](#media-tier) | How much a device is willing to send | `MediaTier`, `media_ready` |
 | [Board camera](#board-camera) | The one device a user is showing, if any | `media_select_camera` |
+| [Region of interest](#region-of-interest) | A square of a board, asked for by name | `Region`, `clampRegion` |
+| [Still](#still) | One photograph of a region, on request | `still_request`, `STILL` |
+| [Dart evidence](#dart-evidence) | The still under a dart slot | `useDartEvidence` |
 
 ---
 
@@ -696,10 +699,38 @@ Both directions are about *media*: the control channel is open both ways regardl
 could not ask a camera for a keyframe. Say **viewer** for the receiving end, not "subscriber" or
 "audience" — the audience is the spectators, which is a different idea.
 
+### Region of interest
+
+A square of a board, named in **normalized board space**: a centre and one side length, all in
+[0,1]. `{0.5, 0.5, 1}` is the whole board and is what asking for no region means.
+
+Board space rather than anything about a camera, so a request says *what to look at* and never
+*where to point* — the same region means the same thing from any camera, and the asker needs to know
+nothing about lenses or angles.
+
+**The capturing device decides what is valid.** `clampRegion` moves a centre that would fall off the
+edge *towards the middle* rather than rejecting it or shrinking it, because a dart in the 20 bed is
+near the top and the useful answer is the closest square that still holds it.
+
 ### Still
 
-⏳ One image frame delivered over the control channel, as against the continuous video on the media
-channel. The message kind exists; nothing produces one.
+One photograph of a [region](#region-of-interest), taken on request and delivered over the control
+channel — as against the continuous video that will one day flow on the media channel.
+
+Only the [owner](#board-camera) may ask; everybody linked to that camera receives the answer. That
+asymmetry is the whole shape of it: an opponent and a spectator see what the owner's camera was
+asked for and have no say in what that is.
+
+Every still is 480×480 JPEG, whatever it was asked for — see `STILL` in `shared/media.ts`, the one
+place those numbers live.
+
+### Dart evidence
+
+The [still](#still) under a dart slot: a close-up of where that dart actually landed, requested by
+the thrower as each dart appears in the visit and shown identically to everyone watching.
+
+Belongs to the visit in progress. Undo takes the picture with the dart, and submitting the visit
+clears the row along with the slots above it.
 
 ---
 

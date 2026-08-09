@@ -1,6 +1,7 @@
 import type { DartThrow, ViewText } from '../../shared/types';
 import { textOf } from '../../shared/types';
 import { Dartboard } from './Dartboard';
+import { DartEvidence } from './DartEvidence';
 import { modeTextClasses, slotClasses } from './modeText';
 
 interface VisitInputProps {
@@ -18,6 +19,14 @@ interface VisitInputProps {
   locked?: boolean;
   readOnly?: boolean;
   hideActions?: boolean;
+  /**
+   * A photograph per dart slot from the board camera, or null where no camera is in play.
+   *
+   * Null and empty mean different things: null draws nothing at all, an empty array draws the strip
+   * at full height waiting to be filled. That is the difference between a user who is not using the
+   * feature and one whose first still has not arrived yet.
+   */
+  evidence: (string | undefined)[] | null;
 }
 
 /** One dart's slot: an equal share of the row, within limits that keep a label readable. */
@@ -35,6 +44,7 @@ export function VisitInput({
   locked,
   readOnly,
   hideActions,
+  evidence,
 }: VisitInputProps) {
   const boardDisabled = disabled || darts.length >= dartsPerVisit || (locked ?? false) || (readOnly ?? false);
   // A mode that says nothing about its slots gets each dart's own label, untoned.
@@ -64,6 +74,10 @@ export function VisitInput({
           </div>
         ))}
       </div>
+
+      {/* What the camera saw. Present from the first frame of the visit whenever a board camera is
+          in play, so the first picture to arrive fills a gap instead of moving the board. */}
+      {evidence && <DartEvidence images={evidence} slots={dartsPerVisit} />}
 
       {/* Visit total — the mode decides whether there is one to show */}
       {textOf(visitTotal) !== '' && (

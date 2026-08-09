@@ -12,14 +12,31 @@
 
 import { useEffect, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
+import type { ControlMessage } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
+import type { StillTiming } from '../hooks/useStillResponder';
+import type { EvidenceTiming } from '../hooks/useDartEvidence';
 import { e2eEnabled } from '../lib/e2e';
 
 interface Props {
   media: MediaMesh;
+  /**
+   * What each still cost on the device that took it. Only a scoring device has these — a frontend
+   * can time the round trip and nothing inside it.
+   */
+  stillTimings?: React.RefObject<StillTiming[]>;
+  /** What each dart's picture cost end to end, from the asking side. A frontend's view. */
+  evidenceTimings?: React.RefObject<EvidenceTiming[]>;
 }
 
-export function MediaDebugPanel({ media }: Props) {
+/** Median and worst of a set of measurements. The spread is the interesting half. */
+function summarise(values: number[]): string {
+  if (values.length === 0) return '—';
+  const sorted = [...values].sort((a, b) => a - b);
+  return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
+}
+
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -41,12 +58,14 @@ export function MediaDebugPanel({ media }: Props) {
         kind: l.peer.kind,
         label: l.peer.label,
         polite: l.peer.polite,
+        own: l.peer.own,
+        tier: l.peer.tier,
         send: l.peer.send,
         recv: l.peer.recv,
         state: l.state,
         ready: l.ready,
       })),
-      sendControl: (peerId: string, message: unknown) => mesh?.link(peerId)?.sendControl(message),
+      sendControl: (peerId: string, message: ControlMessage) => mesh?.link(peerId)?.sendControl(message),
       /** A round trip over the control channel — the mesh answers a ping without being asked to. */
       ping: (peerId: string, seq: number) => mesh?.link(peerId)?.sendControl({ kind: 'ping', seq }),
       sendMedia: (peerId: string, bytes: number[]) =>
@@ -57,9 +76,14 @@ export function MediaDebugPanel({ media }: Props) {
         media: media.inbox.media.map((m) => ({ from: m.from, bytes: [...m.bytes] })),
       }),
       stats: async (peerId: string) => mesh?.link(peerId)?.stats(),
+      /** What stills have cost. The device's split, and the frontend's round trip. */
+      stills: () => ({
+        captured: stillTimings?.current ?? [],
+        received: evidenceTimings?.current ?? [],
+      }),
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
-  }, [visible, mesh, links, selfId, config, active, media.inbox]);
+  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings]);
 
   // Stats have to be pulled rather than pushed, so the panel polls while it is open and not
   // otherwise — getStats on every link once a second is not free.
@@ -95,6 +119,23 @@ export function MediaDebugPanel({ media }: Props) {
             self {selfId?.slice(0, 8) ?? '—'} · ice {config?.iceServers.length ?? 0} · {config?.enabled ? 'allowed' : 'disabled'}
           </p>
           {links.length === 0 && <p className="text-gray-600 mt-1">no peers offered</p>}
+
+          {/* Stills, median/worst. The spread is what says whether a capture is waiting on something
+              else rather than simply being expensive. */}
+          {(stillTimings?.current?.length ?? 0) > 0 && (
+            <p className="mt-1 text-gray-500">
+              capture ·
+              {' '}wait {summarise(stillTimings!.current.map((t) => t.waitMs))}
+              {' '}draw {summarise(stillTimings!.current.map((t) => t.drawMs))}
+              {' '}encode {summarise(stillTimings!.current.map((t) => t.encodeMs))}
+              {' '}· {Math.round(stillTimings!.current[stillTimings!.current.length - 1].bytes / 1024)}kB
+            </p>
+          )}
+          {(evidenceTimings?.current?.length ?? 0) > 0 && (
+            <p className="mt-1 text-gray-500">
+              evidence · round trip {summarise(evidenceTimings!.current.map((t) => t.roundTripMs))}
+            </p>
+          )}
           {links.map((l) => {
             const s = stats[l.peer.peerId] ?? {};
             return (

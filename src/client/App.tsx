@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
+import { useDartEvidence } from './hooks/useDartEvidence';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
@@ -13,6 +14,7 @@ import { JoinHandler } from './pages/JoinHandler';
 import { TopBar } from './components/TopBar';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
+import type { ControlMessage } from '../shared/media';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 
@@ -55,11 +57,29 @@ export function App() {
   const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
   // Which of this tab's claimed devices is showing the board — to the opponent as much as to us.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
+  // Whose visit is on screen — the thrower's, whoever that is. Only they may ask a camera for
+  // anything; everyone else receives the same picture unasked.
+  const currentPlayer = match?.players[match.currentPlayerIndex];
+  const isThrower = !isSpectator && match?.status === 'in_progress'
+    && (!ownPlayerId || currentPlayer?.id === ownPlayerId);
+
+  const evidenceHandler = useRef<((from: string, message: ControlMessage, payload?: Uint8Array) => void) | null>(null);
   const media = useMediaMesh(send, connected, {
     tier: wantsMedia ? 'video' : 'disabled',
     boardCamera,
+    onControl: (from, message, payload) => evidenceHandler.current?.(from, message, payload),
   });
   mediaHandler.current = media.handleMessage;
+
+  const evidence = useDartEvidence({
+    mesh: media.mesh,
+    currentVisit: match?.currentVisit,
+    isThrower: Boolean(isThrower),
+  });
+  evidenceHandler.current = evidence.handleControl;
+  // Null draws no strip at all; an empty array draws it at full height, waiting. The difference is
+  // a user not using the feature versus one whose first picture has not arrived.
+  const evidenceImages = evidence.available ? evidence.images : null;
 
   const navigate = useNavigate();
 
@@ -157,19 +177,20 @@ export function App() {
             submitVisit={submitVisit}
             onVoteRematch={voteRematch}
             sessionId={sessionId}
+            evidence={evidenceImages}
             navigate={navigate}
             error={error}
           />
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} />
+          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
-      <MediaDebugPanel media={media} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} />
     </div>
   );
 }
@@ -225,11 +246,12 @@ interface MatchWrapperProps {
   submitVisit: (matchId: string) => void;
   onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
   sessionId: string | null;
+  evidence: (string | undefined)[] | null;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId, evidence, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -246,6 +268,7 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId,
       onSubmitVisit={() => submitVisit(match.id)}
       onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
       sessionId={sessionId}
+      evidence={evidence}
     />
   );
 }
@@ -259,9 +282,10 @@ interface SpectateWrapperProps {
   modes: ModeDescriptor[];
   leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
+  evidence: (string | undefined)[] | null;
 }
 
-function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -307,6 +331,7 @@ function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatc
         onSubmitVisit={() => {}}
         onVoteRematch={() => {}}
         sessionId={null}
+        evidence={evidence}
       />
     );
   }

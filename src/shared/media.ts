@@ -85,6 +85,21 @@ export interface MediaPeer {
   /** What to call it on screen: a device's own name, or a user's player name. */
   label?: string;
   /**
+   * This peer and you belong to the same user: a scoring device and the frontend that claimed it.
+   *
+   * True on exactly one edge per device and false everywhere else — never for an opponent, never for
+   * a spectator. It carries the ownership relationship into the roster, and does two jobs that both
+   * need doing:
+   *
+   *   · a **device** honours a command only from the peer marked `own`, which is what stops an
+   *     opponent deciding what somebody else's camera photographs;
+   *   · a **frontend** finds its own board camera by it, since a roster addresses peers by opaque id
+   *     and `playerId` has no answer in a local match.
+   *
+   * This is "the roster is the authorization" widened from who may *connect* to who may *command*.
+   */
+  own: boolean;
+  /**
    * Which side takes the polite role in perfect negotiation. Decided by the server rather than by a
    * rule each client applies, so there is no rule for a client to get wrong.
    *
@@ -205,12 +220,123 @@ export const MAX_SDP_BYTES = 8192;
 export const CONTROL_CHANNEL = 'control';
 export const MEDIA_CHANNEL = 'media';
 
-/** What goes over the control channel. JSON, except for a still's payload, which follows it. */
+/**
+ * What goes over the control channel.
+ *
+ * Everything here travels as JSON, except a still — which is one self-describing binary message
+ * carrying this header *and* its bytes together. See `frames.ts`: a header sent as its own message
+ * and paired with "the next binary one" stops working the moment two stills are in flight, which
+ * with three darts landing at once is an ordinary Tuesday.
+ */
 export type ControlMessage =
   /** Are you there? Answered with `pong`, and the only traffic a link has when nothing is watching. */
   | { kind: 'ping'; seq: number }
   | { kind: 'pong'; seq: number }
   /** The decoder cannot continue from what it has. Send a keyframe. */
   | { kind: 'keyframe' }
-  /** A still follows as the next binary message on this channel. */
-  | { kind: 'still'; width: number; height: number; mime: string };
+  /**
+   * Photograph this part of your board and send it back.
+   *
+   * Honoured only from a peer the roster marks `own` — see MediaPeer. Anyone else gets silence.
+   */
+  | { kind: 'still_request'; id: string; region?: Region; tag?: unknown }
+  /** The header of a still frame; the JPEG bytes travel in the same message. */
+  | { kind: 'still'; id: string; tag?: unknown; width: number; height: number; mime: string }
+  | { kind: 'still_refused'; id: string; reason: StillRefusal };
+
+/**
+ * Why a camera could not answer.
+ *
+ * Only ever sent to the peer that asked, and only for a request it was entitled to make: an
+ * unauthorized one is not refused, it is ignored.
+ */
+export type StillRefusal =
+  /** No camera running, so there is no picture to take. */
+  | 'no_frame'
+  /** Nothing to place the region against — the board has not been located since the camera started. */
+  | 'not_located'
+  /** Too many already in hand. */
+  | 'busy';
+
+// ============================================================
+// Regions of a board
+// ============================================================
+
+/**
+ * A square of **normalized board space** — the coordinate system everything here already shares,
+ * scaled to [0,1]. `{ cx: 0.5, cy: 0.5, size: 1 }` is the whole board, and is what no region means.
+ *
+ * Board space rather than anything about a camera, so that a request says *what to look at* and
+ * never *where to point*. The same region means the same thing from any camera, and the asking side
+ * needs to know nothing about lenses, mounts or angles — the device owns all of that and maps the
+ * region into its own frame with the homography it already solves every inference.
+ */
+export interface Region {
+  cx: number;
+  cy: number;
+  /** Side length. One number: the board is square and so is every still. */
+  size: number;
+}
+
+export const DEFAULT_REGION: Region = { cx: 0.5, cy: 0.5, size: 1 };
+
+/**
+ * The smallest square worth asking for. A crop below this is mostly enlargement artefact — there
+ * are only so many real pixels on a phone pointed at a board a metre away.
+ */
+export const MIN_REGION_SIZE = 0.05;
+
+/**
+ * A region as the capturing device will actually read it.
+ *
+ * **The device is the authority**, and runs this over anything that arrives however friendly the
+ * sender looked — a region is a number from another machine. The requester runs it too, so that what
+ * it drew on screen and what comes back are the same square.
+ *
+ * A region that would fall off the edge has its centre **moved towards the middle** rather than
+ * being rejected or having its size cut: a dart in the 20 bed is near the top, and the useful answer
+ * is the closest square that still holds it, not an error. So `{0.5, 1, 1}` becomes `{0.5, 0.5, 1}`.
+ */
+export function clampRegion(region: Region | undefined): Region {
+  if (!region) return DEFAULT_REGION;
+  const { cx, cy, size } = region;
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(size)) return DEFAULT_REGION;
+
+  const side = Math.min(Math.max(size, MIN_REGION_SIZE), 1);
+  const half = side / 2;
+  return {
+    cx: Math.min(Math.max(cx, half), 1 - half),
+    cy: Math.min(Math.max(cy, half), 1 - half),
+    size: side,
+  };
+}
+
+// ============================================================
+// Stills
+// ============================================================
+
+/**
+ * Every still, whatever it was asked for and whoever asked.
+ *
+ * Not shipped from the server like `VideoProfile`, and should not be: a still never touches the
+ * server. Both ends of a link are the same build from the same origin, so a shared constant is the
+ * honest place for a number the two of them have to agree on.
+ */
+export const STILL = {
+  /** Side of the delivered image. Square, like the board and like the camera's own capture. */
+  size: 480,
+  mime: 'image/jpeg',
+  quality: 0.75,
+} as const;
+
+/** How much of the board a dart's evidence shows: enough to see which side of a wire it is on. */
+export const DART_EVIDENCE_REGION_SIZE = 0.25;
+
+/**
+ * Requests a camera will hold at once before refusing.
+ *
+ * More than one because a fused camera report can commit three darts in a single moment, and three
+ * requests arriving together is the normal case rather than an attack. They share one video frame
+ * and cost three crops, which is nothing.
+ */
+export const MAX_PENDING_STILLS = 4;

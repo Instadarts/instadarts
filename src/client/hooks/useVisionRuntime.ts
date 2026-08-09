@@ -3,6 +3,7 @@ import { createVisionRuntime, MODELS } from '../vision/visionRuntime';
 import type { CameraInfo, FrameInfo, VisionRuntime, VisionStatus } from '../vision/visionRuntime';
 import type { MotionReport, MotionTile } from '../vision/motion';
 import type { BoardTip } from '../../shared/vision/types';
+import type { Region } from '../../shared/media';
 
 /** How long a changed tile stays lit in the preview, and how many may be lit at once. */
 const MOTION_TILE_MS = 450;
@@ -255,5 +256,12 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     setModel,
     setThresholds,
     setLens,
+    /**
+     * Photograph a square of the board. Read through the ref rather than bound, because a still
+     * request can arrive at any moment and must reach whatever runtime is current.
+     */
+    captureStill: (region: Region) => runtimeRef.current?.captureStill(region) ?? Promise.resolve(null),
+    /** Whether the board has been located since the camera started. Lets a failed capture say why. */
+    located: () => runtimeRef.current?.located ?? false,
   };
 }

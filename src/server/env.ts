@@ -30,3 +30,49 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
 }
 
 export const MAX_MATCHES = positiveIntFromEnv(process.env.MAX_MATCHES, DEFAULT_MAX_MATCHES);
+
+/**
+ * Whether this deployment carries video and stills between the devices in a match.
+ *
+ * Optional in the strongest sense: off, the server mints no peer ids, publishes no rosters, relays
+ * no signals and answers every media message with silence, and neither frontend shows a thing. It
+ * is one flag rather than a scattering of checks because a feature that can be half-on is a feature
+ * nobody can reason about.
+ *
+ * `MEDIA=0 npm start` turns it off. Note this is the *deployment's* answer; a browser or a phone may
+ * still opt out for itself, which it does by never announcing itself rather than by a second flag.
+ */
+const DEFAULT_MEDIA_ENABLED = true;
+
+/** Anything that is not a recognised boolean is ignored rather than guessed at. */
+function boolFromEnv(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) return fallback;
+  const value = raw.trim().toLowerCase();
+  if (value === '0' || value === 'false' || value === 'off' || value === 'no') return false;
+  if (value === '1' || value === 'true' || value === 'on' || value === 'yes') return true;
+  return fallback;
+}
+
+export const MEDIA_ENABLED = boolFromEnv(process.env.MEDIA, DEFAULT_MEDIA_ENABLED);
+
+/**
+ * STUN servers the clients should use, comma-separated. **Empty by default**, which means host
+ * candidates only: a scoring device reaches its own frontend across the room, and an opponent in
+ * another house reaches nobody.
+ *
+ * That is a deliberate default rather than an oversight — nothing about a match should leave the
+ * deployment unless somebody asked for it. `MEDIA_ICE_URLS=stun:stun.example.org:19302 npm start`
+ * is the one change that opens it up. There is no TURN: where a peer connection cannot be made, the
+ * feature is simply unavailable to that user.
+ */
+function iceUrlsFromEnv(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((url) => url.trim())
+    // Only the two schemes a STUN or TURN URL can have. A typo becomes no server rather than a
+    // client that throws on `new RTCPeerConnection`.
+    .filter((url) => /^stuns?:|^turns?:/.test(url));
+}
+
+export const MEDIA_ICE_URLS = iceUrlsFromEnv(process.env.MEDIA_ICE_URLS);

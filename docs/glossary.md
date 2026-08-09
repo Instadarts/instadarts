@@ -46,6 +46,13 @@ for the places where that has already gone wrong.
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
 | [Scoring](#scoring-and-the-two-power-stages) | A match is running that this device feeds | `scorer_state.scoring`, `resolveScoringTarget` |
 | [Standby](#scoring-and-the-two-power-stages) | Device asleep: wake lock released, socket closed | `PowerStage`, `useScorerPower` |
+| [Media](#media) | The optional feature: p2p video between the devices in a match | `MEDIA_ENABLED`, `media_*` messages |
+| [Peer](#peer--peer-id) | One connection taking part in media | `peerId`, `MediaPeer` |
+| [Roster](#roster) | The peers a peer may connect to. **The authorization** | `media_peers`, `planFor` |
+| [Link](#link--mesh) | One RTCPeerConnection between two peers | `PeerLink`, `peerLink.ts` |
+| [Mesh](#link--mesh) | The links one client holds, and its one encoder | `Mesh`, `useMediaMesh` |
+| [Media tier](#media-tier) | How much a device is willing to send | `MediaTier`, `media_ready` |
+| [Board camera](#board-camera) | The one device a user is showing, if any | `media_select_camera` |
 
 ---
 
@@ -542,7 +549,9 @@ Three separate states, in order:
    devices count as cameras for fusion and quorum.
 
 **Online** means the device currently has a socket open. Paired ≠ online ≠ active ≠ camera active;
-the distinctions are load-bearing, so keep them apart in prose too.
+the distinctions are load-bearing, so keep them apart in prose too. A fifth, for
+[media](#media): a device that is active with its camera on is still watchable by nobody unless it
+is willing ([media tier](#media-tier)) *and* nominated ([board camera](#board-camera)).
 
 ### Scoring, and the two power stages
 
@@ -590,6 +599,107 @@ on a wall.
 - **Scoring session** — the per-(match, owning player) object that owns the throw window and tracker
   ([`scoring/session.ts`](../src/server/scoring/session.ts), keyed in
   [`scoring/store.ts`](../src/server/scoring/store.ts)).
+
+---
+
+## Media
+
+The optional feature that carries video and stills peer-to-peer between the devices already in a
+match. Full write-up in [media.md](./media.md); this section is the vocabulary.
+
+**Today it is transport only.** Links come up and carry a control message; ⏳ nothing encodes,
+decodes or displays a picture yet, and no user interface exists outside a dev-only diagnostics panel.
+Do not write about the video itself as though it existed.
+
+Say **media** for the feature. Never "stream" (unused, and ambiguous between a `MediaStream` and the
+thing a viewer watches) and never "call" — nobody rings anybody.
+
+### Peer / peer id
+
+One connection taking part in media: a frontend or a scoring device, addressed by an opaque **peer
+id** the server mints per socket.
+
+Deliberately not a session id and not a device id. Neither of those should be handed to the person
+you are playing against, and a peer id says nothing about what it names. A new socket means a new
+peer id, so a reconnect rebuilds every link that connection held.
+
+A connection becomes a peer by sending `media_ready` and stops by sending `media_leave`. A client
+that has opted out simply never sends it — which is why there is no "media disabled" state on the
+server to keep in step with anything.
+
+For a scoring device, being a peer takes **two** answers rather than one: see
+[media tier](#media-tier) and [board camera](#board-camera).
+
+### Media tier
+
+`MediaTier` — how much a peer is willing to send: `disabled`, `stills` or `video`. A scoring device's
+own answer, set on the phone, and nobody else's to change: not its owner's and not the opponent's.
+
+It says what the hardware *offers*, never that it is in use. `stills` and `video` differ only in what
+a viewer should expect and ask for — the server allows both the same link with the same channels.
+`disabled` is the only one that is a rule, and it is the rule that the device appears nowhere.
+
+### Board camera
+
+The one scoring device a user is showing, chosen from those their tab has
+[claimed](#pairing-claiming-grabbing-and-the-camera). At most one, and **none** is a real answer.
+
+The second of the two gates: a device is offered to nobody until its owner nominates it, however
+willing the phone is. What the owner watches is exactly what the opponent is offered, so there is
+never a question of which board somebody is seeing — and nominating nothing takes the view away from
+everyone, opponent included.
+
+Distinct from the browser's own media switch: that decides whether this user takes part at all
+(including watching the opponent), while this decides only whether anybody sees *their* board.
+
+### Publisher / viewer
+
+### Roster
+
+The peers the server offers a given peer, published as `media_peers` and pushed on every change.
+
+**The roster is the authorization.** A signal is relayed only between two peers that appear in each
+other's roster, recomputed as the message arrives. There is no other rule.
+
+It is authoritative in both directions: a peer that has vanished from a roster is a link that closes,
+and that is the only teardown mechanism in the feature. Leaving a match, a match closing, a phone
+dropping off the Wi-Fi and a browser opting out all reach the client as the same event — a name
+missing from a list — so none of them has a message of its own.
+
+Both endpoints of a pair come out of one computation (`planFor`), so the two sides can never disagree
+about whether they are paired, which is **polite**, or who may send to whom.
+
+### Room
+
+A lobby before the match and the match after — one space, because they are one thing at two moments.
+A scoring device has no room of its own and inherits its owner's.
+
+Nothing about a room is stored; it is derived from the client registry on demand. That is what makes
+a [re-match](#re-match) free: a new match id holding the same people yields an identical roster, so
+nothing is sent and no link is disturbed.
+
+### Link / mesh
+
+A **link** is one `RTCPeerConnection` between two peers. It carries **no media tracks** — only two
+datachannels, `control` (reliable) and `media` (unreliable). A **mesh** is the set of links one
+client holds, and the owner of its single encoder.
+
+The encoder belongs to the mesh and not to a link, and that is the whole reason a link has no track:
+every peer connection would otherwise encode independently, so a phone with four viewers would run
+four encoders. See [media.md](./media.md#why-a-link-carries-no-video-track).
+
+The two ends of a link. A scoring device only ever publishes — it is a board camera, and never
+decodes anybody's picture. A [spectator](#spectator) is the mirror image and only ever views, and is
+last in the priority order when links are rationed. Between two frontends it is symmetric.
+
+Both directions are about *media*: the control channel is open both ways regardless, or a viewer
+could not ask a camera for a keyframe. Say **viewer** for the receiving end, not "subscriber" or
+"audience" — the audience is the spectators, which is a different idea.
+
+### Still
+
+⏳ One image frame delivered over the control channel, as against the continuous video on the media
+channel. The message kind exists; nothing produces one.
 
 ---
 

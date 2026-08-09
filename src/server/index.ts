@@ -7,6 +7,7 @@ import { handleMessage, registerClient, removeClient, handleClientLeave, schedul
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
+import { mediaPeerCount } from './media';
 import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
@@ -53,6 +54,7 @@ app.get('/server-stats', (_req, res) => {
     runningMatches,
     heldMatches: matches.size,
     scoringSessions: scoringSessionCount(),
+    mediaPeers: mediaPeerCount(),
     connectedClients: wss.clients.size,
     capacity: capacityLimits(),
     memory: {

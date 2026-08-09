@@ -17,6 +17,7 @@
 // restart and lock the real device out for good.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
+import type { MediaTier } from '../shared/media';
 import { DEVICES_PER_USER, MAX_DEVICE_RECORDS } from './capacity';
 
 // ============================================================
@@ -52,6 +53,15 @@ interface DeviceRecord {
    * successful start, so it never outlives the condition it describes.
    */
   cameraError?: string;
+  /**
+   * How much of its view this phone is willing to share. Its own answer, kept here beside the name
+   * and the camera state because it describes the device rather than the pairing.
+   *
+   * Only the first of the two gates on a board camera — the other is its owner nominating it. See
+   * shared/media.ts. Defaults to `disabled`, so a device that never says otherwise is never
+   * offered to anybody.
+   */
+  mediaTier: MediaTier;
 }
 
 interface Claim {
@@ -133,7 +143,7 @@ export function redeemPairingCode(raw: string, attemptKey: string): PairedDevice
   const tokenHash = hashToken(token);
 
   evictIfFull();
-  devices.set(deviceId, { id: deviceId, tokenHash, name: '', connected: true, cameraActive: false });
+  devices.set(deviceId, { id: deviceId, tokenHash, name: '', connected: true, cameraActive: false, mediaTier: 'disabled' });
 
   return { deviceId, token, tokenHash, ownerSessionId: pending.sessionId };
 }
@@ -184,7 +194,7 @@ export function verifyDevice(deviceId: unknown, token: unknown, name = ''): Devi
   }
 
   evictIfFull();
-  const record: DeviceRecord = { id: deviceId, tokenHash, name, connected: true, cameraActive: false };
+  const record: DeviceRecord = { id: deviceId, tokenHash, name, connected: true, cameraActive: false, mediaTier: 'disabled' };
   devices.set(deviceId, record);
 
   // A claim parked against this id before we knew the real hash was a squat if it disagrees.
@@ -210,6 +220,17 @@ export function setDeviceName(deviceId: string, name: string): void {
   if (device) device.name = name;
 }
 
+/** A device saying how much of its view it is willing to share. */
+export function setDeviceMediaTier(deviceId: string, tier: MediaTier): void {
+  const device = devices.get(deviceId);
+  if (device) device.mediaTier = tier;
+}
+
+/** What a device is willing to share, or `disabled` for one we know nothing about. */
+export function mediaTierOf(deviceId: string): MediaTier {
+  return devices.get(deviceId)?.mediaTier ?? 'disabled';
+}
+
 /**
  * A device's socket closed. The record is kept while a frontend still holds it, so a phone that
  * loses Wi-Fi reconnects into the same pairing; with nobody holding it, there is nothing to keep.
@@ -222,6 +243,9 @@ export function releaseDevice(deviceId: string): void {
   // A device that is gone is not a device that refused: an offline row should not also carry the
   // last thing its camera complained about.
   device.cameraError = undefined;
+  // Willingness travels with the connection: a phone that comes back says again what it will share,
+  // and one that never does must not leave a stale promise behind for its owner to nominate.
+  device.mediaTier = 'disabled';
   if (!claims.has(deviceId)) devices.delete(deviceId);
 }
 
@@ -336,6 +360,8 @@ export interface DeviceView {
   cameraActive: boolean;
   online: boolean;
   cameraError?: string;
+  /** What this device is willing to share, so its owner's picker can offer it — or say why not. */
+  media: MediaTier;
 }
 
 /** Which devices this frontend currently has active, and how each is doing. */
@@ -354,6 +380,7 @@ export function devicesForSession(sessionId: string): DeviceView[] {
       name: paired ? device!.name : '',
       cameraActive: online ? device!.cameraActive : false,
       online,
+      media: online ? device!.mediaTier : 'disabled',
       ...(online && device!.cameraError ? { cameraError: device!.cameraError } : {}),
     });
   }

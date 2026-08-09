@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
+import type { MediaTier } from '../../shared/media';
 import {
   clearActiveGrab,
   forgetPairedDevice,
@@ -18,6 +19,12 @@ export interface DeviceView extends PairedDevice {
   cameraActive: boolean;
   /** The device's own reason its camera is not on. Only it knows why one refused to open. */
   cameraError?: string;
+  /**
+   * How much of its view this device is willing to share, as the phone itself decided. Only a device
+   * offering something may be nominated as the board camera — and this is the phone's answer, which
+   * no frontend can overrule.
+   */
+  media: MediaTier;
   /** A camera request sent and not yet confirmed by the device. */
   cameraPending: boolean;
   /** Sent to standby from here. It went offline because we asked, not because it broke. */
@@ -116,7 +123,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
       case 'devices_state': {
         const next: Record<string, DeviceStatus> = {};
         for (const d of msg.devices) {
-          next[d.deviceId] = { online: d.online, cameraActive: d.cameraActive, cameraError: d.cameraError };
+          next[d.deviceId] = { online: d.online, cameraActive: d.cameraActive, cameraError: d.cameraError, media: d.media };
         }
         setStatus(next);
 
@@ -267,6 +274,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
       online,
       cameraActive: live?.cameraActive ?? false,
       cameraError: live?.cameraError,
+      media: live?.media ?? 'disabled',
       cameraPending: device.deviceId in pending,
       // Only worth saying while it is actually away; a device that came back on its own is just back.
       poweredOff: !online && (poweredOff[device.deviceId] ?? false),
@@ -294,4 +302,5 @@ interface DeviceStatus {
   online: boolean;
   cameraActive: boolean;
   cameraError?: string;
+  media: MediaTier;
 }

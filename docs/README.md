@@ -16,6 +16,9 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
 - [The scoring pipeline](./vision.md) — how a camera turns a thrown dart into a number, what the
   tests cover, and the parts only real hardware can check. Read this before touching anything under
   `vision/`.
+- [Media](./media.md) — the optional peer-to-peer video feature: who the server lets connect to whom
+  and why that one rule is the whole security model, why a link carries no video track, and how to
+  turn it off. Today it is transport only; read the ⏳ list before assuming a picture exists.
 - [Working on this app](./development.md) — how to run the app, the tests and the typechecks, how to
   check a UI change, and the traps that have caught people here. Read this first if you are about to
   run something.

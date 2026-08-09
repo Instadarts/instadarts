@@ -25,6 +25,7 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 modes/          one file per game mode, found by scanning this directory
                 scoring/        turning camera reports into darts: throw windows, clustering, fusion
                 devices.ts      the pairing registry: which phone belongs to which browser
+                media.ts        who may open a peer connection to whom, and the relay that lets them
                 validation.ts   everything arriving from a client, checked before it is believed
                 lifecycle.ts    deadlines — the idle timeout and the summary clock, and the
                                 only thing that deletes a lobby or a match
@@ -38,6 +39,7 @@ src/client/     App.tsx         routes, and the one hook that holds match state
                 modes/          a mode's optional panel component, found by filename
                 hooks/          the socket, the match, the vision runtime, paired devices
                 vision/         the camera, the model, the motion gate, the geometry
+                media/          peer connections between the devices in a match
 ```
 
 The two rules worth knowing before moving anything: **the client holds no game rules** — every
@@ -65,6 +67,19 @@ curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is hel
 
 Anything that is not a positive whole number is ignored in favour of the default — a `NaN` there
 would make every comparison false and silently disable the limits that divide from it.
+
+### Turning media off, and letting it out of the LAN
+
+```sh
+MEDIA=0 npm start                                   # no peer connections at all
+MEDIA_ICE_URLS=stun:stun.example.org:19302 npm start  # default: none, so host candidates only
+```
+
+Media is peer-to-peer video between the devices in a match, and it is optional in the strongest
+sense: off, the server mints no peer ids, publishes no rosters and relays nothing, and neither
+frontend shows a thing. With no STUN configured — the default — a scoring device reaches its own
+frontend across the room and an opponent in another house reaches nobody. There is no TURN, so where
+a connection cannot be made the feature is simply unavailable. See [media.md](./media.md).
 
 ### Connections that vanish without closing
 
@@ -140,6 +155,30 @@ nothing about whether the socket the first test opens has anyone listening on 30
 `reuseExistingServer` is on outside CI, so a dev server you already have running is the one the tests
 use. That is usually what you want; be aware the tests are then running against your dev server's
 state.
+
+### A known flake, and why the codec spec runs on its own
+
+`scorer-power.spec.ts` → *"turns the camera off and on, then powers the device off"* can fail with the
+camera mysteriously back **on**, and the cause is not in that test:
+
+1. the scoring device's page is starved of CPU long enough to miss a heartbeat, and the server cuts it;
+2. `useScorerLink` clears its state on disconnect, so `scoring` goes false;
+3. the reconnect brings `scoring` back true, and `useScorerPower` reads that edge as *a match
+   beginning* — which starts the camera, including one the owner had deliberately switched off.
+
+Whether step 3 is a bug is a real question — being *claimed into a match already running* is
+supposed to start the camera, and from the phone that is indistinguishable from a reconnect — so it
+is left alone for now. Two things hold it at bay in the meantime, and **both should go when the
+cause is dealt with**:
+
+- `media-codec.spec.ts` encodes real H.264 in software, so `playwright.config.ts` puts it in its own
+  project with a `dependencies` on the rest and it never runs beside anything else;
+- that one describe block carries `test.describe.configure({ retries: 1 })`, and the interaction that
+  hangs has an explicit wait rather than the whole test budget, so a miss costs seconds.
+
+**Worker count is not the lever.** The suite has failed at eight workers and passed at thirteen; what
+matters is which files happen to overlap, not how many run at once. If this reappears, look for a new
+CPU-heavy spec rather than reaching for `--workers`.
 
 **Keep spec files small, because Playwright parallelises per file.** Tests inside one file run
 serially in a single worker, so a spec that grows to hold everything runs alone however many cores

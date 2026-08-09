@@ -4,6 +4,7 @@ import { useScorerPower } from '../../hooks/useScorerPower';
 import type { PendingCommand, ScorerLinkStatus } from '../../hooks/useScorerLink';
 import type { PowerStage } from '../../lib/scorerPower';
 import type { BoardTip } from '../../../shared/vision/types';
+import type { MediaTier } from '../../../shared/media';
 import { loadSettings } from '../../lib/scorerStorage';
 import { e2eNumber } from '../../lib/e2e';
 import { CameraPanel } from './CameraPanel';
@@ -27,6 +28,12 @@ interface ScorerPageProps {
   onUnpair: () => void;
   onTips: (tips: BoardTip[], ms: number) => void;
   onCameraActive: (active: boolean, error?: string) => void;
+  /**
+   * Told when this phone changes how much of its view it will share. The answer itself lives in the
+   * settings blob like every other; this exists because the mesh above acts on it, and narrowing it
+   * should stop a stream somebody is watching right now rather than at the next reload.
+   */
+  onMediaChange: (tier: MediaTier) => void;
 }
 
 type View = 'scoring' | 'settings' | 'calibration';
@@ -43,6 +50,7 @@ export function ScorerPage({
   onUnpair,
   onTips,
   onCameraActive,
+  onMediaChange,
 }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
   const [view, setView] = useState<View>('scoring');
@@ -127,6 +135,7 @@ export function ScorerPage({
           settings={settings}
           onSettingsChange={setSettings}
           onUnpair={onUnpair}
+          onMediaChange={onMediaChange}
         />
       )}
 

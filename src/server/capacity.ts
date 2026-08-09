@@ -16,7 +16,7 @@
 // a connection each and are deliberately not capped per match. The rest are worst cases: they bound
 // what a broken or hostile client can do, not what an ordinary one will.
 
-import { MAX_MATCHES } from './env';
+import { MAX_MATCHES, MEDIA_ENABLED } from './env';
 import { getAllLobbies, getAllMatches } from './store';
 
 export { MAX_MATCHES };
@@ -77,6 +77,27 @@ export const MAX_CONNECTIONS = MAX_USERS + MAX_DEVICE_CONNECTIONS;
  */
 export const MAX_DEVICE_RECORDS = DEVICES_PER_USER * MAX_USERS;
 
+/**
+ * Most peer links one media peer is ever offered at once.
+ *
+ * Not derived from MAX_MATCHES, because it is not about the server: it bounds what one phone is
+ * asked to do. Two users with five cameras each would otherwise put eleven peers in a frontend's
+ * roster, and every one of them is a decoder.
+ *
+ * **Refused** — the pair is simply not made. Which pairs survive is decided by the priority order in
+ * media.ts, so what a peer loses is always the least valuable link rather than an arbitrary one.
+ */
+export const MEDIA_PEERS_PER_PEER = 6;
+
+/**
+ * Spectators admitted to media per room. An audience is uncapped per match by design, and every
+ * extra viewer is another link on a player's phone — so this is the number that keeps a popular
+ * match from taxing the people actually playing it.
+ *
+ * **Refused**, and spectators are last in the priority order besides.
+ */
+export const MEDIA_VIEWERS_PER_ROOM = 2;
+
 // ============================================================
 // The questions the server asks
 // ============================================================
@@ -114,5 +135,8 @@ export function capacityLimits() {
     maxDeviceConnections: MAX_DEVICE_CONNECTIONS,
     devicesPerUser: DEVICES_PER_USER,
     maxDeviceRecords: MAX_DEVICE_RECORDS,
+    mediaEnabled: MEDIA_ENABLED,
+    mediaPeersPerPeer: MEDIA_PEERS_PER_PEER,
+    mediaViewersPerRoom: MEDIA_VIEWERS_PER_ROOM,
   };
 }

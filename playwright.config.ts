@@ -28,7 +28,10 @@ const webServer = [
   {
     command: 'npx tsx src/server/index.ts',
     url: `http://[::1]:${SERVER_PORT}/server-stats`,
-    env: { QUIET: '1' },
+    // MEDIA is passed through so the suite can be run with the feature off — `MEDIA=0 npx playwright
+    // test`. Worth having for something that must be disable-able: it is the only way to see that
+    // the rest of the app does not quietly depend on it.
+    env: { QUIET: '1', MEDIA: process.env.MEDIA ?? '1' },
   },
   {
     command: 'npx vite',
@@ -48,7 +51,38 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? `http://localhost:${CLIENT_PORT}`,
     headless: true,
+    launchOptions: {
+      args: [
+        // Chrome hides local IPs behind `.local` mDNS names in ICE candidates, and mDNS does not
+        // resolve in a headless container — so two browser contexts on this machine cannot find
+        // each other, and the failure looks exactly like a bug in the media code rather than a
+        // privacy feature doing its job. Without this, every peer connection in media-link.spec.ts
+        // times out with nothing to show for it.
+        '--disable-features=WebRtcHideLocalIpsWithMdns',
+      ],
+    },
   },
+  /**
+   * Two projects, so the one genuinely CPU-hungry spec runs on its own.
+   *
+   * `media-codec` encodes and decodes real H.264 in software — there is no hardware encoder in a
+   * headless container — and it does it beside specs that are driving a detection model. That is
+   * enough contention to starve a scoring device's page until it misses a heartbeat, and a scoring
+   * device that reconnects mid-match restarts a camera its owner had switched off
+   * (`useScorerLink` clears `scoring` on disconnect; `useScorerPower` reads its return as a match
+   * beginning). The test that then fails is `scorer-power`, which has nothing to do with any of it.
+   *
+   * That underlying behaviour is a separate question and is deliberately not addressed here. This
+   * only stops the expensive newcomer from being the thing that provokes it: `dependencies` makes
+   * the codec spec wait until everything else has finished, which costs about four seconds.
+   *
+   * Note worker count is *not* the lever — the suite has failed at eight workers and passed at
+   * thirteen. What matters is which files happen to overlap, not how many run at once.
+   */
+  projects: [
+    { name: 'app', testIgnore: /media-codec/ },
+    { name: 'codec', testMatch: /media-codec/, dependencies: ['app'] },
+  ],
   // An explicit base URL means somebody else is running the app; there is nothing here to start.
   webServer: process.env.E2E_BASE_URL ? undefined : webServer,
 });

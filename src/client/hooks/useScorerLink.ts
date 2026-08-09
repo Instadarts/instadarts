@@ -31,7 +31,17 @@ export interface PendingCommand {
  * `scorer_hello` goes out on every (re)connect, which is what makes a pairing survive a server
  * restart — the server keeps nothing, and our token is the proof it needs.
  */
-export function useScorerLink({ standby = false }: { standby?: boolean } = {}) {
+interface ScorerLinkOptions {
+  standby?: boolean;
+  /**
+   * Also called for every frame, before this hook handles it. Lets a second concern — media — share
+   * the one socket without this hook knowing anything about it, exactly as `useMatch` does for the
+   * gaming frontend.
+   */
+  onServerMessage?: (msg: ServerMessage) => void;
+}
+
+export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOptions = {}) {
   const [identity, setIdentity] = useState<ScorerIdentity | null>(() => loadIdentity());
   const [name, setName] = useState(() => loadDeviceName());
   const [state, setState] = useState<ScorerStateMessage | null>(null);
@@ -46,7 +56,12 @@ export function useScorerLink({ standby = false }: { standby?: boolean } = {}) {
   /** Set once `send` exists, so the pairing handler below can answer with this device's name. */
   const sendRef = useRef<(msg: object) => void>(() => {});
 
+  const extraHandlerRef = useRef(onServerMessage);
+  extraHandlerRef.current = onServerMessage;
+
   const handleMessage = useCallback((msg: ServerMessage) => {
+    extraHandlerRef.current?.(msg);
+
     switch (msg.type) {
       case 'scorer_paired': {
         const next = { deviceId: msg.deviceId, token: msg.token };
@@ -183,6 +198,8 @@ export function useScorerLink({ standby = false }: { standby?: boolean } = {}) {
     command,
     refusal,
     connected,
+    /** The raw socket, for a concern that shares it — see `onServerMessage`. */
+    send,
     pair,
     unpair,
     rename,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
+import type { MediaTier } from '../../../shared/media';
 import { saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
 import { GRACE_MINUTES, STANDBY_MINUTES, type MinuteBounds } from '../../lib/scorerPower';
 import { Slider } from './Slider';
@@ -12,6 +13,8 @@ interface SettingsPanelProps {
   settings: ScorerSettings;
   onSettingsChange: (settings: ScorerSettings) => void;
   onUnpair: () => void;
+  /** Also told live, since narrowing this should stop a stream somebody is watching right now. */
+  onMediaChange: (tier: MediaTier) => void;
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -24,7 +27,7 @@ const MODEL_LABELS: Record<string, string> = {
  * confident a detection has to be, the zoom, the lens, and what the screen does when nobody is
  * looking. It sits behind a toggle because the scoring screen should be the board, not a console.
  */
-export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange, onUnpair }: SettingsPanelProps) {
+export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange, onUnpair, onMediaChange }: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
   const update = (patch: Partial<ScorerSettings>) => onSettingsChange(saveSettings(patch));
 
@@ -92,6 +95,29 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
           onChange={(e) => update({ screensaver: e.target.checked })}
           className="w-5 h-5"
         />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span>
+          Share this view
+          <span className="block text-xs text-gray-500">
+            The most this device will send. Whether anyone actually watches is decided on the
+            frontend that paired it.
+          </span>
+        </span>
+        <select
+          value={settings.media}
+          onChange={(e) => {
+            const media = e.target.value as MediaTier;
+            update({ media });
+            onMediaChange(media);
+          }}
+          className="px-3 py-2 bg-gray-950 border border-gray-700 rounded"
+        >
+          <option value="disabled">Nothing — this camera is not shared</option>
+          <option value="stills">Stills only</option>
+          <option value="video">Live video</option>
+        </select>
       </label>
 
       <Minutes

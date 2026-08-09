@@ -1,6 +1,7 @@
 import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
 import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
+import type { IceServerConfig, MediaPeer, MediaTier, SignalDescription, VideoProfile } from './media';
 
 // ============================================================
 // Client → Server messages
@@ -219,6 +220,66 @@ export interface ScorerTipsMessage {
   ms?: number;
 }
 
+// ============================================================
+// Client → Server: media
+//
+// The second prefix both kinds of client speak, and the server's whole involvement is deciding who
+// may reach whom — see shared/media.ts. A scoring device sends `media_ready` and `media_signal`;
+// only a frontend has a board camera to nominate.
+// ============================================================
+
+/**
+ * Take part in media, and say how much this peer is willing to send.
+ *
+ * A client that never sends this is invisible to the feature, which is how a per-browser or
+ * per-phone opt-out works — there is no separate "disabled" state to keep in step with anything.
+ *
+ * For a **scoring device** this is only the first of two gates. Announcing a tier says the phone is
+ * willing; it does not put the device in anybody's roster on its own, because whether a board is
+ * watched is its owner's decision and arrives separately as `media_select_camera`.
+ *
+ * Sent again whenever the tier changes, so a phone switched from stills to video is not stuck at
+ * whatever it happened to be when it connected.
+ */
+export interface MediaReadyMessage {
+  type: 'media_ready';
+  tier: MediaTier;
+}
+
+/**
+ * A frontend nominating one of its claimed scoring devices as **the** board camera, or `null` for
+ * none.
+ *
+ * At most one, deliberately. It is the picture the owner watches and the same picture the opponent
+ * is offered, so "which board am I showing" has exactly one answer rather than one per viewer —
+ * and nominating nothing is a complete opt-out that the opponent cannot work around.
+ *
+ * Only ever honoured for a device this connection actually holds; naming somebody else's gets
+ * silence. Re-sent on every connect, like `activate_devices`, since the server keeps nothing.
+ */
+export interface MediaSelectCameraMessage {
+  type: 'media_select_camera';
+  deviceId: string | null;
+}
+
+/** Stop taking part. Every peer holding a link to this one is told by the roster it gets next. */
+export interface MediaLeaveMessage {
+  type: 'media_leave';
+}
+
+/**
+ * One end of a negotiation, for the server to hand to exactly one other peer.
+ *
+ * `to` must be in this peer's current roster — recomputed at the moment the message arrives, never
+ * remembered. That is the whole authorization model: the server relays between two peers it paired
+ * itself, and refuses everything else in silence.
+ */
+export interface MediaSignalMessage {
+  type: 'media_signal';
+  to: string;
+  description: SignalDescription;
+}
+
 export type ClientMessage =
   | CreateLobbyMessage
   | JoinLobbyMessage
@@ -245,7 +306,11 @@ export type ClientMessage =
   | ScorerUnpairMessage
   | ScorerNameMessage
   | ScorerCameraMessage
-  | ScorerTipsMessage;
+  | ScorerTipsMessage
+  | MediaReadyMessage
+  | MediaLeaveMessage
+  | MediaSelectCameraMessage
+  | MediaSignalMessage;
 
 // ============================================================
 // Server → Client messages
@@ -341,6 +406,12 @@ export interface DevicesStateMessage {
     name: string;
     online: boolean;
     cameraActive: boolean;
+    /**
+     * How much of its view this device is willing to share, as the phone itself decided. `disabled`
+     * means it may not be nominated as the board camera at all — the picker shows why rather than
+     * silently omitting it.
+     */
+    media: MediaTier;
     /** The device's last reason for not having a camera on, if it tried and failed. */
     cameraError?: string;
   }[];
@@ -405,6 +476,47 @@ export interface ScorerRefusedMessage {
   reason: 'unpaired' | 'bad_code' | 'server_full';
 }
 
+// ============================================================
+// Server → Client: media
+// ============================================================
+
+/**
+ * What this deployment allows, sent on connect to frontends and scoring devices alike — the same
+ * moment and the same reason as `mode_catalog`.
+ *
+ * Sent even when the feature is off, so a client learns the answer rather than waiting for a message
+ * that will never arrive.
+ */
+export interface MediaConfigMessage {
+  type: 'media_config';
+  enabled: boolean;
+  iceServers: IceServerConfig[];
+  video: VideoProfile;
+  maxPeers: number;
+}
+
+/**
+ * Who this peer may open a link to. A retained topic like `devices_state`: pushed on every change,
+ * and authoritative in **both** directions.
+ *
+ * A peer that has vanished from the list is a link to close. That is what tears links down when
+ * somebody leaves, when a match closes and when a phone drops off the Wi-Fi, without a teardown
+ * message existing anywhere in this protocol.
+ */
+export interface MediaPeersMessage {
+  type: 'media_peers';
+  /** This connection's own peer id, so it can tell itself apart in anything it is shown. */
+  self: string;
+  peers: MediaPeer[];
+}
+
+/** One end of a negotiation, from a peer the server has paired with this one. */
+export interface MediaSignalRelayMessage {
+  type: 'media_signal';
+  from: string;
+  description: SignalDescription;
+}
+
 export type ServerMessage =
   | LobbyStateMessage
   | MatchStateMessage
@@ -421,7 +533,10 @@ export type ServerMessage =
   | ScorerPairedMessage
   | ScorerStateMessage
   | ScorerCommandMessage
-  | ScorerRefusedMessage;
+  | ScorerRefusedMessage
+  | MediaConfigMessage
+  | MediaPeersMessage
+  | MediaSignalRelayMessage;
 
 // ============================================================
 // Helpers

@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
+import { useMediaMesh } from './hooks/useMediaMesh';
+import { MediaDebugPanel } from './components/MediaDebugPanel';
+import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
@@ -14,9 +17,10 @@ import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../s
 import type { ModeDescriptor } from '../shared/settings';
 
 export function App() {
-  // Scoring devices share the match socket, but the socket is created inside useMatch. The ref
-  // is what lets the two be introduced without either owning the other.
+  // Scoring devices and media both share the match socket, but the socket is created inside
+  // useMatch. The refs are what let them be introduced without any of them owning the other.
   const devicesHandler = useRef<((msg: ServerMessage) => void) | null>(null);
+  const mediaHandler = useRef<((msg: ServerMessage) => void) | null>(null);
 
   const {
     lobby,
@@ -43,10 +47,19 @@ export function App() {
     voteRematch,
     addDart,
     undoDart,
-  } = useMatch((msg) => devicesHandler.current?.(msg));
+  } = useMatch((msg) => { devicesHandler.current?.(msg); mediaHandler.current?.(msg); });
 
   const devices = useScoringDevices(send, connected);
   devicesHandler.current = devices.handleMessage;
+
+  const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
+  // Which of this tab's claimed devices is showing the board — to the opponent as much as to us.
+  const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
+  const media = useMediaMesh(send, connected, {
+    tier: wantsMedia ? 'video' : 'disabled',
+    boardCamera,
+  });
+  mediaHandler.current = media.handleMessage;
 
   const navigate = useNavigate();
 
@@ -94,6 +107,10 @@ export function App() {
         onForget={devices.forget}
         onSetCamera={devices.setCamera}
         onPowerOff={devices.powerOff}
+        media={media.config?.enabled ? wantsMedia : null}
+        onMediaChange={(next) => setWantsMedia(saveMediaEnabled(next))}
+        boardCamera={boardCamera}
+        onBoardCameraChange={(next) => setBoardCamera(saveBoardCamera(next))}
       />
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">
       <Routes>
@@ -152,6 +169,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
+      <MediaDebugPanel media={media} />
     </div>
   );
 }

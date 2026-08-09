@@ -4,6 +4,8 @@ import { getMode } from './modes/types';
 import { MATCH_FIELDS } from '../shared/matchFormat';
 import type { SettingsField } from '../shared/settings';
 import type { BoardTip } from '../shared/vision/types';
+import type { SignalDescription } from '../shared/media';
+import { MAX_SDP_BYTES } from '../shared/media';
 import { DEVICES_PER_USER } from './capacity';
 
 // ============================================================
@@ -154,6 +156,29 @@ export function validateTips(raw: unknown): BoardTip[] | null {
     tips.push({ x, y, confidence });
   }
   return tips;
+}
+
+// ============================================================
+// Media
+// ============================================================
+
+/**
+ * One end of a WebRTC negotiation, on its way from one peer to another.
+ *
+ * The server does **not** parse SDP and has no opinion about what is in it — it relays a bounded
+ * opaque blob between two peers it paired itself, and the only side that interprets it feeds it
+ * straight to `setRemoteDescription`, which refuses nonsense on its own.
+ *
+ * So there are exactly two things to check: that it is one of the two kinds of description that
+ * exist, and that it is not big enough to be an attack. `rollback` is deliberately not accepted —
+ * it is a purely local operation and has no business on a wire.
+ */
+export function validateSignal(raw: unknown): SignalDescription | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const d = raw as Record<string, unknown>;
+  if (d.type !== 'offer' && d.type !== 'answer') return null;
+  if (typeof d.sdp !== 'string' || d.sdp.length === 0 || d.sdp.length > MAX_SDP_BYTES) return null;
+  return { type: d.type, sdp: d.sdp };
 }
 
 /**

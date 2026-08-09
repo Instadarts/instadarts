@@ -4,6 +4,7 @@
 // run in one browser without either overwriting the other. A device stores its token; a frontend
 // stores only a hash of it. Neither ever holds the other's secret.
 
+import type { MediaTier } from '../../shared/media';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
 import { clampMinutes, GRACE_MINUTES, STANDBY_MINUTES } from './scorerPower';
 
@@ -38,6 +39,18 @@ export interface ScorerSettings {
   cameraOffAfterMinutes: number;
   /** Idle minutes before the wake lock is released and the socket closed. */
   standbyAfterMinutes: number;
+  /**
+   * How much of its view this phone is willing to let the people in the match see.
+   *
+   * A property of the phone rather than of the pairing, like the name and the lens calibration: a
+   * camera pointed somewhere its owner would rather not broadcast is still pointed there after it
+   * is handed to somebody else — and neither the owner nor the opponent can change this from their
+   * end.
+   *
+   * It says what this device *offers*, never that it is in use. Being watched needs the owner to
+   * nominate this device as their board camera as well; see shared/media.ts.
+   */
+  media: MediaTier;
 }
 
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
@@ -55,6 +68,7 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   deviceName: '',
   cameraOffAfterMinutes: GRACE_MINUTES.default,
   standbyAfterMinutes: STANDBY_MINUTES.default,
+  media: 'video',
 };
 
 export function loadIdentity(): ScorerIdentity | null {
@@ -127,10 +141,23 @@ export function loadSettings(): ScorerSettings {
       // left behind by an older build — cannot switch off a limit that exists to protect a battery.
       cameraOffAfterMinutes: clampMinutes(stored.cameraOffAfterMinutes, GRACE_MINUTES),
       standbyAfterMinutes: clampMinutes(stored.standbyAfterMinutes, STANDBY_MINUTES),
+      media: asTier(stored.media),
     };
   } catch {
     return { ...SETTINGS_DEFAULTS };
   }
+}
+
+/**
+ * Read on the way out rather than trusted, like the two minute counts above.
+ *
+ * This setting was a boolean before it had three answers, so a phone that has been running the app
+ * for a while has a `true` in storage where a tier belongs. Anything unrecognised — including that
+ * `true` — becomes the default rather than a value nothing downstream can read.
+ */
+function asTier(raw: unknown): MediaTier {
+  if (raw === 'disabled' || raw === 'stills' || raw === 'video') return raw;
+  return raw === false ? 'disabled' : SETTINGS_DEFAULTS.media;
 }
 
 export function saveSettings(patch: Partial<ScorerSettings>): ScorerSettings {

@@ -17,6 +17,16 @@ interface TopBarProps {
   onForget: (deviceId: string) => void;
   onSetCamera: (deviceId: string, active: boolean) => void;
   onPowerOff: (deviceId: string) => void;
+  /**
+   * Whether this browser takes part in media, or null where the deployment does not carry it at
+   * all. Null hides the switch entirely: offering somebody a choice their server will ignore is
+   * worse than not mentioning it.
+   */
+  media: boolean | null;
+  onMediaChange: (enabled: boolean) => void;
+  /** The device showing the board, or null for none. Also what the opponent is offered. */
+  boardCamera: string | null;
+  onBoardCameraChange: (deviceId: string | null) => void;
 }
 
 /**
@@ -37,6 +47,10 @@ export function TopBar({
   onForget,
   onSetCamera,
   onPowerOff,
+  media,
+  onMediaChange,
+  boardCamera,
+  onBoardCameraChange,
 }: TopBarProps) {
   const [open, setOpen] = useState(false);
 
@@ -71,6 +85,9 @@ export function TopBar({
             <DeviceRow
               key={device.deviceId}
               device={device}
+              boardCamera={media ? boardCamera : null}
+              showBoardChoice={media === true}
+              onSelectBoardCamera={() => onBoardCameraChange(device.deviceId)}
               onGrab={() => onGrab(device.deviceId)}
               onRelease={() => onRelease(device.deviceId)}
               onForget={() => onForget(device.deviceId)}
@@ -90,14 +107,84 @@ export function TopBar({
               Pair scoring device
             </button>
           )}
+
+          {media !== null && (
+            <div className="flex flex-col gap-2 border-t border-gray-800 pt-3">
+              <label className="flex items-center gap-2 text-sm text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={media}
+                  onChange={(e) => onMediaChange(e.target.checked)}
+                  className="accent-green-600"
+                />
+                Share and watch live video during a match
+              </label>
+              {media && devices.some((d) => d.active && d.online) && (
+                <label className="flex items-center gap-2 text-xs text-gray-400">
+                  <input
+                    type="radio"
+                    name="board-camera"
+                    aria-label="Board camera: none"
+                    checked={boardCamera === null}
+                    onChange={() => onBoardCameraChange(null)}
+                    className="accent-green-600"
+                  />
+                  show nothing — not to you, and not to your opponent
+                </label>
+              )}
+            </div>
+          )}
         </div>
       )}
     </header>
   );
 }
 
+interface BoardCameraChoiceProps {
+  device: DeviceView;
+  selected: boolean;
+  onSelect: () => void;
+}
+
+/**
+ * The board-camera radio that lives in a device's own row.
+ *
+ * In the row rather than in a list of its own, so a device's name is written once and everything
+ * about that device is in one place. The label is carried on `aria-label`: the row already says
+ * which phone this is, and repeating the name would be noise on screen.
+ *
+ * A phone that has declined to share is shown disabled, with the reason, rather than quietly
+ * omitted — otherwise its owner goes looking for a control that is not there.
+ */
+function BoardCameraChoice({ device, selected, onSelect }: BoardCameraChoiceProps) {
+  const offered = device.media !== 'disabled';
+  return (
+    <label className={`flex items-center gap-2 text-xs ${offered ? 'text-gray-400' : 'text-gray-600'}`}>
+      <input
+        type="radio"
+        name="board-camera"
+        aria-label={`Board camera: ${device.name}`}
+        checked={selected}
+        disabled={!offered}
+        onChange={onSelect}
+        className="accent-green-600"
+      />
+      {!offered
+        ? 'this device is not sharing its view'
+        : device.media === 'stills'
+          ? 'show this view in the match — stills only'
+          : 'show this view in the match'}
+    </label>
+  );
+}
+
 interface DeviceRowProps {
   device: DeviceView;
+  /** The device currently showing the board, so this row knows whether it is the one. */
+  boardCamera: string | null;
+  /** Hidden entirely when this browser has media switched off — there is nothing to choose. */
+  showBoardChoice: boolean;
+  onSelectBoardCamera: () => void;
   onGrab: () => void;
   onRelease: () => void;
   onForget: () => void;
@@ -105,7 +192,7 @@ interface DeviceRowProps {
   onPowerOff: () => void;
 }
 
-function DeviceRow({ device, onGrab, onRelease, onForget, onSetCamera, onPowerOff }: DeviceRowProps) {
+function DeviceRow({ device, boardCamera, showBoardChoice, onSelectBoardCamera, onGrab, onRelease, onForget, onSetCamera, onPowerOff }: DeviceRowProps) {
   const [confirmingPowerOff, setConfirmingPowerOff] = useState(false);
   // Only a device this tab holds and can reach will hear anything.
   const reachable = device.active && device.online;
@@ -146,6 +233,16 @@ function DeviceRow({ device, onGrab, onRelease, onForget, onSetCamera, onPowerOf
 
       {/* The device's own words for why its camera is not on. Nothing here could have guessed them. */}
       {device.cameraError && <p className="text-xs text-yellow-500 pl-4">{device.cameraError}</p>}
+
+      {showBoardChoice && reachable && (
+        <div className="pl-4">
+          <BoardCameraChoice
+            device={device}
+            selected={boardCamera === device.deviceId}
+            onSelect={onSelectBoardCamera}
+          />
+        </div>
+      )}
 
       {reachable && (
         <div className="flex items-center justify-between gap-3 pl-4 text-xs">

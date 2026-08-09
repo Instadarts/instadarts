@@ -172,7 +172,7 @@ test.describe('camera scoring, end to end', () => {
     await showScene(scorer.page, 'darts');
 
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
-    await expect(scorer.page.getByRole('combobox')).toHaveValue('s_960');
+    await expect(scorer.page.getByRole('combobox', { name: 'Model' })).toHaveValue('s_960');
     // The virtual camera exposes no zoom capability, and the panel says so rather than showing a
     // control that would do nothing.
     await expect(scorer.page.getByText('This camera does not expose a zoom control.')).toBeVisible();

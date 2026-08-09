@@ -1,11 +1,12 @@
 // The gameplay half of the socket layer: lobbies, matches, spectating, re-matches, and the routing
 // that every message arrives through.
 //
-// Two things it deliberately does not hold. **Who is connected** is connections.ts — the registry
+// Three things it deliberately does not hold. **Who is connected** is connections.ts — the registry
 // and the ways of addressing it, which the scoring-device handlers need just as much as these do.
 // **Scoring devices** are scoringDevices.ts, which shares nothing with this file but that registry
 // and `commitScoredMatch` — the one function through which a match moves, whether its darts were
-// clicked here or seen by a camera there.
+// clicked here or seen by a camera there. **Media** is media.ts, which shares only the registry: it
+// needs to know when somebody changes room, and this file is where that happens.
 //
 // Every handler below takes a message that has been parsed but not validated: `parseMessage` checks
 // that a `type` is present and nothing else, so the shape each handler reads is its own to check.
@@ -19,7 +20,20 @@ import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow } from './validation';
-import { checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
+import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
+import { MEDIA_ENABLED } from './env';
+import {
+  handleMediaLeave,
+  handleMediaReady,
+  handleMediaSignal,
+  handleSelectCamera,
+  syncDeviceTier,
+  mediaRoomOf,
+  publishMediaFor,
+  publishMediaForRoom,
+  releaseMediaState,
+  sendMediaConfig,
+} from './media';
 import { dropScoringSessions } from './scoring/store';
 import { allModes, describeMode } from './modes/types';
 import { canCreateLobby, canCreateMatch } from './capacity';
@@ -111,6 +125,9 @@ export function registerClient(ws: WebSocket, client: Client): void {
   addClient(ws, client);
   // What this deployment can play. The client renders the lobby from it and imports no mode code.
   send(ws, { type: 'mode_catalog', modes: allModes().map(describeMode) });
+  // And whether it carries video, which a frontend and a scoring device both need to know and
+  // neither can guess. Sent even when the answer is no, so nobody waits for it.
+  sendMediaConfig(ws);
 }
 
 export function removeClient(ws: WebSocket): void {
@@ -122,6 +139,8 @@ export function removeClient(ws: WebSocket): void {
     releaseRateLimit(client.sessionId, client.deviceId);
     releaseScoringState(client);
   }
+  // Before the socket leaves the registry, or the room it was in cannot be worked out any more.
+  releaseMediaState(ws);
   dropClient(ws);
 }
 
@@ -166,16 +185,30 @@ export function handleMessage(ws: WebSocket, raw: string): void {
   // one of the reports it would lose to the shared bucket is the empty one that ends the visit.
   if (msg.type === 'scorer_tips') {
     if (!client?.deviceId || !checkTipsRateLimit(client.deviceId)) return;
+  } else if (msg.type === 'media_signal') {
+    // Its own budget, because signaling arrives in bursts: a client joining a match negotiates every
+    // link it has in one breath and then says nothing all evening.
+    if (!checkSignalRateLimit(client?.deviceId ?? client?.sessionId ?? '')) return;
   } else if (!checkRateLimit(client?.sessionId ?? `anon_${Math.random()}`)) {
     send(ws, { type: 'error', message: 'Rate limit exceeded' });
     return;
   }
 
-  // A connection is a frontend or a scoring device, never both. Keeping the two vocabularies apart
-  // means a compromised scoring device cannot reach a single gameplay handler.
+  // A connection is a frontend or a scoring device, never both. Keeping the two gameplay
+  // vocabularies apart means a compromised scoring device cannot reach a single gameplay handler.
+  //
+  // `media_` is the one prefix both kinds speak, and that costs nothing here: a media handler is not
+  // a gameplay handler, and every one of them is gated on the sender's roster — which the server
+  // computed itself, and which a scoring device has no way to talk itself into.
   const isScorerMessage = msg.type.startsWith('scorer_');
-  if (client?.deviceId && !isScorerMessage) return;
+  const isMediaMessage = msg.type.startsWith('media_');
+  if (client?.deviceId && !isScorerMessage && !isMediaMessage) return;
   if (isScorerMessage && !client?.deviceId && msg.type !== 'scorer_pair' && msg.type !== 'scorer_hello') return;
+  if (isMediaMessage && !MEDIA_ENABLED) return;
+
+  // Where this connection was before the handler ran. A message that moves somebody has to refresh
+  // the room it left as well as the one it joined, and afterwards there is no way to ask.
+  const previousRoom = ROOM_CHANGING_TYPES.has(msg.type) ? mediaRoomOf(ws) : null;
 
   // Anything a participant does pushes the idle deadline back. Read after the handler has run, so
   // that a message which moves the client — starting a match — touches what it moved them into.
@@ -245,9 +278,13 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       break;
     case 'scorer_pair':
       handleScorerPair(ws, msg);
+      // A phone announces what it will share as soon as it connects, which is before it has proven
+      // who it is. This is the moment there is finally a device to write that answer to.
+      syncDeviceTier(ws);
       break;
     case 'scorer_hello':
       handleScorerHello(ws, msg);
+      syncDeviceTier(ws);
       break;
     case 'scorer_unpair':
       handleScorerUnpair(ws);
@@ -261,6 +298,18 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'scorer_tips':
       handleScorerTips(ws, msg);
       break;
+    case 'media_ready':
+      handleMediaReady(ws, msg);
+      break;
+    case 'media_leave':
+      handleMediaLeave(ws);
+      break;
+    case 'media_select_camera':
+      handleSelectCamera(ws, msg);
+      break;
+    case 'media_signal':
+      handleMediaSignal(ws, msg);
+      break;
     default:
       send(ws, { type: 'error', message: `Unknown message type: ${(msg as any).type}` });
   }
@@ -272,6 +321,10 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     // A finished match is counting down its summary; input must not push that back.
     if (match && match.status === 'in_progress') touch(match);
   }
+
+  // Somebody may have moved. Cheap to ask needlessly: an unchanged roster sends nothing, which is
+  // exactly what a re-match produces — a new match id, the same people, and a link that keeps going.
+  if (ROOM_CHANGING_TYPES.has(msg.type)) publishMediaFor(ws, previousRoom);
 }
 
 // ============================================================
@@ -309,6 +362,9 @@ setLifecycleHandlers({
     dropScoringSessions(match.id);
     deleteMatch(match.id);
     publishScorerStateFor(devices);
+    // The room is gone, so everyone who was in it is told they are alone, which is what closes
+    // whatever peer connections they were holding.
+    publishMediaForRoom(match.id);
   },
 
   /** A lobby nobody has touched for the idle period. */
@@ -321,6 +377,7 @@ setLifecycleHandlers({
       client.isSpectator = false;
     }
     deleteLobby(lobby.id);
+    publishMediaForRoom(lobby.id);
   },
 });
 
@@ -329,6 +386,24 @@ const INPUT_TYPES = new Set([
   'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name',
   'update_settings', 'swap_players', 'start_match',
   'add_dart', 'undo_dart', 'submit_visit', 'rematch_vote',
+]);
+
+/**
+ * Message types after which somebody may be able to see somebody they could not before.
+ *
+ * Every one of these either moves a connection between a lobby and a match, changes who is in one,
+ * or changes which scoring devices a session holds — and a media roster is derived from exactly
+ * those three things. Anything not listed here cannot change one, so it is not worth asking.
+ *
+ * Deliberately generous rather than exact: an unchanged roster is not published, so a type listed
+ * here that turns out not to have moved anything costs one derivation and no traffic. `add_local_player`
+ * and `set_player_name` are here because a roster carries player names and ids, not merely who is in it.
+ */
+const ROOM_CHANGING_TYPES = new Set([
+  'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'swap_players',
+  'start_match', 'rematch_vote', 'leave_match', 'spectate', 'reconnect',
+  'activate_devices', 'deactivate_device', 'scorer_pair', 'scorer_hello', 'scorer_unpair', 'scorer_name',
+  'media_ready', 'media_leave', 'media_select_camera',
 ]);
 
 // ============================================================

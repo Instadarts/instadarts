@@ -129,7 +129,7 @@ describe('pairing', () => {
     const { scorer, deviceId } = pair(frontend);
 
     expect(frontend.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: true, cameraActive: false },
+      { deviceId, name: '', online: true, cameraActive: false, media: 'disabled' },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
 
@@ -204,7 +204,7 @@ describe('re-authentication', () => {
 
     expect(scorer.last('scorer_refused')).toBeUndefined();
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: true, cameraActive: false },
+      { deviceId, name: '', online: true, cameraActive: false, media: 'disabled' },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
   });
@@ -219,7 +219,7 @@ describe('re-authentication', () => {
     frontend2.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 2 }] });
     // Nothing has proven the device yet, so the claim is parked and does not count as online.
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: false, cameraActive: false },
+      { deviceId, name: '', online: false, cameraActive: false, media: 'disabled' },
     ]);
 
     const scorer = connect();

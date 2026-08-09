@@ -55,8 +55,14 @@ export function releaseScoringState(client: Client): void {
 /** Live scoring-device sockets, by device id. The registry in devices.ts holds no sockets. */
 const deviceSockets = new Map<string, WebSocket>();
 
-/** Tell a frontend how its devices are doing. */
-function publishDevicesState(sessionId: string): void {
+/**
+ * Tell a frontend how its devices are doing.
+ *
+ * Exported because a device's willingness to share its view travels in the same list, and that is
+ * media's to record — the owner's picker is built from this message and has to see a tier change
+ * as soon as the phone makes one.
+ */
+export function publishDevicesState(sessionId: string): void {
   const ws = findSessionSocket(sessionId);
   if (!ws) return;
   send(ws, { type: 'devices_state', devices: devicesForSession(sessionId) });

@@ -171,8 +171,8 @@ export interface MediaConfig {
 /** The starting point, and only that: measured against real phones is how these numbers get better. */
 export const DEFAULT_VIDEO_PROFILE: VideoProfile = {
   codec: 'avc1.42001f', // H.264 baseline, level 3.1
-  width: 480,
-  height: 480,
+  width: 320,
+  height: 320,
   frameRate: 15,
   bitrate: 500_000,
   keyFrameIntervalMs: 2000,
@@ -324,9 +324,9 @@ export function clampRegion(region: Region | undefined): Region {
  */
 export const STILL = {
   /** Side of the delivered image. Square, like the board and like the camera's own capture. */
-  size: 480,
+  size: 320,
   mime: 'image/jpeg',
-  quality: 0.75,
+  quality: 0.65,
 } as const;
 
 /** How much of the board a dart's evidence shows: enough to see which side of a wire it is on. */

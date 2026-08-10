@@ -35,7 +35,7 @@ import {
   sendMediaConfig,
 } from './media';
 import { dropScoringSessions } from './scoring/store';
-import { grantSeat, heldSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
+import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
 import { allModes, describeMode } from './modes/types';
 import { canCreateLobby, canCreateMatch } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
@@ -45,6 +45,7 @@ import {
   broadcastToLobby,
   broadcastToMatch,
   dropClient,
+  findSessionSocket,
   getClient,
   lobbyMessage,
   matchMessage,
@@ -158,6 +159,36 @@ function sendResume(ws: WebSocket, room: { lobbyId?: string; matchId?: string },
 }
 
 /**
+ * The place this session held has been taken by another connection.
+ *
+ * Two things happen, and the order matters. The old connection stops being a participant *here* —
+ * it is out of the room before the new one is told anything, so there is never a moment with two
+ * occupants — and then it is told, so its tab can drop what it was holding rather than sitting on a
+ * screen it can no longer act on.
+ *
+ * The socket is deliberately left open. Closing it would send that tab straight back through its own
+ * reconnect, token in hand, to take the seat back — the two would trade it forever. What ends the
+ * participation is losing the seat, not losing the connection.
+ */
+function releaseTakenSeat(sessionId: string, roomId: string): void {
+  const ws = findSessionSocket(sessionId);
+  if (!ws) return;
+  const client = getClient(ws);
+  if (!client) return;
+  if (client.lobbyId !== roomId && client.matchId !== roomId) return;
+
+  const devices = client.matchId ? devicesScoringInto(client.matchId) : [];
+  client.lobbyId = null;
+  client.matchId = null;
+  client.playerId = null;
+  client.isSpectator = false;
+  send(ws, { type: 'seat_taken_over' });
+  // It is out of the room, so the room's cameras and peers are no longer its business.
+  publishScorerStateFor(devices);
+  publishMediaFor(ws, roomId);
+}
+
+/**
  * The seat this connection holds in this room, taking one if it has none.
  *
  * Idempotent on purpose: a user who joins their own lobby again, or adds a second player to a local
@@ -177,24 +208,44 @@ function claimSeat(roomId: string, client: Client, seat: Seat): string {
 // Request guards
 // ============================================================
 
+/**
+ * The room this connection may act as a participant in, or null.
+ *
+ * **Holding the seat is the requirement, not a state we keep in step with one.** The `Client` record
+ * says what a connection was last told it may do; the [seat](./seats.ts) says who may do it *now*,
+ * and where the two disagree the seat is right. Every entry point into a lobby or a match goes
+ * through one of these, so a connection whose place was taken over cannot act on either — and it is
+ * refused because it does not hold the place, rather than because something remembered to demote it.
+ */
+function seatedInLobby(ws: WebSocket): { client: Client; lobbyId: string } | null {
+  const client = getClient(ws);
+  if (!client?.lobbyId || client.isSpectator) return null;
+  return holdsSeat(client.lobbyId, client.sessionId) ? { client, lobbyId: client.lobbyId } : null;
+}
+
+/** The match this connection may play in, or null. See `seatedInLobby`. */
+function seatedInMatch(ws: WebSocket): { client: Client; matchId: string } | null {
+  const client = getClient(ws);
+  if (!client?.matchId || client.isSpectator) return null;
+  return holdsSeat(client.matchId, client.sessionId) ? { client, matchId: client.matchId } : null;
+}
+
 /** Validates that the client is playing in an active match. Returns client+match or null (error already sent). */
 function requireMatch(ws: WebSocket): { client: Client; match: MatchState } | null {
-  const client = getClient(ws);
-  if (!client?.matchId) return null;
-  if (client.isSpectator) return null;
-  const match = getMatch(client.matchId);
+  const seated = seatedInMatch(ws);
+  if (!seated) return null;
+  const match = getMatch(seated.matchId);
   if (!match) { send(ws, { type: 'error', message: 'Match not found' }); return null; }
-  return { client, match };
+  return { client: seated.client, match };
 }
 
 /** Validates that the client is in a lobby. Returns client+lobby or null. Does NOT send errors for silent-return handlers. */
 function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
-  const client = getClient(ws);
-  if (!client?.lobbyId) return null;
-  if (client.isSpectator) return null;
-  const lobby = getLobby(client.lobbyId);
+  const seated = seatedInLobby(ws);
+  if (!seated) return null;
+  const lobby = getLobby(seated.lobbyId);
   if (!lobby) return null;
-  return { client, lobby };
+  return { client: seated.client, lobby };
 }
 
 // ============================================================
@@ -493,9 +544,9 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
 }
 
 function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
-  const client = getClient(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
+  const seated = seatedInLobby(ws);
+  if (!seated) return;
+  const { client } = seated;
 
   const name = sanitizeName(msg.playerName);
   if (!name) {
@@ -503,7 +554,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const lobby = getLobby(client.lobbyId);
+  const lobby = getLobby(seated.lobbyId);
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
     return;
@@ -615,11 +666,11 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
 }
 
 function handleStartMatch(ws: WebSocket, msg: any): void {
-  const client = getClient(ws);
-  if (!client?.lobbyId) return;
-  if (client.isSpectator) return;
+  const seated = seatedInLobby(ws);
+  if (!seated) return;
+  const { client } = seated;
 
-  const lobby = getLobby(client.lobbyId);
+  const lobby = getLobby(seated.lobbyId);
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
     return;
@@ -733,14 +784,24 @@ export function handleClientLeave(ws: WebSocket): void {
     return;
   }
 
-  if (client.matchId) {
+  // Leaving concedes a match and can abandon a lobby, so it is an act on the room like any other and
+  // asks the same question: does this connection hold the place? One whose place was taken over does
+  // not, and drops what it thought it had without touching anything. That also covers the disconnect
+  // grace — a socket that closed and was replaced by a reload is no longer the occupant, so its
+  // deferred leave cannot walk the returning tab out of the match.
+  if (seatedInMatch(ws)) {
     leaveMatch(ws, client);
     return;
   }
 
-  if (client.lobbyId) {
+  if (seatedInLobby(ws)) {
     leaveLobby(ws, client);
+    return;
   }
+
+  client.lobbyId = null;
+  client.matchId = null;
+  client.playerId = null;
 }
 
 function leaveAsSpectator(client: Client): void {
@@ -890,14 +951,17 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const seat = redeemSeat(roomId, msg.token, client.sessionId);
-  if (!seat) {
+  const redeemed = redeemSeat(roomId, msg.token, client.sessionId);
+  if (!redeemed) {
     send(ws, { type: 'error', message: 'Cannot resume this session' });
     return;
   }
+  // A place has one occupant. Whoever was in it is out of the room before the newcomer is admitted,
+  // so a duplicated tab replaces the original rather than joining it.
+  if (redeemed.takenFrom) releaseTakenSeat(redeemed.takenFrom, roomId);
 
-  if (msg.lobbyId) reconnectToLobby(ws, client, msg.lobbyId, seat);
-  else reconnectToMatch(ws, client, roomId, seat);
+  if (msg.lobbyId) reconnectToLobby(ws, client, msg.lobbyId, redeemed.seat);
+  else reconnectToMatch(ws, client, roomId, redeemed.seat);
 }
 
 /** Page reload during the lobby phase. */
@@ -968,10 +1032,11 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
  * broadcast rather than through a mechanism of its own.
  */
 function handleRematchVote(ws: WebSocket, msg: any): void {
-  const client = getClient(ws);
-  if (!client?.matchId || client.isSpectator) return;
+  const seated = seatedInMatch(ws);
+  if (!seated) return;
+  const { client } = seated;
 
-  const match = getMatch(client.matchId);
+  const match = getMatch(seated.matchId);
   if (!match || match.status !== 'finished') return;
 
   const player = match.players.find((p) => p.id === msg.playerId);

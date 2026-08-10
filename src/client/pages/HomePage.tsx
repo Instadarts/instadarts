@@ -5,12 +5,15 @@ interface HomePageProps {
   onCreateLocalMatch: () => void;
   onCreateOnlineMatch: () => void;
   connected: boolean;
+  /** Why this tab is here rather than where it was — see `notice` in useMatch. */
+  notice?: string | null;
 }
 
 export function HomePage({
   onCreateLocalMatch,
   onCreateOnlineMatch,
   connected,
+  notice,
 }: HomePageProps) {
   const [showJoin, setShowJoin] = useState(false);
   const [joinCode, setJoinCode] = useState('');
@@ -54,6 +57,10 @@ export function HomePage({
     <div className="flex-1 flex flex-col items-center justify-center p-4">
       <h1 className="text-5xl font-bold text-green-400 mb-2">InstaDarts</h1>
       <p className="text-gray-500 mb-8">Dart game tracker</p>
+
+      {notice && (
+        <p role="status" className="text-yellow-400 mb-4 max-w-sm text-center">{notice}</p>
+      )}
 
       {!connected && (
         <p className="text-yellow-400 mb-4">Connecting to server...</p>

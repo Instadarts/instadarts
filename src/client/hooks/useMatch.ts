@@ -21,6 +21,11 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [isSpectator, setIsSpectator] = useState(false);
   /** Whether this user created the lobby it is in. The server's answer, not a comparison we make. */
   const [isHost, setIsHost] = useState(false);
+  /**
+   * Something that happened *to* this tab and has to be explained on the screen it lands on — as
+   * opposed to `error`, which answers a request this tab made.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const extraHandlerRef = useRef(onServerMessage);
   extraHandlerRef.current = onServerMessage;
@@ -65,6 +70,21 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setPanel(msg.panel);
         clearReconnectInfo();
         break;
+      // Another tab took this one's place — duplicating a tab copies the token that holds it. The
+      // server has already taken this connection out of the room; all that is left is to stop
+      // looking like a game, and above all to drop the token, or the next reconnect would take the
+      // place straight back off the tab that now has it.
+      case 'seat_taken_over':
+        setLobby(null);
+        setMatch(null);
+        setView(null);
+        setPanel(undefined);
+        setOwnPlayerId(null);
+        setIsSpectator(false);
+        setIsHost(false);
+        clearReconnectInfo();
+        setNotice('This game was opened in another tab, and continues there.');
+        break;
       case 'match_closed':
         // The match ran out its summary and is gone.
         setMatch(null);
@@ -93,11 +113,13 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const createLobby = useCallback((isLocal = true) => {
     send({ type: 'create_lobby', isLocal });
     setError(null);
+    setNotice(null);
   }, [send]);
 
   const joinLobby = useCallback((inviteCode: string, playerName: string) => {
     send({ type: 'join_lobby', inviteCode, playerName });
     setError(null);
+    setNotice(null);
   }, [send]);
 
   const addLocalPlayer = useCallback((lobbyId: string, playerName: string) => {
@@ -168,6 +190,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     panel,
     modes,
     error,
+    notice,
     connected,
     send,
     ownPlayerId,

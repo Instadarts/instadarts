@@ -6,6 +6,7 @@ import { resetScoringSessions } from '../../src/server/scoring/store';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getLobby, getMatch } from '../../src/server/store';
 import type { ServerMessage } from '../../src/shared/protocol';
+import type { Client } from '../../src/server/types';
 import '../helpers'; // registers the x01 mode
 
 /**
@@ -29,7 +30,12 @@ import '../helpers'; // registers the x01 mode
 let sessionCounter = 0;
 const openSockets = new Set<WebSocket>();
 
-function connect() {
+/**
+ * @param standing - What this connection's record claims about itself before it has done anything.
+ *   Only the invariant tests pass one: it is how a connection that believes it belongs somewhere it
+ *   never took a place is built.
+ */
+function connect(standing: Partial<Pick<Client, 'lobbyId' | 'matchId' | 'playerId'>> = {}) {
   const sessionId = `s${++sessionCounter}`;
   const received: ServerMessage[] = [];
   const ws = {
@@ -38,7 +44,9 @@ function connect() {
     send: (raw: string) => received.push(JSON.parse(raw)),
   } as unknown as WebSocket;
 
-  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });
+  registerClient(ws, {
+    sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null, ...standing,
+  });
   openSockets.add(ws);
 
   return {
@@ -324,6 +332,116 @@ describe('a spectator asking on the socket it is already watching from', () => {
 
     expect(getMatch(matchId)!.currentVisit).toBeUndefined();
     expect(getMatch(matchId)!.players[0].sessionId).toBe(host.sessionId);
+  });
+});
+
+// ============================================================
+// One place, one occupant
+// ============================================================
+
+describe('a duplicated tab', () => {
+  /** What duplicating a tab does: the same token, in a second connection. */
+  function duplicate(of: Conn, room: { lobbyId?: string; matchId?: string }): Conn {
+    const copy = connect();
+    copy.send({ type: 'reconnect', ...room, token: of.last('resume')!.token });
+    return copy;
+  }
+
+  it('takes the place over, and the original is told', () => {
+    const { host, matchId } = localMatch('Alice', 'Bob');
+
+    const copy = duplicate(host, { matchId });
+
+    expect(copy.last('match_state')).toBeDefined();
+    expect(host.last('seat_taken_over')).toBeDefined();
+  });
+
+  it('leaves the original unable to throw, submit or leave', () => {
+    const { host, matchId } = localMatch('Alice', 'Bob');
+    duplicate(host, { matchId });
+
+    host.send({ type: 'add_dart', matchId, dart: DART });
+    host.send({ type: 'submit_visit', matchId });
+    host.send({ type: 'leave_match', matchId });
+
+    const match = getMatch(matchId)!;
+    expect(match.currentVisit).toBeUndefined();
+    expect(match.visits).toHaveLength(0);
+    expect(match.status).toBe('in_progress');
+    expect(match.departed).toEqual([]);
+  });
+
+  it('takes a lobby over too, chair and all', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+    const copy = duplicate(host, { lobbyId });
+    expect(copy.last('lobby_state')!.youAreHost).toBe(true);
+    expect(host.last('seat_taken_over')).toBeDefined();
+
+    // The original cannot change the settings of a lobby it is no longer in.
+    host.send({ type: 'update_settings', settings: { mode: 'x01', modeSettings: { startScore: 301, doubleIn: false, doubleOut: true } } });
+    expect(getLobby(lobbyId)!.settings.modeSettings.startScore).toBe(501);
+  });
+
+  it('does not disturb two tabs that hold places of their own', () => {
+    // The ordinary case this must not touch: separate tabs have separate storage, so they hold
+    // separate seats and never contend for one. Two of them are two users.
+    const { alice, bob, matchId, players } = onlineMatch();
+
+    alice.send({ type: 'add_dart', matchId, dart: DART });
+    expect(getMatch(matchId)!.currentVisit?.playerId).toBe(players[0].id);
+    expect(alice.last('seat_taken_over')).toBeUndefined();
+    expect(bob.last('seat_taken_over')).toBeUndefined();
+  });
+
+  it('is what a reload is not', () => {
+    // A reload presents the same token from a new session, and there is nobody to take it from —
+    // the old socket is gone. Nothing is announced to anybody.
+    const { host, matchId } = localMatch('Alice', 'Bob');
+    const token = host.last('resume')!.token;
+    host.close();
+
+    const reloaded = connect();
+    reloaded.send({ type: 'reconnect', matchId, token });
+
+    expect(reloaded.last('match_state')).toBeDefined();
+    expect(reloaded.last('seat_taken_over')).toBeUndefined();
+  });
+});
+
+describe('holding the place, not remembering it', () => {
+  it('refuses a connection that believes it is in a match but holds no seat', () => {
+    // The invariant itself, tested the only way it can be: a connection whose record says it is a
+    // player of this match, which never took a place in it. Nothing legitimate produces this — it
+    // stands in for whatever future path forgets to keep the two in step.
+    const { matchId, players } = localMatch('Alice', 'Bob');
+
+    const forged = connect({ matchId, playerId: players[0].id });
+    forged.send({ type: 'add_dart', matchId, dart: DART });
+    forged.send({ type: 'submit_visit', matchId });
+    forged.send({ type: 'leave_match', matchId });
+
+    const match = getMatch(matchId)!;
+    expect(match.currentVisit).toBeUndefined();
+    expect(match.visits).toHaveLength(0);
+    expect(match.status).toBe('in_progress');
+  });
+
+  it('refuses a connection that believes it is in a lobby but holds no seat', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+    const forged = connect({ lobbyId });
+    forged.send({ type: 'add_local_player', playerName: 'Mallory' });
+    forged.send({ type: 'start_match' });
+
+    expect(getLobby(lobbyId)!.players.map((p) => p.name)).toEqual(['Alice']);
+    expect(getAllMatches().size).toBe(0);
   });
 });
 

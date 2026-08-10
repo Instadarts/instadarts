@@ -32,6 +32,7 @@ export function App() {
     panel,
     modes,
     error,
+    notice,
     connected,
     ownPlayerId,
     isSpectator,
@@ -160,6 +161,7 @@ export function App() {
             onCreateLocalMatch={() => { createLobby(true); }}
             onCreateOnlineMatch={() => { createLobby(false); }}
             connected={connected}
+            notice={notice}
           />
         } />
 

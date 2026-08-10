@@ -376,6 +376,18 @@ export interface ErrorMessage {
 }
 
 /**
+ * Somebody else took this tab's place, and it has none any more.
+ *
+ * A seat is held by one connection at a time, so presenting its token elsewhere hands it over —
+ * which is what duplicating a tab does, since duplication copies the storage the token lives in.
+ * The tab told this has already stopped being a participant server-side; it drops what it was
+ * holding rather than sitting there looking like a game it can no longer play.
+ */
+export interface SeatTakenOverMessage {
+  type: 'seat_taken_over';
+}
+
+/**
  * What to present if this tab is loaded again, and for which room.
  *
  * Sent only to the connection it belongs to — never broadcast, never part of a lobby or a match,
@@ -564,6 +576,7 @@ export type ServerMessage =
   | ModeCatalogMessage
   | ErrorMessage
   | ResumeMessage
+  | SeatTakenOverMessage
   | MatchStartedMessage
   | MatchFinishedMessage
   | LobbyAbandonedMessage

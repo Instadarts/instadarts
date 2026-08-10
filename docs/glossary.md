@@ -210,13 +210,26 @@ to that connection alone, in a `resume` message. The client keeps it in `session
 it on `reconnect`; **the seat then says what is resumed** (which player, and whether the host chair
 comes with it), so there is nothing left in the message to lie about.
 
-Two rules make it worth something:
+Three rules make it worth something:
 
 - **A token is never broadcast and never rides on a lobby or a match.** Both of those go to everyone
   in the room, spectators included, so a secret kept on the player record would be published to the
   people it exists to exclude.
 - **Watching is not a place.** No `spectate` grants a seat, and leaving revokes the one you had —
   which is the other half of [Departed](#departed).
+- **A place has one occupant, and holding it is what permits acting.** Presenting a token takes the
+  seat from whoever had it: they are out of the room before the newcomer is admitted, and are told
+  (`seat_taken_over`) so their tab can drop what it holds — including the token, or the two would
+  trade the place forever. Duplicating a tab copies `sessionStorage`, so this is the ordinary way it
+  happens, not an attack. Every entry point into a lobby or a match then asks the seat rather than
+  the connection's own record (`seatedInLobby` / `seatedInMatch` in
+  [`wsHandler.ts`](../src/server/wsHandler.ts)) — a `Client` says what a connection was last told it
+  may do, the seat says who may do it now, and a connection that no longer holds one cannot throw,
+  submit, start, vote or leave.
+
+**Separate tabs are separate users.** The token lives in `sessionStorage`, which is per tab, so two
+tabs of one browser hold two seats and never contend — that is what lets one browser play both sides
+of an online match. Only a *duplicated* tab arrives holding somebody else's place.
 
 ### Re-Match
 
@@ -249,7 +262,9 @@ There is no way to leave the question open. **Leaving counts as declining** — 
 Leave, or by dropping the connection for longer than the reconnect grace period:
 
 - they cannot reconnect to it — leaving revokes their [seat](#seat) ("Cannot resume this session"),
-  and `departed` refuses them by name even if a second tab still holds the token;
+  and `departed` refuses them by name as a second line if a token ever outlives its revocation;
+- only the connection **holding** the place may do it, so a tab whose place was taken over cannot
+  concede a match it is no longer in;
 - it counts as **declining** a [re-match](#re-match), and cannot be taken back by anyone;
 - if it was still being played, it ends — see [Match](#match).
 

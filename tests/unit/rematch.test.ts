@@ -151,10 +151,10 @@ describe('leaving a match', () => {
     expect(matchOf(returning)).toBeUndefined();
   });
 
-  it('is final for a second tab holding the same token', () => {
-    // Duplicating a tab copies its sessionStorage, so two tabs can hold one place. Giving the place
-    // up belongs to whichever of them last claimed it — which is why `departed` is still checked
-    // after the token has been honoured, and is the guard that catches the other tab.
+  it('cannot be done to a match by the tab that was taken over', () => {
+    // Duplicating a tab copies its sessionStorage, so two tabs can hold one token — and the second
+    // to present it takes the place. The first is out of the match by then, so its Leave cannot
+    // concede a match it is no longer in, which is the whole point of the place having one occupant.
     const { host, match } = onlineMatch();
     const matchId = match().id;
     const token = host.last('resume')!.token;
@@ -162,11 +162,15 @@ describe('leaving a match', () => {
     const twin = connect();
     twin.send({ type: 'reconnect', matchId, token });
     expect(matchOf(twin)).toBeDefined();
+    expect(host.last('seat_taken_over')).toBeDefined();
 
     host.leave();
 
-    twin.send({ type: 'reconnect', matchId, token });
-    expect(twin.last('error')?.message).toBe('You have left this match');
+    expect(match().status).toBe('in_progress');
+    expect(match().departed).toEqual([]);
+    // And the tab that holds the place still holds it.
+    twin.send({ type: 'add_dart', matchId, dart: T20 });
+    expect(matchOf(twin)!.currentVisit?.darts).toHaveLength(1);
   });
 
   it('takes the re-match off the table, even after the match was won', () => {

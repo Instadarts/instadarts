@@ -90,14 +90,39 @@ export function updateSeat(roomId: string, token: string, patch: Partial<Seat>):
  * unknown room, an unknown token, a token from a room that has since closed.
  *
  * The seat is re-bound to the presenting connection, so the tab that has just come back is the one
- * that holds it from here on.
+ * that holds it from here on — **and it is the only one that does.** A seat is held by one session
+ * at a time by construction: whoever presents the token takes it, and `takenFrom` names whoever had
+ * it, which is what lets a takeover be an event rather than a silent second occupant. Duplicating a
+ * tab copies its storage, so this is not a rare case.
  */
-export function redeemSeat(roomId: string, token: unknown, sessionId: string): Seat | null {
+export function redeemSeat(
+  roomId: string,
+  token: unknown,
+  sessionId: string,
+): { seat: Seat; takenFrom: string | null } | null {
   if (typeof token !== 'string' || token.length === 0) return null;
   const held = rooms.get(roomId)?.get(token);
   if (!held) return null;
+  const previous = held.sessionId;
   held.sessionId = sessionId;
-  return { playerId: held.playerId, host: held.host };
+  return {
+    seat: { playerId: held.playerId, host: held.host },
+    // A tab reloading presents the same token under a new session id, so "somebody else had this"
+    // is only true when the session differs — the ordinary reload is not a takeover of anything.
+    takenFrom: previous === sessionId ? null : previous,
+  };
+}
+
+/**
+ * Whether this session is the current holder of a place in this room.
+ *
+ * The question every gameplay guard asks, and the reason it is asked of the seat rather than of the
+ * connection: a `Client` records what it was last told it may do, while the seat records who may do
+ * it *now*. Those two agree until a second tab takes the place over, and after that only the seat is
+ * right.
+ */
+export function holdsSeat(roomId: string, sessionId: string): boolean {
+  return heldSeat(roomId, sessionId) !== null;
 }
 
 /** Give up a place for good. Leaving is final, and a seat is what "final" is enforced with. */

@@ -520,6 +520,41 @@ network, `srflx` means they found each other through a NAT.
 > each other and the failure looks exactly like a bug in this code.
 > `playwright.config.ts` passes `--disable-features=WebRtcHideLocalIpsWithMdns` for that reason.
 
+### Recording a clip
+
+Each feed in the panel has a **● rec** button. Press it, press it again, and the browser saves what
+was on screen in between — `.webm` in Chrome, `.mp4` in Safari, whichever
+[`MediaRecorder.isTypeSupported`](../src/client/components/MediaDebugPanel.tsx) answers to first.
+
+It is a re-encode of the decoded picture rather than a copy of the wire, which is the trade that
+makes it play anywhere by double-clicking. Frames the decoder rejected are not in it; a stall shows
+as a freeze, because a canvas capture repeats the last painted frame.
+
+**The clip carries the match on it.** A camera sends a picture of a board and nothing else — it does
+not know whose throw it is or what the dart it just watched land was worth — so a clip of a raw feed
+is a dartboard with no story attached. [`feedOverlay.ts`](../src/client/components/feedOverlay.ts)
+draws the player and score along the top, the visit along the bottom, and flashes each dart's label
+over the middle as it lands: three quarters opaque, growing out of the frame as it fades, gone inside
+a second.
+
+Both of the flash's curves are weighted towards the start, and that is the whole of the tuning. The
+obvious shaping — ease the growth out, fade linearly — spends the motion budget immediately: the
+label is past a readable size within a tenth of a second and half transparent by the midpoint, so a
+second of animation holds barely a tenth of a second of legible label. Easing the growth *in* and
+squaring the fade holds it near its starting size and near full opacity for two thirds of the
+duration, then throws it off the screen. Same length, same shape, **665ms readable instead of
+109ms**.
+
+**Two canvases, and the reason matters.** The receiver's holds the decoded picture untouched; the
+panel owns a second and composites picture-then-overlay onto it on every animation frame, and records
+*that*. So the raw picture stays raw — `__media.frame()` and the fingerprints the director tests
+compare see a board rather than a player's name across it — and the flash animates on its own clock
+instead of only when a video frame happens to arrive.
+
+The overlay is assembled in [`App.tsx`](../src/client/App.tsx), where the match is. The panel draws
+what it is handed and knows nothing about what any of it means; the score is the mode's own wording,
+so "Bust!" arrives as a score.
+
 ## What is not built
 
 All ⏳. The framework exists to make these expressible, and takes no position on them.

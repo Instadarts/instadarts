@@ -10,7 +10,72 @@ import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded } from '../../src/shared/media';
+import { FLASH_MS, flashAt, flashShape } from '../../src/client/components/feedOverlay';
 import type { CropRect } from '../../src/client/vision/stillCapture';
+
+// ============================================================
+// The dart that just landed, written over the picture
+// ============================================================
+
+describe('the overlay flash', () => {
+  it('is over when it is over', () => {
+    const started = 1000;
+    expect(flashAt(started, started - 1, 'T20')).toBeNull();
+    expect(flashAt(started, started + FLASH_MS, 'T20')).toBeNull();
+    expect(flashAt(started, started + FLASH_MS + 5000, 'T20')).toBeNull();
+    expect(flashAt(started, started + FLASH_MS / 2, 'T20')).toEqual({ label: 'T20', progress: 0.5 });
+  });
+
+  it('is done inside a second, because a flourish that outlasts the next throw is not one', () => {
+    expect(FLASH_MS).toBeLessThanOrEqual(1000);
+  });
+
+  it('starts filling most of the picture and grows out of it', () => {
+    expect(flashShape(0).scale).toBe(1);
+    expect(flashShape(1).scale).toBeGreaterThan(2);
+    // Monotonic, or it would read as a wobble rather than a throw.
+    let previous = 0;
+    for (let t = 0; t <= 1; t += 0.05) {
+      expect(flashShape(t).scale).toBeGreaterThan(previous);
+      previous = flashShape(t).scale;
+    }
+  });
+
+  it('begins at three quarters opacity and ends at none', () => {
+    expect(flashShape(0).alpha).toBeCloseTo(0.75, 10);
+    expect(flashShape(1).alpha).toBeCloseTo(0, 10);
+  });
+
+  it('is thinnest exactly where it is largest', () => {
+    // The two move against each other on purpose: at the point it covers most of the board it is
+    // barely there, so it never hides the thing it is annotating.
+    const early = flashShape(0.2);
+    const late = flashShape(0.8);
+    expect(late.scale).toBeGreaterThan(early.scale);
+    expect(late.alpha).toBeLessThan(early.alpha);
+  });
+
+  it('spends most of its life at a size you can read, then leaves quickly', () => {
+    // The point of the shaping, and the thing that was wrong before it. Easing the growth *out*
+    // makes a second of animation contain a tenth of a second of legible label: it is past a
+    // readable size almost immediately and merely large and faint for the rest. Easing it in holds
+    // it near its starting size and then throws it off the screen.
+    const readable = (t: number) => flashShape(t).scale < 1.5;
+    expect(readable(0.5), 'unreadable by the midpoint').toBe(true);
+    expect(readable(0.6)).toBe(true);
+    expect(readable(1)).toBe(false);
+
+    const first = flashShape(0.25).scale - flashShape(0).scale;
+    const last = flashShape(1).scale - flashShape(0.75).scale;
+    expect(last, 'the exit should be the quick part').toBeGreaterThan(first);
+  });
+
+  it('stays legible while it is legibly sized', () => {
+    // Opacity has to hold through the readable stretch or the shaping above buys nothing: a label
+    // at a readable size and a quarter opacity is not readable.
+    expect(flashShape(0.5).alpha).toBeGreaterThan(0.5);
+  });
+});
 
 // ============================================================
 // Who a command's result is for

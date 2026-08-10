@@ -17,6 +17,7 @@ import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
 import type { ControlMessage } from '../shared/media';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
+import { textOf } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 
 export function App() {
@@ -102,6 +103,16 @@ export function App() {
   // Null draws no strip at all; an empty array draws it at full height, waiting. The difference is
   // a user not using the feature versus one whose first picture has not arrived.
   const evidenceImages = evidence.available ? evidence.images : null;
+
+  // What a recorded clip of a board says about the match it was recording. Assembled here because
+  // this is where the match lives; the panel draws it and knows nothing about what any of it means,
+  // and the score is the mode's own wording rather than a number this file worked out.
+  const thrower = match?.players[match.currentPlayerIndex];
+  const overlay = match && thrower ? {
+    player: thrower.name,
+    score: textOf(view?.playerScores[thrower.id]),
+    darts: match.currentVisit?.darts.map((dart) => dart.score.label) ?? [],
+  } : undefined;
 
   const navigate = useNavigate();
 
@@ -212,7 +223,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} overlay={overlay} />
     </div>
   );
 }

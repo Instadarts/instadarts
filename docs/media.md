@@ -288,6 +288,11 @@ What stops it being an amplifier is a rate limit rather than a permission check 
 losing the same frame all ask at once, and a keyframe costs *every* viewer bandwidth, so one answer
 serves all of them (`VIDEO.keyframeMinIntervalMs`).
 
+**The limit is on the answer, not on the question.** Asking is free; producing is rationed. A limit on
+asking cannot tell a request that crossed a keyframe already in flight — already granted — from one
+that arrived just after a keyframe failed to go out, and it answers the first while ignoring the
+second. Which is exactly backwards.
+
 ### The virtual camera
 
 There is no second lens and no zoom motor. A shot is the source rectangle of a `drawImage` — the same
@@ -327,6 +332,20 @@ its output to `mesh.viewers()` — the same call a still's fan-out makes. This i
   way: a camera handing back thirty frames a second is not encoded at thirty.
 - **Drop, never queue.** A link with more than `VIDEO.maxBufferedBytes` already queued is skipped for
   that frame — judged per viewer, so one slow peer does not cost the others.
+- **A keyframe counts from the moment it is on a wire**, not from the moment it was encoded. Both of
+  the rules above can throw one away, and a keyframe nobody could take has repaired nothing; recording
+  the attempt would satisfy the schedule with a frame that never went. The publisher keeps the two
+  clocks apart — when one last *went out*, which drives the schedule, and when one was last *asked
+  of the encoder*, which bounds the retry.
+
+The failure this shape exists to prevent is quiet, and it is what a still scene provokes: nothing
+moves, delta frames cost almost nothing, and the encoder spends a whole banked second of bitrate on
+the next keyframe. If that keyframe is over what the link will carry it is thrown away — and so is
+the next, for the same reason, forever. Nobody is disconnected and no frames stop arriving; the
+picture simply drifts further from the board with every delta and never gets pulled back. Hence
+`oversize` counted apart from `dropped` in the panel, and hence a link's message limit being
+[read from the connection](../src/client/media/peerLink.ts) rather than assumed to be the 64KB floor —
+Chrome negotiates 256KB, and the difference is precisely where those keyframes live.
 
 ### A frame on the media channel
 
@@ -552,9 +571,17 @@ reintroduced the unseekable container would fail rather than merely look fine.
 **The clip carries the match on it.** A camera sends a picture of a board and nothing else — it does
 not know whose throw it is or what the dart it just watched land was worth — so a clip of a raw feed
 is a dartboard with no story attached. [`feedOverlay.ts`](../src/client/components/feedOverlay.ts)
-draws the player and score along the top, the visit along the bottom, and flashes each dart's label
-over the middle as it lands: three quarters opaque, growing out of the frame as it fades, gone inside
-a second.
+draws the player and score along the top, the visit along the bottom, and flashes the visit as it
+stands over the middle as each dart lands: three quarters opaque, growing out of the frame as it
+fades, gone inside a second.
+
+**The visit, not the dart.** 60, then 120, then 170 — the number somebody watching a clip back is
+actually keeping. The dart's own label is already on the strip below, and repeating it enormously
+across the board says nothing new. Three moments are not the total, and they are the three where the
+total is not the news: a dart that scored nothing flashes "miss", a visit thrown away flashes the
+mode's "Bust!", a leg won flashes its "Checkout!". The first two are red and the third is green, and
+the strip along the bottom is coloured the same way — a dart worth nothing in red, the dart that
+finished the leg in green, everything else white.
 
 Both of the flash's curves are weighted towards the start, and that is the whole of the tuning. The
 obvious shaping — ease the growth out, fade linearly — spends the motion budget immediately: the
@@ -570,9 +597,12 @@ panel owns a second and composites picture-then-overlay onto it on every animati
 compare see a board rather than a player's name across it — and the flash animates on its own clock
 instead of only when a video frame happens to arrive.
 
-The overlay is assembled in [`App.tsx`](../src/client/App.tsx), where the match is. The panel draws
-what it is handed and knows nothing about what any of it means; the score is the mode's own wording,
-so "Bust!" arrives as a score.
+The overlay is assembled in [`App.tsx`](../src/client/App.tsx), where the match is, by `overlayFor` —
+and it holds no rules. Every word and every colour is read off the mode's own `ModeView`, the same one
+the match screen renders: the visit total it already puts under the board, the verdict it already puts
+on a player's card. It knows a bust only in the sense that it can see the mode saying so — **a card
+score carrying a tone at all is a verdict rather than a number**, and `danger` is the only tone that
+means the visit came to nothing. The panel below it draws what it is handed and knows even less.
 
 ## What is not built
 

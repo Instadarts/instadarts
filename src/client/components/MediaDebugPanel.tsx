@@ -19,7 +19,7 @@ import type { EvidenceTiming } from '../hooks/useDartEvidence';
 import type { PublisherStats } from '../media/videoPublisher';
 import type { VideoFeed } from '../hooks/useVideoFeed';
 import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
-import { drawOverlay, flashAt, type OverlayState } from './feedOverlay';
+import { drawOverlay, flashAt, NO_OVERLAY, type FlashText, type OverlayState } from './feedOverlay';
 import { e2eEnabled } from '../lib/e2e';
 
 interface Props {
@@ -221,7 +221,9 @@ function stateColor(state: string): string {
  * times a second, and re-rendering the app at that rate to move a number would cost more than the
  * feed does. The poll lives here, where a stale number is only a slightly late display — not in the
  * seam a test reads. `dropped` is the one to watch — it is the backpressure policy doing its job, and a
- * number that climbs steadily means the link cannot carry what the profile asks for.
+ * number that climbs steadily means the link cannot carry what the profile asks for. `oversize` is
+ * the one to be alarmed by: those are frames no link would take at all, nearly always keyframes, and
+ * a picture whose keyframes are not arriving is a picture that comes apart on its own.
  */
 function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats | null; audience?: () => readonly MediaRole[] | null; open: boolean }) {
   const [shown, setShown] = useState<PublisherStats | null>(null);
@@ -238,6 +240,7 @@ function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats 
     <p className="mt-1 text-gray-500">
       publishing · {(audience?.() ?? []).join(' ') || '—'} · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
       {shown.dropped > 0 && <span className="text-yellow-500"> · {shown.dropped} dropped</span>}
+      {shown.oversize > 0 && <span className="text-red-400"> · {shown.oversize} oversize</span>}
       {shown.missed > 0 && <span className="text-gray-600"> · {shown.missed} missed</span>}
       {shown.error && <span className="text-red-400"> · {shown.error}</span>}
     </p>
@@ -313,17 +316,19 @@ function FeedView({ peerId, canvas, feed, open, overlay }: {
   const [recordedBytes, setRecordedBytes] = useState(0);
 
   // Read by the draw loop, which must not restart every time a dart lands.
-  const state = useRef<OverlayState>({ player: '', score: '', darts: [] });
-  state.current = overlay ?? { player: '', score: '', darts: [] };
-  /** The flash in progress: which label, and when it began. */
-  const flash = useRef<{ label: string; startedAt: number } | null>(null);
-  const lastDarts = useRef<string[]>([]);
+  const state = useRef<OverlayState>(NO_OVERLAY);
+  state.current = overlay ?? NO_OVERLAY;
+  /** The flash in progress: what it says, and when it began. */
+  const flash = useRef<{ text: FlashText; startedAt: number } | null>(null);
+  const lastDarts = useRef(0);
 
   // A dart appeared. Not a dart *changed* — undo shortens the visit and a new visit empties it, and
   // neither is something to celebrate.
-  const darts = overlay?.darts ?? [];
-  if (darts.length > lastDarts.current.length) {
-    flash.current = { label: darts[darts.length - 1], startedAt: performance.now() };
+  const darts = overlay?.darts.length ?? 0;
+  if (overlay && darts > lastDarts.current) {
+    // Copied, not read live: the flash is a second long, and a visit that is submitted underneath it
+    // would otherwise rewrite what it says half way through.
+    flash.current = { text: overlay.flash, startedAt: performance.now() };
   }
   lastDarts.current = darts;
 
@@ -342,7 +347,7 @@ function FeedView({ peerId, canvas, feed, open, overlay }: {
       ctx.drawImage(canvas, 0, 0);
 
       const current = flash.current;
-      const showing = current ? flashAt(current.startedAt, performance.now(), current.label) : null;
+      const showing = current ? flashAt(current.startedAt, performance.now(), current.text) : null;
       if (current && !showing) flash.current = null;
       drawOverlay(ctx, target.width, state.current, showing);
     };

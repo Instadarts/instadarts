@@ -18,7 +18,7 @@
 // phone, and it is far cheaper to keep thirty lines than to reason them out again later.
 
 import type { ControlMessage, IceServerConfig, SignalDescription } from '../../shared/media';
-import { CONTROL_CHANNEL, MEDIA_CHANNEL } from '../../shared/media';
+import { CONTROL_CHANNEL, FALLBACK_MAX_MESSAGE_BYTES, MEDIA_CHANNEL } from '../../shared/media';
 import { packFrame, unpackFrame } from './frames';
 
 /**
@@ -67,6 +67,13 @@ export interface PeerLink {
   readonly ready: boolean;
   /** How much is queued on the media channel — the only backpressure signal there is. */
   readonly bufferedAmount: number;
+  /**
+   * The largest single message this peer agreed to receive, as the two ends negotiated it.
+   *
+   * Read rather than assumed, because a keyframe is the biggest thing this app sends and the
+   * conservative floor is smaller than one. See `FALLBACK_MAX_MESSAGE_BYTES`.
+   */
+  readonly maxMessageBytes: number;
   /** A description has arrived from this peer. */
   accept(description: SignalDescription): Promise<void>;
   /**
@@ -76,7 +83,13 @@ export interface PeerLink {
    * that records "asked" regardless will wait forever for an answer to a question nobody heard.
    */
   sendControl(message: ControlMessage, payload?: Uint8Array): boolean;
-  sendMedia(chunk: ArrayBufferView | ArrayBuffer): void;
+  /**
+   * Send one encoded chunk, and report whether it went.
+   *
+   * A message over the negotiated limit is refused here rather than handed to the channel: that
+   * throws, and losing the channel costs far more than losing the frame.
+   */
+  sendMedia(chunk: ArrayBufferView | ArrayBuffer): boolean;
   close(): void;
   /** What the connection actually settled on, for the diagnostics panel. */
   stats(): Promise<LinkStats>;
@@ -246,6 +259,10 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
     pc.close();
   }
 
+  // The transport does not exist until the connection does, so this is asked each time rather than
+  // read once at construction.
+  const maxMessageBytes = (): number => pc.sctp?.maxMessageSize ?? FALLBACK_MAX_MESSAGE_BYTES;
+
   return {
     peerId,
     get state() { return state; },
@@ -253,6 +270,7 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       return control?.readyState === 'open' && media?.readyState === 'open';
     },
     get bufferedAmount() { return media?.bufferedAmount ?? 0; },
+    get maxMessageBytes() { return maxMessageBytes(); },
     accept,
     sendControl(message: ControlMessage, payload?: Uint8Array): boolean {
       if (control?.readyState !== 'open') return false;
@@ -260,9 +278,11 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       else control.send(JSON.stringify(message));
       return true;
     },
-    sendMedia(chunk: ArrayBufferView | ArrayBuffer) {
-      if (media?.readyState !== 'open') return;
+    sendMedia(chunk: ArrayBufferView | ArrayBuffer): boolean {
+      if (media?.readyState !== 'open') return false;
+      if (chunk.byteLength > maxMessageBytes()) return false;
       media.send(chunk as ArrayBuffer);
+      return true;
     },
     close,
     async stats(): Promise<LinkStats> {

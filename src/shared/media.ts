@@ -256,6 +256,20 @@ export const CONTROL_CHANNEL = 'control';
 export const MEDIA_CHANNEL = 'media';
 
 /**
+ * What to assume a peer can take in one message when the connection will not say.
+ *
+ * A link's real limit is `RTCSctpTransport.maxMessageSize` — negotiated in the SDP and readable off
+ * the connection, which is where `peerLink` gets it. This is only the floor for a browser that
+ * exposes no `sctp` at all: 64KB is the size every implementation agrees on.
+ *
+ * Worth reading as a real number rather than assuming this one, because the gap is where keyframes
+ * live. Chrome negotiates 256KB, and a keyframe of a still scene is the largest thing this app ever
+ * sends — the encoder has been banking a bitrate budget that nothing was spending, and it spends all
+ * of it on the next one. Assume the floor and those are precisely the frames that never go.
+ */
+export const FALLBACK_MAX_MESSAGE_BYTES = 65_536;
+
+/**
  * What goes over the control channel.
  *
  * Everything here travels as JSON, except a still — which is one self-describing binary message
@@ -511,22 +525,19 @@ export const VIDEO = {
    */
   maxBufferedBytes: 16_384,
   /**
-   * The most often a viewer's asking can actually produce a keyframe.
+   * The most often a keyframe is **produced**, however often one is asked for.
    *
    * Anyone may ask (see `keyframe`), and several viewers losing the same frame will all ask at once.
    * Answering each of them costs everyone bandwidth, since a keyframe goes to every viewer.
+   *
+   * Rationing the answer rather than the question is the whole of it: a request that crosses a
+   * keyframe already on its way is a request that has already been granted, and a limit on asking
+   * cannot see that. It is also what bounds the retry when a keyframe does not make it out — see
+   * `videoPublisher`.
    */
   keyframeMinIntervalMs: 500,
   /** How long a directed shot is held before the camera goes back on its own. See `directorTiming`. */
   defaultResetMs: 2000,
-  /**
-   * A frame larger than this is dropped rather than sent.
-   *
-   * SCTP interop, not our policy: implementations differ on how large a datachannel message may be,
-   * and 64KB is the size everything agrees on. At this profile nothing should come close — a frame
-   * that does is a symptom, and dropping it beats killing the channel.
-   */
-  maxFrameBytes: 65_536,
 } as const;
 
 /**

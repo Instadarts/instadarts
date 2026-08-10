@@ -6,6 +6,7 @@ import { useMediaMesh } from './hooks/useMediaMesh';
 import { useDartEvidence } from './hooks/useDartEvidence';
 import { useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
+import { overlayFor } from './components/feedOverlay';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
@@ -17,7 +18,6 @@ import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
 import type { ControlMessage } from '../shared/media';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
-import { textOf } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 
 export function App() {
@@ -106,13 +106,11 @@ export function App() {
 
   // What a recorded clip of a board says about the match it was recording. Assembled here because
   // this is where the match lives; the panel draws it and knows nothing about what any of it means,
-  // and the score is the mode's own wording rather than a number this file worked out.
+  // and every word of it is the mode's own rather than something this file worked out.
   const thrower = match?.players[match.currentPlayerIndex];
-  const overlay = match && thrower ? {
-    player: thrower.name,
-    score: textOf(view?.playerScores[thrower.id]),
-    darts: match.currentVisit?.darts.map((dart) => dart.score.label) ?? [],
-  } : undefined;
+  const overlay = match && thrower
+    ? overlayFor(thrower, match.currentVisit?.darts ?? [], view)
+    : undefined;
 
   const navigate = useNavigate();
 

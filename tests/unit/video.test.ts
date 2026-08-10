@@ -10,20 +10,94 @@ import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded } from '../../src/shared/media';
-import { FLASH_MS, flashAt, flashShape } from '../../src/client/components/feedOverlay';
+import { FLASH_MS, flashAt, flashShape, overlayFor, toneColour } from '../../src/client/components/feedOverlay';
 import type { CropRect } from '../../src/client/vision/stillCapture';
+import type { MatchState } from '../../src/shared/types';
+import { viewOf } from '../../src/server/match';
+import { makeMatch, throwDart } from '../helpers';
+
+// ============================================================
+// The match, written over the picture
+// ============================================================
+
+/**
+ * The overlay a clip of this match would carry, built from the mode's real output.
+ *
+ * Driven through `viewOf` rather than a hand-written `ModeView` on purpose: every word and every
+ * colour the overlay shows is x01's, so a fixture here would be a second copy of x01's opinions —
+ * exactly the drift the test is meant to catch.
+ */
+function overlayOf(match: MatchState) {
+  const thrower = match.players[match.currentPlayerIndex];
+  return overlayFor(thrower, match.currentVisit?.darts ?? [], viewOf(match));
+}
+
+describe('what the overlay says', () => {
+  it('flashes the visit as it stands, not the dart that just landed', () => {
+    // The number a person watching a clip back wants: 60, then 120, then 170. The dart's own label
+    // is already on the strip below, and repeating it across the middle of the board says nothing.
+    let match = throwDart(makeMatch(), 'p1', 'T20').match;
+    expect(overlayOf(match).flash).toEqual({ text: '60', tone: 'default' });
+
+    match = throwDart(match, 'p1', 'T20').match;
+    expect(overlayOf(match).flash).toEqual({ text: '120', tone: 'default' });
+
+    match = throwDart(match, 'p1', 'DB').match;
+    expect(overlayOf(match).flash).toEqual({ text: '170', tone: 'default' });
+  });
+
+  it('says "miss" rather than a total that did not move', () => {
+    const match = throwDart(makeMatch(), 'p1', 'miss').match;
+    expect(overlayOf(match).flash).toEqual({ text: 'miss', tone: 'danger' });
+  });
+
+  it('borrows the mode\'s own verdicts, and takes their side', () => {
+    // Neither string is written down in the overlay: x01 already says "Bust!" on the player's card
+    // the instant it happens, and a clip should say what the screen said.
+    const bust = throwDart(makeMatch({ settings: { startScore: 40 } }), 'p1', 'T20').match;
+    expect(overlayOf(bust).flash).toEqual({ text: 'Bust!', tone: 'danger' });
+
+    const out = throwDart(makeMatch({ settings: { startScore: 32 } }), 'p1', 'D16').match;
+    expect(overlayOf(out).flash).toEqual({ text: 'Checkout!', tone: 'positive' });
+  });
+
+  it('colours the strip: the dart that finished it, the ones that scored nothing', () => {
+    let match = throwDart(makeMatch({ settings: { startScore: 72 } }), 'p1', 'miss').match;
+    match = throwDart(match, 'p1', 'S20').match;
+    expect(overlayOf(match).darts).toEqual([
+      { label: 'miss', tone: 'danger' },
+      { label: 'S20', tone: 'default' },
+    ]);
+
+    // 52 left, D16 does not finish it — and then D10 does.
+    match = throwDart(match, 'p1', 'D16').match;
+    expect(overlayOf(match).darts[2]).toEqual({ label: 'D16', tone: 'default' });
+
+    const finished = throwDart(makeMatch({ settings: { startScore: 20 } }), 'p1', 'D10').match;
+    expect(overlayOf(finished).darts).toEqual([{ label: 'D10', tone: 'positive' }]);
+  });
+
+  it('reads the same three colours the rest of the screen means', () => {
+    expect(toneColour('positive')).not.toBe(toneColour('danger'));
+    // Everything else is just the score. A board feed has no use for a fourth shade.
+    expect(toneColour('default')).toBe(toneColour('muted'));
+    expect(toneColour('default')).toBe(toneColour('accent'));
+  });
+});
 
 // ============================================================
 // The dart that just landed, written over the picture
 // ============================================================
 
+const T20 = { text: 'T20', tone: 'default' } as const;
+
 describe('the overlay flash', () => {
   it('is over when it is over', () => {
     const started = 1000;
-    expect(flashAt(started, started - 1, 'T20')).toBeNull();
-    expect(flashAt(started, started + FLASH_MS, 'T20')).toBeNull();
-    expect(flashAt(started, started + FLASH_MS + 5000, 'T20')).toBeNull();
-    expect(flashAt(started, started + FLASH_MS / 2, 'T20')).toEqual({ label: 'T20', progress: 0.5 });
+    expect(flashAt(started, started - 1, T20)).toBeNull();
+    expect(flashAt(started, started + FLASH_MS, T20)).toBeNull();
+    expect(flashAt(started, started + FLASH_MS + 5000, T20)).toBeNull();
+    expect(flashAt(started, started + FLASH_MS / 2, T20)).toEqual({ ...T20, progress: 0.5 });
   });
 
   it('is done inside a second, because a flourish that outlasts the next throw is not one', () => {

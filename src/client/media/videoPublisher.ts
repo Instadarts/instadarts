@@ -37,6 +37,15 @@ export interface PublisherStats {
   dropped: number;
   /** Frames the source could not produce — camera between frames, mostly. */
   missed: number;
+  /**
+   * Frames too big for a link to carry in one message.
+   *
+   * Almost always keyframes, and worth its own counter rather than being folded into `dropped`:
+   * these two numbers mean opposite things. A dropped frame is the backpressure policy working. An
+   * oversize one is a frame nothing can ever send, so the picture it would have repaired stays
+   * broken — which looks like a feed that slowly falls apart rather than like one that stutters.
+   */
+  oversize: number;
   error?: string;
 }
 
@@ -76,13 +85,20 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
   let encoder: VideoEncoder | null = null;
   let stopped = false;
   let seq = 0;
-  let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0 };
+  let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0 };
 
   /** The feed's own clock, so a timestamp means "since this feed started" and starts at zero. */
   const startedAt = performance.now();
   let lastFrameAt = 0;
-  let lastKeyframeAt = 0;
-  let keyframeAskedAt = 0;
+  /**
+   * The last keyframe that actually reached a link, and the last one asked of the encoder.
+   *
+   * Two clocks rather than one, and keeping them apart is what stops a feed drifting — see
+   * `keyframeDue`. Negative infinity rather than zero so that neither is satisfied by a page that
+   * happens to have been open a while.
+   */
+  let lastKeyframeAt = -Infinity;
+  let keyframeTriedAt = -Infinity;
   let wantKeyframe = true;
 
   /** Cancellation for whichever pacing mechanism we ended up on. */
@@ -105,35 +121,65 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
     const body = new Uint8Array(chunk.byteLength);
     chunk.copyTo(body);
 
-    // Bigger than any implementation agrees to carry. Dropping it keeps the channel; sending it
-    // might not.
-    if (body.byteLength > VIDEO.maxFrameBytes) {
-      stats = { ...stats, dropped: stats.dropped + 1 };
-      return;
-    }
-
     const key = chunk.type === 'key';
     const packet = packVideo({ key, seq: seq++, timestamp: chunk.timestamp }, body);
 
-    let sentToAny = false;
-    for (const link of mesh.viewers(audience())) {
+    const addressed = mesh.viewers(audience());
+    let sent = 0;
+    let refused = false;
+    for (const link of addressed) {
+      // More than this peer said it could take in one message. Handing it over anyway throws, and a
+      // channel is worth more than a frame — so this link goes without and the counter says so.
+      if (packet.byteLength > link.maxMessageBytes) { refused = true; continue; }
+
       // Drop, never queue. A frame this link has not managed to send yet is worth less than the one
       // behind it, and every viewer is judged separately — one slow peer does not cost the others.
       if (link.bufferedAmount > VIDEO.maxBufferedBytes) {
         stats = { ...stats, dropped: stats.dropped + 1 };
         continue;
       }
-      link.sendMedia(packet);
-      sentToAny = true;
+      if (link.sendMedia(packet)) sent++;
     }
 
-    if (!sentToAny) return;
+    if (refused) stats = { ...stats, oversize: stats.oversize + 1 };
+
+    // Recorded here rather than where it was encoded, because this is where it became true. A
+    // keyframe nobody could take has repaired nothing, and treating the attempt as the event is what
+    // let a feed sit broken for a whole `keyFrameIntervalMs` at a time — or forever, when every
+    // keyframe failed for the same reason. Left un-recorded, one is still due on the next tick.
+    //
+    // Reaching *anyone* is enough. A viewer that was skipped while the rest were served has the
+    // `keyframe` request to say so, and re-keying on its behalf would let one backed-up peer hold
+    // every other viewer at two keyframes a second. An audience of nobody counts too: there is
+    // nothing to repair, and an unwatched feed should not sit re-keying itself.
+    if (key && (sent > 0 || addressed.length === 0)) {
+      lastKeyframeAt = performance.now();
+      wantKeyframe = false;
+    }
+
+    if (sent === 0) return;
     stats = {
       ...stats,
       frames: stats.frames + 1,
       keyframes: stats.keyframes + (key ? 1 : 0),
       bytes: stats.bytes + body.byteLength,
     };
+  }
+
+  /**
+   * Whether the frame about to be encoded should be a keyframe.
+   *
+   * The schedule is measured from the last keyframe that **went out**, and the retry from the last
+   * one **asked of the encoder**. One clock could not do both: measuring the schedule from the
+   * attempt hides a keyframe that never left, and measuring the retry from the delivery would ask
+   * for another one on every tick for as long as they keep failing.
+   *
+   * `keyframeMinIntervalMs` therefore rations keyframes themselves rather than requests for them,
+   * which is also what makes `requestKeyframe` free to call.
+   */
+  function keyframeDue(now: number): boolean {
+    if (now - keyframeTriedAt < VIDEO.keyframeMinIntervalMs) return false;
+    return wantKeyframe || now - lastKeyframeAt >= profile.keyFrameIntervalMs;
   }
 
   function ensureEncoder(): VideoEncoder | null {
@@ -187,10 +233,11 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
       return;
     }
 
-    const dueKeyframe = wantKeyframe || now - lastKeyframeAt >= profile.keyFrameIntervalMs;
+    const dueKeyframe = keyframeDue(now);
     try {
       codec.encode(frame, { keyFrame: dueKeyframe });
-      if (dueKeyframe) { lastKeyframeAt = now; wantKeyframe = false; }
+      // Only that it was asked for. Whether it counts as one is `publish`'s to say.
+      if (dueKeyframe) keyframeTriedAt = now;
     } catch (e) {
       fail(e instanceof Error ? e.message : String(e));
     } finally {
@@ -224,11 +271,11 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
     get audience() { return audience(); },
 
     requestKeyframe(): void {
-      // Several viewers losing the same frame all ask at once, and a keyframe costs every viewer
-      // bandwidth. One answer serves all of them.
-      const now = performance.now();
-      if (now - keyframeAskedAt < VIDEO.keyframeMinIntervalMs) return;
-      keyframeAskedAt = now;
+      // Deliberately unlimited. Several viewers losing the same frame all ask at once and a keyframe
+      // costs every viewer bandwidth, but the limit belongs on the answer rather than the question —
+      // `keyframeDue` is where one answer comes to serve all of them. A limit here could only count
+      // *asking*, which meant a request that crossed a keyframe already on its way bought a second
+      // one nobody needed, while a request that arrived just after a failed keyframe bought nothing.
       wantKeyframe = true;
     },
 

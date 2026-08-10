@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, Region } from '../../shared/media';
-import { DART_EVIDENCE_REGION_SIZE, STILL } from '../../shared/media';
+import { DART_EVIDENCE_REGION_SIZE, STILL, VIDEO } from '../../shared/media';
 import type { CurrentVisit } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
 import type { Mesh } from '../media/mesh';
@@ -50,6 +50,14 @@ interface Options {
   currentVisit: CurrentVisit | undefined;
   /** Whether this user is the one throwing — only they may ask their camera for anything. */
   isThrower: boolean;
+  /**
+   * Point the live feed at the same square, if there is a feed. Silent when there is not.
+   *
+   * Passed in rather than reached for, because this hook's business is evidence and the feed's is
+   * elsewhere — but they want the same square at the same moment, and one dart producing both a
+   * photograph and a camera move is the comparison the whole step exists to make.
+   */
+  direct?: (region: Region, transitionMs: number) => void;
 }
 
 /** How long a dart's picture took to come back, from the asking side. */
@@ -75,7 +83,7 @@ export interface DartEvidence {
   available: boolean;
 }
 
-export function useDartEvidence({ mesh, currentVisit, isThrower }: Options): DartEvidence {
+export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Options): DartEvidence {
   const [images, setImages] = useState<(string | undefined)[]>([]);
   /** Object URLs we made, so they can be revoked. A blob URL leaks until it is. */
   const urls = useRef<(string | undefined)[]>([]);
@@ -87,6 +95,8 @@ export function useDartEvidence({ mesh, currentVisit, isThrower }: Options): Dar
   const measuring = useRef(e2eEnabled()).current;
   const meshRef = useRef(mesh);
   meshRef.current = mesh;
+  const directRef = useRef(direct);
+  directRef.current = direct;
 
   const replace = useCallback((next: (string | undefined)[]) => {
     for (const url of urls.current) {
@@ -126,10 +136,11 @@ export function useDartEvidence({ mesh, currentVisit, isThrower }: Options): Dar
 
     for (let index = 0; index < darts.length; index++) {
       if (asked.current.has(index)) continue;
+      const region = dartRegion(darts[index]);
       const sent = meshRef.current?.link(camera)?.sendControl({
         kind: 'still_request',
         id: crypto.randomUUID(),
-        region: dartRegion(darts[index]),
+        region,
         tag: { dart: index } satisfies EvidenceTag,
       });
       // Recorded as asked only once the link actually took it. A channel that is not open yet drops
@@ -137,6 +148,9 @@ export function useDartEvidence({ mesh, currentVisit, isThrower }: Options): Dar
       // link was rebuilt never got a picture at all — the next match state retries it instead.
       if (!sent) continue;
       asked.current.add(index);
+      // The same square, as a camera move rather than a photograph. Not conditional on the still
+      // having arrived: they are two independent answers to one dart landing.
+      directRef.current?.(region, VIDEO.defaultTransitionMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
   }, [darts, isThrower, measuring]);

@@ -18,8 +18,9 @@ import { processPredictions, type PipelineResult } from './predictionPipeline';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
 import type { BoardTip, Keypoint, Matrix3x3 } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
-import { STILL, clampRegion } from '../../shared/media';
-import { captureCrop, frameGeometry, regionToCrop, type Capture } from './stillCapture';
+import { DEFAULT_REGION, STILL, clampRegion } from '../../shared/media';
+import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
+import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
 
 export type VisionStatus = {
   stage: 'model' | 'camera' | 'motion' | 'error';
@@ -74,6 +75,22 @@ export interface VisionRuntime {
    * of anything, and a picture of the wrong part of the board is worse than no picture.
    */
   captureStill: (region: Region) => Promise<Capture | null>;
+  /**
+   * Point the live feed at a square of the board, taking `transitionMs` to get there.
+   *
+   * `null` is "no direction" and means the whole board. Unlike a still there is no failure to report:
+   * a region that cannot be placed — no homography yet, or one that will not invert — falls back to
+   * the camera's own square rather than refusing, because a feed that shows something honest beats a
+   * feed that shows nothing.
+   */
+  directVideo: (region: Region | null, transitionMs: number) => void;
+  /**
+   * One frame of the live feed, framed as the director last asked. Null when there is no camera.
+   *
+   * **The caller must close it.** A `VideoFrame` holds a real buffer, often a GPU texture, and
+   * leaking them stalls an encoder in a second or two rather than degrading gently.
+   */
+  grabVideoFrame: (size: number, timestampUs: number, durationUs: number) => VideoFrame | null;
   /** Whether the board has been located since the camera started, so a region can be placed at all. */
   readonly located: boolean;
   /** Keep a copy of each inference's input square, for the frozen calibration frame. */
@@ -112,6 +129,40 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * would be the next refinement, and is deliberately not here.)
    */
   let lastHomography: Matrix3x3 | null = null;
+
+  /**
+   * The live feed's framing. Holds only the animation — where the shot is going is re-resolved on
+   * every frame by `videoDestination` below, which is what lets a feed that started before the board
+   * was found slide onto it the moment it is.
+   */
+  const virtualCamera = createVirtualCamera();
+  let videoRegion: Region | null = null;
+
+  /**
+   * Where the feed should be pointed right now, in this camera's own pixels.
+   *
+   * Two answers, and the fallback is the point of it. With a homography, the region is placed on the
+   * board exactly as a still's would be — same inverse, same lens, same bounding square. Without one,
+   * the camera's own centre square: the square the model is fed, which needs no geometry at all and
+   * is available the instant the camera is. So a feed never waits for the board and never lies about
+   * where it is looking.
+   */
+  function videoDestination(): CropRect | null {
+    if (!video.videoWidth || !video.videoHeight) return null;
+    const { crop, frame } = frameGeometry(video);
+
+    if (lastHomography) {
+      const rect = regionToCrop({
+        region: clampRegion(videoRegion ?? DEFAULT_REGION),
+        homography: lastHomography,
+        lensCalibration,
+        crop,
+        frame,
+      });
+      if (rect) return rect;
+    }
+    return { x: crop.cropX, y: crop.cropY, size: crop.cropSize };
+  }
 
   function captureInputFrame() {
     if (!keepInputFrame) return;
@@ -217,6 +268,12 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // The homography described where a board was in *that* camera session's frames. Kept across
       // one, it would frame a still from a picture that no longer exists.
       lastHomography = null;
+      // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
+      // open on its new view, not slide there from where the old one was pointing. The *region*
+      // survives, because that is the director's instruction and it is about the board rather than
+      // about any camera.
+      virtualCamera.reset();
+      releaseCanvas();
       onStatus({ stage: 'camera', text: 'stopped' });
     },
 
@@ -236,6 +293,18 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       });
       if (!rect) return null;
       return captureCrop(video, rect, STILL.size, STILL.mime, STILL.quality);
+    },
+
+    directVideo(region: Region | null, transitionMs: number) {
+      videoRegion = region;
+      virtualCamera.move(transitionMs);
+    },
+
+    grabVideoFrame(size: number, timestampUs: number, durationUs: number) {
+      if (!camera.active) return null;
+      const destination = videoDestination();
+      if (!destination) return null;
+      return grabFrame(video, virtualCamera.shot(destination, performance.now()), size, timestampUs, durationUs);
     },
 
     async unload() {

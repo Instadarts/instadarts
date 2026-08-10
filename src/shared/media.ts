@@ -232,7 +232,14 @@ export type ControlMessage =
   /** Are you there? Answered with `pong`, and the only traffic a link has when nothing is watching. */
   | { kind: 'ping'; seq: number }
   | { kind: 'pong'; seq: number }
-  /** The decoder cannot continue from what it has. Send a keyframe. */
+  /**
+   * The decoder cannot continue from what it has. Send a keyframe.
+   *
+   * **The one command any viewer may send**, and the exception is deliberate: a keyframe changes
+   * nothing about *what* is shown, only about whether the asker can decode it. An opponent gains no
+   * say over somebody else's camera by being able to say "I cannot read this". The device
+   * rate-limits instead, so four viewers cannot cost four keyframes — see `VIDEO`.
+   */
   | { kind: 'keyframe' }
   /**
    * Photograph this part of your board and send it back.
@@ -242,7 +249,30 @@ export type ControlMessage =
   | { kind: 'still_request'; id: string; region?: Region; tag?: unknown }
   /** The header of a still frame; the JPEG bytes travel in the same message. */
   | { kind: 'still'; id: string; tag?: unknown; width: number; height: number; mime: string }
-  | { kind: 'still_refused'; id: string; reason: StillRefusal };
+  | { kind: 'still_refused'; id: string; reason: StillRefusal }
+  /**
+   * Start publishing live video, and stop.
+   *
+   * Deliberately without a region: starting a feed and framing it are different decisions, and only
+   * the second is a `video_region`. Owner-only, like every command but `keyframe`.
+   */
+  | { kind: 'video_start' }
+  | { kind: 'video_stop' }
+  /**
+   * Point the camera at this square of the board, over this long.
+   *
+   * The **director** command — the same region vocabulary a still uses, plus the one thing a moving
+   * picture needs that a photograph does not: how long to take getting there. A cut is
+   * `transitionMs: 0`; anything else is a move.
+   */
+  | { kind: 'video_region'; region: Region; transitionMs?: number }
+  /**
+   * Whether this camera is publishing, told to every viewer rather than only to whoever asked.
+   *
+   * A spectator never sent `video_start` and would otherwise have no way to tell a feed that is off
+   * from a link that is broken — both are a black rectangle.
+   */
+  | { kind: 'video_state'; on: boolean; reason?: VideoRefusal };
 
 /**
  * Why a camera could not answer.
@@ -257,6 +287,24 @@ export type StillRefusal =
   | 'not_located'
   /** Too many already in hand. */
   | 'busy';
+
+/**
+ * Why a camera is not publishing video.
+ *
+ * Unlike `StillRefusal` this is not an answer to a request — it rides on `video_state`, which goes to
+ * everybody watching, because "there is no picture and here is why" is as useful to a spectator as to
+ * the owner who asked.
+ *
+ * There is deliberately no `not_located`: a feed does not need the board to be found. It falls back
+ * to the camera's own square and upgrades itself when a homography turns up.
+ */
+export type VideoRefusal =
+  /** This device's tier is not `video`. Its owner said stills, or nothing. */
+  | 'not_offered'
+  /** No camera running. */
+  | 'no_camera'
+  /** This browser has no usable `VideoEncoder` — Safari before 16.4, and anything older still. */
+  | 'no_encoder';
 
 // ============================================================
 // Regions of a board
@@ -340,3 +388,45 @@ export const DART_EVIDENCE_REGION_SIZE = 0.25;
  * and cost three crops, which is nothing.
  */
 export const MAX_PENDING_STILLS = 4;
+
+// ============================================================
+// Live video
+// ============================================================
+
+/**
+ * The numbers a publisher runs by, in the same single place as `STILL` and for the same reason: both
+ * ends of a link are one build from one origin, so a shared constant is honest where a negotiation
+ * would be theatre.
+ *
+ * The size, rate and bitrate are **not** here — those are `VideoProfile`, shipped by the server, so a
+ * deployment can be retuned against real phones without a client release. What is here is policy that
+ * does not vary by deployment.
+ */
+export const VIDEO = {
+  /**
+   * Stop writing to a link that already has this much queued.
+   *
+   * **Drop, never queue.** A frame that has not left yet is worth less than the one behind it, and a
+   * datachannel with no bandwidth estimator will happily grow a buffer until the picture is a minute
+   * behind the board. Roughly a quarter-second at the default bitrate, which is about as far behind
+   * as a live board may fall before it stops being live.
+   */
+  maxBufferedBytes: 16_384,
+  /**
+   * The most often a viewer's asking can actually produce a keyframe.
+   *
+   * Anyone may ask (see `keyframe`), and several viewers losing the same frame will all ask at once.
+   * Answering each of them costs everyone bandwidth, since a keyframe goes to every viewer.
+   */
+  keyframeMinIntervalMs: 500,
+  /** How long a director's move takes when the command does not say. */
+  defaultTransitionMs: 500,
+  /**
+   * A frame larger than this is dropped rather than sent.
+   *
+   * SCTP interop, not our policy: implementations differ on how large a datachannel message may be,
+   * and 64KB is the size everything agrees on. At this profile nothing should come close — a frame
+   * that does is a symptom, and dropping it beats killing the channel.
+   */
+  maxFrameBytes: 65_536,
+} as const;

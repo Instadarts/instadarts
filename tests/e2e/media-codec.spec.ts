@@ -25,7 +25,7 @@ import { test, expect, type Page } from '@playwright/test';
 const FRAMES = 12;
 
 /** The profile the server ships, hard-coded here so a change to it is a change to this test too. */
-const PROFILE = { codec: 'avc1.42001f', width: 480, height: 480, frameRate: 15, bitrate: 500_000 };
+const PROFILE = { codec: 'avc1.42001f', width: 320, height: 320, frameRate: 15, bitrate: 500_000 };
 
 test.describe('encoded video over a link', () => {
   test('encodes on one device, decodes on the other', async ({ browser }) => {
@@ -127,8 +127,9 @@ test.describe('encoded video over a link', () => {
       const sizes: string[] = [];
       const decoder = new (window as any).VideoDecoder({
         // `displayWidth`/`displayHeight`, not the coded size: H.264 pads its coded dimensions out
-        // to whole macroblocks, so a 480×480 picture decodes with a codedHeight of 482. The display
-        // size is the picture that was actually sent.
+        // to whole macroblocks, and the coded size that comes back is the encoder's business rather
+        // than ours — at the 480×480 this profile used to carry, frames decoded with a codedHeight
+        // of 482. The display size is the picture that was actually sent.
         output: (frame: any) => { sizes.push(`${frame.displayWidth}x${frame.displayHeight}`); frame.close(); },
         error: () => {},
       });

@@ -66,8 +66,9 @@ export default defineConfig({
    * Two projects, so the genuinely CPU-hungry specs run on their own.
    *
    * `media-codec` encodes and decodes real H.264 in software — there is no hardware encoder in a
-   * headless container — and `media-stills` drives a detection model to solve a homography before it
-   * can crop anything. Either beside the specs that are already driving a model is enough contention
+   * headless container — `media-stills` drives a detection model to solve a homography before it can
+   * crop anything, and `media-video` does both at once. Any of them beside the specs that are
+   * already driving a model is enough contention
    * to starve a scoring device's page until it misses a heartbeat, and a scoring
    * device that reconnects mid-match restarts a camera its owner had switched off
    * (`useScorerLink` clears `scoring` on disconnect; `useScorerPower` reads its return as a match
@@ -81,8 +82,8 @@ export default defineConfig({
    * thirteen. What matters is which files happen to overlap, not how many run at once.
    */
   projects: [
-    { name: 'app', testIgnore: /media-codec|media-stills/ },
-    { name: 'heavy', testMatch: /media-codec|media-stills/, dependencies: ['app'] },
+    { name: 'app', testIgnore: /media-codec|media-stills|media-video/ },
+    { name: 'heavy', testMatch: /media-codec|media-stills|media-video/, dependencies: ['app'] },
   ],
   // An explicit base URL means somebody else is running the app; there is nothing here to start.
   webServer: process.env.E2E_BASE_URL ? undefined : webServer,

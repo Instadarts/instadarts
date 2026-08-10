@@ -4,6 +4,7 @@ import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
 import { useDartEvidence } from './hooks/useDartEvidence';
+import { useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
@@ -64,17 +65,37 @@ export function App() {
     && (!ownPlayerId || currentPlayer?.id === ownPlayerId);
 
   const evidenceHandler = useRef<((from: string, message: ControlMessage, payload?: Uint8Array) => void) | null>(null);
+  const feedHandler = useRef<((from: string, message: ControlMessage) => void) | null>(null);
+  const feedMedia = useRef<((from: string, data: ArrayBuffer) => void) | null>(null);
   const media = useMediaMesh(send, connected, {
     tier: wantsMedia ? 'video' : 'disabled',
     boardCamera,
-    onControl: (from, message, payload) => evidenceHandler.current?.(from, message, payload),
+    onControl: (from, message, payload) => {
+      evidenceHandler.current?.(from, message, payload);
+      feedHandler.current?.(from, message);
+    },
+    onMedia: (from, data) => feedMedia.current?.(from, data),
   });
   mediaHandler.current = media.handleMessage;
+
+  // The live board. Asked for in the lobby and only under `?e2e=1` — the feed is being proven rather
+  // than shipped, and the diagnostics panel is the only place it is rendered.
+  const feed = useVideoFeed({
+    mesh: media.mesh,
+    config: media.config,
+    links: media.links,
+    inRoom: Boolean(lobby || match),
+  });
+  feedHandler.current = feed.handleControl;
+  feedMedia.current = feed.handleMedia;
 
   const evidence = useDartEvidence({
     mesh: media.mesh,
     currentVisit: match?.currentVisit,
     isThrower: Boolean(isThrower),
+    // Every dart the evidence asks about is also a shot the director calls, at the same square. Two
+    // pictures of one dart, one still and one move, so the two can be compared directly.
+    direct: feed.direct,
   });
   evidenceHandler.current = evidence.handleControl;
   // Null draws no strip at all; an empty array draws it at full height, waiting. The difference is
@@ -190,7 +211,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
     </div>
   );
 }

@@ -263,5 +263,13 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     captureStill: (region: Region) => runtimeRef.current?.captureStill(region) ?? Promise.resolve(null),
     /** Whether the board has been located since the camera started. Lets a failed capture say why. */
     located: () => runtimeRef.current?.located ?? false,
+    /** Point the live feed at a square of the board. Read through the ref for the same reason. */
+    directVideo: (region: Region | null, transitionMs: number) =>
+      runtimeRef.current?.directVideo(region, transitionMs),
+    /** One frame of the live feed. The caller closes it — see VisionRuntime.grabVideoFrame. */
+    grabVideoFrame: (size: number, timestampUs: number, durationUs: number) =>
+      runtimeRef.current?.grabVideoFrame(size, timestampUs, durationUs) ?? null,
+    /** The element the publisher paces against, where the platform lets it. */
+    videoElement: () => video.current,
   };
 }

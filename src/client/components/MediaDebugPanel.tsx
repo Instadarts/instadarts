@@ -10,12 +10,14 @@
 // shipped bundle. It also exposes `window.__media`, which is what the e2e spec drives — the states
 // below are readable, but a test should not have to scrape a screen for them.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
 import type { ControlMessage } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
 import type { StillTiming } from '../hooks/useStillResponder';
 import type { EvidenceTiming } from '../hooks/useDartEvidence';
+import type { PublisherStats } from '../media/videoPublisher';
+import type { VideoFeed } from '../hooks/useVideoFeed';
 import { e2eEnabled } from '../lib/e2e';
 
 interface Props {
@@ -27,6 +29,13 @@ interface Props {
   stillTimings?: React.RefObject<StillTiming[]>;
   /** What each dart's picture cost end to end, from the asking side. A frontend's view. */
   evidenceTimings?: React.RefObject<EvidenceTiming[]>;
+  /**
+   * What the feed this device is publishing has cost, read at the moment of asking. A scoring
+   * device's view. See `VideoResponder.stats` for why this is a function and not a snapshot.
+   */
+  publisherStats?: () => PublisherStats | null;
+  /** The feeds this frontend is watching, and the canvases they land in. */
+  feed?: VideoFeed;
 }
 
 /** Median and worst of a set of measurements. The spread is the interesting half. */
@@ -36,7 +45,7 @@ function summarise(values: number[]): string {
   return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
 }
 
-export function MediaDebugPanel({ media, stillTimings, evidenceTimings }: Props) {
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, feed }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -81,9 +90,26 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings }: Props)
         captured: stillTimings?.current ?? [],
         received: evidenceTimings?.current ?? [],
       }),
+      /**
+       * What the live feed is doing, from whichever end this is.
+       *
+       * `published` is a camera's own account — frames encoded, keyframes, bytes, and what it threw
+       * away because a link was behind. `watching` is a viewer's, one entry per peer sending to us.
+       * A test asserting that video actually flowed has nowhere else to look, and neither does anyone
+       * holding a real phone.
+       */
+      video: () => ({
+        published: publisherStats?.() ?? null,
+        watching: feed?.stats.current ?? [],
+      }),
+      /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
+      frame: (peerId?: string) => {
+        const entry = feed?.canvases.find((c) => !peerId || c.peerId === peerId);
+        return entry ? entry.canvas.toDataURL('image/png') : null;
+      },
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
-  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings]);
+  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, feed]);
 
   // Stats have to be pulled rather than pushed, so the panel polls while it is open and not
   // otherwise — getStats on every link once a second is not free.
@@ -136,6 +162,14 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings }: Props)
               evidence · round trip {summarise(evidenceTimings!.current.map((t) => t.roundTripMs))}
             </p>
           )}
+
+          {/* The feed, from whichever end this is. A camera reports what it encoded; a viewer
+              reports what survived the trip, and shows the picture — which is the only way to tell a
+              feed that is working from one that is delivering frames of nothing. */}
+          <PublisherRow stats={publisherStats} open={open} />
+          {feed?.canvases.map(({ peerId, canvas }) => (
+            <FeedView key={peerId} peerId={peerId} canvas={canvas} feed={feed} open={open} />
+          ))}
           {links.map((l) => {
             const s = stats[l.peer.peerId] ?? {};
             return (
@@ -164,4 +198,78 @@ function stateColor(state: string): string {
   if (state === 'connected') return 'text-green-400';
   if (state === 'failed' || state === 'closed') return 'text-red-400';
   return 'text-yellow-400';
+}
+
+/**
+ * What this device's own feed is costing.
+ *
+ * Polled rather than pushed, for the same reason the link stats are: the publisher counts fifteen
+ * times a second, and re-rendering the app at that rate to move a number would cost more than the
+ * feed does. The poll lives here, where a stale number is only a slightly late display — not in the
+ * seam a test reads. `dropped` is the one to watch — it is the backpressure policy doing its job, and a
+ * number that climbs steadily means the link cannot carry what the profile asks for.
+ */
+function PublisherRow({ stats, open }: { stats?: () => PublisherStats | null; open: boolean }) {
+  const [shown, setShown] = useState<PublisherStats | null>(null);
+  useEffect(() => {
+    if (!open || !stats) return;
+    const tick = () => setShown(stats());
+    tick();
+    const handle = setInterval(tick, 500);
+    return () => clearInterval(handle);
+  }, [open, stats]);
+
+  if (!shown) return null;
+  return (
+    <p className="mt-1 text-gray-500">
+      publishing · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
+      {shown.dropped > 0 && <span className="text-yellow-500"> · {shown.dropped} dropped</span>}
+      {shown.missed > 0 && <span className="text-gray-600"> · {shown.missed} missed</span>}
+      {shown.error && <span className="text-red-400"> · {shown.error}</span>}
+    </p>
+  );
+}
+
+/**
+ * One feed being watched: the picture, and what it took to get it.
+ *
+ * The canvas is owned by the receiver rather than by React — a decoder writing into a node this
+ * component re-created would paint into an orphan — so it is adopted into the DOM here and given
+ * back on unmount.
+ */
+function FeedView({ peerId, canvas, feed, open }: { peerId: string; canvas: HTMLCanvasElement; feed: VideoFeed; open: boolean }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState<{ on: boolean; reason?: string; decoded: number; dropped: number; gaps: number } | null>(null);
+
+  useEffect(() => {
+    const node = host.current;
+    if (!node) return;
+    canvas.className = 'w-32 h-32 bg-black rounded';
+    node.appendChild(canvas);
+    return () => { if (canvas.parentNode === node) node.removeChild(canvas); };
+  }, [canvas]);
+
+  useEffect(() => {
+    if (!open) return;
+    const tick = () => {
+      const entry = feed.stats.current.find((s) => s.peerId === peerId);
+      setShown(entry ? { on: entry.on, reason: entry.reason, ...entry.stats } : null);
+    };
+    tick();
+    const handle = setInterval(tick, 500);
+    return () => clearInterval(handle);
+  }, [open, feed, peerId]);
+
+  return (
+    <div className="mt-1">
+      <p className="text-gray-500">
+        watching {peerId.slice(0, 8)}
+        {shown && ` · ${shown.decoded}f`}
+        {shown && shown.gaps > 0 && <span className="text-yellow-500"> · {shown.gaps} gaps</span>}
+        {shown && shown.dropped > 0 && <span className="text-gray-600"> · {shown.dropped} dropped</span>}
+        {shown && !shown.on && <span className="text-red-400"> · off{shown.reason ? ` (${shown.reason})` : ''}</span>}
+      </p>
+      <div ref={host} className="mt-1" />
+    </div>
+  );
 }

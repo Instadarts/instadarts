@@ -721,8 +721,8 @@ Only the [owner](#board-camera) may ask; everybody linked to that camera receive
 asymmetry is the whole shape of it: an opponent and a spectator see what the owner's camera was
 asked for and have no say in what that is.
 
-Every still is 480×480 JPEG, whatever it was asked for — see `STILL` in `shared/media.ts`, the one
-place those numbers live.
+Every still is a square JPEG of one fixed size, whatever region it was asked for — see `STILL` in
+`shared/media.ts`, the one place that size and its quality live.
 
 ### Dart evidence
 
@@ -731,6 +731,34 @@ the thrower as each dart appears in the visit and shown identically to everyone 
 
 Belongs to the visit in progress. Undo takes the picture with the dart, and submitting the visit
 clears the row along with the slots above it.
+
+### Board video
+
+A live picture of a [board camera](#board-camera)'s view, encoded once and written to every viewer.
+The [tier](#media-tier) has to be `video`, and the [owner](#board-camera) has to have started it —
+`video_start`, which carries no region, because starting a feed and framing it are separate
+decisions.
+
+⏳ Asked for and rendered only under `?e2e=1`. The pipeline is built; nothing in the product offers it
+yet.
+
+### Director command
+
+`video_region` — telling a camera which square of the board to look at, and how long to take getting
+there. The same [region](#region-of-interest) vocabulary a [still](#still) uses, plus a transition
+time, which is the one thing a moving picture needs that a photograph does not.
+
+The owner's alone, like every command except a keyframe request. Dart evidence issues one for each
+dart, at the same square it photographs.
+
+### Virtual camera
+
+How a director command is honoured without a lens that moves: the shot is the source rectangle of one
+`drawImage`, and a camera move is those numbers interpolated over the transition. See `videoCamera.ts`.
+
+Its destination is re-resolved every frame rather than fixed when the command lands, which is what
+lets a feed open on the camera's own square before the board has been located and slide onto the
+board the moment it is.
 
 ---
 

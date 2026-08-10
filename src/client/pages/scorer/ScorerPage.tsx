@@ -6,6 +6,8 @@ import type { PowerStage } from '../../lib/scorerPower';
 import type { BoardTip } from '../../../shared/vision/types';
 import type { MediaTier } from '../../../shared/media';
 import type { StillSource } from '../../hooks/useStillResponder';
+import type { VideoFrameSource } from '../../media/videoPublisher';
+import type { Region } from '../../../shared/media';
 import { loadSettings } from '../../lib/scorerStorage';
 import { e2eNumber } from '../../lib/e2e';
 import { CameraPanel } from './CameraPanel';
@@ -40,6 +42,15 @@ interface ScorerPageProps {
    * The camera is here and the mesh is up there; this is how the two meet.
    */
   stillSource: React.MutableRefObject<StillSource | null>;
+  /** The same introduction as `stillSource`, for the live feed's frames. */
+  videoSource: React.MutableRefObject<VideoFrameSource | null>;
+  /**
+   * And for the director's commands.
+   *
+   * Held apart from `videoSource` because the two have different lifetimes: a region survives a
+   * camera restart, since it describes the board rather than any camera.
+   */
+  directVideo: React.MutableRefObject<((region: Region | null, transitionMs: number) => void) | null>;
 }
 
 type View = 'scoring' | 'settings' | 'calibration';
@@ -58,12 +69,16 @@ export function ScorerPage({
   onCameraActive,
   onMediaChange,
   stillSource,
+  videoSource,
+  directVideo,
 }: ScorerPageProps) {
   const vision = useVisionRuntime({ onTips, onCameraActive });
 
   // Assigned during render rather than in an effect: a still request can arrive before effects have
   // run, and the honest answer to one is the camera as it is now.
   stillSource.current = { capture: vision.captureStill, located: vision.located };
+  videoSource.current = { grab: vision.grabVideoFrame, element: vision.videoElement };
+  directVideo.current = vision.directVideo;
   const [view, setView] = useState<View>('scoring');
   const [settings, setSettings] = useState(() => loadSettings());
 

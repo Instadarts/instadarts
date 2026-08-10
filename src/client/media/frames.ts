@@ -1,4 +1,10 @@
-// A still on the wire: one message that carries its own description.
+// How bytes are framed on each of a link's two channels.
+//
+// Both formats live here rather than beside their senders, because framing is the one thing the two
+// ends of a link have to agree on exactly, and a reader checking that agreement should have to open
+// one file. They are shaped differently because their channels are:
+//
+// **Control — a still** carries its own description, as JSON:
 //
 // ```
 // [uint32 headerLength][headerLength bytes of UTF-8 JSON][payload]
@@ -10,8 +16,11 @@
 // that an ordinary Tuesday rather than an edge case, so the two travel together and there is nothing
 // to pair.
 //
-// Big-endian for the length, because that is what `DataView` does by default and a wire format
-// should not depend on remembering to pass `true`.
+// **Media — an encoded frame** is fixed-width and tiny, because it is written fifteen times a second
+// and the channel it goes out on is the one carrying real bitrate. See `packVideo`.
+//
+// Big-endian throughout, because that is what `DataView` does by default and a wire format should
+// not depend on remembering to pass `true`.
 
 import type { ControlMessage } from '../../shared/media';
 
@@ -57,4 +66,78 @@ export function unpackFrame(data: ArrayBuffer): BinaryFrame | null {
   } catch {
     return null;
   }
+}
+
+// ============================================================
+// An encoded video frame
+// ============================================================
+
+/**
+ * One encoded frame off the media channel.
+ *
+ * `seq` is what makes an unreliable, unordered channel usable at all. The channel is configured
+ * `maxRetransmits: 0, ordered: false`, so frames can go missing and can arrive out of order — and a
+ * decoder fed a delta frame out of order does not produce a late picture, it produces a wrong one
+ * that stays wrong. A receiver drops anything at or below what it has already decoded, and a gap is
+ * what tells it to ask for a keyframe.
+ */
+export interface VideoFrameHeader {
+  key: boolean;
+  seq: number;
+  /** Microseconds, on the publisher's own timeline — the same value that went into the encoder. */
+  timestamp: number;
+}
+
+/**
+ * ```
+ * byte 0      u8   flags — bit 0 set for a keyframe
+ * bytes 1–4   u32  seq
+ * bytes 5–12  f64  timestamp, microseconds
+ * ```
+ *
+ * Thirteen fixed bytes rather than the JSON above. At fifteen frames a second the difference is
+ * small in absolute terms, but this is the channel with a bitrate budget and the header is the one
+ * part of it we are not being paid for.
+ *
+ * The timestamp is a float64 rather than a `u32` of microseconds, which would wrap after seventy-one
+ * minutes — a length of time a match can exceed. Every integer we will ever put in it is exact in a
+ * double, and `DataView` reads one without the `BigInt` awkwardness a `u64` would bring.
+ */
+const VIDEO_HEADER_BYTES = 13;
+const KEY_FLAG = 1;
+
+export function packVideo(header: VideoFrameHeader, payload: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(VIDEO_HEADER_BYTES + payload.length);
+  const view = new DataView(buffer);
+  view.setUint8(0, header.key ? KEY_FLAG : 0);
+  view.setUint32(1, header.seq);
+  view.setFloat64(5, header.timestamp);
+  new Uint8Array(buffer).set(payload, VIDEO_HEADER_BYTES);
+  return buffer;
+}
+
+/**
+ * Read one back, or null if it is not one of ours.
+ *
+ * Null rather than a throw, for the same reason `unpackFrame` is: this is data from another machine
+ * arriving on a channel where corruption is expected, and one bad message must not take down the
+ * feed behind it.
+ */
+export function unpackVideo(data: ArrayBuffer): { header: VideoFrameHeader; payload: Uint8Array } | null {
+  if (data.byteLength <= VIDEO_HEADER_BYTES) return null;
+
+  const view = new DataView(data);
+  const timestamp = view.getFloat64(5);
+  if (!Number.isFinite(timestamp)) return null;
+
+  return {
+    header: {
+      key: (view.getUint8(0) & KEY_FLAG) !== 0,
+      seq: view.getUint32(1),
+      timestamp,
+    },
+    // Copied for the same reason a still's payload is: the decoder is handed this after the message
+    // that carried it is gone.
+    payload: new Uint8Array(data.slice(VIDEO_HEADER_BYTES)),
+  };
 }

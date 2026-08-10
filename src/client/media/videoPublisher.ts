@@ -1,0 +1,238 @@
+// One encoder, however many viewers.
+//
+// This is what mesh.ts has been reserving space for since part 2, and the entire reason a link
+// carries no video track: every `RTCPeerConnection` encodes its tracks independently, so a phone with
+// four viewers would run four encoders while also running the detection model. Here the frame is
+// encoded once and the same bytes are written to every open media channel.
+//
+// ## What it does not do
+//
+// It does not adapt. There is no bandwidth estimator behind a datachannel and adaptive bitrate is
+// deliberately not a feature, so the honest policy for a fixed-rate link is **drop frames, never
+// queue**: a link with a backlog is skipped for that frame and catches up on the next one, rather
+// than growing a buffer until the picture is a minute behind the board.
+//
+// It also does not decide *what* is in the picture. The framing is the virtual camera's, upstream of
+// here; this owns the codec, the clock and the fan-out.
+
+import type { VideoProfile } from '../../shared/media';
+import { VIDEO } from '../../shared/media';
+import type { Mesh } from './mesh';
+import { packVideo } from './frames';
+
+/** Where a frame comes from. The device's vision runtime supplies this. */
+export interface VideoFrameSource {
+  /** One frame, framed as the director asked. Null when there is no camera. Ours to close. */
+  grab: (size: number, timestampUs: number, durationUs: number) => VideoFrame | null;
+  /** The element to pace against, where the platform can pace against one. */
+  element: () => HTMLVideoElement | null;
+}
+
+/** What the feed has cost and produced. Read through the diagnostics panel. */
+export interface PublisherStats {
+  frames: number;
+  keyframes: number;
+  bytes: number;
+  /** Frames the encoder produced that a link was too far behind to take. */
+  dropped: number;
+  /** Frames the source could not produce — camera between frames, mostly. */
+  missed: number;
+  error?: string;
+}
+
+export interface VideoPublisher {
+  /** Whether the encoder is configured and the loop is running. */
+  readonly running: boolean;
+  /** Send the next frame as a keyframe. Rate-limited, so several viewers asking costs one. */
+  requestKeyframe(): void;
+  stats(): PublisherStats;
+  stop(): void;
+}
+
+export interface PublisherOptions {
+  mesh: Mesh;
+  profile: VideoProfile;
+  source: VideoFrameSource;
+}
+
+/** Whether this browser can publish at all. Safari gained `VideoEncoder` in 16.4; older ones cannot. */
+export function canPublish(): boolean {
+  return typeof VideoEncoder === 'function' && typeof VideoFrame === 'function';
+}
+
+export function createVideoPublisher({ mesh, profile, source }: PublisherOptions): VideoPublisher {
+  const frameDurationUs = 1e6 / profile.frameRate;
+  const minFrameGapMs = 1000 / profile.frameRate;
+
+  let encoder: VideoEncoder | null = null;
+  let stopped = false;
+  let seq = 0;
+  let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0 };
+
+  /** The feed's own clock, so a timestamp means "since this feed started" and starts at zero. */
+  const startedAt = performance.now();
+  let lastFrameAt = 0;
+  let lastKeyframeAt = 0;
+  let keyframeAskedAt = 0;
+  let wantKeyframe = true;
+
+  /** Cancellation for whichever pacing mechanism we ended up on. */
+  let rafHandle = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Recorded rather than thrown or reported outwards: `stats()` is where anybody asks how it is going. */
+  function fail(message: string): void {
+    stats = { ...stats, error: message };
+  }
+
+  /**
+   * One encoded frame out to everyone entitled to it.
+   *
+   * `mesh.viewers()` is the same call a still's fan-out makes, and it is the roster answering "who
+   * may receive from us" rather than this file deciding.
+   */
+  function publish(chunk: EncodedVideoChunk): void {
+    const body = new Uint8Array(chunk.byteLength);
+    chunk.copyTo(body);
+
+    // Bigger than any implementation agrees to carry. Dropping it keeps the channel; sending it
+    // might not.
+    if (body.byteLength > VIDEO.maxFrameBytes) {
+      stats = { ...stats, dropped: stats.dropped + 1 };
+      return;
+    }
+
+    const key = chunk.type === 'key';
+    const packet = packVideo({ key, seq: seq++, timestamp: chunk.timestamp }, body);
+
+    let sentToAny = false;
+    for (const link of mesh.viewers()) {
+      // Drop, never queue. A frame this link has not managed to send yet is worth less than the one
+      // behind it, and every viewer is judged separately — one slow peer does not cost the others.
+      if (link.bufferedAmount > VIDEO.maxBufferedBytes) {
+        stats = { ...stats, dropped: stats.dropped + 1 };
+        continue;
+      }
+      link.sendMedia(packet);
+      sentToAny = true;
+    }
+
+    if (!sentToAny) return;
+    stats = {
+      ...stats,
+      frames: stats.frames + 1,
+      keyframes: stats.keyframes + (key ? 1 : 0),
+      bytes: stats.bytes + body.byteLength,
+    };
+  }
+
+  function ensureEncoder(): VideoEncoder | null {
+    if (encoder) return encoder;
+    try {
+      encoder = new VideoEncoder({
+        output: (chunk) => publish(chunk),
+        error: (e) => fail(e instanceof Error ? e.message : String(e)),
+      });
+      encoder.configure({
+        codec: profile.codec,
+        width: profile.width,
+        height: profile.height,
+        bitrate: profile.bitrate,
+        framerate: profile.frameRate,
+        latencyMode: 'realtime',
+        // Annex B puts SPS/PPS in front of every keyframe, so a keyframe is everything a decoder
+        // needs to start. That is what lets a viewer who joined thirty seconds late begin on the
+        // next one with nothing negotiated out of band — there is no signalling channel for codec
+        // configuration here and there should not need to be.
+        avc: { format: 'annexb' },
+      });
+      return encoder;
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+      encoder = null;
+      return null;
+    }
+  }
+
+  function tick(): void {
+    if (stopped) return;
+
+    const now = performance.now();
+    // A camera handing back thirty frames a second should not be encoded at thirty when the profile
+    // says fifteen. Paced by wall clock rather than by counting, so a slow frame does not push the
+    // whole feed late.
+    if (now - lastFrameAt < minFrameGapMs - 1) return;
+    lastFrameAt = now;
+
+    const codec = ensureEncoder();
+    if (!codec || codec.state !== 'configured') return;
+    // Frames already handed over and not yet encoded. Piling more on a busy encoder buys latency,
+    // not smoothness.
+    if (codec.encodeQueueSize > 2) return;
+
+    const timestampUs = Math.round((now - startedAt) * 1000);
+    const frame = source.grab(profile.width, timestampUs, frameDurationUs);
+    if (!frame) {
+      stats = { ...stats, missed: stats.missed + 1 };
+      return;
+    }
+
+    const dueKeyframe = wantKeyframe || now - lastKeyframeAt >= profile.keyFrameIntervalMs;
+    try {
+      codec.encode(frame, { keyFrame: dueKeyframe });
+      if (dueKeyframe) { lastKeyframeAt = now; wantKeyframe = false; }
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    } finally {
+      // Always, on every path. A `VideoFrame` holds a real buffer and a handful of leaked ones stall
+      // the encoder outright rather than degrading gently.
+      frame.close();
+    }
+  }
+
+  /**
+   * Pace against the camera where the platform allows it.
+   *
+   * `requestVideoFrameCallback` fires once per frame the camera actually decoded, which is the only
+   * clock that cannot ask for a picture that does not exist yet. Where it is missing — Firefox, at
+   * time of writing — a timer at the profile's rate is close enough, and `tick` throttles either way.
+   */
+  function loop(): void {
+    if (stopped) return;
+    const element = source.element();
+    if (element && 'requestVideoFrameCallback' in element) {
+      rafHandle = element.requestVideoFrameCallback(() => { tick(); loop(); });
+      return;
+    }
+    timer = setTimeout(() => { tick(); loop(); }, minFrameGapMs);
+  }
+
+  loop();
+
+  return {
+    get running() { return !stopped && encoder?.state === 'configured'; },
+
+    requestKeyframe(): void {
+      // Several viewers losing the same frame all ask at once, and a keyframe costs every viewer
+      // bandwidth. One answer serves all of them.
+      const now = performance.now();
+      if (now - keyframeAskedAt < VIDEO.keyframeMinIntervalMs) return;
+      keyframeAskedAt = now;
+      wantKeyframe = true;
+    },
+
+    stats(): PublisherStats { return stats; },
+
+    stop(): void {
+      if (stopped) return;
+      stopped = true;
+      const element = source.element();
+      if (rafHandle && element && 'cancelVideoFrameCallback' in element) element.cancelVideoFrameCallback(rafHandle);
+      if (timer) clearTimeout(timer);
+      // `close()` rather than `flush()`: whatever is still in the encoder describes a moment that has
+      // passed, and a live feed has no use for it.
+      try { encoder?.close(); } catch { /* already gone */ }
+      encoder = null;
+    },
+  };
+}

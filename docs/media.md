@@ -4,10 +4,12 @@ The optional feature that lets the people in a match see something: a board, and
 other. It is off in one place and on in one place, and where a peer connection cannot be made it is
 simply unavailable rather than degraded.
 
-**What exists today is the transport, and stills on top of it.** Links come up between every pair
-that needs one, each with two datachannels, and a camera will photograph a square of its board on
-request — which is what puts a picture of each dart under the dart slots. Live video is ⏳: the
-encoder, the decoder and the policy for which link to open when are all still to come. See
+**What exists today is the transport, stills on top of it, and live board video behind the `?e2e=1`
+seam.** Links come up between every pair that needs one, each with two datachannels; a camera will
+photograph a square of its board on request — which is what puts a picture of each dart under the
+dart slots — and it will also publish a live feed of a square it is *told* to look at, from one
+encoder to however many viewers. The feed is asked for and rendered only in a build with the seam
+open, because it has not yet been proven on real phones. See
 [What is not built](#what-is-not-built).
 
 ---
@@ -120,8 +122,9 @@ canvas that is already the still's size — and then the JPEG. The canvas and it
 once and kept**, like the preprocessing canvas in `model.ts`; a capture allocates nothing but the
 picture it returns. A burst of three darts shares them.
 
-Measured in the e2e container: **1–2ms to draw, 1–9ms to encode, ~9–24ms round trip** for a ~29kB
-still, the first of a run being the slow one.
+Measured in the e2e container at the sizes in `STILL`: **under 1ms to draw, 1ms to encode, 7–17ms
+round trip** for a ~14.5kB still, the first of a run being the quick one — the two behind it wait
+their turn in the queue.
 
 The capture draws on the **CPU** (`DRAW_ON_CPU` in
 [`stillCapture.ts`](../src/client/vision/stillCapture.ts)), which measured marginally slower and is
@@ -164,6 +167,103 @@ what its board looks like, and it means an observer's copy cannot drift from the
 
 Together those two make observers exactly what they should be: they see what the owner's camera was
 asked for, and have no say in what that is.
+
+## Live board video
+
+⚠️ **Behind `?e2e=1`.** A frontend asks for a feed and renders one only where the seam is open. The
+device half is not gated — it answers whoever is entitled to command it — but in a shipped build
+nobody asks.
+
+Three commands, and the split between the first two and the third is the point:
+
+| Message | |
+| --- | --- |
+| `video_start` / `video_stop` | Publish, or stop. **No region** — starting a feed and framing it are different decisions. |
+| `video_region` | `{ region, transitionMs? }` — the **director**: the same square vocabulary a still uses, plus how long to take getting there. |
+| `video_state` | `{ on, reason? }` — broadcast to every viewer, not only to whoever asked. |
+
+Owner-only, enforced exactly where a still request is: [`useVideoResponder`](../src/client/hooks/useVideoResponder.ts)
+drops anything from a peer the roster does not mark `own`, in silence.
+
+`video_state` exists because a spectator never sent a command and would otherwise have no way to tell
+a feed that is off from a link that is broken — both are a black rectangle. Its `reason` is one of
+`not_offered` (the phone's tier is not `video`), `no_camera`, or `no_encoder` (a browser without
+`VideoEncoder`; Safari before 16.4).
+
+**The owner's wish outlives the camera.** A feed asked for in the lobby starts when the camera does,
+and survives the camera being switched off and on — the owner never withdrew the request and cannot
+see that anything happened.
+
+### `keyframe` is the one command anyone may send
+
+Every other command is the owner's. This one is not, deliberately: a viewer asking for a keyframe is
+saying *"I cannot decode what you are sending"*, which is a statement about them and changes nothing
+about what is shown. Refusing it would leave an opponent staring at a broken picture with no way to
+say so.
+
+What stops it being an amplifier is a rate limit rather than a permission check — several viewers
+losing the same frame all ask at once, and a keyframe costs *every* viewer bandwidth, so one answer
+serves all of them (`VIDEO.keyframeMinIntervalMs`).
+
+### The virtual camera
+
+There is no second lens and no zoom motor. A shot is the source rectangle of a `drawImage` — the same
+primitive a still uses — and a camera move is those four numbers interpolated between where they were
+and where they are going. [`videoCamera.ts`](../src/client/vision/videoCamera.ts) is an easing
+function and a lerp.
+
+**Not CSS, which cannot work.** A transform on a `<canvas>` or `<video>` changes only how the browser
+composites that *element* into the page, never the bitmap — and `drawImage`, `new VideoFrame(canvas)`
+and `captureStream()` all read the bitmap. An encoder fed from any of them would receive the
+untransformed picture. Nothing rasterizes a CSS-transformed subtree at fifteen frames a second.
+
+Two details worth keeping:
+
+- **The destination is re-resolved every frame**, not snapshotted when the command arrives. That is
+  what lets a feed start before the board has been located, showing the camera's own centre square,
+  and *slide onto the board* the moment a homography exists — with no state machine and nothing to
+  notify. An un-directed shot means the whole board; the camera's square is the fallback, not the
+  default.
+- **Interpolated by centre and size**, not corner and size. The two agree only when the sizes match:
+  lerping a corner through a pure zoom slides the picture sideways as it shrinks.
+
+Its canvas is its own, and pointedly *not* the still canvas — that one asks for `willReadFrequently`
+because `toBlob` reads it straight back, and this one is handed to `new VideoFrame(...)`, which wants
+the pixels where the encoder is.
+
+### One encoder, however many viewers
+
+[`videoPublisher.ts`](../src/client/media/videoPublisher.ts) owns the single `VideoEncoder` and writes
+its output to `mesh.viewers()` — the same call a still's fan-out makes. This is what
+[Why a link carries no video track](#why-a-link-carries-no-video-track) has been reserving space for.
+
+- `latencyMode: 'realtime'` and `avc: { format: 'annexb' }`. Annex B puts SPS/PPS in front of every
+  keyframe, so a keyframe is everything a decoder needs to start — which is what lets a viewer who
+  joined thirty seconds late begin on the next one with nothing negotiated out of band.
+- Paced by `requestVideoFrameCallback` where it exists, and throttled to the profile's rate either
+  way: a camera handing back thirty frames a second is not encoded at thirty.
+- **Drop, never queue.** A link with more than `VIDEO.maxBufferedBytes` already queued is skipped for
+  that frame — judged per viewer, so one slow peer does not cost the others.
+
+### A frame on the media channel
+
+Thirteen fixed bytes rather than the JSON a still carries, because this is the channel with a bitrate
+budget:
+
+```
+byte 0      u8   flags — bit 0 set for a keyframe
+bytes 1–4   u32  seq
+bytes 5–12  f64  timestamp, microseconds
+```
+
+The timestamp is a float64 rather than a `u32` of microseconds, which would wrap after seventy-one
+minutes — a length of time a match can exceed.
+
+`seq` is what makes an unreliable, unordered channel usable. A decoder handed a delta frame whose
+predecessor never arrived does not produce a late picture; it produces a wrong one, and keeps
+producing wrong ones until the next keyframe. So [`videoReceiver.ts`](../src/client/media/videoReceiver.ts)
+drops rather than hopes: nothing until a keyframe, nothing at or behind what it has already decoded,
+and nothing after a gap — asking for a keyframe rather than waiting for the next scheduled one.
 
 ## The roster is the authorization
 
@@ -309,11 +409,16 @@ asked to do.
 src/shared/media.ts          peers, rosters, the profile, the channel names, MAX_SDP_BYTES
 src/server/media.ts          the peer map, the plan, the roster, the relay
 src/client/media/peerLink.ts one RTCPeerConnection: perfect negotiation, half-trickle, two channels
-src/client/media/mesh.ts     the set of links, and where the single encoder will live
-src/client/media/frames.ts   a still and its header, in one self-describing message
-src/client/vision/stillCapture.ts  a board region → a crop of this camera's frame → a JPEG
+src/client/media/mesh.ts     the set of links, and who counts as a viewer
+src/client/media/frames.ts   how bytes are framed on each channel — both formats
+src/client/media/videoPublisher.ts  one VideoEncoder, paced and fanned out
+src/client/media/videoReceiver.ts   one VideoDecoder per publisher, and the loss rules
+src/client/vision/stillCapture.ts   a board region → a crop of this camera's frame → a JPEG
+src/client/vision/videoCamera.ts    the same crop, animated: the virtual camera
 src/client/hooks/useMediaMesh.ts     mounted by App and ScorerApp alike
 src/client/hooks/useStillResponder.ts  the camera's side: who may ask, and who gets the answer
+src/client/hooks/useVideoResponder.ts  the camera's side of the feed, and the keyframe exception
+src/client/hooks/useVideoFeed.ts       the frontend's: ask, watch, direct
 src/client/hooks/useDartEvidence.ts    the only place that knows what a still is *for*
 ```
 
@@ -336,15 +441,16 @@ network, `srflx` means they found each other through a NAT.
 
 All ⏳. The framework exists to make these expressible, and takes no position on them.
 
-- **The encoder and the wire format** — `VideoEncoder` configuration, frame sequencing, keyframe
-  cadence and requests, the `bufferedAmount` drop policy, and decoding on the viewer.
-- **Which link to open when** — the mesh currently connects to every peer it is offered. Note this is
-  a smaller question than it was: *which board is watchable at all* is settled by the two gates
-  above, on the server, and is not the client's to decide.
-- **Stills** — the control channel and its message kinds exist; nothing produces one.
-- **Any user interface** — no video on the match screen, no board tiles, nothing outside the
-  diagnostics panel.
-- **Outgoing video from a frontend** — the mesh is symmetric already; no frontend publishes.
+- **Video anybody can actually use** — the feed is asked for and rendered only behind `?e2e=1`. What
+  is missing is not the pipeline but the product: somewhere on the match screen to put a board, a way
+  for a person to ask for one, and enough time on real phones to trust it.
+- **Anything but a board camera publishing** — the mesh is symmetric and a frontend could publish a
+  face; none does.
+- **Which link to open when** — the mesh connects to every peer it is offered. Note this is a smaller
+  question than it was: *which board is watchable at all* is settled by the two gates above, on the
+  server, and is not the client's to decide.
+- **A camera the owner can point by hand.** Director commands exist and are wired to dart evidence;
+  no interface issues one.
 
 ## Known limitations
 

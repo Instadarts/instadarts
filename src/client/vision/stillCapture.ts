@@ -125,8 +125,10 @@ function clampToFrame(rect: CropRect, frame: { width: number; height: number }):
  * detection model, that would be where a still's time went and why it varied.
  *
  * `false` measured faster — in the e2e container, 1–2ms to encode against 1–9ms, and a 9/17/19ms
- * round trip against 15/23/24ms. **That container has no GPU adapter at all**, so it never exercised
- * the stall this flag exists to avoid, and the comparison says nothing about a phone.
+ * round trip against 15/23/24ms. (Both sides of that comparison were taken at the larger 480px
+ * still `STILL` used to carry, so the absolute figures no longer describe a capture; the gap between
+ * them is what it was recorded for.) **That container has no GPU adapter at all**, so it never
+ * exercised the stall this flag exists to avoid, and the comparison says nothing about a phone.
  *
  * `true` wins on the argument that outlasts the measurement: at a round trip of roughly twenty
  * milliseconds nobody can feel the difference, and the scarce resource on a scoring device is not

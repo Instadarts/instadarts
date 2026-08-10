@@ -66,6 +66,25 @@ export type MediaPeerKind = 'user' | 'device';
 export type MediaTier = 'disabled' | 'stills' | 'video';
 
 /**
+ * What kind of viewer a peer is **to you** — and so, to a camera, which of its viewers a command is
+ * addressed to.
+ *
+ *   · `owner`     — the frontend that claimed this device. The only peer that may command it.
+ *   · `opponent`  — somebody else playing the match.
+ *   · `spectator` — somebody watching it.
+ *
+ * Read by a publisher and by nothing else, which is why it is defined from the publisher's side —
+ * and why it is worth knowing that it is *present* on every roster and only *meaningful* on a
+ * camera's. On a frontend's roster of its own device, `owner` means no more than "the same user as
+ * you"; in a spectator's, `opponent` is a slight stretch, since a spectator has no opponents.
+ * Neither of them publishes anything, so no code ever asks.
+ */
+export type MediaRole = 'owner' | 'opponent' | 'spectator';
+
+/** Every role, in a fixed order. The audience meaning "everybody", and what `clampAudience` allows. */
+export const MEDIA_ROLES = ['owner', 'opponent', 'spectator'] as const;
+
+/**
  * One entry in a peer's roster: somebody it is allowed to open a link to.
  *
  * Both endpoints of a pair are computed from the same plan on the server, so the two can never
@@ -99,6 +118,22 @@ export interface MediaPeer {
    * This is "the roster is the authorization" widened from who may *connect* to who may *command*.
    */
   own: boolean;
+  /**
+   * What kind of viewer this peer is, so a camera can address a command to some of them and not
+   * others. See `MediaRole`.
+   *
+   * Computed here rather than by a client, for the reason every rule in this feature is: the two
+   * ends of a pair come from one plan and cannot disagree about it. A client could not compute it
+   * anyway — `own` aside, nothing else in a roster says who is only watching.
+   *
+   * **`role === 'owner'` is exactly `own`**, today and by construction: one is derived from the
+   * other. The two are kept apart because they answer different questions, and only one of them is
+   * an authorization check. `own` decides *who may command this camera* and is the field
+   * `isOwn` reads; `role` decides *who a command's result is for*. Tying the first to the second
+   * would mean that widening the vocabulary of audiences — a fourth role, a renamed one — silently
+   * moved a permission. A duplicated boolean is a cheaper thing to carry than that.
+   */
+  role: MediaRole;
   /**
    * Which side takes the polite role in perfect negotiation. Decided by the server rather than by a
    * rule each client applies, so there is no rule for a client to get wrong.
@@ -242,21 +277,31 @@ export type ControlMessage =
    */
   | { kind: 'keyframe' }
   /**
-   * Photograph this part of your board and send it back.
+   * Photograph this part of your board and send it to these kinds of viewer.
    *
    * Honoured only from a peer the roster marks `own` — see MediaPeer. Anyone else gets silence.
+   *
+   * `to` is required and is not the same question as who may ask: the owner asks for everything, and
+   * says each time who the answer is for. See `clampAudience`.
    */
-  | { kind: 'still_request'; id: string; region?: Region; tag?: unknown }
+  | { kind: 'still_request'; id: string; region?: Region; tag?: unknown; to: MediaRole[] }
   /** The header of a still frame; the JPEG bytes travel in the same message. */
   | { kind: 'still'; id: string; tag?: unknown; width: number; height: number; mime: string }
   | { kind: 'still_refused'; id: string; reason: StillRefusal }
   /**
-   * Start publishing live video, and stop.
+   * Start publishing live video to these kinds of viewer, and stop.
    *
    * Deliberately without a region: starting a feed and framing it are different decisions, and only
    * the second is a `video_region`. Owner-only, like every command but `keyframe`.
+   *
+   * **A camera publishes one feed.** A second `video_start` therefore does not open another one — it
+   * re-addresses the one that is running, which is the only way an audience is widened or narrowed.
+   * The encoder is not disturbed by it; the recipient list is not part of how a frame is made.
+   *
+   * `video_stop` takes no roles because there is nothing to say: it ends the feed for everybody.
+   * "Stop sending to spectators" is a `video_start` with a shorter list.
    */
-  | { kind: 'video_start' }
+  | { kind: 'video_start'; to: MediaRole[] }
   | { kind: 'video_stop' }
   /**
    * Point the camera at this square of the board, over this long, and come back after that long.
@@ -306,7 +351,15 @@ export type VideoRefusal =
   /** No camera running. */
   | 'no_camera'
   /** This browser has no usable `VideoEncoder` — Safari before 16.4, and anything older still. */
-  | 'no_encoder';
+  | 'no_encoder'
+  /**
+   * The feed is running, but not for you: the owner addressed it to other roles.
+   *
+   * The one reason that is not about the camera at all. Without it an unaddressed viewer would be
+   * told the feed is `on` and then shown a black rectangle — exactly the confusion `video_state`
+   * exists to prevent.
+   */
+  | 'not_addressed';
 
 // ============================================================
 // Regions of a board
@@ -359,6 +412,40 @@ export function clampRegion(region: Region | undefined): Region {
     cy: Math.min(Math.max(cy, half), 1 - half),
     size: side,
   };
+}
+
+// ============================================================
+// Who a command's result is for
+// ============================================================
+
+/**
+ * An audience as the capturing device will actually read it.
+ *
+ * The same shape of rule as `clampRegion`, and for the same reason: **the device is the authority**,
+ * and runs this over anything that arrives however friendly the sender looked. Unknown entries are
+ * dropped and duplicates collapse.
+ *
+ * **It fails closed.** A list that is missing, empty, or nothing but nonsense becomes `['owner']` —
+ * the peer that asked, and nobody else. The alternative default is "everybody", which is what this
+ * feature exists to stop being automatic: a bug in a sender should be able to cost a picture, and
+ * should never be able to broadcast a board to a stranger watching the match. Failing closed makes
+ * the worst case a feature that quietly does less, which is recoverable, rather than one that
+ * quietly does more, which is not.
+ */
+export function clampAudience(to: unknown): MediaRole[] {
+  if (!Array.isArray(to)) return ['owner'];
+  const audience = MEDIA_ROLES.filter((role) => to.includes(role));
+  return audience.length > 0 ? [...audience] : ['owner'];
+}
+
+/**
+ * The roles an audience leaves out — everyone linked who is not being sent to.
+ *
+ * Worth having as its own idea rather than as an inline filter: a camera has to talk to these peers
+ * too, to tell them why they are seeing nothing.
+ */
+export function excluded(audience: readonly MediaRole[]): MediaRole[] {
+  return MEDIA_ROLES.filter((role) => !audience.includes(role));
 }
 
 // ============================================================

@@ -17,8 +17,8 @@
 // anything happened.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
-import { directorTiming } from '../../shared/media';
+import type { ControlMessage, MediaRole, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
+import { clampAudience, directorTiming, excluded } from '../../shared/media';
 import type { Mesh } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
 
@@ -50,18 +50,44 @@ export interface VideoResponder {
    * never sent. Whoever wants a number can ask for one.
    */
   stats: () => PublisherStats | null;
+  /** Who the feed is currently addressed to, or null when nothing is publishing. */
+  audience: () => readonly MediaRole[] | null;
 }
 
 export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
   /** What the owner asked for, which is not the same as what is happening. */
   const [wanted, setWanted] = useState(false);
+  /**
+   * Who the feed is for, held in a ref rather than in state on purpose.
+   *
+   * Re-addressing a running feed must not re-run the effect below, because that would stop the
+   * encoder and start another one — costing every viewer, including the ones whose membership never
+   * changed, a gap and a keyframe. The recipient list is not part of how a frame is made.
+   */
+  const audience = useRef<MediaRole[]>([]);
   const publisher = useRef<ReturnType<typeof createVideoPublisher> | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  /** Tell every viewer where the feed stands. A spectator never asked and would otherwise not know. */
+  /**
+   * Tell every viewer where the feed stands — including, and especially, the ones it is not for.
+   *
+   * A spectator never sent `video_start` and has no other way to tell a feed that is off from a link
+   * that is broken. Once a feed can be addressed, there is a third thing to be unable to tell apart:
+   * a feed that is running for somebody else. Saying `on` to a peer that will receive nothing would
+   * be worse than saying nothing at all, so the announcement is split — the complement of an
+   * audience is just another audience.
+   */
   const announce = useCallback((on: boolean, reason?: VideoRefusal) => {
-    const message: ControlMessage = reason ? { kind: 'video_state', on, reason } : { kind: 'video_state', on };
-    for (const link of meshRef.current?.viewers() ?? []) link.sendControl(message);
+    const mesh = meshRef.current;
+    if (!mesh) return;
+
+    const addressed: ControlMessage = reason ? { kind: 'video_state', on, reason } : { kind: 'video_state', on };
+    for (const link of mesh.viewers(on ? audience.current : undefined)) link.sendControl(addressed);
+    if (!on) return;
+
+    for (const link of mesh.viewers(excluded(audience.current))) {
+      link.sendControl({ kind: 'video_state', on: false, reason: 'not_addressed' });
+    }
   }, [meshRef]);
 
   // Whether a feed should be running, and the three independent reasons it might not be. Kept as one
@@ -96,6 +122,9 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
         grab: (size, timestampUs, durationUs) => sourceRef.current?.grab(size, timestampUs, durationUs) ?? null,
         element: () => sourceRef.current?.element() ?? null,
       },
+      // Read on every frame rather than captured, which is what lets the list change underneath a
+      // running encoder.
+      audience: () => audience.current,
     });
     setPublishing(true);
     announce(true);
@@ -120,10 +149,22 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
     if (!meshRef.current?.isOwn(from)) return;
 
     switch (message.kind) {
-      case 'video_start':
+      case 'video_start': {
+        // A camera publishes one feed, so a second start is not a second feed — it re-addresses the
+        // one that is running. Nothing here restarts anything.
+        audience.current = clampAudience(message.to);
         setWanted(true);
+        // Only if it is already running: otherwise the effect below announces it on the way up, and
+        // a peer that has just been added has never seen a keyframe and would sit on a grey square
+        // until the next scheduled one.
+        if (publisher.current) {
+          publisher.current.requestKeyframe();
+          announce(true);
+        }
         break;
+      }
       case 'video_stop':
+        // No roles to read: a stop is for everybody. Narrowing an audience is a shorter `video_start`.
         setWanted(false);
         break;
       case 'video_region': {
@@ -135,9 +176,10 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
         break;
       }
     }
-  }, [meshRef, directRef]);
+  }, [meshRef, directRef, announce]);
 
   const stats = useCallback(() => publisher.current?.stats() ?? null, []);
+  const currentAudience = useCallback(() => publisher.current?.audience ?? null, []);
 
-  return { handleControl, publishing, stats };
+  return { handleControl, publishing, stats, audience: currentAudience };
 }

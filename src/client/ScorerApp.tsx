@@ -102,7 +102,7 @@ export function ScorerApp() {
         videoSource={videoSource}
         directVideo={directVideo}
       />
-      <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} />
+      <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherAudience={video.audience} />
     </div>
   );
 }

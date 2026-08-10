@@ -87,15 +87,34 @@ async function onlineMatch(browser: Browser) {
 }
 
 test.describe('dart evidence', () => {
-  test('a dart is photographed and reaches the thrower and the opponent alike', async ({ browser }) => {
+  test('a dart is photographed and reaches the thrower, the opponent and a spectator alike', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
+    // The third role. Evidence addresses all of them, which is what makes it the opposite case to
+    // the owner-only feed in media-video.spec.ts — the two halves of the same mechanism.
+    const lobbyId = host.url().split('/lobby/')[1].split('?')[0].split('#')[0];
+    const watching = await browser.newContext();
+    const watcher = await watching.newPage();
+    await watcher.goto(`/spectate/${lobbyId}?e2e=1`);
+    // In the room *before* the match starts, or the race is not the one this test is about: the URL
+    // holds a lobby id, and a `spectate` that arrives after the lobby has become a match is asking
+    // for something that no longer exists. A peer id is the server saying it got there in time.
+    await expect.poll(() => watcher.evaluate(() => (window as any).__media.self()), { timeout: 20_000 })
+      .toBeTruthy();
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
+
+    // Every viewer linked before a dart lands. A still is sent once, at the moment it is taken, and
+    // there is no retry for a peer whose link was still being negotiated — so a spectator who joins
+    // late misses that dart, which is honest behaviour and a race this test must not run into.
+    await expect
+      .poll(() => watcher.evaluate(() => (window as any).__media.links()
+        .filter((l: any) => l.kind === 'device' && l.ready).length), { timeout: 30_000 })
+      .toBeGreaterThan(0);
 
     // The strip is there before any picture is — that is the whole point of it having a fixed
     // height, and it is asserted before a dart is thrown rather than after.
@@ -109,10 +128,12 @@ test.describe('dart evidence', () => {
     await scan(scorer.page);
     await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
 
-    // Alice threw, so Alice's frontend asked. Bob asked nobody and gets the same pictures anyway,
-    // because the camera answers every viewer.
+    // Alice threw, so Alice's frontend asked — and addressed the answer to all three roles. Bob and
+    // the spectator asked nobody and get the same pictures anyway, which is the point: an observer's
+    // copy of what a dart did cannot drift from the thrower's.
     await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBeGreaterThan(0);
     await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBeGreaterThan(0);
+    await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBeGreaterThan(0);
 
     // A real JPEG at the configured size, decoded by the browser rather than merely delivered.
     // Asked of `STILL` rather than of a literal: the question is whether what arrives matches what
@@ -146,9 +167,14 @@ test.describe('dart evidence', () => {
     const received = await host.evaluate(() => (window as any).__media.stills().received);
     expect(received.length).toBe(3);
     expect(received.every((t: { roundTripMs: number }) => t.roundTripMs >= 0)).toBe(true);
+    // And the camera's own account of who each picture was for, which is what makes a narrowed
+    // audience visible rather than merely quiet.
+    expect(captured.every((t: { audience: string[] }) =>
+      [...t.audience].sort().join() === 'opponent,owner,spectator')).toBe(true);
 
     await alice.close();
     await bob.close();
+    await watching.close();
     await scorer.context.close();
   });
 

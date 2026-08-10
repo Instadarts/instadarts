@@ -76,10 +76,56 @@ function cameraPeer(page: Page) {
   return page.evaluate(() => (window as any).__media.links().find((l: any) => l.kind === 'device'));
 }
 
+/**
+ * Wait until this page could actually receive from the camera.
+ *
+ * Load-bearing wherever a test asserts that something did **not** arrive: a peer whose link is still
+ * being negotiated receives nothing for reasons that have nothing to do with an audience, so an
+ * assertion made too early passes for the wrong reason and would go on passing if the filter were
+ * removed. It is the difference between "was not sent this" and "was not ready for anything".
+ */
+async function linkedToCamera(page: Page) {
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__media.links()
+      .filter((l: any) => l.kind === 'device' && l.ready).length), { timeout: 30_000 })
+    .toBeGreaterThan(0);
+}
+
 /** How many times a camera has told this page whether it is publishing. */
 function videoStates(page: Page): Promise<number> {
   return page.evaluate(() => (window as any).__media.inbox().control
     .filter((m: any) => m.data?.kind === 'video_state').length);
+}
+
+/** How many times a camera has told this page that a feed is running but not for them. */
+function notAddressed(page: Page): Promise<number> {
+  return page.evaluate(() => (window as any).__media.inbox().control
+    .filter((m: any) => m.data?.kind === 'video_state' && m.data.reason === 'not_addressed').length);
+}
+
+/** Who this device's feed is currently for. Null when nothing is publishing. */
+function audienceOf(page: Page) {
+  return page.evaluate(() => (window as any).__media.video().audience);
+}
+
+/**
+ * Somebody watching the match who is in it for nothing.
+ *
+ * The third role, and the one the two halves of this feature treat differently: a spectator receives
+ * dart evidence and must not receive a feed nobody addressed to them.
+ */
+async function spectator(browser: Browser, host: Page) {
+  const url = host.url();
+  const id = url.split('/lobby/')[1].split('?')[0].split('#')[0];
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`/spectate/${id}?e2e=1`);
+  // In the room before the caller does anything else. The id in that URL is a *lobby's*, and a
+  // `spectate` that arrives after the lobby has become a match is asking for something that no
+  // longer exists — a race that has nothing to do with media and would look exactly like one.
+  await expect.poll(() => page.evaluate(() => (window as any).__media.self()), { timeout: 20_000 })
+    .toBeTruthy();
+  return { context, page };
 }
 
 /**
@@ -137,10 +183,11 @@ async function onlineMatch(browser: Browser) {
 }
 
 test.describe('board video', () => {
-  test('one encoder feeds the owner and the opponent, from the lobby into the match', async ({ browser }) => {
+  test('one encoder feeds exactly who it was told to, and re-addresses without restarting', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
+    const watching = await spectator(browser, host);
 
     // Asked for here, in the lobby, before there is any camera to answer with — which is the case
     // the device's "the owner's wish outlives the camera" rule exists for. Nothing is published yet.
@@ -152,15 +199,44 @@ test.describe('board video', () => {
     // And now it is, without anybody asking a second time.
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
+    expect(await audienceOf(scorer.page)).toEqual(['owner']);
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
 
-    // Alice asked. Bob asked nobody and watches anyway, off the same encoder — which is the whole
-    // reason a link carries no video track.
+    // Alice asked, and asked for herself alone. Bob and the spectator are linked to this camera —
+    // that link is the only reason either of them could ever see her board — and get nothing from it.
     await expect.poll(() => decodedFrames(host), { timeout: 30_000 }).toBeGreaterThan(0);
+    // Both links up *before* asserting they received nothing, or the assertion would be about a
+    // negotiation that had not finished rather than about an audience.
+    await linkedToCamera(guest);
+    await linkedToCamera(watching.page);
+    await host.waitForTimeout(2000);
+    expect(await decodedFrames(guest), 'the opponent was sent a feed nobody addressed to them').toBe(0);
+    expect(await decodedFrames(watching.page), 'a spectator was sent a feed nobody addressed to them').toBe(0);
+
+    // And they are told why, rather than being left to tell a feed that is off from a link that is
+    // broken from one that is simply not for them.
+    for (const page of [guest, watching.page]) {
+      await expect.poll(() => notAddressed(page), { timeout: 10_000 }).toBeGreaterThan(0);
+    }
+
+    // Now widen it. The opponent starts receiving — and the camera's frame counter carries on from
+    // where it was rather than starting again, which is what says the encoder was not torn down to
+    // change a recipient list.
+    const framesBefore = (await published(scorer.page)).frames;
+    const camera = await cameraPeer(host);
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_start', to: ['owner', 'opponent'],
+    }), camera.peerId);
+
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+    expect(await audienceOf(scorer.page)).toEqual(['owner', 'opponent']);
+    expect((await published(scorer.page)).frames, 'the encoder restarted to change an audience')
+      .toBeGreaterThan(framesBefore);
+    // The spectator was not in the wider list either.
+    expect(await decodedFrames(watching.page)).toBe(0);
 
     // One encode, two viewers: nobody can have decoded a frame the camera never published.
     //
@@ -189,8 +265,13 @@ test.describe('board video', () => {
     expect(shot, 'no picture decoded').not.toBeNull();
     expect(Math.max(...shot) - Math.min(...shot), 'the picture is a flat colour').toBeGreaterThan(5);
 
+    // A stop needs no roles: it is for everybody, and it is the only thing that ends a feed.
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, { kind: 'video_stop' }), camera.peerId);
+    await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
+
     await alice.close();
     await bob.close();
+    await watching.context.close();
     await scorer.context.close();
   });
 
@@ -203,6 +284,15 @@ test.describe('board video', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
+    await expect.poll(() => decodedFrames(host), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    // Watched through the opponent, so "everybody watching moves with it" is about somebody who never
+    // sent a command. The lobby feed is addressed to the owner alone, so this test has to widen it —
+    // which is the honest way round: a test that needs an audience should ask for one.
+    const camera = await cameraPeer(host);
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_start', to: ['owner', 'opponent'],
+    }), camera.peerId);
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
 
     // Locate the board on an empty one *first*, and this is the whole reason the empty scene is here.
@@ -258,19 +348,21 @@ test.describe('board video', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
-    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+    // Watched through Alice: the feed is addressed to her alone, and what must survive Bob's meddling
+    // is *her* picture. He has none, which is the previous test's business.
+    await expect.poll(() => decodedFrames(host), { timeout: 30_000 }).toBeGreaterThan(0);
 
-    // Bob is linked to Alice's camera — that link is the only reason he sees her board at all — and
-    // goes straight down it, bypassing anything the interface would or would not offer him.
+    // Bob is linked to Alice's camera — that link is the only reason he could ever see her board —
+    // and goes straight down it, bypassing anything the interface would or would not offer him.
     const camera = await cameraPeer(guest);
     expect(camera.own, 'the camera is not the opponent\'s').toBe(false);
 
     const beforeStop = (await published(scorer.page)).frames;
     // Counted rather than required to be empty: Bob has legitimately heard `video_state` already —
-    // the camera broadcast `no_camera` to every viewer before it was started, which is the whole
-    // point of that message. What must not happen is a *new* one caused by him.
+    // the camera told every viewer `no_camera` before it was started, and tells the unaddressed ones
+    // `not_addressed` once it is. What must not happen is a *new* one caused by him.
     const statesBefore = await videoStates(guest);
-    const shotBefore = (await fingerprint(guest))!;
+    const shotBefore = (await fingerprint(host))!;
 
     await guest.evaluate((peerId) => {
       (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
@@ -283,7 +375,7 @@ test.describe('board video', () => {
     // learns nothing from an answer.
     expect((await published(scorer.page)).frames, 'the opponent stopped the feed').toBeGreaterThan(beforeStop);
     expect(await videoStates(guest), 'the camera answered a peer it should have ignored').toBe(statesBefore);
-    expect(distance(shotBefore, (await fingerprint(guest))!), 'the opponent moved the shot').toBeLessThan(8);
+    expect(distance(shotBefore, (await fingerprint(host))!), 'the opponent moved the shot').toBeLessThan(8);
 
     await alice.close();
     await bob.close();

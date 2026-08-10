@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
-import type { ControlMessage } from '../../shared/media';
+import type { ControlMessage, MediaRole } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
 import type { StillTiming } from '../hooks/useStillResponder';
 import type { EvidenceTiming } from '../hooks/useDartEvidence';
@@ -34,6 +34,8 @@ interface Props {
    * device's view. See `VideoResponder.stats` for why this is a function and not a snapshot.
    */
   publisherStats?: () => PublisherStats | null;
+  /** Who that feed is currently addressed to. Null when nothing is publishing. */
+  publisherAudience?: () => readonly MediaRole[] | null;
   /** The feeds this frontend is watching, and the canvases they land in. */
   feed?: VideoFeed;
 }
@@ -45,7 +47,7 @@ function summarise(values: number[]): string {
   return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
 }
 
-export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, feed }: Props) {
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -68,6 +70,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
         label: l.peer.label,
         polite: l.peer.polite,
         own: l.peer.own,
+        role: l.peer.role,
         tier: l.peer.tier,
         send: l.peer.send,
         recv: l.peer.recv,
@@ -100,6 +103,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
        */
       video: () => ({
         published: publisherStats?.() ?? null,
+        audience: publisherAudience?.() ?? null,
         watching: feed?.stats.current ?? [],
       }),
       /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
@@ -109,7 +113,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       },
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
-  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, feed]);
+  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed]);
 
   // Stats have to be pulled rather than pushed, so the panel polls while it is open and not
   // otherwise — getStats on every link once a second is not free.
@@ -166,7 +170,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
           {/* The feed, from whichever end this is. A camera reports what it encoded; a viewer
               reports what survived the trip, and shows the picture — which is the only way to tell a
               feed that is working from one that is delivering frames of nothing. */}
-          <PublisherRow stats={publisherStats} open={open} />
+          <PublisherRow stats={publisherStats} audience={publisherAudience} open={open} />
           {feed?.canvases.map(({ peerId, canvas }) => (
             <FeedView key={peerId} peerId={peerId} canvas={canvas} feed={feed} open={open} />
           ))}
@@ -176,6 +180,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
               <div key={l.peer.peerId} className="mt-1 flex gap-2 whitespace-nowrap">
                 <span className={stateColor(l.state)}>{l.state}</span>
                 <span className="text-gray-400">{l.peer.kind}</span>
+                <span className="text-gray-600">{l.peer.role}</span>
                 <span className="text-gray-300">{l.peer.label ?? l.peer.peerId.slice(0, 8)}</span>
                 <span className="text-gray-600">{l.peer.polite ? 'polite' : 'impolite'}</span>
                 <span className="text-gray-600">{l.peer.send ? '↓' : ''}{l.peer.recv ? '↑' : ''}</span>
@@ -209,7 +214,7 @@ function stateColor(state: string): string {
  * seam a test reads. `dropped` is the one to watch — it is the backpressure policy doing its job, and a
  * number that climbs steadily means the link cannot carry what the profile asks for.
  */
-function PublisherRow({ stats, open }: { stats?: () => PublisherStats | null; open: boolean }) {
+function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats | null; audience?: () => readonly MediaRole[] | null; open: boolean }) {
   const [shown, setShown] = useState<PublisherStats | null>(null);
   useEffect(() => {
     if (!open || !stats) return;
@@ -222,7 +227,7 @@ function PublisherRow({ stats, open }: { stats?: () => PublisherStats | null; op
   if (!shown) return null;
   return (
     <p className="mt-1 text-gray-500">
-      publishing · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
+      publishing · {(audience?.() ?? []).join(' ') || '—'} · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
       {shown.dropped > 0 && <span className="text-yellow-500"> · {shown.dropped} dropped</span>}
       {shown.missed > 0 && <span className="text-gray-600"> · {shown.missed} missed</span>}
       {shown.error && <span className="text-red-400"> · {shown.error}</span>}

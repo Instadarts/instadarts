@@ -11,8 +11,8 @@
 //     shape of the feature: they are observers, not requesters.
 
 import { useCallback, useRef } from 'react';
-import type { ControlMessage, Region, StillRefusal } from '../../shared/media';
-import { MAX_PENDING_STILLS, STILL } from '../../shared/media';
+import type { ControlMessage, MediaRole, Region, StillRefusal } from '../../shared/media';
+import { MAX_PENDING_STILLS, STILL, clampAudience } from '../../shared/media';
 import type { Mesh } from '../media/mesh';
 import type { Capture } from '../vision/stillCapture';
 import { e2eEnabled } from '../lib/e2e';
@@ -29,6 +29,8 @@ interface Pending {
   from: string;
   region?: Region;
   tag?: unknown;
+  /** Which kinds of viewer this picture is for. Read off the request, never assumed. */
+  to: MediaRole[];
   /** When the request arrived, so the wait before it is worked on can be told from the work. */
   at: number;
 }
@@ -48,6 +50,14 @@ export interface StillTiming {
   /** The JPEG. Expected to dominate, which is exactly what wants confirming. */
   encodeMs: number;
   bytes: number;
+  /**
+   * Who it went to.
+   *
+   * Recorded because an audience fails closed: a malformed request still produces a picture, just a
+   * narrower one, and without this that narrowing would be invisible — which is the difference
+   * between failing closed and failing quietly.
+   */
+  audience: MediaRole[];
 }
 
 const TIMING_LIMIT = 20;
@@ -102,12 +112,14 @@ export function useStillResponder(
             drawMs: Math.round(capture.timing.drawMs),
             encodeMs: Math.round(capture.timing.encodeMs),
             bytes: payload.byteLength,
+            audience: job.to,
           }].slice(-TIMING_LIMIT);
         }
-        // Every viewer, not just the asker. A still is tens of kilobytes, so the fan-out costs
-        // nothing like video's, and it keeps this camera the single account of what its board looks
-        // like — an observer's copy cannot drift from the owner's.
-        for (const link of mesh.viewers()) link.sendControl(header, payload);
+        // Every viewer the request addressed, which for dart evidence is all of them. One capture
+        // and one encode however many that is, and they receive the identical bytes — which is what
+        // keeps this camera the single account of what its board looks like, so an observer's copy
+        // cannot drift from the owner's.
+        for (const link of mesh.viewers(job.to)) link.sendControl(header, payload);
       }
     } finally {
       working.current = false;
@@ -126,7 +138,16 @@ export function useStillResponder(
     }
     // Queued rather than serialised away, because three darts can land in one throw window and
     // arrive as three requests in the same breath. They share a video frame and cost three crops.
-    queue.current.push({ id: message.id, from, region: message.region, tag: message.tag, at: performance.now() });
+    queue.current.push({
+      id: message.id,
+      from,
+      region: message.region,
+      tag: message.tag,
+      // Clamped on arrival rather than at the point of use: the audience is a value from another
+      // machine, and this is the moment the device decides what it actually means.
+      to: clampAudience(message.to),
+      at: performance.now(),
+    });
     void drain();
   }, [meshRef, refuse, drain]);
 

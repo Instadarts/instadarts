@@ -9,8 +9,45 @@
 import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
-import { VIDEO, directorTiming } from '../../src/shared/media';
+import { MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded } from '../../src/shared/media';
 import type { CropRect } from '../../src/client/vision/stillCapture';
+
+// ============================================================
+// Who a command's result is for
+// ============================================================
+
+describe('clampAudience', () => {
+  it('keeps a list that is already one', () => {
+    expect(clampAudience(['owner', 'spectator'])).toEqual(['owner', 'spectator']);
+    expect(clampAudience([...MEDIA_ROLES])).toEqual([...MEDIA_ROLES]);
+  });
+
+  it('drops what it does not recognise and collapses repeats', () => {
+    expect(clampAudience(['owner', 'owner', 'nonsense', 42, null])).toEqual(['owner']);
+  });
+
+  it('answers in a fixed order however the list was written', () => {
+    // So that two commands addressing the same people compare equal, and a panel reads the same way
+    // twice.
+    expect(clampAudience(['spectator', 'owner'])).toEqual(clampAudience(['owner', 'spectator']));
+  });
+
+  it('fails closed to the owner alone, never to everybody', () => {
+    // The whole point. A sender that gets this wrong should cost a picture, never a broadcast — the
+    // failure must not be able to widen an audience.
+    for (const bad of [undefined, null, [], ['nonsense'], 'owner', 7, {}]) {
+      expect(clampAudience(bad)).toEqual(['owner']);
+    }
+  });
+});
+
+describe('excluded', () => {
+  it('is the rest of the room', () => {
+    expect(excluded(['owner'])).toEqual(['opponent', 'spectator']);
+    expect(excluded([...MEDIA_ROLES])).toEqual([]);
+    expect(excluded([])).toEqual([...MEDIA_ROLES]);
+  });
+});
 
 // ============================================================
 // What a director command's numbers mean

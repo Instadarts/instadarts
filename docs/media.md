@@ -8,7 +8,8 @@ simply unavailable rather than degraded.
 seam.** Links come up between every pair that needs one, each with two datachannels; a camera will
 photograph a square of its board on request — which is what puts a picture of each dart under the
 dart slots — and it will also publish a live feed of a square it is *told* to look at, from one
-encoder to however many viewers. The feed is asked for and rendered only in a build with the seam
+encoder to however many viewers. Both say who they are for: a command carries an
+[audience](#addressing-a-camera). The feed is asked for and rendered only in a build with the seam
 open, because it has not yet been proven on real phones. See
 [What is not built](#what-is-not-built).
 
@@ -142,7 +143,7 @@ is not an image. This is the first traffic that flows *towards* a scoring device
 
 | Message | |
 | --- | --- |
-| `still_request` | `{ id, region?, tag? }` |
+| `still_request` | `{ id, region?, tag?, to }` — `to` is the [audience](#addressing-a-camera) |
 | `still` | `{ id, tag?, width, height, mime }` **and the JPEG bytes, in the same message** |
 | `still_refused` | `{ id, reason }` — `no_frame`, `not_located` or `busy` |
 
@@ -161,12 +162,57 @@ the right slot.
 [`own`](#the-two-gates-on-a-board-camera) and from nobody else; anyone else gets silence rather than a
 refusal, since a peer with no business asking learns nothing from an answer.
 
-**Everybody receives.** One capture, one encode, written to every open link — owner, opponent,
-spectators. That is what the device↔opponent link is for, it keeps the camera the single account of
-what its board looks like, and it means an observer's copy cannot drift from the owner's.
+**The addressed receive** — see [Addressing a camera](#addressing-a-camera). Dart evidence addresses
+all three roles, and that is not laziness: one capture, one encode, the identical bytes written to
+every open link is what keeps the camera the single account of what its board looks like, so an
+observer's copy of what a dart did cannot drift from the thrower's.
 
 Together those two make observers exactly what they should be: they see what the owner's camera was
-asked for, and have no say in what that is.
+asked to show them, and have no say in what that is.
+
+## Addressing a camera
+
+`still_request` and `video_start` both carry `to` — the kinds of viewer the result is for. Who may
+*command* has not changed; what is new is that a command says who the answer is for.
+
+| Role | |
+| --- | --- |
+| `owner` | The frontend that claimed this device. The only peer that may command it. |
+| `opponent` | Somebody else playing the match. |
+| `spectator` | Somebody watching it. |
+
+The role is on every roster entry, and it is **the one thing in a roster a client could not work out
+for itself**: `own` separates the owner from everybody else, but nothing else distinguishes an
+opponent from somebody who is only watching. So the server computes it, in the same pass and from the
+same plan as everything else, and the two ends cannot disagree about it.
+
+`role === 'owner'` is exactly `own`, by construction. They are two fields because they answer
+different questions and only one is an authorization check: `own` decides who may command, `role`
+decides who a result is for. Tying the first to the second would mean that renaming or adding an
+audience silently moved a permission.
+
+### It fails closed
+
+[`clampAudience`](../src/shared/media.ts) is the twin of `clampRegion`, and follows the same rule —
+**the device is the authority** and runs it over whatever arrives. Unknown entries are dropped,
+duplicates collapse, and a list that is missing, empty or nothing but nonsense becomes `['owner']`:
+the peer that asked, and nobody else.
+
+Not "everybody", which is the tempting default and the one this exists to stop being automatic. A
+sender that gets this wrong should be able to cost a picture and should never be able to put a live
+board in front of a stranger watching the match. The worst case is then a feature that quietly does
+less, which is recoverable, rather than one that quietly does more, which is not.
+
+Because failing closed must not mean failing *quietly*, a camera records the audience of every still
+it takes ([`StillTiming`](../src/client/hooks/useStillResponder.ts)), and the diagnostics panel shows
+the audience its feed is currently addressed to.
+
+### What each caller asks for
+
+| Caller | Audience | |
+| --- | --- | --- |
+| Dart evidence | all three | An observer's copy must not drift from the thrower's. |
+| The lobby video feed | `['owner']` | ⏳ a thing being proven, not a thing being shown. |
 
 ## Live board video
 
@@ -178,17 +224,26 @@ Three commands, and the split between the first two and the third is the point:
 
 | Message | |
 | --- | --- |
-| `video_start` / `video_stop` | Publish, or stop. **No region** — starting a feed and framing it are different decisions. |
+| `video_start` | `{ to }` — publish, to these roles. **No region** — starting a feed and framing it are different decisions. |
+| `video_stop` | Ends the feed, for everybody. No roles: "stop sending to spectators" is a shorter `video_start`. |
 | `video_region` | `{ region, transitionMs?, resetMs? }` — the **director**: the same square vocabulary a still uses, plus how long to take getting there and how long to stay. |
-| `video_state` | `{ on, reason? }` — broadcast to every viewer, not only to whoever asked. |
+| `video_state` | `{ on, reason? }` — told to every viewer, not only to whoever asked. |
 
 Owner-only, enforced exactly where a still request is: [`useVideoResponder`](../src/client/hooks/useVideoResponder.ts)
 drops anything from a peer the roster does not mark `own`, in silence.
 
+**A camera publishes one feed.** So a second `video_start` does not open another one — it
+re-addresses the one that is running, which is the only way an audience is widened or narrowed. The
+encoder is untouched by it: the audience is read on every frame rather than captured when the
+publisher is built, because tearing down an encoder to change a recipient list would cost every
+viewer a gap and a keyframe, including the ones whose membership never changed.
+
 `video_state` exists because a spectator never sent a command and would otherwise have no way to tell
-a feed that is off from a link that is broken — both are a black rectangle. Its `reason` is one of
-`not_offered` (the phone's tier is not `video`), `no_camera`, or `no_encoder` (a browser without
-`VideoEncoder`; Safari before 16.4).
+a feed that is off from a link that is broken — both are a black rectangle. Addressing adds a third
+thing to be unable to tell apart: a feed that is running *for somebody else*. So the announcement is
+split, and an unaddressed viewer is told so rather than told `on` and shown nothing. Its `reason` is
+one of `not_offered` (the phone's tier is not `video`), `no_camera`, `no_encoder` (a browser without
+`VideoEncoder`; Safari before 16.4), or `not_addressed`.
 
 **The owner's wish outlives the camera.** A feed asked for in the lobby starts when the camera does,
 and survives the camera being switched off and on — the owner never withdrew the request and cannot
@@ -434,7 +489,7 @@ asked to do.
 ## Where the code is
 
 ```
-src/shared/media.ts          peers, rosters, the profile, the channel names, MAX_SDP_BYTES
+src/shared/media.ts          peers, rosters, roles and audiences, the profile, the channel names
 src/server/media.ts          the peer map, the plan, the roster, the relay
 src/client/media/peerLink.ts one RTCPeerConnection: perfect negotiation, half-trickle, two channels
 src/client/media/mesh.ts     the set of links, and who counts as a viewer

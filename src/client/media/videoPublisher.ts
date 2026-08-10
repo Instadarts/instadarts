@@ -15,7 +15,7 @@
 // It also does not decide *what* is in the picture. The framing is the virtual camera's, upstream of
 // here; this owns the codec, the clock and the fan-out.
 
-import type { VideoProfile } from '../../shared/media';
+import type { MediaRole, VideoProfile } from '../../shared/media';
 import { VIDEO } from '../../shared/media';
 import type { Mesh } from './mesh';
 import { packVideo } from './frames';
@@ -43,6 +43,8 @@ export interface PublisherStats {
 export interface VideoPublisher {
   /** Whether the encoder is configured and the loop is running. */
   readonly running: boolean;
+  /** Who this feed is currently for. The publisher's own reading of it, for the diagnostics panel. */
+  readonly audience: readonly MediaRole[];
   /** Send the next frame as a keyframe. Rate-limited, so several viewers asking costs one. */
   requestKeyframe(): void;
   stats(): PublisherStats;
@@ -53,6 +55,13 @@ export interface PublisherOptions {
   mesh: Mesh;
   profile: VideoProfile;
   source: VideoFrameSource;
+  /**
+   * Which kinds of viewer this feed is for, asked on every frame.
+   *
+   * A getter rather than a value, because the owner can re-address a running feed and doing so must
+   * not disturb the encoder — the recipient list is not part of how a frame is made.
+   */
+  audience: () => readonly MediaRole[];
 }
 
 /** Whether this browser can publish at all. Safari gained `VideoEncoder` in 16.4; older ones cannot. */
@@ -60,7 +69,7 @@ export function canPublish(): boolean {
   return typeof VideoEncoder === 'function' && typeof VideoFrame === 'function';
 }
 
-export function createVideoPublisher({ mesh, profile, source }: PublisherOptions): VideoPublisher {
+export function createVideoPublisher({ mesh, profile, source, audience }: PublisherOptions): VideoPublisher {
   const frameDurationUs = 1e6 / profile.frameRate;
   const minFrameGapMs = 1000 / profile.frameRate;
 
@@ -88,8 +97,9 @@ export function createVideoPublisher({ mesh, profile, source }: PublisherOptions
   /**
    * One encoded frame out to everyone entitled to it.
    *
-   * `mesh.viewers()` is the same call a still's fan-out makes, and it is the roster answering "who
-   * may receive from us" rather than this file deciding.
+   * `mesh.viewers(...)` is the same call a still's fan-out makes: the roster answering "who may
+   * receive from us", narrowed to the roles the owner addressed the feed to. Neither question is
+   * this file's to decide.
    */
   function publish(chunk: EncodedVideoChunk): void {
     const body = new Uint8Array(chunk.byteLength);
@@ -106,7 +116,7 @@ export function createVideoPublisher({ mesh, profile, source }: PublisherOptions
     const packet = packVideo({ key, seq: seq++, timestamp: chunk.timestamp }, body);
 
     let sentToAny = false;
-    for (const link of mesh.viewers()) {
+    for (const link of mesh.viewers(audience())) {
       // Drop, never queue. A frame this link has not managed to send yet is worth less than the one
       // behind it, and every viewer is judged separately — one slow peer does not cost the others.
       if (link.bufferedAmount > VIDEO.maxBufferedBytes) {
@@ -211,6 +221,7 @@ export function createVideoPublisher({ mesh, profile, source }: PublisherOptions
 
   return {
     get running() { return !stopped && encoder?.state === 'configured'; },
+    get audience() { return audience(); },
 
     requestKeyframe(): void {
       // Several viewers losing the same frame all ask at once, and a keyframe costs every viewer

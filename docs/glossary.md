@@ -781,9 +781,10 @@ near the top and the useful answer is the closest square that still holds it.
 One photograph of a [region](#region-of-interest), taken on request and delivered over the control
 channel — as against the continuous video that will one day flow on the media channel.
 
-Only the [owner](#board-camera) may ask; everybody linked to that camera receives the answer. That
-asymmetry is the whole shape of it: an opponent and a spectator see what the owner's camera was
-asked for and have no say in what that is.
+Only the [owner](#board-camera) may ask, and the request says which [audience](#audience) the answer
+is for. That asymmetry is the whole shape of it: an opponent and a spectator see what the owner's
+camera was asked to show them and have no say in what that is. [Dart evidence](#dart-evidence)
+addresses all three roles.
 
 Every still is a square JPEG of one fixed size, whatever region it was asked for — see `STILL` in
 `shared/media.ts`, the one place that size and its quality live.
@@ -798,13 +799,26 @@ clears the row along with the slots above it.
 
 ### Board video
 
-A live picture of a [board camera](#board-camera)'s view, encoded once and written to every viewer.
-The [tier](#media-tier) has to be `video`, and the [owner](#board-camera) has to have started it —
-`video_start`, which carries no region, because starting a feed and framing it are separate
-decisions.
+A live picture of a [board camera](#board-camera)'s view, encoded once and written to the
+[audience](#audience) it was addressed to. The [tier](#media-tier) has to be `video`, and the
+[owner](#board-camera) has to have started it — `video_start`, which carries the audience but no
+region, because starting a feed and framing it are separate decisions.
 
-⏳ Asked for and rendered only under `?e2e=1`. The pipeline is built; nothing in the product offers it
-yet.
+**One camera, one feed.** A second `video_start` re-addresses the running one rather than opening
+another; `video_stop` ends it for everybody.
+
+⏳ Asked for and rendered only under `?e2e=1`, and addressed to the owner alone. The pipeline is
+built; nothing in the product offers it yet.
+
+### Audience
+
+Which kinds of viewer a command's result is for: `owner`, `opponent`, `spectator`. Carried by
+`still_request` and `video_start`, and read off the roster's `role`, which is the one thing in a
+roster a client could not work out for itself — nothing else in it says who is only watching.
+
+**It fails closed.** A list that is missing, empty or unrecognisable is read as `['owner']`, never as
+everybody: a sender that gets this wrong should be able to cost a picture and never to put a live
+board in front of a stranger. See `clampAudience`.
 
 ### Director command
 

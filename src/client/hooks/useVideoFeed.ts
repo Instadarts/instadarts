@@ -13,11 +13,22 @@
 // the moment anyone actually wants to look.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaConfig, Region } from '../../shared/media';
+import type { ControlMessage, MediaConfig, MediaRole, Region } from '../../shared/media';
 import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
 import type { Mesh, MeshLink } from '../media/mesh';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
 import { e2eEnabled } from '../lib/e2e';
+
+/**
+ * Who the lobby feed is for: the owner, and nobody else.
+ *
+ * This feed exists to be proven, not to be shown. Sending it to an opponent would put a live board
+ * in front of somebody who never asked for one, over a link they cannot switch off, for a feature
+ * that is still behind `?e2e=1` — and sending it to a spectator would do that to a stranger. When
+ * there is a real board view on the match screen, that view will address its own audience; until
+ * then the narrowest one that still proves anything is the right one.
+ */
+const PROVING_AUDIENCE: MediaRole[] = ['owner'];
 
 interface Options {
   mesh: Mesh | null;
@@ -100,7 +111,7 @@ export function useVideoFeed({ mesh, config, links, inRoom }: Options): VideoFee
     // Recorded as asked only once the link took it — the same lesson as the still requests next door.
     // A channel that is not open yet drops the message, and `links` changes again when it opens, so
     // the retry costs nothing to arrange.
-    if (mesh?.link(wanted)?.sendControl({ kind: 'video_start' })) askedCamera.current = wanted;
+    if (mesh?.link(wanted)?.sendControl({ kind: 'video_start', to: PROVING_AUDIENCE })) askedCamera.current = wanted;
   }, [asking, inRoom, mesh, links]);
 
   const handleMedia = useCallback((from: string, data: ArrayBuffer) => {

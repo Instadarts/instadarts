@@ -187,6 +187,28 @@ describe('the roster', () => {
     expect(entryFor(host, guest)!.label).toBe('Bob');
   });
 
+  it('tells a camera what kind of viewer each peer is, which is the one thing it could not work out', () => {
+    const { host, guest, lobbyId } = onlineLobby();
+    const camera = pairDevice(host, 'Alice board');
+    const watcher = spectate(lobbyId);
+
+    // The whole point of publishing this: `own` already separates the owner from everybody else, but
+    // nothing in a roster distinguishes an opponent from somebody who is only watching — and a
+    // camera addressing a still or a feed has to.
+    expect(entryFor(camera, host)!.role).toBe('owner');
+    expect(entryFor(camera, guest)!.role).toBe('opponent');
+    expect(entryFor(camera, watcher)!.role).toBe('spectator');
+
+    // `role === 'owner'` and `own` say the same thing, on every edge and in both directions. They
+    // are two fields because they answer different questions — one of them decides who may command
+    // this camera — and this is the assertion that says the duplication is deliberate rather than
+    // drift. It should fail if either ever stops implying the other.
+    for (const [self, other] of [[camera, host], [host, camera], [camera, guest], [host, guest], [watcher, host]] as const) {
+      const entry = entryFor(self, other)!;
+      expect(entry.own).toBe(entry.role === 'owner');
+    }
+  });
+
   it('offers a local match only its own cameras — there is no opponent to offer', () => {
     const user = connect();
     user.send({ type: 'create_lobby', isLocal: true });

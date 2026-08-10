@@ -326,15 +326,23 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
   for (const { a, b } of pairs) {
     const other = a.peerId === self.peerId ? b : b.peerId === self.peerId ? a : null;
     if (!other) continue;
+    // The ownership edge, stated to both ends: a device and the frontend that claimed it share a
+    // session id, and nobody else in the room does. It is what lets a device refuse a command from
+    // an opponent, and what lets a frontend pick its own board camera out of a list of opaque ids.
+    // Exactly one of the pair is a device, so this can never be true between two frontends.
+    const own = other.kind !== self.kind && other.sessionId === self.sessionId;
     roster.push({
       peerId: other.peerId,
       kind: other.kind,
       tier: other.tier,
-      // The ownership edge, stated to both ends: a device and the frontend that claimed it share a
-      // session id, and nobody else in the room does. It is what lets a device refuse a command from
-      // an opponent, and what lets a frontend pick its own board camera out of a list of opaque ids.
-      // Exactly one of the pair is a device, so this can never be true between two frontends.
-      own: other.kind !== self.kind && other.sessionId === self.sessionId,
+      own,
+      // What kind of viewer this peer is, which is what a camera addresses a still or a feed to.
+      // Sharing `own`'s terms rather than restating them, and testing it first: the two cannot
+      // conflict, because planFor already refuses to offer a device whose owner is a spectator.
+      //
+      // This is the one thing in the roster a client could not work out for itself — nothing else in
+      // it says who is only watching.
+      role: own ? 'owner' : other.spectator ? 'spectator' : 'opponent',
       ...(other.playerId ? { playerId: other.playerId } : {}),
       ...(other.label ? { label: other.label } : {}),
       polite: self.peerId < other.peerId,

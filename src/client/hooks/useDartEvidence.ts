@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, Region } from '../../shared/media';
-import { DART_EVIDENCE_REGION_SIZE, DART_EVIDENCE_TRANSITION_MS, STILL } from '../../shared/media';
+import { DART_EVIDENCE_REGION_SIZE, DART_EVIDENCE_TRANSITION_MS, MEDIA_ROLES, STILL } from '../../shared/media';
 import type { CurrentVisit } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
 import type { Mesh } from '../media/mesh';
@@ -142,6 +142,10 @@ export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Optio
         id: crypto.randomUUID(),
         region,
         tag: { dart: index } satisfies EvidenceTag,
+        // Everyone. Evidence is the case the fan-out was built for: an observer's copy of what a
+        // dart did must not be able to drift from the thrower's, and the only way to guarantee that
+        // is for all of them to be looking at the same photograph.
+        to: [...MEDIA_ROLES],
       });
       // Recorded as asked only once the link actually took it. A channel that is not open yet drops
       // the message silently, and marking it regardless meant a dart thrown in the moment after a

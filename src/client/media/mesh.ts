@@ -5,20 +5,23 @@
 // closing, an opponent's phone dropping off the Wi-Fi and a browser opting out all arrive here as
 // the same event — a name missing from a list — which is why none of them needs a message of its own.
 //
-// This is also where the **single encoder** will live in part 3. Not in a link: encoding once and
-// writing the same chunks to every open media channel is the entire reason a link carries no video
-// track. `publish` below is the seam that will drive it.
+// It is also where "who may receive from us" is answered — `viewers` — which is the seam the single
+// encoder writes through. Not a link: encoding once and writing the same chunks to every addressed
+// media channel is the entire reason a link carries no video track.
 
-import type { ControlMessage, MediaPeer, SignalDescription, VideoProfile } from '../../shared/media';
+import type { ControlMessage, MediaPeer, MediaRole, SignalDescription, VideoProfile } from '../../shared/media';
 import { createPeerLink, type LinkState, type PeerLink } from './peerLink';
 import type { IceServerConfig } from '../../shared/media';
 
 export interface MeshOptions {
   iceServers: IceServerConfig[];
   /**
-   * How a publisher should encode. Carried but not yet read: it is what the single `VideoEncoder`
-   * will be configured from, and it is here rather than in a link because there is only ever one of
-   * it. ⏳ part 3.
+   * How a publisher should encode.
+   *
+   * Carried and not read here: the publisher is configured from the same `VideoProfile` off
+   * `MediaConfig`, and it sits beside the mesh rather than inside it. Kept on the options because a
+   * mesh is the natural place to ask what one encode looks like, and moving it would only mean
+   * threading the same value through a second path.
    */
   video: VideoProfile;
   /** Send one end of a negotiation to a peer, through whatever socket the app owns. */
@@ -46,8 +49,16 @@ export interface Mesh {
   links(): MeshLink[];
   /** The link to one peer, for anything that talks to one directly. */
   link(peerId: string): PeerLink | undefined;
-  /** Every peer that may receive from us — where one encoder's output, or one still, goes. */
-  viewers(): PeerLink[];
+  /**
+   * The peers a still or a frame should go to: those that may receive from us at all, narrowed to
+   * the roles a command addressed.
+   *
+   * With no audience, everyone who may receive — which is what `video_state` and any other
+   * announcement wants. With one, exactly the addressed roles; and because the complement of an
+   * audience is just another audience, telling the unaddressed peers *why* they are seeing nothing
+   * needs no second primitive. See `excluded`.
+   */
+  viewers(audience?: readonly MediaRole[]): PeerLink[];
   /** Whether a peer is the one that claimed us, or the one we claimed. See MediaPeer.own. */
   isOwn(peerId: string): boolean;
   /** The peers this client owns — for a frontend, its own board camera. */
@@ -149,8 +160,12 @@ export function createMesh(options: MeshOptions): Mesh {
       return links.get(peerId);
     },
 
-    viewers(): PeerLink[] {
-      return [...links.values()].filter((link) => peers.get(link.peerId)?.recv);
+    viewers(audience?: readonly MediaRole[]): PeerLink[] {
+      return [...links.values()].filter((link) => {
+        const peer = peers.get(link.peerId);
+        if (!peer?.recv) return false;
+        return audience === undefined || audience.includes(peer.role);
+      });
     },
 
     isOwn(peerId: string): boolean {

@@ -19,19 +19,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [error, setError] = useState<string | null>(null);
   const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
   const [isSpectator, setIsSpectator] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  /** Whether this user created the lobby it is in. The server's answer, not a comparison we make. */
+  const [isHost, setIsHost] = useState(false);
 
   const extraHandlerRef = useRef(onServerMessage);
   extraHandlerRef.current = onServerMessage;
 
   const handleMessage = useCallback((msg: any) => {
     extraHandlerRef.current?.(msg);
-
-    // Handle connected message (not a ServerMessage type)
-    if (msg.type === 'connected' && msg.sessionId) {
-      setSessionId(msg.sessionId);
-      return;
-    }
 
     switch (msg.type) {
       // What to present if this tab is loaded again. The server sends it only to a connection that
@@ -47,6 +42,9 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         // longer being in the lobby, which is what removing your own player looks like from here.
         if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
         else setOwnPlayerId((mine) => (mine && msg.lobby.players.some((p: Player) => p.id === mine) ? mine : null));
+        // Addressed either way — `false` is as much an answer as `true`, and only a broadcast leaves
+        // the question alone.
+        if (msg.youAreHost !== undefined) setIsHost(msg.youAreHost);
         break;
       case 'mode_catalog':
         setModes(msg.modes);
@@ -74,12 +72,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setPanel(undefined);
         setOwnPlayerId(null);
         setIsSpectator(false);
+        setIsHost(false);
         clearReconnectInfo();
         break;
       case 'lobby_abandoned':
         setLobby(null);
         setOwnPlayerId(null);
         setIsSpectator(false);
+        setIsHost(false);
         clearReconnectInfo();
         break;
       case 'error':
@@ -142,6 +142,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setLobby(null);
     setOwnPlayerId(null);
     setIsSpectator(false);
+    setIsHost(false);
     clearReconnectInfo();
   }, [send]);
 
@@ -171,7 +172,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     send,
     ownPlayerId,
     isSpectator,
-    sessionId,
+    isHost,
     createLobby,
     joinLobby,
     addLocalPlayer,

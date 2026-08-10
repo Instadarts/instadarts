@@ -35,7 +35,7 @@ export function App() {
     connected,
     ownPlayerId,
     isSpectator,
-    sessionId,
+    isHost,
     send,
     createLobby,
     joinLobby,
@@ -173,7 +173,7 @@ export function App() {
             modes={modes}
             ownPlayerId={ownPlayerId}
             isSpectator={isSpectator}
-            sessionId={sessionId}
+            isHost={isHost}
             startMatch={startMatch}
             leaveMatch={leaveMatch}
             updateSettings={updateSettings}
@@ -220,7 +220,8 @@ interface LobbyWrapperProps {
   modes: ModeDescriptor[];
   ownPlayerId: string | null;
   isSpectator: boolean;
-  sessionId: string | null;
+  /** Whether this user created the lobby — the server's answer, sent to this connection alone. */
+  isHost: boolean;
   startMatch: (lobbyId: string) => void;
   leaveMatch: (matchId: string) => void;
   updateSettings: (lobbyId: string, settings: any) => void;
@@ -231,7 +232,7 @@ interface LobbyWrapperProps {
   error: string | null;
 }
 
-function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, sessionId, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
+function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, isHost, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
@@ -240,7 +241,7 @@ function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, sessionId, start
       lobby={lobby}
       modes={modes}
       mode={lobby.isLocal ? 'local' : 'online'}
-      isCreator={sessionId === lobby.hostSessionId || lobby.isLocal}
+      isCreator={isHost || lobby.isLocal}
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
       onStartGame={() => startMatch(lobby.id)}

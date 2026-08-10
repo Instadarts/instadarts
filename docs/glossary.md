@@ -78,7 +78,10 @@ Consequences worth knowing:
   message re-binds the existing player to it by overwriting `player.sessionId` — on presentation of a
   [seat token](#seat), which is the only thing left that identifies the returning tab.
 - Ownership checks ("only your own player", "only the creator may change settings") compare
-  `client.sessionId` against `lobby.hostSessionId` / `player.sessionId`.
+  `client.sessionId` against `lobby.hostSessionId` / `player.sessionId` — **on the server, which is
+  the only place either of those exists.** Both are stripped from every lobby and match on the way
+  out, and the client is told the conclusions instead: `yourPlayerId` and `youAreHost`, addressed to
+  one connection rather than broadcast to the room.
 - Browser-level state that outlives the tab (paired scoring devices) lives in `localStorage`;
   tab-level state (which devices *this tab* is using) lives in `sessionStorage`. See
   [`deviceStorage.ts`](../src/client/lib/deviceStorage.ts).
@@ -172,9 +175,15 @@ camera attributes darts ([`session.ts`](../src/server/scoring/session.ts)).
 ### Host / Creator
 
 The user whose session created the lobby (`hostSessionId`). The UI calls this the **creator**
-("Only the match creator can change settings"). `isCreator` in the client is
-`sessionId === lobby.hostSessionId || lobby.isLocal`. `hostPlayerId` is separate and only set for
-online lobbies — the first player the host adds.
+("Only the match creator can change settings"). `hostPlayerId` is separate and only set for online
+lobbies — the first player the host adds.
+
+`hostSessionId` is server-side, like a [player's](#player--participant): the client is **told**
+whether it is the host (`youAreHost` on a `lobby_state` addressed to one connection) rather than
+working it out by comparing session ids, which required publishing the creator's to the room. A
+broadcast carries no answer at all, so it cannot overwrite the one a connection was given; `false` is
+as much an answer as `true`, and a reload is told again from the [seat](#seat). `isCreator` in the
+client is `isHost || lobby.isLocal`.
 
 Pick one word in new code: **host** for the server-side session, **creator** in user-facing copy.
 

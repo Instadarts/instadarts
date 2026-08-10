@@ -165,6 +165,39 @@ describe('what watching a match tells you', () => {
     expect(host.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(true);
     expect(spec.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(false);
   });
+
+  it('does not hand out the creator\'s session id either', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+
+    const spec = connect();
+    spec.send({ type: 'spectate', id: lobbyId });
+
+    for (const conn of [host, spec]) {
+      expect(conn.last('lobby_state')!.lobby.hostSessionId).toBeUndefined();
+    }
+    // Being the creator is the server's answer to one connection, not a comparison anybody makes.
+    expect(host.last('lobby_state')!.youAreHost).toBe(true);
+    expect(spec.last('lobby_state')!.youAreHost).toBe(false);
+  });
+
+  it('tells a joiner it is not the host, and says nothing to the room', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+    const guest = connect();
+    guest.send({ type: 'join_lobby', lobbyId });
+    expect(guest.last('lobby_state')!.youAreHost).toBe(false);
+
+    // The broadcast that reaches the host when the guest joins settles nothing either way, so the
+    // host's own answer is not overwritten by somebody else's arrival.
+    guest.send({ type: 'add_local_player', playerName: 'Bob' });
+    const broadcasts = host.received.filter((m) => m.type === 'lobby_state' && m.youAreHost === undefined);
+    expect(broadcasts.length).toBeGreaterThan(0);
+  });
 });
 
 // ============================================================
@@ -313,6 +346,44 @@ describe('the real player reloading their own page', () => {
 
     expect(reloaded.last('match_state')).toBeDefined();
     expect(getMatch(matchId)!.currentVisit?.darts).toHaveLength(1);
+  });
+
+  it('comes back as the creator of an online lobby, and can still change its settings', () => {
+    // The client no longer works this out by comparing session ids, so a reload has nothing of its
+    // own to go on: being the creator has to survive in the seat and be said again on the way back.
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    const token = host.last('resume')!.token;
+    host.close();
+
+    const reloaded = connect();
+    reloaded.send({ type: 'reconnect', lobbyId, token });
+    expect(reloaded.last('lobby_state')!.youAreHost).toBe(true);
+
+    reloaded.send({ type: 'update_settings', settings: { mode: 'x01', modeSettings: { startScore: 301, doubleIn: false, doubleOut: true } } });
+    expect(reloaded.last('error')).toBeUndefined();
+    expect(getLobby(lobbyId)!.settings.modeSettings.startScore).toBe(301);
+  });
+
+  it('comes back as a guest without the creator\'s chair', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+    const guest = connect();
+    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'add_local_player', playerName: 'Bob' });
+    const token = guest.last('resume')!.token;
+    guest.close();
+
+    const reloaded = connect();
+    reloaded.send({ type: 'reconnect', lobbyId, token });
+
+    expect(reloaded.last('lobby_state')!.youAreHost).toBe(false);
+    expect(getLobby(lobbyId)!.hostSessionId).toBe(host.sessionId);
   });
 
   it('is told a token for the match it is carried into, not only for the lobby', () => {

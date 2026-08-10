@@ -103,12 +103,23 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
 }
 
 /**
- * A lobby as it goes on the wire. `yourPlayerId` is only ever told to the connection it belongs to,
- * which is why it is a parameter and not part of the lobby: a broadcast must not carry one player's
- * identity to everyone else.
+ * A lobby as it goes on the wire.
+ *
+ * `you` is the part that differs per recipient: which player is theirs, and whether the lobby is
+ * theirs. Both are parameters rather than fields of the lobby because a broadcast must not carry one
+ * connection's standing to everyone else — which is exactly what `hostSessionId` used to do, and why
+ * it is stripped here along with the players' own.
+ *
+ * Omitting `you` is what makes a message a broadcast: it then answers neither question, and a client
+ * holding an answer already keeps it.
  */
-export function lobbyMessage(lobby: Lobby, yourPlayerId?: string): ServerMessage {
-  return { type: 'lobby_state', lobby: { ...lobby, players: publicPlayers(lobby.players) }, yourPlayerId };
+export function lobbyMessage(lobby: Lobby, you?: { playerId?: string; host: boolean }): ServerMessage {
+  return {
+    type: 'lobby_state',
+    lobby: { ...lobby, players: publicPlayers(lobby.players), hostSessionId: undefined },
+    yourPlayerId: you?.playerId,
+    youAreHost: you?.host,
+  };
 }
 
 /**

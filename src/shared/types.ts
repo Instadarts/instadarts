@@ -190,7 +190,12 @@ export interface Lobby {
   settings: MatchSettings;
   inviteCode: string | null;
   hostPlayerId: string | null;
-  hostSessionId: string | null;
+  /**
+   * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the
+   * same reason `Player.sessionId` is: a lobby goes to everyone in it. A client asking "am I the
+   * creator?" is answered by `youAreHost`, which is told to one connection rather than to the room.
+   */
+  hostSessionId?: string | null;
   isLocal: boolean;
   remoteConnected: boolean;
   createdAt: number;

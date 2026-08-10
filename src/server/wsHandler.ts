@@ -457,7 +457,7 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
   }
 
   generateInviteCode(lobby.id);
-  send(ws, lobbyMessage(lobby));
+  send(ws, lobbyMessage(lobby, { host: true }));
 }
 
 function handleJoinLobby(ws: WebSocket, msg: any): void {
@@ -488,7 +488,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   }
 
   // Send direct response to joining client (in case not yet in clients map)
-  send(ws, lobbyMessage(lobby));
+  send(ws, lobbyMessage(lobby, { host: client?.sessionId === lobby.hostSessionId }));
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
 
@@ -543,7 +543,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   // Everyone sees the lobby; only this connection is told which player is its own — and in a local
   // match, where one user holds them all, that question has no answer.
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
-  send(ws, lobbyMessage(lobby, lobby.isLocal ? undefined : player.id));
+  send(ws, lobbyMessage(lobby, { playerId: lobby.isLocal ? undefined : player.id, host }));
 }
 
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
@@ -850,7 +850,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
       client.lobbyId = lobby.id;
       client.isSpectator = true;
     }
-    send(ws, lobbyMessage(lobby));
+    send(ws, lobbyMessage(lobby, { host: false }));
     return;
   }
 
@@ -927,7 +927,7 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
     client.playerId = player.id;
   }
 
-  send(ws, lobbyMessage(lobby, lobby.isLocal ? undefined : player?.id));
+  send(ws, lobbyMessage(lobby, { playerId: lobby.isLocal ? undefined : player?.id, host: seat.host }));
 }
 
 /** Page reload during the match. */

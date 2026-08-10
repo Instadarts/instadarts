@@ -329,6 +329,14 @@ export interface LobbyStateMessage {
   type: 'lobby_state';
   lobby: Lobby;
   yourPlayerId?: string;
+  /**
+   * Whether the receiving connection created this lobby — the answer to a question it used to work
+   * out for itself by comparing session ids, which meant everybody was told the creator's.
+   *
+   * Present only on a message addressed to one connection, and then always: `true` and `false` both
+   * mean "this is about you", while a broadcast carries no field at all and settles nothing.
+   */
+  youAreHost?: boolean;
 }
 
 /**

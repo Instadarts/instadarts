@@ -10,7 +10,7 @@
 
 import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { Lobby, MatchState } from '../shared/types';
+import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
 import { panelOf, viewOf } from './match';
@@ -88,8 +88,18 @@ export function findSessionSocket(sessionId: string): WebSocket | null {
  * happened to include it. The client sets its panel from whatever arrives, so a message missing the
  * field does not leave the old one standing; it clears it.
  */
-export function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(type: T, match: MatchState) {
-  return { type, match: { ...match }, view: viewOf(match), panel: panelOf(match) };
+export function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(
+  type: T,
+  match: MatchState,
+  yourPlayerId?: string,
+) {
+  return {
+    type,
+    match: { ...match, players: publicPlayers(match.players) },
+    view: viewOf(match),
+    panel: panelOf(match),
+    yourPlayerId,
+  };
 }
 
 /**
@@ -98,5 +108,16 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * identity to everyone else.
  */
 export function lobbyMessage(lobby: Lobby, yourPlayerId?: string): ServerMessage {
-  return { type: 'lobby_state', lobby: { ...lobby }, yourPlayerId };
+  return { type: 'lobby_state', lobby: { ...lobby, players: publicPlayers(lobby.players) }, yourPlayerId };
+}
+
+/**
+ * Players with the one field that is nobody else's business taken off.
+ *
+ * `sessionId` says which user added a player, and a room's state is sent to the whole room —
+ * opponents and spectators alike. Nothing outside the server reads it: whether a player is yours is
+ * `yourPlayerId`, which goes to one connection rather than to everyone.
+ */
+function publicPlayers(players: Player[]): Player[] {
+  return players.map(({ sessionId: _owner, ...player }) => player);
 }

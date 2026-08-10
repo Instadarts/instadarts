@@ -12,8 +12,16 @@ export interface ScoreResult {
 export interface Player {
   id: string;
   name: string;
-  /** The user (frontend connection) that added this player. Both players share one in a local match. */
-  sessionId: string;
+  /**
+   * The user (frontend connection) that added this player. Both players share one in a local match.
+   *
+   * **Server-side only, and absent from every Player a client has ever held.** A lobby and a match
+   * go on the wire whole — to everyone in the room, spectators with them — so this is stripped on
+   * the way out (`lobbyMessage` / `matchMessage`). Nobody outside the server has a use for another
+   * user's session id: "is this player mine?" is answered by `yourPlayerId`, which is only ever
+   * told to the connection it belongs to.
+   */
+  sessionId?: string;
 }
 
 export interface DartThrow {

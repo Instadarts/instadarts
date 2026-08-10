@@ -137,6 +137,34 @@ describe('what watching a match tells you', () => {
     const seen = spec.last('match_state')!.match;
     expect(seen.players.map((p) => p.id)).toEqual(players.map((p) => p.id));
   });
+
+  it('does not hand out the session id of the user those players belong to', () => {
+    const { matchId } = localMatch('Alice', 'Bob');
+    const spec = spectatorOf(matchId);
+
+    for (const player of spec.last('match_state')!.match.players) {
+      expect(player.sessionId).toBeUndefined();
+    }
+  });
+
+  it('keeps it off a lobby too, and off the broadcast the players themselves get', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+
+    const spec = connect();
+    spec.send({ type: 'spectate', id: lobbyId });
+
+    for (const conn of [host, spec]) {
+      for (const player of conn.last('lobby_state')!.lobby.players) {
+        expect(player.sessionId).toBeUndefined();
+      }
+    }
+    // What replaces it: which player is your own, told to one connection and to nobody else.
+    expect(host.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(true);
+    expect(spec.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(false);
+  });
 });
 
 // ============================================================

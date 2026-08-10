@@ -11,7 +11,6 @@ interface LobbyPageProps {
   isCreator: boolean;
   ownPlayerId: string | null;
   isSpectator: boolean;
-  sessionId: string | null;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
@@ -27,7 +26,6 @@ export function LobbyPage({
   isCreator,
   ownPlayerId,
   isSpectator,
-  sessionId,
   onStartGame,
   onLeave,
   onUpdateSettings,
@@ -58,7 +56,7 @@ export function LobbyPage({
         mode={mode}
         isCreator={isCreator}
         isSpectator={isSpectator}
-        sessionId={sessionId}
+        ownPlayerId={ownPlayerId}
         onAdd={onAddLocalPlayer}
         onRemove={onRemovePlayer}
         onSwap={onSwapPlayers}

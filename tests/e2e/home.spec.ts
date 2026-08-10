@@ -119,6 +119,42 @@ test.describe('Home screen', () => {
     await ctx3.close();
   });
 
+  test('online lobby: each user holds exactly their own player', async ({ browser }) => {
+    // Whose player is whose used to be read off `players[].sessionId`, which is no longer on the
+    // wire — the answer is `yourPlayerId` now, and this is the screen that shows it.
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const page1 = await ctx1.newPage();
+    const page2 = await ctx2.newPage();
+
+    await page1.goto('/');
+    await page1.click('text=Create Online Match');
+    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.click('button:has-text("Add")');
+
+    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    await page2.goto(`/lobby/join/${code!.trim()}`);
+    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.click('button:has-text("Add")');
+    await expect(page2.locator('text=Alice')).toBeVisible({ timeout: 10000 });
+
+    // One removable player each — their own — and no second one to add.
+    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(1);
+    await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
+    await expect(page1.locator('input[placeholder="New player name"]')).toHaveCount(0);
+    await expect(page2.locator('input[placeholder="New player name"]')).toHaveCount(0);
+
+    // And it really is their own: Alice's ✕ takes Alice off, on both screens.
+    await page1.click('button[title="Remove player"]');
+    await expect(page2.locator('text=2nd')).toHaveCount(0, { timeout: 5000 });
+    await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
+    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(0);
+    await expect(page1.locator('input[placeholder="New player name"]')).toBeVisible();
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
   test('creator can swap player order', async ({ page }) => {
     await page.goto('/');
     await page.click('text=Local Match');

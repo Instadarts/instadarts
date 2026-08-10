@@ -20,7 +20,6 @@ interface MatchScreenProps {
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   ownPlayerId: string | null;
   isSpectator: boolean;
-  sessionId: string | null;
   /** A photograph per dart slot from the board camera, or null where no camera is in play. */
   evidence: (string | undefined)[] | null;
 }
@@ -86,7 +85,7 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, sessionId, evidence }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -119,7 +118,7 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
 
       {over ? (
         <Stage>
-          <Summary match={match} isSpectator={isSpectator} sessionId={sessionId} onVote={onVoteRematch} />
+          <Summary match={match} isSpectator={isSpectator} ownPlayerId={ownPlayerId} onVote={onVoteRematch} />
         </Stage>
       ) : (
         <Stage>
@@ -219,12 +218,12 @@ function Stage({ children }: { children: ReactNode }) {
 function Summary({
   match,
   isSpectator,
-  sessionId,
+  ownPlayerId,
   onVote,
 }: {
   match: MatchState;
   isSpectator: boolean;
-  sessionId: string | null;
+  ownPlayerId: string | null;
   onVote: (playerId: string, answer: RematchAnswer | 'neutral') => void;
 }) {
   return (
@@ -251,7 +250,7 @@ function Summary({
         </section>
       </div>
 
-      {!isSpectator && <RematchPanel match={match} sessionId={sessionId} onVote={onVote} />}
+      {!isSpectator && <RematchPanel match={match} ownPlayerId={ownPlayerId} onVote={onVote} />}
     </div>
   );
 }

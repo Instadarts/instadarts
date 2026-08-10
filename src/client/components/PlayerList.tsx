@@ -7,13 +7,14 @@ interface PlayerListProps {
   mode: 'local' | 'online';
   isCreator: boolean;
   isSpectator: boolean;
-  sessionId: string | null;
+  /** This user's own player, in an online lobby. A local lobby's players are all theirs. */
+  ownPlayerId: string | null;
   onAdd: (name: string) => void;
   onRemove: (playerId: string) => void;
   onSwap: () => void;
 }
 
-export function PlayerList({ players, mode, isCreator, isSpectator, sessionId, onAdd, onRemove, onSwap }: PlayerListProps) {
+export function PlayerList({ players, mode, isCreator, isSpectator, ownPlayerId, onAdd, onRemove, onSwap }: PlayerListProps) {
   const [newName, setNewName] = useState('');
   const savedNames = storage.getPlayerNames();
   const usedNames = new Set(players.map((p) => p.name.toLowerCase()));
@@ -21,7 +22,7 @@ export function PlayerList({ players, mode, isCreator, isSpectator, sessionId, o
 
   const canAddLocal = mode === 'local'
     ? players.length < 2
-    : players.length < 2 && !players.some((p) => p.sessionId === sessionId);
+    : players.length < 2 && !ownPlayerId;
 
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
@@ -47,7 +48,7 @@ export function PlayerList({ players, mode, isCreator, isSpectator, sessionId, o
         <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
           <span className="text-gray-500 text-xs w-6">{i === 0 ? '1st' : '2nd'}</span>
           <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-          {!isSpectator && (mode === 'local' || p.sessionId === sessionId) && (
+          {!isSpectator && (mode === 'local' || p.id === ownPlayerId) && (
             <button
               onClick={() => onRemove(p.id)}
               className="text-red-400 hover:text-red-300 text-sm px-1"

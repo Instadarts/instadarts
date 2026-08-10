@@ -3,8 +3,8 @@ import type { MatchState, RematchAnswer } from '../../shared/types';
 
 interface RematchPanelProps {
   match: MatchState;
-  /** This user's session. A user answers for their own players — in a local match, for all of them. */
-  sessionId: string | null;
+  /** This user's own player. A user answers for their own — in a local match, for all of them. */
+  ownPlayerId: string | null;
   onVote: (playerId: string, answer: RematchAnswer | 'neutral') => void;
 }
 
@@ -18,12 +18,11 @@ interface RematchPanelProps {
  * The votes live on the match state, so each side watches the other's answer through the ordinary
  * broadcast.
  */
-export function RematchPanel({ match, sessionId, onVote }: RematchPanelProps) {
+export function RematchPanel({ match, ownPlayerId, onVote }: RematchPanelProps) {
   const answers = match.players.map((p) => match.rematchVotes[p.id]);
   const declined = answers.some((a) => a === 'declined');
 
-  const mine = (playerId: string) =>
-    match.isLocal || match.players.find((p) => p.id === playerId)?.sessionId === sessionId;
+  const mine = (playerId: string) => match.isLocal || playerId === ownPlayerId;
 
   return (
     <div className="flex flex-col items-center gap-3">

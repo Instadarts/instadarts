@@ -353,6 +353,13 @@ export interface MatchStateMessage {
   match: MatchState;
   view: ModeView;
   panel?: ModePanel;
+  /**
+   * Which player is the receiving connection's own — set only on a reply to one connection, never on
+   * a broadcast, and never in a local match where one user holds them all. It is how a tab that has
+   * just reloaded into a match knows which side is its own, which it can no longer work out from the
+   * players themselves.
+   */
+  yourPlayerId?: string;
 }
 
 export interface ErrorMessage {

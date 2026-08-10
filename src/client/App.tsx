@@ -197,7 +197,6 @@ export function App() {
             undoDart={undoDart}
             submitVisit={submitVisit}
             onVoteRematch={voteRematch}
-            sessionId={sessionId}
             evidence={evidenceImages}
             navigate={navigate}
             error={error}
@@ -244,7 +243,6 @@ function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, sessionId, start
       isCreator={sessionId === lobby.hostSessionId || lobby.isLocal}
       ownPlayerId={ownPlayerId}
       isSpectator={isSpectator}
-      sessionId={sessionId}
       onStartGame={() => startMatch(lobby.id)}
       onLeave={() => { leaveMatch(lobby.id); navigate('/'); }}
       onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
@@ -266,13 +264,12 @@ interface MatchWrapperProps {
   undoDart: (matchId: string) => void;
   submitVisit: (matchId: string) => void;
   onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
-  sessionId: string | null;
   evidence: (string | undefined)[] | null;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId, evidence, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -288,7 +285,6 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, sessionId,
       onUndoDart={() => undoDart(match.id)}
       onSubmitVisit={() => submitVisit(match.id)}
       onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
-      sessionId={sessionId}
       evidence={evidence}
     />
   );
@@ -327,7 +323,6 @@ function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatc
         isCreator={false}
         ownPlayerId={null}
         isSpectator={true}
-        sessionId={null}
         onStartGame={() => {}}
         onLeave={handleLeave}
         onUpdateSettings={() => {}}
@@ -351,7 +346,6 @@ function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatc
         onUndoDart={() => {}}
         onSubmitVisit={() => {}}
         onVoteRematch={() => {}}
-        sessionId={null}
         evidence={evidence}
       />
     );

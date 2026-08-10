@@ -91,13 +91,19 @@ A **player** is a participant in a match. Prefer **player** in code and UI; *par
 acceptable in prose when contrasting with users, but no identifier should use it.
 
 ```ts
-interface Player { id: string; name: string; sessionId: string }
+interface Player { id: string; name: string; sessionId?: string }
 ```
 
 - Player ids are `p1`, `p2`, … from a process-global counter
   ([`src/server/player.ts`](../src/server/player.ts)) — unique per server run, not per match.
-- Every player carries the `sessionId` of the user who added it. In a **local** match both players
-  carry the same session id; in an **online** match one player belongs to each user.
+- Server-side, every player carries the `sessionId` of the user who added it. In a **local** match
+  both players carry the same session id; in an **online** match one player belongs to each user.
+- **On the wire it is stripped** (`publicPlayers`, in
+  [`connections.ts`](../src/server/connections.ts)): a lobby and a match go to the whole room,
+  spectators with them, and whose player is whose is nobody else's business. That is why the field
+  is optional — present on every player the server holds, absent from every player a client has
+  seen. A client asking "is this one mine?" compares it against `yourPlayerId`, which is sent to one
+  connection and never broadcast.
 - A match is limited to **two** players (`addPlayerToLobby` refuses a third), and a local match can
   start with one.
 

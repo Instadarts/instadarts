@@ -61,6 +61,19 @@ function connect() {
     peerId() {
       return this.last('media_peers')?.self;
     },
+    /**
+     * This connection's own player.
+     *
+     * Asked of the messages addressed to it, because a player on the wire no longer says whose it
+     * is: `yourPlayerId` goes to one connection, the broadcast that follows it to everybody.
+     */
+    playerId() {
+      for (let i = received.length - 1; i >= 0; i--) {
+        const msg = received[i];
+        if ((msg.type === 'lobby_state' || msg.type === 'match_state') && msg.yourPlayerId) return msg.yourPlayerId;
+      }
+      return undefined;
+    },
     /** The roster as it stands, or an empty one for a peer that has never been told anything. */
     roster(): MediaPeer[] {
       return this.last('media_peers')?.peers ?? [];
@@ -456,7 +469,7 @@ describe('following the match', () => {
 
     const match = host.last('match_started')!.match;
     const first = match.id;
-    const thrower = match.players[match.currentPlayerIndex].sessionId === host.sessionId ? host : guest;
+    const thrower = match.players[match.currentPlayerIndex].id === host.playerId() ? host : guest;
     const T20 = { x: 500_000, y: 726_000 };
     for (let i = 0; i < 3; i++) thrower.send({ type: 'add_dart', matchId: first, dart: T20 });
     thrower.send({ type: 'submit_visit', matchId: first });
@@ -466,9 +479,8 @@ describe('following the match', () => {
     const before = { host: host.count('media_peers'), camera: camera.count('media_peers') };
     const rosterBefore = host.roster();
 
-    for (const [conn, player] of [[host, match.players.find((p) => p.sessionId === host.sessionId)!],
-                                  [guest, match.players.find((p) => p.sessionId === guest.sessionId)!]] as const) {
-      conn.send({ type: 'rematch_vote', matchId: first, playerId: player.id, answer: 'accepted' });
+    for (const conn of [host, guest]) {
+      conn.send({ type: 'rematch_vote', matchId: first, playerId: conn.playerId()!, answer: 'accepted' });
     }
 
     // A re-match is a brand new match id and exactly the same people. Nobody is told anything,

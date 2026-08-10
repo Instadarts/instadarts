@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { MatchState, Lobby, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
+import type { MatchState, Lobby, ModePanel, ModeView, Player, RematchAnswer } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
@@ -42,7 +42,11 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         break;
       case 'lobby_state':
         setLobby(msg.lobby);
+        // Only a message addressed to this connection names its player; a broadcast names nobody's.
+        // So "mine is gone" cannot be said by the absence of the field — it is the player itself no
+        // longer being in the lobby, which is what removing your own player looks like from here.
         if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
+        else setOwnPlayerId((mine) => (mine && msg.lobby.players.some((p: Player) => p.id === mine) ? mine : null));
         break;
       case 'mode_catalog':
         setModes(msg.modes);
@@ -53,6 +57,9 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setView(msg.view);
         setPanel(msg.panel);
         setLobby(null);
+        // Only a reply to this connection carries one, and it is how a reloaded tab learns which
+        // player is its own — the match itself no longer says who anybody belongs to.
+        if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
         break;
       case 'match_finished':
         setMatch(msg.match);

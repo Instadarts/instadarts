@@ -956,7 +956,9 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
   client.matchId = match.id;
   client.playerId = player.id;
   client.isSpectator = false;
-  send(ws, matchMessage('match_state', match));
+  // The one message that tells a connection which player is its own: a reloaded tab cannot work that
+  // out from the match, and a local match is the same "no answer" it is everywhere else.
+  send(ws, matchMessage('match_state', match, match.isLocal ? undefined : player.id));
 }
 
 /**

@@ -291,16 +291,19 @@ describe('ScoringSession — alongside manual scoring', () => {
     expect(h.labels()).toEqual(['T20']);
   });
 
-  it('an empty board mid-visit forgets a dart that was pulled back out', () => {
+  it('an empty board it did not believe leaves the tracking alone', () => {
     const h = harness();
     h.see('cam-a', tip(T20));
     h.see('cam-a'); // one dart is below the arm threshold, so nothing is submitted
     expect(h.match.visits).toHaveLength(0);
-    expect(h.session.trackedDarts).toBe(0);
+    // The visit did not end, so neither did the tracking. Forgetting the dart here would mean
+    // believing a read we have just refused to believe.
+    expect(h.session.trackedDarts).toBe(1);
 
-    // Thrown again at the same spot, it counts again — the board really was empty in between.
+    // Which matters because the likely explanation is that the dart is still in the board and this
+    // one inference missed it. The next one sees it again, and it must not score twice.
     h.see('cam-a', tip(T20));
-    expect(h.labels()).toEqual(['T20', 'T20']);
+    expect(h.labels()).toEqual(['T20']);
   });
 
   it('after a manual submit and a real takeout, the next player scores normally', () => {

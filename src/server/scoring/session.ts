@@ -12,10 +12,16 @@
 //   · **An empty board needs unanimity.** One camera reporting nothing is as likely to be a camera
 //     that lost the board as a board that lost its darts.
 //
-//   · **Tracked darts live exactly as long as the visit does.** Anything that ends a visit forgets
-//     them — a takeout, a manual Submit, a voided visit — because the board is cleared before the
-//     next one begins. The empty-board signal clears them too, for the visit still in progress when
-//     a player pulls a single dart back out.
+//   · **Tracked darts live exactly as long as the visit does, and nothing shorter clears them.**
+//     A takeout, a manual Submit, a voided visit — all of them end a visit, and the board is cleared
+//     before the next one begins. An empty board that does NOT end the visit leaves them alone,
+//     because below the arm threshold we have just said we do not believe the board is empty, and
+//     the two ways of being wrong are nothing like equally likely: one inference missing a dart that
+//     is still standing in the board is ordinary — it is most of the reason tracking exists at all —
+//     while a dart genuinely leaving the board mid-visit needs one to fall out, and only costs
+//     anything if the next dart then lands close enough to be taken for the old one. Clearing the
+//     tracker on a read we disbelieved buys that rare case by paying a phantom duplicate dart in the
+//     common one. The rare case is what manual correction is for.
 //
 // One departure, because instadarts' server owns the visit where the reference's did not: the visit
 // is `match.currentVisit` rather than a local object. Darts go in through the ordinary
@@ -147,9 +153,8 @@ export class ScoringSession {
     const darts = this.tracker.ingest(result.reports);
 
     if (allEmpty) {
-      // The board is empty, so nothing is in it — whatever happens to the visit below, the darts
-      // this tracker was suppressing are gone.
-      this.tracker.reset();
+      // Deliberately no tracker.reset() here. The darts are forgotten when the visit they belong to
+      // ends — which syncVisit sees on the next window, submit or no submit.
       this.onEmptyBoard();
       return;
     }

@@ -594,11 +594,18 @@ on a wall.
   *same* throw are fused into one set of darts ([`throwWindow.ts`](../src/server/scoring/throwWindow.ts)).
 - **Tracked dart** — a dart the fusion layer believes is currently stuck in the board; this is what
   stops a dart from being counted again on the next frame ([`tracker.ts`](../src/server/scoring/tracker.ts)).
+  Tracked darts live exactly as long as the visit they belong to, and nothing shorter clears them —
+  an empty board too weak to end the visit leaves them tracked. One inference missing a dart that is
+  still in the board is ordinary and is most of what tracking is for; a dart leaving the board
+  mid-visit means one fell out, and only matters if the next dart lands close enough to be taken
+  for it. So the tracker keeps its darts and the rare case is corrected by hand, rather than the
+  common one producing a phantom duplicate dart.
 - **Takeout** — the player pulling the darts out, signalled by an **empty tip array** from every
   active camera. An empty array is meaningful, never a no-op; a malformed report is dropped whole so
   it can never be mistaken for one. Takeout is what submits a visit automatically — a full visit does
   not, deliberately. How many darts must be in the board before a takeout is believed is decided by
-  `armThreshold`, which is where x01's bust rules currently leak into this layer.
+  `armThreshold`: two with a single camera, one when several agree, and one for a visit the mode has
+  locked.
 - **Scoring session** — the per-(match, owning player) object that owns the throw window and tracker
   ([`scoring/session.ts`](../src/server/scoring/session.ts), keyed in
   [`scoring/store.ts`](../src/server/scoring/store.ts)).

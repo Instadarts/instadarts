@@ -29,6 +29,37 @@ test.describe('Spectator mode', () => {
     await ctx2.close();
   });
 
+  test('editing /spectate/:id into /match/:id does not hand over the board', async ({ browser }) => {
+    // The whole attack is a keystroke in the address bar, so this is the gesture rather than the
+    // message: a page load with whatever the watching tab had saved. Nothing may be resumed from it,
+    // because a spectator is never sent a seat to save.
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const player = await ctx1.newPage();
+    const watcher = await ctx2.newPage();
+
+    await setupLocalMatch(player, ['Alice'], 501);
+    const matchId = player.url().split('/match/')[1];
+
+    await watcher.goto(`/spectate/${matchId}`);
+    await expect(watcher.locator('text=(spectating)')).toBeVisible({ timeout: 5000 });
+
+    await watcher.goto(`/match/${matchId}`);
+    await watcher.waitForTimeout(1000);
+
+    // No board to throw at, and nothing saved that could have asked for one.
+    await expect(watcher.getByTestId('dartboard')).not.toBeVisible({ timeout: 3000 });
+    expect(await watcher.evaluate(() => sessionStorage.getItem('instadarts_reconnect'))).toBeNull();
+
+    // The match carries on being Alice's, and her own page is untouched by any of it.
+    await clickT20(player); await clickT20(player); await clickT20(player);
+    await submitVisit(player);
+    await expect(player.getByText('321', { exact: true })).toBeVisible({ timeout: 5000 });
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
   test('spectator cannot interact with lobby', async ({ browser }) => {
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();

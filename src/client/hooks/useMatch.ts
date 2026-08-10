@@ -21,10 +21,6 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [isSpectator, setIsSpectator] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
-  // Ref to always have the latest ownPlayerId (avoids stale closure in handleMessage)
-  const ownPlayerIdRef = useRef<string | null>(null);
-  ownPlayerIdRef.current = ownPlayerId;
-
   const extraHandlerRef = useRef(onServerMessage);
   extraHandlerRef.current = onServerMessage;
 
@@ -38,16 +34,15 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     }
 
     switch (msg.type) {
+      // What to present if this tab is loaded again. The server sends it only to a connection that
+      // holds a place in the room, which is what keeps a spectator's tab from storing a claim on a
+      // player it is merely watching.
+      case 'resume':
+        saveReconnectInfo({ lobbyId: msg.lobbyId, matchId: msg.matchId, token: msg.token });
+        break;
       case 'lobby_state':
         setLobby(msg.lobby);
-        if (msg.yourPlayerId) {
-          setOwnPlayerId(msg.yourPlayerId);
-          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: msg.yourPlayerId });
-        } else if (msg.lobby.isLocal) {
-          // Local lobby: save reconnect info (with or without players)
-          const pid = msg.lobby.players.length > 0 ? msg.lobby.players[msg.lobby.players.length - 1].id : '';
-          saveReconnectInfo({ lobbyId: msg.lobby.id, playerId: pid });
-        }
+        if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
         break;
       case 'mode_catalog':
         setModes(msg.modes);
@@ -58,12 +53,6 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setView(msg.view);
         setPanel(msg.panel);
         setLobby(null);
-        if (ownPlayerIdRef.current) {
-          saveReconnectInfo({ matchId: msg.match.id, playerId: ownPlayerIdRef.current });
-        } else if (msg.match.isLocal && msg.match.players.length > 0) {
-          // Local match: save reconnect info with any player's ID
-          saveReconnectInfo({ matchId: msg.match.id, playerId: msg.match.players[0].id });
-        }
         break;
       case 'match_finished':
         setMatch(msg.match);
@@ -150,6 +139,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   }, [send]);
 
   const spectate = useCallback((id: string) => {
+    // Watching is not a place in the room, so whatever this tab was holding is not what it is now.
+    clearReconnectInfo();
     send({ type: 'spectate', id });
     setIsSpectator(true);
   }, [send]);

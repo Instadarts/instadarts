@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import { getWsUrl, saveReconnectInfo, loadReconnectInfo, clearReconnectInfo } from '../lib/ws';
+import { getWsUrl, loadReconnectInfo } from '../lib/ws';
 
 type MessageHandler = (msg: ServerMessage) => void;
 
@@ -56,12 +56,12 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
 
       // Check for reconnect info (page reload recovery)
       const info = resumeSession ? loadReconnectInfo() : null;
-      if (info) {
+      if (info?.token) {
         ws.send(JSON.stringify({
           type: 'reconnect',
           lobbyId: info.lobbyId,
           matchId: info.matchId,
-          playerId: info.playerId,
+          token: info.token,
         }));
       }
     };

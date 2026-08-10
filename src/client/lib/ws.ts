@@ -1,9 +1,16 @@
 const RECONNECT_KEY = 'instadarts_reconnect';
 
+/**
+ * What this tab presents to get its place back after a reload.
+ *
+ * Only ever what the server sent in a `resume`: the room, and the token that stands for the place
+ * held in it. Nothing here is derived from a lobby or a match — those arrive at spectators too, and
+ * a tab that writes down a player id it merely watched is a tab that can ask to become that player.
+ */
 interface ReconnectInfo {
   lobbyId?: string;
   matchId?: string;
-  playerId: string;
+  token: string;
 }
 
 /**

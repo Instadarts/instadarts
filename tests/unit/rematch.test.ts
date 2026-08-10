@@ -139,14 +139,34 @@ describe('leaving a match', () => {
   it('is final — a departed player cannot reconnect', () => {
     const { host, match } = onlineMatch();
     const matchId = match().id;
-    const alice = match().players[0];
+    // Everything the leaver's tab was holding, kept from before it walked out.
+    const token = host.last('resume')!.token;
 
     host.leave();
 
     const returning = connect();
-    returning.send({ type: 'reconnect', matchId, playerId: alice.id });
-    expect(returning.last('error')?.message).toBe('You have left this match');
+    returning.send({ type: 'reconnect', matchId, token });
+    // Walking out gives up the place, so the token stands for nothing before anyone asks who it was.
+    expect(returning.last('error')?.message).toBe('Cannot resume this session');
     expect(matchOf(returning)).toBeUndefined();
+  });
+
+  it('is final for a second tab holding the same token', () => {
+    // Duplicating a tab copies its sessionStorage, so two tabs can hold one place. Giving the place
+    // up belongs to whichever of them last claimed it — which is why `departed` is still checked
+    // after the token has been honoured, and is the guard that catches the other tab.
+    const { host, match } = onlineMatch();
+    const matchId = match().id;
+    const token = host.last('resume')!.token;
+
+    const twin = connect();
+    twin.send({ type: 'reconnect', matchId, token });
+    expect(matchOf(twin)).toBeDefined();
+
+    host.leave();
+
+    twin.send({ type: 'reconnect', matchId, token });
+    expect(twin.last('error')?.message).toBe('You have left this match');
   });
 
   it('takes the re-match off the table, even after the match was won', () => {

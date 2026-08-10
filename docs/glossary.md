@@ -29,6 +29,7 @@ for the places where that has already gone wrong.
 | --- | --- | --- |
 | [User](#user) | One frontend instance. No accounts exist. | `sessionId`, `Client` |
 | [Player](#player--participant) / Participant | A competitor in a match, added by a user | `Player`, `playerId`, `players[]` |
+| [Seat](#seat) | A place in a room, and the token a reloaded tab presents to get it back | `seats.ts`, `resume`, `reconnect` |
 | [Lobby](#lobby) | Setup phase of a match | `Lobby`, `lobbyId` |
 | [Match](#match) | The whole contest between two players | `MatchState`, `matchId`, `match_*` messages, `/match/:id` |
 | [Game Mode](#game-mode) | The rules of a single play-through (x01) | `GameMode`, `MatchSettings.mode`, `ModeDescriptor` |
@@ -74,7 +75,8 @@ client in the non-`ServerMessage` `connected` frame. Server-side, the per-connec
 Consequences worth knowing:
 
 - A session id is **per connection, not per user**. A page reload produces a new one; the `reconnect`
-  message re-binds the existing player to it by overwriting `player.sessionId`.
+  message re-binds the existing player to it by overwriting `player.sessionId` — on presentation of a
+  [seat token](#seat), which is the only thing left that identifies the returning tab.
 - Ownership checks ("only your own player", "only the creator may change settings") compare
   `client.sessionId` against `lobby.hostSessionId` / `player.sessionId`.
 - Browser-level state that outlives the tab (paired scoring devices) lives in `localStorage`;
@@ -177,6 +179,30 @@ A read-only observer. A user becomes one via `spectate` on `/spectate/:id`, whic
 excluded from every gameplay guard, and explicitly from scoring: a spectator with a paired camera
 must not score ([`resolveScoringTarget`](../src/server/scoringDevices.ts)).
 
+`client.isSpectator` guards a *connection*, so it cannot be the whole answer: a page load is a new
+connection, and nothing about a fresh socket says what the tab was doing a moment ago. What stops
+watching from being reloaded into playing is that resuming a place requires a [seat](#seat), and a
+spectator is never given one.
+
+### Seat
+
+A place in a room, and the token that proves it ([`seats.ts`](../src/server/seats.ts)). A room is a
+lobby or a match; seats are carried from a lobby into the match it starts and from a match into its
+re-match, because to the person holding one it is the same place all evening.
+
+Minted when a connection takes a place — creating a lobby, joining one, adding a player — and sent
+to that connection alone, in a `resume` message. The client keeps it in `sessionStorage` and presents
+it on `reconnect`; **the seat then says what is resumed** (which player, and whether the host chair
+comes with it), so there is nothing left in the message to lie about.
+
+Two rules make it worth something:
+
+- **A token is never broadcast and never rides on a lobby or a match.** Both of those go to everyone
+  in the room, spectators included, so a secret kept on the player record would be published to the
+  people it exists to exclude.
+- **Watching is not a place.** No `spectate` grants a seat, and leaving revokes the one you had —
+  which is the other half of [Departed](#departed).
+
 ### Re-Match
 
 A new match with the same rules and the same participants, started straight from a finished one with
@@ -207,7 +233,8 @@ There is no way to leave the question open. **Leaving counts as declining** — 
 `MatchState.departed` — participants who have left. **Leaving a match is final**, whether by pressing
 Leave, or by dropping the connection for longer than the reconnect grace period:
 
-- they cannot reconnect to it (`reconnect` is refused with "You have left this match");
+- they cannot reconnect to it — leaving revokes their [seat](#seat) ("Cannot resume this session"),
+  and `departed` refuses them by name even if a second tab still holds the token;
 - it counts as **declining** a [re-match](#re-match), and cannot be taken back by anyone;
 - if it was still being played, it ends — see [Match](#match).
 

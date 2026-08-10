@@ -70,11 +70,20 @@ export interface LeaveMatchMessage {
   matchId: string;
 }
 
+/**
+ * A reloaded tab asking for its place back.
+ *
+ * It names a room and presents the token it was given when it took a place there; **which** place —
+ * which player, and whether the host chair comes with it — is the server's own record, not something
+ * this message gets to say. A page load mints a new session id, so the token is the only thing that
+ * distinguishes the player coming back from anybody else who watched the room and read the ids out
+ * of the state they were sent.
+ */
 export interface ReconnectMessage {
   type: 'reconnect';
   matchId?: string;
   lobbyId?: string;
-  playerId: string;
+  token: string;
 }
 
 export interface SpectateMessage {
@@ -351,6 +360,23 @@ export interface ErrorMessage {
   message: string;
 }
 
+/**
+ * What to present if this tab is loaded again, and for which room.
+ *
+ * Sent only to the connection it belongs to — never broadcast, never part of a lobby or a match,
+ * both of which go to everyone in the room. A spectator is never sent one, which is what makes
+ * "watching" a thing that cannot be reloaded into "playing".
+ *
+ * Arrives again whenever the room changes id under the same seat: starting a match, and a re-match.
+ * The token itself does not change, so a tab that missed one is not locked out.
+ */
+export interface ResumeMessage {
+  type: 'resume';
+  lobbyId?: string;
+  matchId?: string;
+  token: string;
+}
+
 export interface MatchStartedMessage {
   type: 'match_started';
   match: MatchState;
@@ -522,6 +548,7 @@ export type ServerMessage =
   | MatchStateMessage
   | ModeCatalogMessage
   | ErrorMessage
+  | ResumeMessage
   | MatchStartedMessage
   | MatchFinishedMessage
   | LobbyAbandonedMessage

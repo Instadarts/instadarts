@@ -21,6 +21,7 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 connections.ts  who is connected and how to address them; nothing about meaning
                 scoringDevices.ts  the pairing and camera-report handlers
                 store.ts        lobbies and matches in memory, and the only place either is created
+                seats.ts        a place in a room and the token that proves it, for reconnecting
                 match.ts        the match layer: a leg's context, and a won leg becoming a won match
                 modes/          one file per game mode, found by scanning this directory
                 scoring/        turning camera reports into darts: throw windows, clustering, fusion

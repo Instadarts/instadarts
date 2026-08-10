@@ -2,6 +2,7 @@ import type { MatchState, MatchSettings, Lobby, Player } from '../shared/types';
 import { DEFAULT_MODE, getMode } from './modes/types';
 import { DEFAULT_FORMAT } from '../shared/matchFormat';
 import { IDLE_TTL_MS } from './lifecycle';
+import { carrySeats, dropSeats } from './seats';
 
 // ============================================================
 // In-memory stores
@@ -46,6 +47,7 @@ export function getLobby(id: string): Lobby | undefined {
 
 export function deleteLobby(id: string): void {
   lobbies.delete(id);
+  dropSeats(id);
 }
 
 export function addPlayerToLobby(lobbyId: string, player: Player): Lobby | null {
@@ -115,8 +117,12 @@ function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean
 }
 
 export function createMatch(lobby: Lobby): MatchState {
+  const match = startMatch(lobby.settings, lobby.players, lobby.isLocal);
+  // Before the lobby goes: everyone who held a place in it holds the same place in the match, and
+  // their tab has no way of hearing that the room it can name has changed id.
+  carrySeats(lobby.id, match.id);
   deleteLobby(lobby.id);
-  return startMatch(lobby.settings, lobby.players, lobby.isLocal);
+  return match;
 }
 
 /**
@@ -128,7 +134,9 @@ export function createMatch(lobby: Lobby): MatchState {
  * function does not record that it did.
  */
 export function createRematch(previous: MatchState): MatchState {
-  return startMatch(previous.settings, [...previous.players].reverse(), previous.isLocal);
+  const match = startMatch(previous.settings, [...previous.players].reverse(), previous.isLocal);
+  carrySeats(previous.id, match.id);
+  return match;
 }
 
 export function getMatch(id: string): MatchState | undefined {
@@ -143,6 +151,7 @@ export function updateMatch(id: string, match: MatchState): boolean {
 
 export function deleteMatch(id: string): void {
   matches.delete(id);
+  dropSeats(id);
 }
 
 // ============================================================

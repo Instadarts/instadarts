@@ -516,14 +516,19 @@ export const MAX_PENDING_STILLS = 4;
  */
 export const VIDEO = {
   /**
-   * Stop writing to a link that already has this much queued.
+   * Stop writing to a link that is already this far behind.
    *
    * **Drop, never queue.** A frame that has not left yet is worth less than the one behind it, and a
    * datachannel with no bandwidth estimator will happily grow a buffer until the picture is a minute
-   * behind the board. Roughly a quarter-second at the default bitrate, which is about as far behind
-   * as a live board may fall before it stops being live.
+   * behind the board. A quarter-second is about as far behind as a live board may fall before it
+   * stops being live.
+   *
+   * **A duration, and the bytes derived from the profile** — see `maxBufferedBytes`. This was a flat
+   * 16KB, which is a quarter-second at 500kbps and a fortieth of one at 5Mbps, where it is smaller
+   * than a single frame. A deployment that raised its quality would have found the rule that exists
+   * to stop a picture falling behind throwing away frames the link could carry perfectly well.
    */
-  maxBufferedBytes: 16_384,
+  maxBufferedMs: 250,
   /**
    * The most often a keyframe is **produced**, however often one is asked for.
    *
@@ -539,6 +544,17 @@ export const VIDEO = {
   /** How long a directed shot is held before the camera goes back on its own. See `directorTiming`. */
   defaultResetMs: 2000,
 } as const;
+
+/**
+ * How much a link may have queued before a frame is dropped for it, in bytes.
+ *
+ * The policy is `VIDEO.maxBufferedMs` and does not vary by deployment; the bytes it comes to are a
+ * consequence of what that deployment encodes at, which is why this is a function of the profile
+ * rather than a number beside it.
+ */
+export function maxBufferedBytes(profile: VideoProfile): number {
+  return Math.round((profile.bitrate / 8) * (VIDEO.maxBufferedMs / 1000));
+}
 
 /**
  * What a director command's two optional numbers actually mean.

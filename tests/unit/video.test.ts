@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
-import { MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded } from '../../src/shared/media';
+import { DEFAULT_VIDEO_PROFILE, MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded, maxBufferedBytes } from '../../src/shared/media';
 import { FLASH_MS, flashAt, flashShape, overlayFor, toneColour } from '../../src/client/components/feedOverlay';
 import type { CropRect } from '../../src/client/vision/stillCapture';
 import type { MatchState } from '../../src/shared/types';
@@ -220,6 +220,27 @@ describe('directorTiming', () => {
 
   it('has no use for a negative duration', () => {
     expect(directorTiming({ transitionMs: -1, resetMs: -1 })).toEqual({ transitionMs: 0, resetMs: 0 });
+  });
+});
+
+// ============================================================
+// How far behind a link may fall
+// ============================================================
+
+describe('maxBufferedBytes', () => {
+  it('is a quarter-second of whatever this deployment encodes at', () => {
+    expect(maxBufferedBytes(DEFAULT_VIDEO_PROFILE)).toBe(DEFAULT_VIDEO_PROFILE.bitrate / 8 / 4);
+  });
+
+  it('stays well clear of a single frame at any quality, which a flat number did not', () => {
+    // The reason this is a function. Written down as 16KB it was a quarter-second at 500kbps and
+    // *less than one frame* at 5Mbps — so a deployment that raised its quality would have found the
+    // rule that exists to stop a picture falling behind throwing away frames the link could carry.
+    for (const bitrate of [200_000, 500_000, 2_000_000, 5_000_000]) {
+      const profile = { ...DEFAULT_VIDEO_PROFILE, bitrate };
+      const frame = bitrate / 8 / profile.frameRate;
+      expect(maxBufferedBytes(profile), `${bitrate}bps`).toBeGreaterThan(frame * 3);
+    }
   });
 });
 

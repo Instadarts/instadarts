@@ -16,7 +16,7 @@
 // here; this owns the codec, the clock and the fan-out.
 
 import type { MediaRole, VideoProfile } from '../../shared/media';
-import { VIDEO } from '../../shared/media';
+import { VIDEO, maxBufferedBytes } from '../../shared/media';
 import type { Mesh } from './mesh';
 import { packVideo } from './frames';
 
@@ -81,6 +81,8 @@ export function canPublish(): boolean {
 export function createVideoPublisher({ mesh, profile, source, audience }: PublisherOptions): VideoPublisher {
   const frameDurationUs = 1e6 / profile.frameRate;
   const minFrameGapMs = 1000 / profile.frameRate;
+  /** A quarter-second of *this* profile, not of the one it was tuned against. */
+  const backlogLimit = maxBufferedBytes(profile);
 
   let encoder: VideoEncoder | null = null;
   let stopped = false;
@@ -134,7 +136,7 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
 
       // Drop, never queue. A frame this link has not managed to send yet is worth less than the one
       // behind it, and every viewer is judged separately — one slow peer does not cost the others.
-      if (link.bufferedAmount > VIDEO.maxBufferedBytes) {
+      if (link.bufferedAmount > backlogLimit) {
         stats = { ...stats, dropped: stats.dropped + 1 };
         continue;
       }

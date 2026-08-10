@@ -80,7 +80,9 @@ export interface PeerLink {
    * Send a control message, with bytes attached for the kinds that carry them.
    *
    * Reports whether it actually went. A channel that is not open yet drops the message, and a caller
-   * that records "asked" regardless will wait forever for an answer to a question nobody heard.
+   * that records "asked" regardless will wait forever for an answer to a question nobody heard. So
+   * does one over the negotiated limit — a still is the only control message with real weight, and
+   * the same rule applies to it as to a frame.
    */
   sendControl(message: ControlMessage, payload?: Uint8Array): boolean;
   /**
@@ -274,8 +276,18 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
     accept,
     sendControl(message: ControlMessage, payload?: Uint8Array): boolean {
       if (control?.readyState !== 'open') return false;
-      if (payload) control.send(packFrame(message, payload));
-      else control.send(JSON.stringify(message));
+      if (!payload) {
+        // Every one of these is a short line of JSON. Nothing here approaches a message limit, and
+        // measuring the UTF-8 length of one to prove it would cost more than it could ever save.
+        control.send(JSON.stringify(message));
+        return true;
+      }
+      const frame = packFrame(message, payload);
+      // Guarded like a video frame, and for a sharper reason: `send` throws over the limit, and this
+      // one is called from inside a loop over every viewer, so the throw would come out of the middle
+      // of a still's fan-out and cut off everybody after the first.
+      if (frame.byteLength > maxMessageBytes()) return false;
+      control.send(frame);
       return true;
     },
     sendMedia(chunk: ArrayBufferView | ArrayBuffer): boolean {

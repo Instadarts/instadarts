@@ -119,6 +119,11 @@ export function useStillResponder(
         // and one encode however many that is, and they receive the identical bytes — which is what
         // keeps this camera the single account of what its board looks like, so an observer's copy
         // cannot drift from the owner's.
+        //
+        // A link that will not take one — never open, or a still bigger than the peer agreed to
+        // receive — goes without, and the rest of the loop still runs. Which is the whole reason
+        // `sendControl` refuses rather than throws: an unsendable still should cost one viewer a
+        // picture, not cost every viewer after it one.
         for (const link of mesh.viewers(job.to)) link.sendControl(header, payload);
       }
     } finally {

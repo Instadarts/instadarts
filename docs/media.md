@@ -170,6 +170,12 @@ observer's copy of what a dart did cannot drift from the thrower's.
 Together those two make observers exactly what they should be: they see what the owner's camera was
 asked to show them, and have no say in what that is.
 
+A still rides the **control** channel, so it is reliable and ordered — an image that arrives in
+pieces is not an image. It is also the only control message with real weight, which is why
+`sendControl` guards its size the way `sendMedia` does: `send` throws over the negotiated limit, and
+that throw would come out of the middle of the fan-out loop. A link that will not take a still goes
+without one; the rest of the loop still runs.
+
 ## Addressing a camera
 
 `still_request` and `video_start` both carry `to` — the kinds of viewer the result is for. Who may
@@ -330,8 +336,11 @@ its output to `mesh.viewers()` — the same call a still's fan-out makes. This i
   joined thirty seconds late begin on the next one with nothing negotiated out of band.
 - Paced by `requestVideoFrameCallback` where it exists, and throttled to the profile's rate either
   way: a camera handing back thirty frames a second is not encoded at thirty.
-- **Drop, never queue.** A link with more than `VIDEO.maxBufferedBytes` already queued is skipped for
-  that frame — judged per viewer, so one slow peer does not cost the others.
+- **Drop, never queue.** A link more than `VIDEO.maxBufferedMs` behind is skipped for that frame —
+  judged per viewer, so one slow peer does not cost the others. A quarter-second, expressed as a
+  duration and converted to bytes against the profile the deployment actually ships: the same rule
+  written as a flat 16KB is a quarter-second at 500kbps and *less than one frame* at 5Mbps, where it
+  would throw away frames the link could carry.
 - **A keyframe counts from the moment it is on a wire**, not from the moment it was encoded. Both of
   the rules above can throw one away, and a keyframe nobody could take has repaired nothing; recording
   the attempt would satisfy the schedule with a frame that never went. The publisher keeps the two

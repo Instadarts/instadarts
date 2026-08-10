@@ -523,12 +523,31 @@ network, `srflx` means they found each other through a NAT.
 ### Recording a clip
 
 Each feed in the panel has a **● rec** button. Press it, press it again, and the browser saves what
-was on screen in between — `.webm` in Chrome, `.mp4` in Safari, whichever
-[`MediaRecorder.isTypeSupported`](../src/client/components/MediaDebugPanel.tsx) answers to first.
+was on screen in between.
 
 It is a re-encode of the decoded picture rather than a copy of the wire, which is the trade that
 makes it play anywhere by double-clicking. Frames the decoder rejected are not in it; a stall shows
 as a freeze, because a canvas capture repeats the last painted frame.
+
+**MP4 is preferred, and not because it is the nicer format.** `MediaRecorder` writes its container as
+it goes, without knowing how long the recording will turn out to be — and a WebM written that way
+carries no Cues element and no Duration, so a player loads it, reports `duration: Infinity`, and
+offers a scrubber that does nothing. It plays; you cannot move around in it. VLC and Chrome both
+refuse. The fragmented MP4 the same recorder produces carries a real duration in its `moov`, and both
+seek in it happily. Measured out of the e2e Chromium, three seconds each:
+
+| | duration | seekable end | Cues |
+| --- | --- | --- | --- |
+| `video/webm;codecs=vp8` | `Infinity` | `Infinity` | none |
+| `video/mp4;codecs=avc1` | `2.981633` | `2.981633` | — |
+
+`avc1` is asked for explicitly because bare `video/mp4` produced VP9-in-MP4: playable, four times the
+size for the same three seconds, and fussier about what will open it. WebM stays in the list as the
+fallback for a browser with no MP4 recorder — Firefox — because an unseekable clip beats no clip. It
+is simply not the one to prefer.
+
+The e2e loads the saved file into a `<video>` and asserts its duration is finite, so a change that
+reintroduced the unseekable container would fail rather than merely look fine.
 
 **The clip carries the match on it.** A camera sends a picture of a board and nothing else — it does
 not know whose throw it is or what the dart it just watched land was worth — so a clip of a raw feed

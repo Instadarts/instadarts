@@ -247,13 +247,32 @@ function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats 
 /**
  * The container this browser will actually record into.
  *
- * Asked rather than assumed: Chrome records WebM and has only lately learned MP4, Safari records MP4
- * and not WebM. Whichever answers first decides the file's extension too, so a clip is never named
- * after a format it is not in.
+ * Asked rather than assumed, because no browser supports all of these: Chrome records WebM and has
+ * only lately learned MP4, Safari records MP4 and not WebM, Firefox records WebM and not MP4.
+ * Whichever answers first decides the file's extension too, so a clip is never named after a format
+ * it is not in.
+ *
+ * **MP4 first, and not because it is the nicer format.** `MediaRecorder` writes a container as it
+ * goes, without knowing how long the recording will turn out to be — and a WebM written that way has
+ * no Cues element and no Duration, so a player loads it and reports `duration: Infinity`. It plays
+ * from the start and the scrubber is furniture: VLC and Chrome both refuse to seek in one. The
+ * fragmented MP4 the same recorder writes carries a real duration in its `moov`, and both seek in
+ * it. Measured, not assumed — 3s clips out of this Chromium:
+ *
+ * ```
+ * probe.webm       duration=Infinity   seekable-end=Infinity   0 Cues elements
+ * probe-avc1.mp4   duration=2.981633   seekable-end=2.981633
+ * ```
+ *
+ * `avc1` is asked for explicitly because bare `video/mp4` gave VP9-in-MP4 here — playable, four
+ * times the size for the same three seconds, and a good deal fussier about what will open it.
+ *
+ * The WebM entries stay as the fallback for a browser with no MP4 recorder. An unseekable clip is
+ * worth more than no clip; it is just not worth *preferring*.
  */
 function recordingType(): string | null {
   if (typeof MediaRecorder !== 'function') return null;
-  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  const candidates = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp8', 'video/webm'];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
 }
 

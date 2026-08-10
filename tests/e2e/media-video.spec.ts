@@ -11,7 +11,7 @@
 // docs/development.md.
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
 import { DEFAULT_VIDEO_PROFILE } from '../../src/shared/media';
@@ -462,6 +462,21 @@ test.describe('board video', () => {
     expect(file.suggestedFilename()).toMatch(/^board-[0-9a-f]{8}-.*\.(webm|mp4)$/);
     const path = await file.path();
     expect(statSync(path!).size, 'the clip is empty').toBeGreaterThan(1000);
+
+    // And it is a clip somebody can move around in, which is the whole reason the container is
+    // chosen the way it is. `MediaRecorder` writes as it goes and does not know how long a recording
+    // will be, so a WebM comes out with no duration at all — it plays from the start and the
+    // scrubber is furniture. A file that reports `Infinity` here is the bug this asserts against.
+    const playable = await host.evaluate(async (bytes) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(new Blob([new Uint8Array(bytes)]));
+      await new Promise((resolve) => { video.onloadedmetadata = resolve; setTimeout(resolve, 5000); });
+      return { duration: video.duration, seekable: video.seekable.length ? video.seekable.end(0) : 0 };
+    }, [...readFileSync(path!)]);
+
+    expect(Number.isFinite(playable.duration), 'the clip has no duration, so nothing can seek in it').toBe(true);
+    expect(playable.duration).toBeGreaterThan(0.5);
+    expect(playable.seekable).toBeGreaterThan(0.5);
 
     await alice.close();
     await bob.close();

@@ -9,7 +9,43 @@
 import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
+import { VIDEO, directorTiming } from '../../src/shared/media';
 import type { CropRect } from '../../src/client/vision/stillCapture';
+
+// ============================================================
+// What a director command's numbers mean
+// ============================================================
+
+describe('directorTiming', () => {
+  it('cuts, and comes back, when the command says neither', () => {
+    // The asymmetry is the design: saying nothing about *how to move* means do not move, and saying
+    // nothing about *how long to stay* does not mean stay forever.
+    expect(directorTiming({})).toEqual({ transitionMs: 0, resetMs: VIDEO.defaultResetMs });
+  });
+
+  it('takes the numbers it is given', () => {
+    expect(directorTiming({ transitionMs: 500, resetMs: 4000 })).toEqual({ transitionMs: 500, resetMs: 4000 });
+  });
+
+  it('treats an explicit zero reset as "stay there"', () => {
+    // Distinct from leaving it out, which is the whole point of the default.
+    expect(directorTiming({ resetMs: 0 }).resetMs).toBe(0);
+    expect(directorTiming({}).resetMs).toBe(VIDEO.defaultResetMs);
+  });
+
+  it('falls back rather than clamping when a number is not one', () => {
+    // These arrive from another machine. Garbage becoming `0` would mean "hold this shot forever" —
+    // the one outcome the default exists to prevent.
+    for (const bad of [NaN, Infinity, -Infinity, undefined]) {
+      expect(directorTiming({ resetMs: bad }).resetMs).toBe(VIDEO.defaultResetMs);
+      expect(directorTiming({ transitionMs: bad }).transitionMs).toBe(0);
+    }
+  });
+
+  it('has no use for a negative duration', () => {
+    expect(directorTiming({ transitionMs: -1, resetMs: -1 })).toEqual({ transitionMs: 0, resetMs: 0 });
+  });
+});
 
 // ============================================================
 // The easing
@@ -136,6 +172,25 @@ describe('the virtual camera', () => {
     const towardsOne = camera.shot({ x: 0, y: 0, size: 50 }, performance.now() + 250);
     const towardsAnother = camera.shot({ x: 200, y: 200, size: 50 }, performance.now() + 250);
     expect(towardsAnother.x).toBeGreaterThan(towardsOne.x);
+  });
+
+  it('picks up a new move from wherever the last one had got to', () => {
+    // What makes a second director command — or a reset arriving mid-swing — read as one continuous
+    // camera rather than as a jump back to the start. `from` is the shot as last drawn, not the shot
+    // the interrupted move departed from.
+    const camera = createVirtualCamera();
+    camera.shot(near, performance.now());
+    camera.move(500);
+
+    const midway = camera.shot(far, performance.now() + 250);
+    expect(midway.size).toBeGreaterThan(far.size);
+    expect(midway.size).toBeLessThan(near.size);
+
+    camera.move(500);
+    // At the very start of the new move, the shot is where the interrupted one had reached.
+    const resumed = camera.shot(near, performance.now());
+    expect(resumed.size).toBeCloseTo(midway.size, 0);
+    expect(resumed.size).toBeLessThan(near.size);
   });
 
   it('cuts after a reset, because a re-aimed camera should not slide from where the old one pointed', () => {

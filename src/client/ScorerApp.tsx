@@ -39,7 +39,7 @@ export function ScorerApp() {
   // The live feed's two halves of the same introduction. `directVideo` is separate from the frame
   // source because a director's region outlives a camera session and the frames do not.
   const videoSource = useRef<VideoFrameSource | null>(null);
-  const directVideo = useRef<((region: Region | null, transitionMs: number) => void) | null>(null);
+  const directVideo = useRef<((region: Region | null, transitionMs: number, resetMs: number) => void) | null>(null);
   // Held here rather than read off the link, because the responder has to stop a feed the moment the
   // camera goes — including when power management is what turned it off.
   const [cameraActive, setCameraActive] = useState(false);

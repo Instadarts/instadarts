@@ -744,12 +744,17 @@ yet.
 
 ### Director command
 
-`video_region` — telling a camera which square of the board to look at, and how long to take getting
-there. The same [region](#region-of-interest) vocabulary a [still](#still) uses, plus a transition
-time, which is the one thing a moving picture needs that a photograph does not.
+`video_region` — telling a camera which square of the board to look at, how long to take getting
+there, and how long to stay. The same [region](#region-of-interest) vocabulary a [still](#still) uses,
+plus the two things a moving picture needs that a photograph does not.
 
 The owner's alone, like every command except a keyframe request. Dart evidence issues one for each
 dart, at the same square it photographs.
+
+**Fire-and-forget, which is why a shot expires.** Leave the transition out and the camera cuts; leave
+the reset out and it comes back after two seconds anyway. Nothing guarantees a second command is
+coming, and a camera stuck on the last dart of the evening is worse than any framing. `resetMs: 0` is
+how a caller that will send the release says so.
 
 ### Virtual camera
 
@@ -758,7 +763,8 @@ How a director command is honoured without a lens that moves: the shot is the so
 
 Its destination is re-resolved every frame rather than fixed when the command lands, which is what
 lets a feed open on the camera's own square before the board has been located and slide onto the
-board the moment it is.
+board the moment it is. A move that is interrupted departs from wherever the shot had reached, so a
+second command — or a reset arriving mid-swing — reads as one continuous camera.
 
 ---
 

@@ -259,13 +259,15 @@ export type ControlMessage =
   | { kind: 'video_start' }
   | { kind: 'video_stop' }
   /**
-   * Point the camera at this square of the board, over this long.
+   * Point the camera at this square of the board, over this long, and come back after that long.
    *
-   * The **director** command — the same region vocabulary a still uses, plus the one thing a moving
-   * picture needs that a photograph does not: how long to take getting there. A cut is
-   * `transitionMs: 0`; anything else is a move.
+   * The **director** command — the same region vocabulary a still uses, plus the two things a moving
+   * picture needs that a photograph does not: how long to take getting there, and how long to stay.
+   *
+   * See `directorTiming` for what the two optional numbers mean when they are left out, and why the
+   * one that expires is the one with the default.
    */
-  | { kind: 'video_region'; region: Region; transitionMs?: number }
+  | { kind: 'video_region'; region: Region; transitionMs?: number; resetMs?: number }
   /**
    * Whether this camera is publishing, told to every viewer rather than only to whoever asked.
    *
@@ -381,6 +383,15 @@ export const STILL = {
 export const DART_EVIDENCE_REGION_SIZE = 0.25;
 
 /**
+ * How long the live feed takes to swing onto a dart that has just landed.
+ *
+ * An evidence decision rather than a video policy, which is why it lives here beside the region and
+ * not in `VIDEO`: the feed's own default is a cut, and this is one caller asking for a move because
+ * a camera swinging to a dart reads as somebody looking at it.
+ */
+export const DART_EVIDENCE_TRANSITION_MS = 500;
+
+/**
  * Requests a camera will hold at once before refusing.
  *
  * More than one because a fused camera report can commit three darts in a single moment, and three
@@ -419,8 +430,8 @@ export const VIDEO = {
    * Answering each of them costs everyone bandwidth, since a keyframe goes to every viewer.
    */
   keyframeMinIntervalMs: 500,
-  /** How long a director's move takes when the command does not say. */
-  defaultTransitionMs: 500,
+  /** How long a directed shot is held before the camera goes back on its own. See `directorTiming`. */
+  defaultResetMs: 2000,
   /**
    * A frame larger than this is dropped rather than sent.
    *
@@ -430,3 +441,47 @@ export const VIDEO = {
    */
   maxFrameBytes: 65_536,
 } as const;
+
+/**
+ * What a director command's two optional numbers actually mean.
+ *
+ * Read by the **device**, which is the authority on its own camera, and available to the sender so
+ * that what it intends and what happens are the same thing. The asymmetry in the defaults is the
+ * interesting part:
+ *
+ *   · **`transitionMs` defaults to a cut.** Saying nothing about how to move means do not move —
+ *     be there. A director who wants a move asks for one.
+ *   · **`resetMs` defaults to two seconds.** Saying nothing about how long to stay does *not* mean
+ *     stay forever. A director command is fire-and-forget: there is no guarantee another one is
+ *     coming, and a camera left zoomed into the 20 bed because the message that would have released
+ *     it was never sent is worse than any framing. So a shot expires unless the caller says
+ *     otherwise, and `resetMs: 0` is how a caller says otherwise.
+ *
+ * The reset is a move like any other and takes the same `transitionMs` back out — a shot that eased
+ * in and then snapped out would read as a glitch rather than as a camera.
+ *
+ * **The clock starts when the command lands**, not when the move finishes. So a 500ms move with the
+ * default reset is half a second in, a second and a half held, and half a second back.
+ */
+export function directorTiming(command: { transitionMs?: number; resetMs?: number }): {
+  transitionMs: number;
+  resetMs: number;
+} {
+  return {
+    transitionMs: duration(command.transitionMs, 0),
+    resetMs: duration(command.resetMs, VIDEO.defaultResetMs),
+  };
+}
+
+/**
+ * A duration off the wire, or the default it stands in for.
+ *
+ * Anything that is not a number falls back rather than clamping to zero, because these arrive from
+ * another machine and the fallback is the safe answer — for `resetMs` in particular, garbage
+ * becoming `0` would mean "hold this shot forever", which is the one outcome the default exists to
+ * prevent.
+ */
+function duration(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.max(0, value);
+}

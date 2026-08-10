@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, Region } from '../../shared/media';
-import { DART_EVIDENCE_REGION_SIZE, STILL, VIDEO } from '../../shared/media';
+import { DART_EVIDENCE_REGION_SIZE, DART_EVIDENCE_TRANSITION_MS, STILL } from '../../shared/media';
 import type { CurrentVisit } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
 import type { Mesh } from '../media/mesh';
@@ -57,7 +57,7 @@ interface Options {
    * elsewhere — but they want the same square at the same moment, and one dart producing both a
    * photograph and a camera move is the comparison the whole step exists to make.
    */
-  direct?: (region: Region, transitionMs: number) => void;
+  direct?: (region: Region, transitionMs: number, resetMs?: number) => void;
 }
 
 /** How long a dart's picture took to come back, from the asking side. */
@@ -150,7 +150,10 @@ export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Optio
       asked.current.add(index);
       // The same square, as a camera move rather than a photograph. Not conditional on the still
       // having arrived: they are two independent answers to one dart landing.
-      directRef.current?.(region, VIDEO.defaultTransitionMs);
+      //
+      // No `resetMs`, which means the camera comes back on its own — the right shape for this, since
+      // nothing here would ever send a second command to release it.
+      directRef.current?.(region, DART_EVIDENCE_TRANSITION_MS);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
   }, [darts, isThrower, measuring]);

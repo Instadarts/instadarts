@@ -179,7 +179,7 @@ Three commands, and the split between the first two and the third is the point:
 | Message | |
 | --- | --- |
 | `video_start` / `video_stop` | Publish, or stop. **No region** — starting a feed and framing it are different decisions. |
-| `video_region` | `{ region, transitionMs? }` — the **director**: the same square vocabulary a still uses, plus how long to take getting there. |
+| `video_region` | `{ region, transitionMs?, resetMs? }` — the **director**: the same square vocabulary a still uses, plus how long to take getting there and how long to stay. |
 | `video_state` | `{ on, reason? }` — broadcast to every viewer, not only to whoever asked. |
 
 Owner-only, enforced exactly where a still request is: [`useVideoResponder`](../src/client/hooks/useVideoResponder.ts)
@@ -193,6 +193,34 @@ a feed that is off from a link that is broken — both are a black rectangle. It
 **The owner's wish outlives the camera.** A feed asked for in the lobby starts when the camera does,
 and survives the camera being switched off and on — the owner never withdrew the request and cannot
 see that anything happened.
+
+### A shot expires; a move does not happen unless asked for
+
+The two optional numbers on `video_region` default in opposite directions, and
+[`directorTiming`](../src/shared/media.ts) is where both ends agree what they mean.
+
+| Left out | Means | Because |
+| --- | --- | --- |
+| `transitionMs` | **0 — cut** | Saying nothing about how to move means do not move. A director who wants a move asks for one. |
+| `resetMs` | **2000 — come back** | Saying nothing about how long to stay does *not* mean stay forever. |
+
+A director command is **fire-and-forget**. Nothing guarantees another one is coming, and a camera left
+zoomed into the 20 bed because the message that would have released it was never sent is worse than
+any framing. So a shot expires on its own, and `resetMs: 0` is how a caller that *will* send the
+release says so.
+
+Three details that make it read as a camera rather than as a state machine:
+
+- **The clock starts when the command lands**, not when the move finishes. A 500ms move with the
+  default reset is half a second in, a second and a half held, half a second back.
+- **The reset takes the same `transitionMs` back out.** A shot that eased in and snapped out reads as
+  a glitch.
+- **A new command interrupts whatever is in flight**, including a reset, and departs from *where the
+  shot currently is* rather than restarting from where the interrupted move began. The pending reset
+  is cancelled with it.
+
+Dart evidence is the shape this was designed around: it asks for a 500ms move per dart and never
+sends a release, because there is nothing in a visit that would know to.
 
 ### `keyframe` is the one command anyone may send
 

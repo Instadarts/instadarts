@@ -212,41 +212,37 @@ test.describe('board video', () => {
     await scan(scorer.page);
     await expect.poll(() => scorer.page.evaluate(() =>
       (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
-    await guest.waitForTimeout(1500);
+
+    // The darts go up on the board **before** the baseline is taken, and nothing else in this test
+    // changes the scene again. That is what makes the assertions below about the director and only
+    // about the director: a baseline taken before the scene changed would move when the scene did,
+    // and the test would pass whether or not a single command was honoured.
+    await showScene(scorer.page, 'darts');
+    await guest.waitForTimeout(2000);
 
     // The floor: two shots of one static, board-framed scene a moment apart. Whatever they differ by
     // is codec noise, and a real camera move has to clear it by a distance.
-    const before = (await fingerprint(guest))!;
+    const wide = (await fingerprint(guest))!;
     await guest.waitForTimeout(700);
-    const drift = distance(before, (await fingerprint(guest))!);
+    const drift = distance(wide, (await fingerprint(guest))!);
 
-    // A dart lands. Alice's frontend asks for its photograph and, at the same moment and the same
-    // square, tells the camera to go and look at it. The scene changes too, which is exactly why the
-    // assertion below is not "the picture changed after the throw" — that would pass on the new scene
-    // alone, whether or not any director command did anything.
-    await showScene(scorer.page, 'darts');
+    // Now the darts are *scored*. Alice's frontend asks for each one's photograph and, at the same
+    // moment and the same square, tells the camera to go and look at it.
     await scan(scorer.page);
     await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
-    // Long enough for a move to finish and a keyframe to carry it. A fingerprint taken mid-transition
-    // is of a shot on its way somewhere, which is a picture of nothing in particular.
-    await guest.waitForTimeout(2500);
-    const zoomed = (await fingerprint(guest))!;
 
-    // Now put it back on the whole board, by hand, with nothing else changing — same scene, same
-    // darts, same lighting. The only thing that can move the picture from here is the director.
-    //
-    // This is what proves the *evidence* path too, and proves it by construction: if the throw had
-    // not zoomed the camera in, the shot would already be the whole board and this command would be a
-    // no-op with nothing to see. The assertion fails in exactly that case.
-    const camera = await cameraPeer(host);
-    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
-      kind: 'video_region', region: { cx: 0.5, cy: 0.5, size: 1 }, transitionMs: 0,
-    }), camera.peerId);
-
-    // On the *opponent's* screen, who never sent a command and is watching the shot Alice called.
+    // A quarter of the board instead of all of it — on the *opponent's* screen, who never sent a
+    // command and is watching the shot Alice called.
     await expect
-      .poll(async () => distance(zoomed, (await fingerprint(guest)) ?? zoomed), { timeout: 20_000 })
+      .poll(async () => distance(wide, (await fingerprint(guest)) ?? wide), { timeout: 20_000 })
       .toBeGreaterThan(Math.max(drift * 4, 5));
+
+    // And back on its own, with nobody sending a second command — which is what `resetMs` is for. A
+    // director command is fire-and-forget, so a camera that only moved when told would sit on the
+    // last dart of the evening.
+    await expect
+      .poll(async () => distance(wide, (await fingerprint(guest)) ?? wide), { timeout: 20_000 })
+      .toBeLessThan(Math.max(drift * 4, 5));
 
     await alice.close();
     await bob.close();

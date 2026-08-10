@@ -39,8 +39,13 @@ export interface VideoFeed {
   handleMedia: (from: string, data: ArrayBuffer) => void;
   /** Feed every control message here — `video_state` is how a camera says why there is no picture. */
   handleControl: (from: string, message: ControlMessage) => void;
-  /** Point our own board camera at a square of the board. Silent when there is no feed to direct. */
-  direct: (region: Region, transitionMs: number) => void;
+  /**
+   * Point our own board camera at a square of the board. Silent when there is no feed to direct.
+   *
+   * `resetMs` left out means the camera releases itself after `VIDEO.defaultResetMs` — see
+   * `directorTiming`. Pass `0` only where something else will certainly send the release.
+   */
+  direct: (region: Region, transitionMs: number, resetMs?: number) => void;
   /** The canvas each publishing peer's picture lands in. */
   canvases: { peerId: string; canvas: HTMLCanvasElement }[];
   /** What each feed says about itself, for the diagnostics panel. */
@@ -123,11 +128,11 @@ export function useVideoFeed({ mesh, config, links, inRoom }: Options): VideoFee
     states.current.set(_from, { on: message.on, reason: message.reason });
   }, []);
 
-  const direct = useCallback((region: Region, transitionMs: number) => {
+  const direct = useCallback((region: Region, transitionMs: number, resetMs?: number) => {
     if (!asking) return;
     const camera = ownCamera();
     if (!camera) return;
-    meshRef.current?.link(camera)?.sendControl({ kind: 'video_region', region, transitionMs });
+    meshRef.current?.link(camera)?.sendControl({ kind: 'video_region', region, transitionMs, resetMs });
   }, [asking, ownCamera]);
 
   // A peer that has left the roster has no more frames coming, and its decoder is holding platform

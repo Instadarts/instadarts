@@ -76,14 +76,16 @@ export interface VisionRuntime {
    */
   captureStill: (region: Region) => Promise<Capture | null>;
   /**
-   * Point the live feed at a square of the board, taking `transitionMs` to get there.
+   * Point the live feed at a square of the board, taking `transitionMs` to get there, and come back
+   * `resetMs` after being told. `resetMs: 0` stays.
    *
-   * `null` is "no direction" and means the whole board. Unlike a still there is no failure to report:
-   * a region that cannot be placed — no homography yet, or one that will not invert — falls back to
-   * the camera's own square rather than refusing, because a feed that shows something honest beats a
-   * feed that shows nothing.
+   * `null` is "no direction" and means the whole board — what a reset goes back to, and what a caller
+   * passes to release the camera by hand. Unlike a still there is no failure to report: a region that
+   * cannot be placed — no homography yet, or one that will not invert — falls back to the camera's
+   * own square rather than refusing, because a feed that shows something honest beats a feed that
+   * shows nothing.
    */
-  directVideo: (region: Region | null, transitionMs: number) => void;
+  directVideo: (region: Region | null, transitionMs: number, resetMs: number) => void;
   /**
    * One frame of the live feed, framed as the director last asked. Null when there is no camera.
    *
@@ -137,6 +139,13 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    */
   const virtualCamera = createVirtualCamera();
   let videoRegion: Region | null = null;
+  /** The pending return to the default shot. See `directVideo`. */
+  let videoResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelVideoReset(): void {
+    if (videoResetTimer) clearTimeout(videoResetTimer);
+    videoResetTimer = null;
+  }
 
   /**
    * Where the feed should be pointed right now, in this camera's own pixels.
@@ -271,8 +280,10 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
       // open on its new view, not slide there from where the old one was pointing. The *region*
       // survives, because that is the director's instruction and it is about the board rather than
-      // about any camera.
+      // about any camera — but the timer that would release it must not, or it fires into a camera
+      // session that knows nothing about the command that set it.
       virtualCamera.reset();
+      cancelVideoReset();
       releaseCanvas();
       onStatus({ stage: 'camera', text: 'stopped' });
     },
@@ -295,9 +306,22 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       return captureCrop(video, rect, STILL.size, STILL.mime, STILL.quality);
     },
 
-    directVideo(region: Region | null, transitionMs: number) {
+    directVideo(region: Region | null, transitionMs: number, resetMs: number) {
+      // Any command cancels the one before it, including a reset that has not fired yet. The move
+      // itself departs from wherever the shot currently is, so interrupting a transition half way
+      // through swings on from there rather than jumping back to start again.
+      cancelVideoReset();
       videoRegion = region;
       virtualCamera.move(transitionMs);
+
+      // A release needs no release of its own — it is already the resting shot.
+      if (!region || resetMs <= 0) return;
+      videoResetTimer = setTimeout(() => {
+        videoResetTimer = null;
+        videoRegion = null;
+        // The same transition back out. A shot that eased in and snapped out reads as a glitch.
+        virtualCamera.move(transitionMs);
+      }, resetMs);
     },
 
     grabVideoFrame(size: number, timestampUs: number, durationUs: number) {

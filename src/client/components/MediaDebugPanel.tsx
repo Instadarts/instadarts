@@ -244,7 +244,10 @@ function FeedView({ peerId, canvas, feed, open }: { peerId: string; canvas: HTML
   useEffect(() => {
     const node = host.current;
     if (!node) return;
-    canvas.className = 'w-32 h-32 bg-black rounded';
+    // No width or height class: the canvas is the profile's own size and is shown at exactly that,
+    // one decoded pixel to one screen pixel. Scaling it down would hide the thing anyone opens this
+    // panel to judge — whether the encoder's output actually looks like a dartboard.
+    canvas.className = 'bg-black rounded';
     node.appendChild(canvas);
     return () => { if (canvas.parentNode === node) node.removeChild(canvas); };
   }, [canvas]);

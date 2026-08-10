@@ -17,8 +17,8 @@
 // anything happened.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaTier, VideoProfile, VideoRefusal } from '../../shared/media';
-import { VIDEO } from '../../shared/media';
+import type { ControlMessage, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
+import { directorTiming } from '../../shared/media';
 import type { Mesh } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
 
@@ -27,7 +27,7 @@ interface Options {
   sourceRef: React.MutableRefObject<VideoFrameSource | null>;
   /** Where the director's commands land. Held apart from the frame source: this one survives a
    *  camera restart, and the source does not. */
-  directRef: React.MutableRefObject<((region: import('../../shared/media').Region | null, transitionMs: number) => void) | null>;
+  directRef: React.MutableRefObject<((region: Region | null, transitionMs: number, resetMs: number) => void) | null>;
   /** How much this phone is willing to send. Only `video` may publish a feed. */
   tier: MediaTier;
   /** What to encode at, as the deployment ships it. Null until the server has said. */
@@ -126,9 +126,14 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
       case 'video_stop':
         setWanted(false);
         break;
-      case 'video_region':
-        directRef.current?.(message.region, message.transitionMs ?? VIDEO.defaultTransitionMs);
+      case 'video_region': {
+        // Read here rather than trusted as sent: the numbers came from another machine, and the
+        // camera is the authority on its own framing. `directorTiming` is what both ends agree they
+        // mean.
+        const { transitionMs, resetMs } = directorTiming(message);
+        directRef.current?.(message.region, transitionMs, resetMs);
         break;
+      }
     }
   }, [meshRef, directRef]);
 

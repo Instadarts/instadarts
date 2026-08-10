@@ -50,7 +50,7 @@ interface ScorerPageProps {
    * Held apart from `videoSource` because the two have different lifetimes: a region survives a
    * camera restart, since it describes the board rather than any camera.
    */
-  directVideo: React.MutableRefObject<((region: Region | null, transitionMs: number) => void) | null>;
+  directVideo: React.MutableRefObject<((region: Region | null, transitionMs: number, resetMs: number) => void) | null>;
 }
 
 type View = 'scoring' | 'settings' | 'calibration';

@@ -9,9 +9,16 @@ seam.** Links come up between every pair that needs one, each with two datachann
 photograph a square of its board on request — which is what puts a picture of each dart under the
 dart slots — and it will also publish a live feed of a square it is *told* to look at, from one
 encoder to however many viewers. Both say who they are for: a command carries an
-[audience](#addressing-a-camera). The feed is asked for and rendered only in a build with the seam
-open, because it has not yet been proven on real phones. See
-[What is not built](#what-is-not-built).
+[audience](#addressing-a-camera).
+
+**Only the first of those two has a user.** Dart evidence is shipped, and photographing darts is the
+whole of what a board camera does in a production build. Everything about the live feed — asking for
+one, pointing it, watching it, [recording a clip](#recording-a-clip) of it and the match overlay drawn
+over that — lives inside the diagnostics panel and is unreachable without the seam, because it has not
+been proven on real phones. It is documented at full length below anyway: the pipeline is real and
+finished, and the gate is the only thing between it and a board on the match screen. See the warning
+under [Live board video](#live-board-video) for where each gate sits, and
+[What is not built](#what-is-not-built) for what is missing.
 
 ---
 
@@ -222,9 +229,31 @@ the audience its feed is currently addressed to.
 
 ## Live board video
 
-⚠️ **Behind `?e2e=1`.** A frontend asks for a feed and renders one only where the seam is open. The
-device half is not gated — it answers whoever is entitled to command it — but in a shipped build
-nobody asks.
+> ⚠️ **The transmission system is finished; nothing in the product invokes it.** Not a prototype and
+> not a sketch — encoder, fan-out, decoder, the commands and the virtual camera all work end to end,
+> and the only caller they have is the diagnostics panel. So this section describes a built thing, and
+> what follows is where its single gate sits.
+>
+> Everything on the frontend's side of the feed is behind [`e2eEnabled()`](../src/client/lib/e2e.ts),
+> which needs a dev or `VITE_E2E` build **and** `?e2e=1` in the URL:
+>
+> | | where the gate is |
+> | --- | --- |
+> | Asking for a feed — `video_start`, `video_stop` | `useVideoFeed`, `asking` |
+> | **Directing it** — `video_region` | `useVideoFeed.direct`, which returns early. So dart evidence's per-dart camera move, described below as though it happens, does not happen in a shipped build. |
+> | Rendering one | `MediaDebugPanel` → `FeedView`, the only place `feed.canvases` is read anywhere |
+> | [Recording a clip](#recording-a-clip), and the match overlay drawn on it | the same component |
+> | `window.__media` | the same gate |
+>
+> **The device's half is not gated and is live in production.** A phone whose tier is `video` will
+> encode and publish to whoever is entitled the moment it is asked. Nothing ever asks it.
+>
+> **Stills are not in this category.** [Dart evidence](#asking-a-camera-for-a-picture) is a shipped
+> feature and the only thing a board camera is actually used for today — `useDartEvidence` requests a
+> photograph per dart unconditionally, and only its timing measurements are behind the seam.
+>
+> The code ships either way: `e2eEnabled()` compiles to a constant `false`, so the panel, the recorder
+> and the overlay are all present in `dist` and unreachable rather than absent from it.
 
 Three commands, and the split between the first two and the third is the point:
 
@@ -550,6 +579,9 @@ network, `srflx` means they found each other through a NAT.
 
 ### Recording a clip
 
+⚠️ Panel-only, like everything else about the feed — see [Live board video](#live-board-video). It is
+a debugging instrument for looking at what a real phone sent, not a feature anybody is offered.
+
 Each feed in the panel has a **● rec** button. Press it, press it again, and the browser saves what
 was on screen in between.
 
@@ -607,7 +639,9 @@ compare see a board rather than a player's name across it — and the flash anim
 instead of only when a video frame happens to arrive.
 
 The overlay is assembled in [`App.tsx`](../src/client/App.tsx), where the match is, by `overlayFor` —
-and it holds no rules. Every word and every colour is read off the mode's own `ModeView`, the same one
+the one piece of this that runs outside the gate, because it is one small object per render and a
+branch to avoid building it would cost more to read than to compute. Nothing draws it unless the
+panel is open. And it holds no rules. Every word and every colour is read off the mode's own `ModeView`, the same one
 the match screen renders: the visit total it already puts under the board, the verdict it already puts
 on a player's card. It knows a bust only in the sense that it can see the mode saying so — **a card
 score carrying a tone at all is a verdict rather than a number**, and `danger` is the only tone that
@@ -617,9 +651,12 @@ means the visit came to nothing. The panel below it draws what it is handed and 
 
 All ⏳. The framework exists to make these expressible, and takes no position on them.
 
-- **Video anybody can actually use** — the feed is asked for and rendered only behind `?e2e=1`. What
-  is missing is not the pipeline but the product: somewhere on the match screen to put a board, a way
-  for a person to ask for one, and enough time on real phones to trust it.
+- **Video anybody can actually use** — the feed, the clip recorder and the overlay drawn on it are
+  asked for, rendered and reachable only behind `?e2e=1`, so the only thing a board camera does in a
+  shipped build is photograph darts. What is missing is not the pipeline but the product: somewhere on
+  the match screen to put a board, a way for a person to ask for one, and enough time on real phones
+  to trust it. See the warning under [Live board video](#live-board-video) for exactly where each gate
+  sits.
 - **Anything but a board camera publishing** — the mesh is symmetric and a frontend could publish a
   face; none does.
 - **Which link to open when** — the mesh connects to every peer it is offered. Note this is a smaller

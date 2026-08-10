@@ -807,8 +807,11 @@ region, because starting a feed and framing it are separate decisions.
 **One camera, one feed.** A second `video_start` re-addresses the running one rather than opening
 another; `video_stop` ends it for everybody.
 
-⏳ Asked for and rendered only under `?e2e=1`, and addressed to the owner alone. The pipeline is
-built; nothing in the product offers it yet.
+⏳ **Built and unused.** The transmission works end to end; its only caller is the diagnostics panel,
+under `?e2e=1`, addressed to the owner alone — the picture, the clip recorder and the match overlay
+drawn over it all live there. The device's half is not gated at all and would publish to whoever is
+entitled the moment it were asked; nothing in the product asks, so a board camera in a shipped build
+takes [stills](#still) and nothing else. See [docs/media.md](./media.md#live-board-video).
 
 ### Audience
 
@@ -828,6 +831,10 @@ plus the two things a moving picture needs that a photograph does not.
 
 The owner's alone, like every command except a keyframe request. Dart evidence issues one for each
 dart, at the same square it photographs.
+
+⏳ Only under `?e2e=1`, like the [feed](#board-video) it points. The frontend drops the command
+otherwise, so in a shipped build the still is the *only* thing a landing dart provokes — the camera
+never moves. No interface issues one by hand either.
 
 **Fire-and-forget, which is why a shot expires.** Leave the transition out and the camera cuts; leave
 the reset out and it comes back after two seconds anyway. Nothing guarantees a second command is

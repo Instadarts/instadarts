@@ -5,10 +5,10 @@
 // Treat them as measurements: change one and re-measure, do not adjust one to make a case pass.
 
 /** Minimum confidence required for a board keypoint (classes 0–7) to be used in homography. */
-export const DEFAULT_BOARD_THRESHOLD = 0.8;
+export const DEFAULT_BOARD_THRESHOLD = 0.85;
 
 /** Minimum confidence required for a tip keypoint (class 8) to be projected. */
-export const DEFAULT_TIP_THRESHOLD = 0.75;
+export const DEFAULT_TIP_THRESHOLD = 0.8;
 
 /**
  * Keypoints within this distance are duplicates; only the highest-confidence one is kept before

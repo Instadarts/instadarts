@@ -34,7 +34,7 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
   return (
     <div className="w-full max-w-md flex flex-col gap-2 p-4 bg-gray-900 rounded-lg">
       <label className="flex flex-col gap-1 text-sm">
-        <span>Model</span>
+        <span>Detection model</span>
         <select
           value={vision.settings.model}
           onChange={(e) => void vision.setModel(e.target.value)}
@@ -50,25 +50,29 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         <p className="text-sm text-gray-500">This camera does not expose a zoom control.</p>
       )}
 
-      <Slider
-        label="Board keypoint confidence"
-        value={vision.settings.boardThreshold}
-        min={0.3}
-        max={0.95}
-        step={0.05}
-        format={(v) => v.toFixed(2)}
-        onChange={(v) => vision.setThresholds({ board: v })}
-      />
+      <div className="hidden">
+        <Slider
+          label="Board keypoint confidence"
+          value={vision.settings.boardThreshold}
+          min={0.3}
+          max={0.95}
+          step={0.05}
+          format={(v) => v.toFixed(2)}
+          onChange={(v) => vision.setThresholds({ board: v })}
+        />
+      </div>
 
-      <Slider
-        label="Dart tip confidence"
-        value={vision.settings.tipThreshold}
-        min={0.3}
-        max={0.95}
-        step={0.05}
-        format={(v) => v.toFixed(2)}
-        onChange={(v) => vision.setThresholds({ tip: v })}
-      />
+      <div className="hidden">
+        <Slider
+          label="Dart tip confidence"
+          value={vision.settings.tipThreshold}
+          min={0.3}
+          max={0.95}
+          step={0.05}
+          format={(v) => v.toFixed(2)}
+          onChange={(v) => vision.setThresholds({ tip: v })}
+        />
+      </div>
 
       <div className="flex items-center justify-between text-sm">
         <span>
@@ -200,8 +204,8 @@ function Unpair({ onUnpair }: { onUnpair: () => void }) {
         Pairing
         <span className="block text-xs text-gray-500">
           {confirming
-            ? 'The other browser keeps no way back. You will need a new code.'
-            : 'Forget this browser to pair with another one.'}
+            ? 'You will need a new pairing code.'
+            : 'Un-pair this device.'}
         </span>
       </span>
       {confirming ? (

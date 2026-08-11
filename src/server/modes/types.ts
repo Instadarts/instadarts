@@ -1,4 +1,4 @@
-// The game mode contract, and how modes get found.
+// The game mode contract.
 //
 // A mode owns how a **leg** is played and won, and — separately — a block of the match screen it may
 // draw on. Its rules do not know that matches, sets, sockets, lobbies or spectators exist:
@@ -11,11 +11,9 @@
 //   · **A mode holds no state.** Everything is derived from the visit history and the visit in
 //     progress, which is what makes undo, reconnect and a fresh leg free.
 //   · **A mode is one file.** Its rules, its settings and its panel are declared together in
-//     src/server/modes/<id>.ts and found by scanning that directory at boot — so a deployment adds
-//     or removes a mode by adding or removing a file.
+//     src/server/modes/<id>.ts.  The explicit inventory lives in registry.ts — add a new mode
+//     there and it is available everywhere, including in pkg single-file builds.
 
-import { readdirSync } from 'fs';
-import { fileURLToPath } from 'url';
 import type { CurrentVisit, MatchState, ModePanel, ModeView, Player, Visit } from '../../shared/types';
 import type { ModeDescriptor, ModeSettings, SettingsField } from '../../shared/settings';
 
@@ -112,40 +110,13 @@ export function allModes(): GameMode[] {
  */
 export const DEFAULT_MODE = 'x01';
 
-/** This file is the contract, not a mode. Everything else in the directory has to be one. */
-const NOT_A_MODE = new Set(['types.ts', 'types.js']);
-
 /**
- * Find and register every mode in this directory.
- *
- * A file that fails to load, or that does not export a mode, stops the server: a half-installed mode
- * is worth hearing about at boot rather than at the first dart.
+ * Validate that every mode self-registered at import time (each file calls registerMode at the top
+ * level, and registry.ts imports them all).  The server refuses to start without x01.
  */
 export async function loadModes(): Promise<GameMode[]> {
-  const dir = new URL('.', import.meta.url);
-  const files = readdirSync(fileURLToPath(dir))
-    .filter((name) => /\.(ts|js)$/.test(name) && !name.endsWith('.d.ts') && !NOT_A_MODE.has(name))
-    .sort();
-
-  for (const file of files) {
-    const loaded = (await import(new URL(file, dir).href)) as Record<string, unknown>;
-    const mode = [loaded.default, loaded.mode, ...Object.values(loaded)].find(isGameMode);
-    if (!mode) throw new Error(`src/server/modes/${file} does not export a game mode`);
-    registerMode(mode);
-  }
-
   if (!getMode(DEFAULT_MODE)) {
-    throw new Error(`The ${DEFAULT_MODE} game mode is required, and nothing in src/server/modes/ provides it`);
+    throw new Error(`The ${DEFAULT_MODE} game mode is required — add it to registry.ts`);
   }
   return allModes();
-}
-
-function isGameMode(value: unknown): value is GameMode {
-  const mode = value as GameMode | undefined;
-  return (
-    typeof mode === 'object' && mode !== null &&
-    typeof mode.id === 'string' &&
-    typeof mode.finalizeVisit === 'function' &&
-    typeof mode.view === 'function'
-  );
 }

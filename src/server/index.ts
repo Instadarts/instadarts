@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws';
 // Importing wsHandler also registers the lifecycle handlers — it is the module that knows what to
 // tell people when a deadline passes, and it says so to `lifecycle` on load.
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
+import './modes/registry.js';
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';

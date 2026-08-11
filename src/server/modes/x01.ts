@@ -4,6 +4,7 @@ import type {
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { boolOr, numberOr, stringOr } from '../../shared/settings';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
+import { registerMode } from './types';
 import { IS_DEV } from '../env';
 
 /**
@@ -523,3 +524,5 @@ export function x01Remaining(ctx: LegContext, playerId: string): number {
 export function x01NeedsDoubleIn(ctx: LegContext, playerId: string): boolean {
   return read(ctx.settings).doubleIn && !hasDoubledIn(ctx, playerId);
 }
+
+registerMode(x01);

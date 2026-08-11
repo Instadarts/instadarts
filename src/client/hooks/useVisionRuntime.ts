@@ -54,6 +54,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   const [motion, setMotion] = useState<MotionReport>(
     { armed: false, canArm: false, canTrigger: false, dot: 'idle', fps: null, mode: 'cpu' },
   );
+  const [cameraResolution, setCameraResolution] = useState<string | null>(null);
   const [activeTiles, setActiveTiles] = useState<Set<number>>(new Set());
   const tileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -159,6 +160,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     try {
       const info = await runtime.start(deviceId);
       setCameraLabel(info.label);
+      setCameraResolution(runtime.cameraResolution);
       // The lens correction describes this particular lens, so it can only be applied once we know
       // which one opened.
       runtime.setLensCalibration(lensForCamera(loadSettings(), info.label));
@@ -200,6 +202,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     await runtime.stop();
     setZoomRange(null);
     setFrame(null);
+    setCameraResolution(null);
     setCameraActive(false);
     onCameraActiveRef.current(false);
   }, []);
@@ -251,6 +254,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     ready,
     cameras,
     cameraLabel,
+    cameraResolution,
     cameraActive,
     status,
     frame,

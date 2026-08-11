@@ -87,6 +87,11 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
             detector: {vision.motion.fps.toFixed(1)}fps
           </div>
         )}
+        {vision.cameraResolution && (
+          <div className="absolute top-2 right-2 px-2 py-1 text-xs font-mono bg-black/60 rounded pointer-events-none">
+            {vision.cameraResolution}
+          </div>
+        )}
         {!vision.cameraActive && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             {/* A camera that was switched off on purpose is not a camera that failed, and the
@@ -184,16 +189,17 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
 
 function FrameInfo({ vision }: { vision: Vision }) {
   const frame = vision.frame;
-  if (!frame) {
-    return <p className="text-sm text-gray-500 h-5">{vision.status?.text ?? ''}</p>;
-  }
-  const result = frame.result;
   return (
-    <p className="text-sm text-gray-400 h-5" data-testid="frame-info">
-      {result
-        ? `${result.boardKeypoints} board points, ${result.tips.length} tips`
-        : 'board not found'}
-      {` · ${Math.round(frame.ms)}ms · ${frame.accelerator}`}
-    </p>
+    <div>
+      <p className="text-sm text-gray-500 h-5 hidden">{vision.status?.text ?? ''}</p>
+      {frame && (
+        <p className="text-sm text-gray-400 h-5" data-testid="frame-info">
+          {frame.result
+            ? `${frame.result.boardKeypoints} board points, ${frame.result.tips.length} tips`
+            : 'board not found'}
+          {` · ${Math.round(frame.ms)}ms · ${frame.accelerator}`}
+        </p>
+      )}
+    </div>
   );
 }

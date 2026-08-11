@@ -67,6 +67,8 @@ export interface VisionRuntime {
   readonly modelKey: string;
   /** Side of the square the model is fed — the space keypoints are normalised in. */
   readonly inputSize: number;
+  /** The current camera's resolution, e.g. "1280×720", or null when no camera is open. */
+  readonly cameraResolution: string | null;
   /**
    * Photograph a square of the board, as a still request asks for.
    *
@@ -121,6 +123,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   // WebGPU path never populates that (model.js:215).
   let keepInputFrame = false;
   let inputFrame: HTMLCanvasElement | null = null;
+  let cameraResolution: string | null = null;
   /**
    * The last homography this camera solved, kept so a still can be framed from a moment when the
    * board did not happen to resolve.
@@ -263,7 +266,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       const saved = camera.storedZoom();
       if (saved != null) await camera.applyZoom(saved).catch(() => {});
       motion.arm();
-      onStatus({ stage: 'camera', text: `${info.label} ${info.settings.width}×${info.settings.height}` });
+      cameraResolution = `${info.settings.width}×${info.settings.height}`;
       return info;
     },
 
@@ -274,6 +277,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // left to scan.
       camera.stop();
       motion.reset();
+      cameraResolution = null;
       // The homography described where a board was in *that* camera session's frames. Kept across
       // one, it would frame a still from a picture that no longer exists.
       lastHomography = null;
@@ -285,7 +289,6 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       virtualCamera.reset();
       cancelVideoReset();
       releaseCanvas();
-      onStatus({ stage: 'camera', text: 'stopped' });
     },
 
     get located() { return lastHomography !== null; },
@@ -350,6 +353,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     },
     get modelKey() { return modelKey; },
     get inputSize() { return inputSize(); },
+    get cameraResolution() { return cameraResolution; },
 
     /** Keep a copy of each inference's input square (calibration only — it costs a full draw). */
     setKeepInputFrame(on: boolean) {

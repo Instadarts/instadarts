@@ -13,7 +13,7 @@ import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
-import { IS_PRODUCTION, QUIET } from './env';
+import { CLIENT_DIR, QUIET } from './env';
 
 // Find the installed game modes. A deployment adds or removes one by adding or removing a file in
 // src/server/modes/ — and one without x01 is not a deployment we will start.
@@ -67,8 +67,11 @@ app.get('/server-stats', (_req, res) => {
   });
 });
 
-// Only serve static files in production (dev uses Vite on port 5173)
-if (IS_PRODUCTION) {
+// Serve the built client, when this run has one to serve — see CLIENT_DIR in env.ts. `npm run dev`
+// does not: Vite has it on port 5173.
+if (CLIENT_DIR) {
+  // Held locally because an imported binding is not narrowed inside the handler below.
+  const clientDir = CLIENT_DIR;
   // Cross-origin isolation, or LiteRT silently runs single-threaded on the scoring device. The
   // headers have to reach the WASM worker script itself too, which is why they go on everything
   // rather than only on the document. Nothing this app loads is cross-origin, so that costs us
@@ -80,10 +83,10 @@ if (IS_PRODUCTION) {
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     next();
   });
-  app.use(express.static('dist/client'));
+  app.use(express.static(clientDir));
   // SPA fallback: serve index.html for all non-API routes
   app.get('/{*splat}', (_req, res) => {
-    res.sendFile('index.html', { root: 'dist/client' });
+    res.sendFile('index.html', { root: clientDir });
   });
 }
 

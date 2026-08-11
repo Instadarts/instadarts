@@ -9,6 +9,20 @@ export const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 export const IS_DEV = !IS_PRODUCTION;
 
 /**
+ * The directory the built client is served from, or `null` for a run that serves no client at all.
+ *
+ * `npm run dev` is the null case: Vite serves the client on its own port, and this server also
+ * answering with whatever `dist/client` happens to hold would be two answers to the same question —
+ * one of them stale. `npm start` serves the build sitting next to it.
+ *
+ * A deployment whose client is somewhere else names it: `CLIENT_DIR=/srv/instadarts/client`. Naming
+ * it is also what asks for it to be served, which is what lets a run be a development one and still
+ * serve a client.
+ */
+export const CLIENT_DIR: string | null =
+  process.env.CLIENT_DIR ?? (IS_PRODUCTION ? 'dist/client' : null);
+
+/**
  * Say nothing about connections and modes on startup. Set by the e2e run, where a line per client
  * buries the output that is actually about a test.
  */

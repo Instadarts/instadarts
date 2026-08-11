@@ -67,7 +67,7 @@ async function pairCamera(player: Page, scorer: Page) {
   // Two server round trips, not one: the device is bound, then the frontend claims it, and only
   // then does the device learn a match is running. Worth an explicit wait on the first test of a
   // run, where that competes with a 2.4MB model being fetched and compiled.
-  await expect(scorer.getByText('Scoring for a player')).toBeVisible({ timeout: 20_000 });
+  await expect(scorer.getByTestId('scorer-status')).toHaveText('Scoring for a player', { timeout: 20_000 });
 }
 
 async function startCamera(page: Page) {

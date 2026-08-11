@@ -78,7 +78,7 @@ async function pairScorer(browser: Browser, frontend: Page, name: string) {
   await page.goto('/scorer?e2e=1');
   await page.getByPlaceholder('CODE').fill(code);
   await page.getByRole('button', { name: 'Pair' }).click();
-  await expect(page.getByText('Ready — no match running')).toBeVisible();
+  await expect(page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
 
   await page.getByPlaceholder('Name this device').fill(name);
   await page.getByPlaceholder('Name this device').blur();

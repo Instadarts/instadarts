@@ -42,7 +42,7 @@ test.describe('scoring device pairing', () => {
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
 
-    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
     await expect(player.getByText('connected')).toBeVisible();
 
     // A code pairs one device, so pairing one ends the exercise: the dialog closes rather than
@@ -72,7 +72,7 @@ test.describe('scoring device pairing', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
-    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
 
     await scorer.page.reload();
     await player.reload();
@@ -80,7 +80,7 @@ test.describe('scoring device pairing', () => {
     // Neither side asks anyone to pair again: the device still has its token, the browser still
     // has the hash, and that is all the server needs to recognise them.
     await expect(scorer.page.getByPlaceholder('CODE')).toHaveCount(0);
-    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
 
     await player.getByRole('button', { name: 'Cameras' }).first().click();
     await expect(player.getByText('connected')).toBeVisible();
@@ -141,7 +141,7 @@ test.describe('scoring device pairing', () => {
     const newOwner = await other.newPage();
     await newOwner.goto('/');
     await pairScorer(scorer.page, await requestPairingCode(newOwner));
-    await expect(scorer.page.getByText('Ready — no match running')).toBeVisible();
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
     await expect(newOwner.getByText('connected')).toBeVisible();
 
     // The name and the settings both survived: they describe this phone on this mount, and none of

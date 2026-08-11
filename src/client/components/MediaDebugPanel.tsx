@@ -21,6 +21,7 @@ import type { VideoFeed } from '../hooks/useVideoFeed';
 import { videoEncoding } from '../lib/appConfig';
 import { drawOverlay, flashAt, NO_OVERLAY, type FlashText, type OverlayState } from './feedOverlay';
 import { e2eEnabled } from '../lib/e2e';
+import { getCameraCanvas } from '../vision/videoCamera';
 
 interface Props {
   media: MediaMesh;
@@ -143,7 +144,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 z-50 m-2 text-xs font-mono" data-testid="media-debug">
+    <div className="fixed bottom-8 left-0 z-50 m-2 text-xs font-mono" data-testid="media-debug">
       <button
         onClick={() => setOpen((v) => !v)}
         className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300"
@@ -236,9 +237,12 @@ function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats 
   }, [open, stats]);
 
   if (!shown) return null;
+  const camCanvas = getCameraCanvas();
+  const canvasLabel = camCanvas instanceof HTMLCanvasElement ? 'html' : camCanvas ? 'offscreen' : null;
   return (
     <p className="mt-1 text-gray-500">
       publishing · {(audience?.() ?? []).join(' ') || '—'} · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
+      {canvasLabel && <span className="text-gray-600"> · {canvasLabel}</span>}
       {shown.dropped > 0 && <span className="text-yellow-500"> · {shown.dropped} dropped</span>}
       {shown.oversize > 0 && <span className="text-red-400"> · {shown.oversize} oversize</span>}
       {shown.missed > 0 && <span className="text-gray-600"> · {shown.missed} missed</span>}

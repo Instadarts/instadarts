@@ -185,6 +185,11 @@ export function grabFrame(
   }
 }
 
+/** The canvas the virtual camera draws onto, for debugging. Null when no frame has been drawn yet. */
+export function getCameraCanvas(): OffscreenCanvas | HTMLCanvasElement | null {
+  return canvas;
+}
+
 /** Let go of the canvas — a feed that has stopped should not hold a surface open. */
 export function releaseCanvas(): void {
   canvas = null;

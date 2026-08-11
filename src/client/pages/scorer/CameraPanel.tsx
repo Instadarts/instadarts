@@ -91,7 +91,7 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
                   : 'opacity-0'
               }`} />
             </span>
-            detector: {vision.motion.fps.toFixed(1)}fps
+            {vision.motion.mode === 'gpu-bitmap' ? 'gpu' : vision.motion.mode}-detector: {vision.motion.fps.toFixed(1)}fps
           </div>
         )}
         {vision.cameraResolution && (

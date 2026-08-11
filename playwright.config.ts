@@ -26,7 +26,7 @@ const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
  */
 const webServer = [
   {
-    command: 'npx tsx src/server/index.ts',
+    command: 'node --import tsx/esm src/server/index.ts',
     url: `http://[::1]:${SERVER_PORT}/server-stats`,
     // MEDIA is passed through so the suite can be run with the feature off — `MEDIA=0 npx playwright
     // test`. Worth having for something that must be disable-able: it is the only way to see that

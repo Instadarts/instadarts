@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createVisionRuntime, MODELS } from '../vision/visionRuntime';
 import type { CameraInfo, FrameInfo, VisionRuntime, VisionStatus } from '../vision/visionRuntime';
-import type { MotionReport, MotionTile } from '../vision/motion';
+import type { MotionReport } from '../vision/motion';
 import type { BoardTip } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
 
-/** How long a changed tile stays lit in the preview, and how many may be lit at once. */
+/** How long changed tiles stay lit in the preview before fading out. */
 const MOTION_TILE_MS = 450;
-const MAX_MOTION_TILES = 64;
+
 import { lensForCamera, loadSettings, saveSettings, setLensForCamera, type ScorerSettings } from '../lib/scorerStorage';
 
 interface Options {
@@ -54,7 +54,8 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   const [motion, setMotion] = useState<MotionReport>(
     { armed: false, canArm: false, canTrigger: false, dot: 'idle', fps: null, mode: 'cpu' },
   );
-  const [motionTiles, setMotionTiles] = useState<MotionTile[]>([]);
+  const [activeTiles, setActiveTiles] = useState<Set<number>>(new Set());
+  const tileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Held in refs so the runtime, built once, always calls the current callbacks.
   const onTipsRef = useRef(onTips);
@@ -89,13 +90,21 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
         setFrame(info);
       },
       onReport: setMotion,
-      onTiles: (tiles) => {
-        // Flashes, not state: each batch is added and then expires on its own, so a tile that
-        // keeps changing keeps flashing rather than staying lit.
-        if (tiles.length === 0) { setMotionTiles([]); return; }
-        setMotionTiles((current) => [...current, ...tiles].slice(-MAX_MOTION_TILES));
-        const ids = new Set(tiles.map((tile) => tile.id));
-        setTimeout(() => setMotionTiles((current) => current.filter((tile) => !ids.has(tile.id))), MOTION_TILE_MS);
+      onTiles: (indices) => {
+        // Static grid: each tile index maps to one pre-rendered cell. Adding to the set lights it
+        // up (CSS handles the visual); a single timer clears all tiles after the last batch.
+        if (indices.length === 0) {
+          setActiveTiles(new Set());
+          if (tileTimerRef.current) { clearTimeout(tileTimerRef.current); tileTimerRef.current = null; }
+          return;
+        }
+        setActiveTiles((prev) => {
+          const next = new Set(prev);
+          for (const i of indices) next.add(i);
+          return next;
+        });
+        if (tileTimerRef.current) clearTimeout(tileTimerRef.current);
+        tileTimerRef.current = setTimeout(() => setActiveTiles(new Set()), MOTION_TILE_MS);
       },
     });
     runtime.setModel(stored.model);
@@ -112,6 +121,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
 
     return () => {
       runtimeRef.current = null;
+      if (tileTimerRef.current) clearTimeout(tileTimerRef.current);
       delete (window as unknown as { __scorer?: VisionRuntime }).__scorer;
       void runtime.unload().catch(() => {});
     };
@@ -235,7 +245,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
   return {
     refs: { video },
     motion,
-    motionTiles,
+    activeTiles,
     runtimeRef,
     frameRef,
     ready,

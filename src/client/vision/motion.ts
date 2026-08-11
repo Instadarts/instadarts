@@ -34,16 +34,9 @@ export interface MotionReport {
   mode: string;
 }
 
-/** A tile of the analysis grid that just changed, for the preview overlay. */
-export interface MotionTile {
-  /** Position in the grid, as fractions of the preview: left, top, width, height. */
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  /** Distinct per flash, so a renderer can key on it. */
-  id: number;
-}
+/** Grid dimensions — the host pre-renders one cell per tile and toggles them via CSS. */
+export const MOTION_GRID_ROWS = 8;
+export const MOTION_GRID_COLS = 8;
 
 export interface MotionDetectorOptions {
   preview: HTMLVideoElement;
@@ -57,8 +50,8 @@ export interface MotionDetectorOptions {
   onTrigger: () => void;
   /** Called whenever anything a renderer would show has changed. */
   onReport?: (report: MotionReport) => void;
-  /** Tiles that changed in this pass, for the preview overlay. */
-  onTiles?: (tiles: MotionTile[]) => void;
+  /** Tile indices (0..63) that changed in this pass, for the preview overlay. */
+  onTiles?: (tileIndices: number[]) => void;
 }
 
 /** What the pipeline above drives the gate with. */
@@ -295,7 +288,6 @@ export function createMotionDetector({
   let detectorMode = "cpu";
   let lastDetectorBadgeUpdatedAt = 0;
   let detectorBadgeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
-  let nextTileId = 0;
   let cpuAnalyzer: MotionAnalyzer | null = null;
   let gpuAnalyzer: MotionAnalyzer | null = null;
   // Latches once the WebGPU analyzer fails to construct (e.g. no WebGPU device),
@@ -501,14 +493,7 @@ export function createMotionDetector({
   }
 
   function showMotionHighlights(tileIndexes: number[]) {
-    if (!tileIndexes.length) return;
-    onTiles(tileIndexes.map((tileIndex) => ({
-      left: ((tileIndex % MOTION_DEFAULTS.gridCols) / MOTION_DEFAULTS.gridCols) * 100,
-      top: (Math.floor(tileIndex / MOTION_DEFAULTS.gridCols) / MOTION_DEFAULTS.gridRows) * 100,
-      width: 100 / MOTION_DEFAULTS.gridCols,
-      height: 100 / MOTION_DEFAULTS.gridRows,
-      id: nextTileId++,
-    })));
+    onTiles(tileIndexes);
   }
 
   function clearMotionHighlights() {

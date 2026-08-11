@@ -12,7 +12,7 @@
 
 import { getCenterSquareCrop, loadModel, unloadModel, type ModelRunner } from './model';
 import { postprocess } from './postprocess';
-import { createMotionDetector, type MotionDetector, type MotionReport, type MotionTile } from './motion';
+import { createMotionDetector, type MotionDetector, type MotionReport } from './motion';
 import { createCamera, listCameras, preferredCamera, type Camera, type CameraChoice } from './camera';
 import { processPredictions, type PipelineResult } from './predictionPipeline';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
@@ -48,7 +48,7 @@ export interface VisionRuntimeOptions {
   onFrame?: (frame: FrameInfo) => void;
   /** What the motion gate is doing, for whoever draws it. */
   onReport?: (report: MotionReport) => void;
-  onTiles?: (tiles: MotionTile[]) => void;
+  onTiles?: (tileIndices: number[]) => void;
 }
 
 export interface VisionRuntime {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
+import { MOTION_GRID_COLS, MOTION_GRID_ROWS } from '../../vision/motion';
 import { Slider } from './Slider';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
@@ -55,16 +56,29 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
           autoPlay
           className="w-full h-full object-cover"
         />
-        {/* Where the gate saw movement, one fading square per tile. */}
+        {/* Where the gate saw movement, one fading square per tile. The grid is pre-rendered once —
+            CSS toggles opacity; no DOM is created or destroyed after mount. */}
         {motionAnimations && (
         <div className="absolute inset-0 pointer-events-none">
-          {vision.motionTiles.map((tile) => (
-            <div
-              key={tile.id}
-              className="absolute border border-green-400/70 bg-green-400/10 rounded-sm"
-              style={{ left: `${tile.left}%`, top: `${tile.top}%`, width: `${tile.width}%`, height: `${tile.height}%` }}
-            />
-          ))}
+          {Array.from({ length: MOTION_GRID_ROWS * MOTION_GRID_COLS }, (_, i) => {
+            const row = Math.floor(i / MOTION_GRID_COLS);
+            const col = i % MOTION_GRID_COLS;
+            const active = vision.activeTiles.has(i);
+            return (
+              <div
+                key={i}
+                className={`absolute border border-green-400/70 bg-green-400/10 rounded-sm ${
+                  active ? 'opacity-100' : 'opacity-0 transition-opacity duration-[450ms]'
+                }`}
+                style={{
+                  left: `${(col / MOTION_GRID_COLS) * 100}%`,
+                  top: `${(row / MOTION_GRID_ROWS) * 100}%`,
+                  width: `${100 / MOTION_GRID_COLS}%`,
+                  height: `${100 / MOTION_GRID_ROWS}%`,
+                }}
+              />
+            );
+          })}
         </div>
         )}
         {vision.motion.fps !== null && (

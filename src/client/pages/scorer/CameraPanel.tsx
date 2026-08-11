@@ -20,13 +20,6 @@ interface CameraPanelProps {
  * rate, these tiles just changed — and this decides what that looks like. Nothing outside this file
  * writes to these nodes.
  */
-/** The badge's dot: what the gate is doing right now. */
-const DOT: Record<string, string> = {
-  idle: 'bg-gray-500',
-  pending: 'bg-yellow-400',
-  triggered: 'bg-green-400',
-};
-
 export function CameraPanel({ vision, poweredDown, motionAnimations = true }: CameraPanelProps) {
   const { refs } = vision;
   const [selected, setSelected] = useState('');
@@ -83,7 +76,21 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
         )}
         {vision.motion.fps !== null && (
           <div className="absolute top-2 left-2 px-2 py-1 text-xs font-mono bg-black/60 rounded pointer-events-none flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${DOT[vision.motion.dot]}`} />
+            <span className="relative w-2 h-2 shrink-0">
+              {/* Bottom: gray when idle or triggered, yellow/amber when motion is pending. */}
+              <span className={`absolute inset-0 rounded-full ${
+                vision.motion.dot === 'pending' ? 'bg-yellow-300' :
+                vision.motion.dot === 'pendingLarge' ? 'bg-amber-600' :
+                'bg-gray-500'
+              }`} />
+              {/* Top: green when inference fired, fades out over 1s. */}
+              <span className={`absolute inset-0 rounded-full bg-green-400 ${
+                vision.motion.dot === 'triggered' ? 'opacity-100' :
+                vision.motion.dot === 'idle' || vision.motion.dot === 'pending' || vision.motion.dot === 'pendingLarge'
+                  ? 'opacity-0 transition-opacity duration-1000'
+                  : 'opacity-0'
+              }`} />
+            </span>
             detector: {vision.motion.fps.toFixed(1)}fps
           </div>
         )}

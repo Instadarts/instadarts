@@ -27,7 +27,7 @@ export interface MotionReport {
   canArm: boolean;
   canTrigger: boolean;
   /** What the badge's dot shows: nothing happening, waiting for the picture to settle, or firing. */
-  dot: 'idle' | 'pending' | 'triggered';
+  dot: 'idle' | 'pending' | 'pendingLarge' | 'triggered';
   /** How many analyzer passes a second, or null while nothing is being sampled. */
   fps: number | null;
   /** Which analyzer ran: cpu or webgpu. */
@@ -432,7 +432,7 @@ export function createMotionDetector({
         pendingQuietScale = 1;
       }
       triggerQueued = false;
-      updateDetectorDot("pending");
+      updateDetectorDot(detected === 2 ? "pendingLarge" : "pending");
     }
     if (detected === 0) {
       motionQuietFrames += 1;
@@ -511,9 +511,7 @@ export function createMotionDetector({
       pendingQuietScale = 1;
       motionQuietFrames = 0;
       updateDetectorDot("triggered");
-      setTimeout(() => {
-        if (!motionPendingTrigger) updateDetectorDot("idle");
-      }, 500);
+      // The next frame with no motion will set idle; CSS handles the visual fade.
       onTrigger();
     }
   }
@@ -522,7 +520,10 @@ export function createMotionDetector({
     const changed = detectorDotState !== state;
     detectorDotState = state;
     if (changed) {
-      requestDetectorBadgeUpdate();
+      // Dot changes are events, not rates — bypass the fps throttle so they
+      // always reach the screen, even when one fires inside a throttle window.
+      clearDetectorBadgeUpdateTimer();
+      renderDetectorBadge();
     }
   }
 

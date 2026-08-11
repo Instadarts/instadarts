@@ -156,7 +156,9 @@ is not an image. This is the first traffic that flows *towards* a scoring device
 
 A still is one self-describing binary message: `[uint32 headerLength][JSON][bytes]`. A header sent
 separately and paired with "whatever binary arrives next" stops working the moment two are in
-flight, and three darts landing in one throw window makes that ordinary.
+flight, and a fused report committing three darts at once puts three requests in the air together.
+That is rare rather than routine — but it is a thing the protocol has to survive, not an attack, and
+`MAX_PENDING_STILLS` (four) is sized so a camera answers it rather than refusing.
 
 `id` is the requester's, echoed back, so an answer is matched to its own request. `tag` is an opaque
 value the device echoes without interpreting — dart evidence puts `{ dart: <index> }` in it, and that

@@ -23,7 +23,7 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 store.ts        lobbies and matches in memory, and the only place either is created
                 seats.ts        a place in a room and the token that proves it, for reconnecting
                 match.ts        the match layer: a leg's context, and a won leg becoming a won match
-                modes/          one file per game mode, found by scanning this directory
+                modes/          one file per game mode, listed in registry.ts
                 scoring/        turning camera reports into darts: throw windows, clustering, fusion
                 devices.ts      the pairing registry: which phone belongs to which browser
                 media.ts        who may open a peer connection to whom, and the relay that lets them
@@ -133,9 +133,10 @@ which strips types without checking them, and the `tsc` step only covers `src/se
 npx tsc -p tsconfig.client.json --noEmit
 ```
 
-Run that after touching anything under `src/client`. Note the `-p tsconfig.client.json`: the root
-`tsconfig.json` has no `jsx` setting, so pointing `tsc` at it produces a screenful of `TS17004
-Cannot use JSX unless the '--jsx' flag is provided` and tells you nothing.
+Run that after touching anything under `src/client`. Note the `-p tsconfig.client.json`: only that
+one adds the DOM and WebGPU libs and Vite's client types, so pointing `tsc` at the root
+`tsconfig.json` instead produces a screenful of missing `GPUBufferUsage`, `import.meta.env` and
+`import.meta.glob` and tells you nothing.
 
 ## The e2e suite
 
@@ -217,6 +218,20 @@ or build the pattern so it cannot match itself:
 PAT='tsx wa'"tch src/server"; pgrep -f "$PAT"
 ```
 
+### The e2e server leaves nothing behind, and how
+
+The same wrapper problem reached the test suite. `playwright.config.ts` used to start the server as
+`npx tsx src/server/index.ts`, and `tsx` there is a launcher: it spawns a **child** `node` and that
+child is what listens on 3000. Playwright stops only the process it started, so the child survived
+every run and sat on the port, and the next run met `EADDRINUSE` from a server nobody could see.
+
+It is now `node --import tsx/esm src/server/index.ts` — the loader is registered inside one process,
+so the thing Playwright starts is the thing that listens and the thing that dies. `npm start` was
+already written this way; the config now matches it.
+
+Worth remembering whenever a `webServer` command is changed: **the command must be the listener, not
+a launcher for it.**
+
 ## Checking a UI change
 
 Screenshots, not reasoning about CSS. The fastest loop is a throwaway spec under `tests/e2e/`
@@ -265,6 +280,11 @@ Selector traps that have all actually bitten here:
   from `T20 (60)` to `T20` and blanking the panel title broke three tests that had nothing to do
   with the change. If you edit `src/server/modes/*.ts`, grep the specs — unit *and* e2e — for the
   strings you touched.
+- **`getByText` needs the text to be visible; a `data-testid` does not.** Some text on the scoring
+  device is rendered but hidden, so `expect(page.getByText('Ready — no match running')).toBeVisible()`
+  fails on a page that is working perfectly. `expect(page.getByTestId('scorer-status')).toHaveText(…)`
+  reads the same state without caring whether it is shown — which is what the pairing and inference
+  specs do.
 - **Settings checkboxes are echoed by the server, so `check()` fights them.** A lobby toggle is
   controlled by lobby state that arrives over the WebSocket, so it does not flip on click.
   Playwright's `check()` clicks, sees the old value, and clicks again — turning it back off, then

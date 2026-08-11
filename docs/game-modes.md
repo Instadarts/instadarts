@@ -308,16 +308,21 @@ Notes:
 
 ## Installing and removing a game mode
 
-**A mode is a file.** Write `src/server/modes/<id>.ts` exporting a `GameMode` — its rules, its
-settings and its panel together — and it is found at boot by scanning that directory. There is no
-registry to edit, in either direction: deleting the file removes the mode.
+**A mode is a file, plus one line.** Write `src/server/modes/<id>.ts` exporting a `GameMode` — its
+rules, its settings and its panel together — call `registerMode(<id>)` at the top level of it, and
+add `import './<id>.js';` to [`registry.ts`](../src/server/modes/registry.ts). Removing a mode is
+the same two steps backwards.
+
+`registry.ts` is the whole inventory: what the server ships with is a fact of the source, decided
+when it is built, rather than of whatever files a deployment happens to have on disk.
 
 Two consequences worth knowing:
 
-- **A file in there that does not export a mode stops the server.** A half-installed mode is worth
-  hearing about at boot rather than at the first dart.
-- **x01 is mandatory.** It is the default a new lobby starts on, and the server refuses to start
-  without it.
+- **A mode nobody imported is simply absent.** Nothing scans, so a file in the directory that
+  `registry.ts` does not name is dead source — it never registers, and the server starts happily
+  without it. The symptom is a mode missing from the lobby, not an error at boot.
+- **x01 is mandatory.** It is the default a new lobby starts on, and `loadModes` refuses to start a
+  server that does not have it registered.
 
 ### Writing one
 
@@ -327,6 +332,7 @@ Four methods are required and everything else is optional. A whole mode, small e
 import type { ModeView, Visit } from '../../shared/types';
 import { numberOr } from '../../shared/settings';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
+import { registerMode } from './types';
 
 export const highscore: GameMode = {
   id: 'highscore',
@@ -349,12 +355,14 @@ export const highscore: GameMode = {
 
   view(ctx: LegContext): ModeView { /* headline, playerScores, visitTotal, dartsPerVisit, history */ },
 };
+
+registerMode(highscore);
 ```
 
 What is *not* in there is the point of the layering. No match, set or leg number; no sockets,
 lobbies or spectators; no state of its own — a mode is handed a `LegContext` and derives everything
-from it, which is what makes undo, reconnect and starting the next leg free. Adding this file and
-restarting is the whole installation: no registry, no client code, no route.
+from it, which is what makes undo, reconnect and starting the next leg free. This file, one import
+in `registry.ts` and a restart is the whole installation: no client code, no route.
 
 Things that catch people:
 
@@ -372,8 +380,10 @@ Things that catch people:
 ### The optional second file
 
 A mode may add `src/client/modes/<id>.tsx`, exporting a component as default. It is picked up by
-filename — again with no registry to edit — and **replaces** the generic table, receiving the whole
-panel: the same rows, plus whatever the mode put in `custom` for its own use.
+filename — no registry to edit on this half, since Vite's `import.meta.glob` resolves the directory
+when the client is built ([`panels.ts`](../src/client/modes/panels.ts)) — and **replaces** the
+generic table, receiving the whole panel: the same rows, plus whatever the mode put in `custom` for
+its own use.
 
 The two halves degrade into each other, which is the property to preserve when writing one:
 

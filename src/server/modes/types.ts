@@ -11,8 +11,8 @@
 //   · **A mode holds no state.** Everything is derived from the visit history and the visit in
 //     progress, which is what makes undo, reconnect and a fresh leg free.
 //   · **A mode is one file.** Its rules, its settings and its panel are declared together in
-//     src/server/modes/<id>.ts.  The explicit inventory lives in registry.ts — add a new mode
-//     there and it is available everywhere, including in pkg single-file builds.
+//     src/server/modes/<id>.ts. The inventory of them is explicit and lives in registry.ts — a mode
+//     is installed by writing the file and adding one import there.
 
 import type { CurrentVisit, MatchState, ModePanel, ModeView, Player, Visit } from '../../shared/types';
 import type { ModeDescriptor, ModeSettings, SettingsField } from '../../shared/settings';

@@ -460,9 +460,10 @@ How one [leg](#leg) is played and won, plus the settings those rules need. Curre
 - A mode declares its own settings — label, defaults and fields — in its own file, and the server
   sends that catalog to the client on connect (`mode_catalog`). Both the lobby panel and the server
   validator read the same declaration; the client imports no mode code.
-- **A mode is a file.** `src/server/modes/<id>.ts` is found by scanning the directory at boot, so a
-  deployment installs or removes one by adding or deleting a file. x01 is mandatory: the server
-  refuses to start without it.
+- **A mode is a file, plus one line.** `src/server/modes/<id>.ts` registers itself at import time,
+  and [`registry.ts`](../src/server/modes/registry.ts) is the explicit list of which files get
+  imported — so what a build ships with is decided in the source, not by what is on disk. x01 is
+  mandatory: the server refuses to start without it.
 - A mode **cannot** end a match, advance the turn or write match state. It reports a leg winner and
   the match layer takes it from there.
 - A mode supplies the match screen's mode-specific strings through its [view](#mode-view).

@@ -29,10 +29,6 @@ import { e2eEnabled } from '../lib/e2e';
  * pixels from and React owns when it exists. The motion gate's controls are ordinary React state:
  * it reports, this renders.
  *
- * (was: the refs come back out rather than going in, because the motion detector binds its five control
- * nodes once at construction: owning them here is what guarantees they exist, and that their
- * identity never changes underneath it.
- *
  * The runtime is built once and never rebuilt on a settings change. It has setters for everything
  * that can change at runtime, and tearing it down would mean reloading the model and restarting
  * the camera for the sake of a slider.

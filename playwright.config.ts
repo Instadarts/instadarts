@@ -14,6 +14,11 @@ const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
  * `tsx` without `watch`: a test run has no files changing under it, and a watcher is one more thing
  * to shut down. Which matters, because shutting down is the other half of what this buys — the npm
  * script this replaces killed whatever held the two ports and left the wrappers above them running.
+ *
+ * And `node --import tsx/esm` rather than `npx tsx`, for the same reason one level down: the `tsx`
+ * CLI is a launcher that spawns a child node, and that child is what listens. Playwright stops the
+ * process it started, so the child outlived every run and held port 3000. Registering the loader in
+ * one process makes the thing started, the thing listening and the thing killed all the same one.
  */
 /**
  * `[::1]` and not `localhost`, which costs four minutes a run on WSL2.

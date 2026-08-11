@@ -36,6 +36,10 @@ export function ScorerApp() {
   const stillSource = useRef<StillSource | null>(null);
   const stills = useStillResponder(meshRef, stillSource);
 
+  // The latency meter lives inside ScorerPage, but still requests arrive here via the mesh's
+  // onControl. Same bridge pattern as stillSource / videoSource.
+  const latencyMeterRef = useRef<{ onStillRequest: () => void } | null>(null);
+
   // The live feed's two halves of the same introduction. `directVideo` is separate from the frame
   // source because a director's region outlives a camera session and the frames do not.
   const videoSource = useRef<VideoFrameSource | null>(null);
@@ -55,6 +59,7 @@ export function ScorerApp() {
     onControl: (from, message) => {
       stills.handleControl(from, message);
       videoControl.current?.(from, message);
+      if (message.kind === 'still_request') latencyMeterRef.current?.onStillRequest();
     },
   });
 
@@ -101,6 +106,7 @@ export function ScorerApp() {
         stillSource={stillSource}
         videoSource={videoSource}
         directVideo={directVideo}
+        latencyMeterRef={latencyMeterRef}
       />
       <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherAudience={video.audience} />
     </div>

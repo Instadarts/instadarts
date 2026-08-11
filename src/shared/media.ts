@@ -496,8 +496,7 @@ export const DART_EVIDENCE_TRANSITION_MS = 500;
  * Requests a camera will hold at once before refusing.
  *
  * More than one because a fused camera report can commit three darts in a single moment, and three
- * requests arriving together is the normal case rather than an attack. They share one video frame
- * and cost three crops, which is nothing.
+ * requests arriving together is a rare case but not an attack.
  */
 export const MAX_PENDING_STILLS = 4;
 

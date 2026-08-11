@@ -8,6 +8,8 @@ interface CameraPanelProps {
   vision: Vision;
   /** The device switched the camera off to save battery, rather than the camera failing. */
   poweredDown: boolean;
+  /** Render the motion-tile overlay. Defaults to true; turn off on slower phones. */
+  motionAnimations?: boolean;
 }
 
 /**
@@ -24,7 +26,7 @@ const DOT: Record<string, string> = {
   triggered: 'bg-green-400',
 };
 
-export function CameraPanel({ vision, poweredDown }: CameraPanelProps) {
+export function CameraPanel({ vision, poweredDown, motionAnimations = true }: CameraPanelProps) {
   const { refs } = vision;
   const [selected, setSelected] = useState('');
 
@@ -54,6 +56,7 @@ export function CameraPanel({ vision, poweredDown }: CameraPanelProps) {
           className="w-full h-full object-cover"
         />
         {/* Where the gate saw movement, one fading square per tile. */}
+        {motionAnimations && (
         <div className="absolute inset-0 pointer-events-none">
           {vision.motionTiles.map((tile) => (
             <div
@@ -63,6 +66,7 @@ export function CameraPanel({ vision, poweredDown }: CameraPanelProps) {
             />
           ))}
         </div>
+        )}
         {vision.motion.fps !== null && (
           <div className="absolute top-2 left-2 px-2 py-1 text-xs font-mono bg-black/60 rounded pointer-events-none flex items-center gap-1.5">
             <span className={`w-2 h-2 rounded-full ${DOT[vision.motion.dot]}`} />

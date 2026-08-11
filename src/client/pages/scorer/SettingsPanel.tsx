@@ -101,6 +101,19 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         />
       </label>
 
+      <label className="flex items-center justify-between text-sm">
+        <span>
+          Motion overlay
+          <span className="block text-xs text-gray-500">Highlights tiles the motion detector sees changing. Turn off on slower devices.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={settings.motionAnimations}
+          onChange={(e) => update({ motionAnimations: e.target.checked })}
+          className="w-5 h-5"
+        />
+      </label>
+
       <label className="flex flex-col gap-1 text-sm">
         <span>
           Share this view

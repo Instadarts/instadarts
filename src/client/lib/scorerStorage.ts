@@ -51,6 +51,8 @@ export interface ScorerSettings {
    * nominate this device as their board camera as well; see shared/media.ts.
    */
   media: MediaTier;
+  /** Whether to render the motion-tile overlay on the camera preview. */
+  motionAnimations: boolean;
 }
 
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
@@ -69,6 +71,7 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   cameraOffAfterMinutes: GRACE_MINUTES.default,
   standbyAfterMinutes: STANDBY_MINUTES.default,
   media: 'video',
+  motionAnimations: true,
 };
 
 export function loadIdentity(): ScorerIdentity | null {

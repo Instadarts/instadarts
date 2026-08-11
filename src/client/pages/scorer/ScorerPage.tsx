@@ -151,7 +151,7 @@ export function ScorerPage({
       {/* The camera panel is never unmounted: the motion detector binds its controls once, and the
           vision runtime owns a camera stream and a compiled model that must survive a settings trip. */}
       <div className={view === 'scoring' ? 'contents' : 'hidden'}>
-        <CameraPanel vision={vision} poweredDown={power.stage !== 'awake'} />
+        <CameraPanel vision={vision} poweredDown={power.stage !== 'awake'} motionAnimations={settings.motionAnimations} />
       </div>
 
       {view === 'settings' && (

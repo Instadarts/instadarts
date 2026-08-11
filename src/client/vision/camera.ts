@@ -7,6 +7,8 @@
 // The storage keys are the scorer's own, so this app and the gaming frontend can share a browser
 // without overwriting each other.
 
+import { cameraFrameRate } from '../lib/appConfig';
+
 /** One camera the browser will let us open. */
 export interface CameraChoice {
   deviceId: string;
@@ -57,14 +59,14 @@ const STORE_ZOOMS = 'instadarts_scorer_zooms';
 const STORE_LAST_CAMERA = 'instadarts_scorer_last_camera';
 
 /**
- * Square capture at the model's input size, 15fps, continuous autofocus where supported.
- * crop-and-scale keeps the sensor's centre square rather than letterboxing.
+ * Square capture at the model's input size, at the configured frame rate, continuous autofocus
+ * where supported. crop-and-scale keeps the sensor's centre square rather than letterboxing.
  */
 export function buildCameraConstraints(inputSize: number): MediaStreamConstraints {
   const video: ScorerVideoConstraints = {
       width: { ideal: inputSize },
       height: { ideal: inputSize },
-      frameRate: { ideal: 15 },
+      frameRate: { ideal: cameraFrameRate() },
       resizeMode: 'crop-and-scale',
       ...(supports('focusMode') ? { focusMode: { ideal: 'continuous' } } : {}),
   };

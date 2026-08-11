@@ -1,7 +1,38 @@
+import { writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { defineConfig } from '@playwright/test';
 
 const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
+
+/**
+ * A settings file for the run, when the run wants something other than the defaults.
+ *
+ * The server is tuned by a file rather than by the environment, so a suite that needs a non-default
+ * deployment has to write one. Two do:
+ *
+ *   · `MEDIA=0 npx playwright test` — the whole point of the media flag is that it must be
+ *     disable-able, and running the suite with it off is the only way to see that the rest of the
+ *     app does not quietly depend on it.
+ *   · `PORT=…` — a second instance beside a first.
+ *
+ * Written to the system temp directory rather than into the repository, so it cannot be mistaken for
+ * a deployment's own file and cannot survive into one. When neither is asked for, no file is written
+ * at all and the run exercises the same defaults a fresh install would.
+ */
+function settingsFile(): string | null {
+  const settings: Record<string, unknown> = {};
+  if (SERVER_PORT !== 3000) settings.server = { port: SERVER_PORT };
+  if (process.env.MEDIA === '0') settings.media = { enabled: false };
+  if (Object.keys(settings).length === 0) return null;
+
+  const path = join(tmpdir(), `instadarts-e2e-${SERVER_PORT}.config.json`);
+  writeFileSync(path, JSON.stringify(settings, null, 2));
+  return path;
+}
+
+const SETTINGS = settingsFile();
 
 /**
  * The app is two processes — the API/WebSocket server and Vite — and both are Playwright's to
@@ -33,10 +64,9 @@ const webServer = [
   {
     command: 'node --import tsx/esm src/server/index.ts',
     url: `http://[::1]:${SERVER_PORT}/server-stats`,
-    // MEDIA is passed through so the suite can be run with the feature off — `MEDIA=0 npx playwright
-    // test`. Worth having for something that must be disable-able: it is the only way to see that
-    // the rest of the app does not quietly depend on it.
-    env: { QUIET: '1', MEDIA: process.env.MEDIA ?? '1' },
+    // QUIET is a property of the run rather than of the deployment, so it stays an environment
+    // variable. Everything the deployment is tuned to goes in the file above, when there is one.
+    env: { QUIET: '1', ...(SETTINGS ? { INSTADARTS_CONFIG: SETTINGS } : {}) },
   },
   {
     command: 'npx vite',

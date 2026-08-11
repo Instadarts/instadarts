@@ -13,7 +13,7 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
-import { STILL } from '../../src/shared/media';
+import { CONFIG_DEFAULTS } from '../../src/shared/config';
 
 const SCENES = {
   darts: fileURLToPath(new URL('../media/board-three-darts.jpg', import.meta.url)),
@@ -136,11 +136,11 @@ test.describe('dart evidence', () => {
     await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBeGreaterThan(0);
 
     // A real JPEG at the configured size, decoded by the browser rather than merely delivered.
-    // Asked of `STILL` rather than of a literal: the question is whether what arrives matches what
-    // was configured, which stays the question the next time those numbers are tuned.
+    // Asked of the defaults rather than of a literal: this run has no settings file, so they are
+    // what the server shipped, and the question is whether what arrives matches what was asked for.
     const decoded = await evidenceImages(host).first().evaluate((img: HTMLImageElement) =>
       img.decode().then(() => ({ w: img.naturalWidth, h: img.naturalHeight })));
-    expect(decoded).toEqual({ w: STILL.size, h: STILL.size });
+    expect(decoded).toEqual({ w: CONFIG_DEFAULTS.media.still.size, h: CONFIG_DEFAULTS.media.still.size });
 
     // And the screen did not move when the pictures arrived, which is the rule the fixed height is
     // there to keep.

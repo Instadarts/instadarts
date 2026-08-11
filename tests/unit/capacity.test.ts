@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   DEVICES_PER_USER,
   MAX_CONNECTIONS,
@@ -14,6 +14,7 @@ import {
   canCreateMatch,
   roomCount,
 } from '../../src/server/capacity';
+import { CONFIG } from '../../src/server/config';
 import { createLobby, createMatch, deleteLobby, deleteMatch, getAllLobbies, getAllMatches } from '../../src/server/store';
 import '../helpers'; // registers the x01 mode
 
@@ -22,8 +23,8 @@ import '../helpers'; // registers the x01 mode
  *
  * One number is set and the rest are derived, so the thing worth testing is that they still relate
  * the way the file says they do — a limit that quietly stops scaling with the knob is not visible
- * anywhere else, and neither is a `NaN` from a bad environment variable, which would make every
- * comparison false and disable the limits it touches.
+ * anywhere else, and neither is a `NaN` from a bad setting, which would make every comparison
+ * false and disable the limits it touches.
  */
 
 describe('the derived model', () => {
@@ -50,27 +51,10 @@ describe('the derived model', () => {
     expect(MAX_DEVICE_RECORDS).toBeGreaterThan(MAX_DEVICE_CONNECTIONS);
   });
 
-  it('takes the knob from the environment, and ignores nonsense', async () => {
-    const read = async (value: string | undefined) => {
-      vi.resetModules();
-      if (value === undefined) vi.stubEnv('MAX_MATCHES', '');
-      else vi.stubEnv('MAX_MATCHES', value);
-      const { MAX_MATCHES: read } = await import('../../src/server/env');
-      return read;
-    };
-
-    try {
-      expect(await read('250')).toBe(250);
-      // A limit of zero, a fraction or a word would disable what divides from it, so none is taken.
-      expect(await read('0')).toBe(10_000);
-      expect(await read('-5')).toBe(10_000);
-      expect(await read('2.5')).toBe(10_000);
-      expect(await read('lots')).toBe(10_000);
-      expect(await read(undefined)).toBe(10_000);
-    } finally {
-      vi.unstubAllEnvs();
-      vi.resetModules();
-    }
+  it('takes the knob from the settings', () => {
+    // Where the number comes from, and what a bad one does, is config.test.ts's question. What
+    // matters here is that this file reads that number rather than one of its own.
+    expect(MAX_MATCHES).toBe(CONFIG.server.maxMatches);
   });
 });
 

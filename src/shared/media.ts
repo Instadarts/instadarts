@@ -44,6 +44,10 @@
 // The second is moot when the bitrate is fixed by policy. The first is ours to write, and is why the
 // two channels below have opposite reliability settings.
 
+// Types only, so this stays a one-way dependency at runtime: config.ts describes the knobs, this
+// file describes what they mean.
+import type { VideoConfig } from './config';
+
 // ============================================================
 // Peers and rosters
 // ============================================================
@@ -191,27 +195,31 @@ export interface VideoProfile {
 }
 
 /**
- * What this deployment allows, sent to every connection — frontend and scoring device alike — as
- * soon as it connects. `enabled: false` is sent rather than nothing at all, so a client knows the
- * answer instead of waiting for a message that will never come.
+ * The codec and the keyframe interval, which are policy rather than tuning: every phone encodes
+ * H.264 baseline in hardware, and how often a keyframe goes out regardless of anything asking is a
+ * property of the protocol, not of the deployment. The size, rate and bitrate *are* tuning, and
+ * come from the settings — see `VideoConfig`.
  */
-export interface MediaConfig {
-  enabled: boolean;
-  iceServers: IceServerConfig[];
-  video: VideoProfile;
-  /** Most peers this connection will ever be offered at once. */
-  maxPeers: number;
-}
-
-/** The starting point, and only that: measured against real phones is how these numbers get better. */
-export const DEFAULT_VIDEO_PROFILE: VideoProfile = {
+const VIDEO_ENCODING = {
   codec: 'avc1.42001f', // H.264 baseline, level 3.1
-  width: 320,
-  height: 320,
-  frameRate: 15,
-  bitrate: 500_000,
   keyFrameIntervalMs: 2000,
-};
+} as const;
+
+/**
+ * The three tuned numbers, completed into the profile a publisher actually runs by.
+ *
+ * Square, because everything a camera here sends is: one `size` becomes both dimensions rather than
+ * two numbers that can be set to disagree.
+ */
+export function videoProfile(config: VideoConfig): VideoProfile {
+  return {
+    ...VIDEO_ENCODING,
+    width: config.size,
+    height: config.size,
+    frameRate: config.frameRate,
+    bitrate: config.bitrate,
+  };
+}
 
 // ============================================================
 // Signaling
@@ -467,30 +475,18 @@ export function excluded(audience: readonly MediaRole[]): MediaRole[] {
 // ============================================================
 
 /**
- * Every still, whatever it was asked for and whoever asked.
+ * What every still is made of, whoever asked and whatever they asked for — apart from its size,
+ * which is a deployment knob and reaches both ends through `app_config`.
  *
- * Not shipped from the server like `VideoProfile`, and should not be: a still never touches the
- * server. Both ends of a link are the same build from the same origin, so a shared constant is the
- * honest place for a number the two of them have to agree on.
+ * A still never touches the server, so the two ends of a link agreeing on this is not something a
+ * negotiation could establish: they agree because they are the same build from the same origin,
+ * told the same thing by the same server. That is why the size can be a setting at all — one
+ * deployment, one answer, handed to everybody who might send or receive one.
  */
 export const STILL = {
-  /** Side of the delivered image. Square, like the board and like the camera's own capture. */
-  size: 320,
   mime: 'image/jpeg',
   quality: 0.65,
 } as const;
-
-/** How much of the board a dart's evidence shows: enough to see which side of a wire it is on. */
-export const DART_EVIDENCE_REGION_SIZE = 0.25;
-
-/**
- * How long the live feed takes to swing onto a dart that has just landed.
- *
- * An evidence decision rather than a video policy, which is why it lives here beside the region and
- * not in `VIDEO`: the feed's own default is a cut, and this is one caller asking for a move because
- * a camera swinging to a dart reads as somebody looking at it.
- */
-export const DART_EVIDENCE_TRANSITION_MS = 500;
 
 /**
  * Requests a camera will hold at once before refusing.
@@ -505,13 +501,11 @@ export const MAX_PENDING_STILLS = 4;
 // ============================================================
 
 /**
- * The numbers a publisher runs by, in the same single place as `STILL` and for the same reason: both
- * ends of a link are one build from one origin, so a shared constant is honest where a negotiation
- * would be theatre.
+ * The numbers a publisher runs by that are **policy rather than tuning**: true of the protocol
+ * itself, the same in every deployment, and not worth a knob.
  *
- * The size, rate and bitrate are **not** here — those are `VideoProfile`, shipped by the server, so a
- * deployment can be retuned against real phones without a client release. What is here is policy that
- * does not vary by deployment.
+ * The size, rate and bitrate are not here — those are settings, shipped to both ends as part of
+ * `app_config`, so a deployment can be retuned against real phones without a client release.
  */
 export const VIDEO = {
   /**

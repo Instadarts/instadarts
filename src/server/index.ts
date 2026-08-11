@@ -14,6 +14,11 @@ import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
 import { CLIENT_DIR, QUIET } from './env';
+import { CONFIG, reportConfig } from './config';
+
+// What this deployment was tuned to, and anything its settings file got wrong. Said first, because
+// everything below is sized by it.
+reportConfig();
 
 // Find the installed game modes. A deployment adds or removes one by adding or removing a file in
 // src/server/modes/ — and one without x01 is not a deployment we will start.
@@ -24,7 +29,7 @@ if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', '
 // nothing here is reclaimed by being noticed later, only by its own deadline arriving.
 startLifecycle();
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = CONFIG.server.port;
 
 const app = express();
 const server = createServer(app);

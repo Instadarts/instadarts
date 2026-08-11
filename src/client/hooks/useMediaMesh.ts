@@ -5,22 +5,23 @@
 // a mesh, which holds the links.
 //
 // Three conditions have to hold before this connection announces itself, and they are independent:
-// the deployment allows media (`media_config`), this browser or phone wants it (the `enabled`
+// the deployment allows media (`app_config`), this browser or phone wants it (the `enabled`
 // argument), and there is a socket to announce over. Announcing is what puts a connection in other
 // peers' rosters; there is no other way in, and no other way out.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
-import type { ControlMessage, MediaConfig, MediaPeer, MediaTier } from '../../shared/media';
-import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
+import type { ControlMessage, MediaPeer, MediaTier } from '../../shared/media';
+import type { MediaClientConfig } from '../../shared/config';
 import { createMesh, type Mesh, type MeshLink } from '../media/mesh';
+import { setAppConfig, useMediaConfig } from '../lib/appConfig';
 import { e2eEnabled } from '../lib/e2e';
 
 export interface MediaMesh {
   /** Feed every server frame here, before or after the app's own handling. */
   handleMessage: (msg: ServerMessage) => void;
   /** What the deployment allows. Null until it has said. */
-  config: MediaConfig | null;
+  config: MediaClientConfig | null;
   /** Whether this connection is taking part: the deployment, the preference and the socket all agreeing. */
   active: boolean;
   /** This connection's own peer id, once the server has minted one. */
@@ -72,7 +73,9 @@ export function useMediaMesh(
   connected: boolean,
   { tier, boardCamera = null, onControl, onMedia }: Options,
 ): MediaMesh {
-  const [config, setConfig] = useState<MediaConfig | null>(null);
+  // Held in the shared store rather than here, because the readers are not all React — see
+  // lib/appConfig.ts. This hook is only the one that receives it.
+  const config = useMediaConfig();
   const [selfId, setSelfId] = useState<string | null>(null);
   const [links, setLinks] = useState<MeshLink[]>([]);
 
@@ -96,7 +99,7 @@ export function useMediaMesh(
     if (!config?.enabled) return null;
     return createMesh({
       iceServers: config.iceServers,
-      video: config.video ?? DEFAULT_VIDEO_PROFILE,
+      video: config.video,
       signal: (to, description) => sendRef.current({ type: 'media_signal', to, description }),
       onChange: () => setLinks(meshRef.current?.links() ?? []),
       onControl: (from, message, payload) => {
@@ -119,13 +122,8 @@ export function useMediaMesh(
 
   const handleMessage = useCallback((msg: ServerMessage): void => {
     switch (msg.type) {
-      case 'media_config':
-        setConfig({
-          enabled: msg.enabled,
-          iceServers: msg.iceServers,
-          video: msg.video,
-          maxPeers: msg.maxPeers,
-        });
+      case 'app_config':
+        setAppConfig({ frontend: msg.frontend, scorer: msg.scorer, media: msg.media });
         break;
       case 'media_peers':
         setSelfId(msg.self);

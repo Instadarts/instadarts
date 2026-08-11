@@ -14,7 +14,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
-import { DEFAULT_VIDEO_PROFILE } from '../../src/shared/media';
+import { CONFIG_DEFAULTS } from '../../src/shared/config';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
 // feed that starts by showing a board nobody has thrown at is the honest starting state.
@@ -298,7 +298,7 @@ test.describe('board video', () => {
         image.src = url;
       }) : null;
     });
-    expect(size).toEqual({ w: DEFAULT_VIDEO_PROFILE.width, h: DEFAULT_VIDEO_PROFILE.height });
+    expect(size).toEqual({ w: CONFIG_DEFAULTS.media.video.size, h: CONFIG_DEFAULTS.media.video.size });
 
     const shot = (await fingerprint(host))!;
     expect(shot, 'no picture decoded').not.toBeNull();

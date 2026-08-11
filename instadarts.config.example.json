@@ -1,0 +1,78 @@
+// InstaDarts settings — an example, and inert as it stands.
+//
+// To use it: copy this file to `instadarts.config.json`, beside the executable or in the directory
+// you start it from, and uncomment whatever you want to change. Every setting below is shown with
+// the value it already has, so uncommenting one without editing it changes nothing.
+//
+// Everything is optional, including the file itself. What you leave out keeps its default.
+//
+// One thing that is deliberately NOT here: whether this is a development or a production build. That
+// is decided when the program is built, not when it is run.
+//
+// A value that is the wrong type or out of range is ignored and reported at startup — the default
+// stands and the server carries on. A file that is not valid JSON stops the server, because a
+// deployment that thinks it is configured and is not is worse than one that will not start.
+
+{
+  // ── The process itself ──────────────────────────────────────────────
+  "server": {
+    // "port": 3000,
+
+    // How big this deployment is sized for. The one number that scales the server: every limit it
+    // refuses or evicts by is derived from this, so this is the only figure to change.
+    // "maxMatches": 10000
+  },
+
+  // ── The playing browser ─────────────────────────────────────────────
+  // Nothing to set yet.
+  "frontend": {},
+
+  // ── A paired phone watching a board ─────────────────────────────────
+  "scorer": {
+    // Frames a second to ask the camera for. An ideal, not a demand: a camera that cannot manage it
+    // gives what it can. Higher costs battery for pictures the motion gate mostly discards; lower
+    // risks a dart landing between two frames.
+    // "cameraFrameRate": 15
+  },
+
+  // ── Shared by every device in a match ───────────────────────────────
+  // These cannot be per-device settings: two ends of a link have to agree on them, so the server
+  // hands the same answer to everybody.
+  "media": {
+    // Whether this deployment carries video and stills between the devices in a match at all.
+    // Off, the server relays nothing and neither app shows a thing.
+    // "enabled": true,
+
+    // STUN or TURN servers, for peers that cannot reach each other directly. Empty by default,
+    // which means a phone reaches its own browser across the room and an opponent in another house
+    // reaches nobody — nothing about a match leaves the deployment unless you ask for it.
+    // "iceUrls": ["stun:stun.example.org:19302"],
+
+    // One photograph of part of the board: the close-up under a dart, and what a viewer is sent
+    // when they ask what the board looks like.
+    "still": {
+      // Side of the delivered image, in pixels. Square.
+      // "size": 320
+    },
+
+    // The live picture a board camera publishes.
+    "video": {
+      // Side of the encoded picture, in pixels. Square, like everything else a camera here sends.
+      // "size": 320,
+      // "frameRate": 15,
+      // Bits per second. Fixed rather than adaptive: there is no bandwidth estimator to feed one.
+      // "bitrate": 500000
+    },
+
+    // The close-up shown under each dart as it lands.
+    "dartEvidence": {
+      // How much of the board it shows, as a fraction: enough to see which side of a wire a dart
+      // is on. Smaller is a tighter crop.
+      // "regionSize": 0.25,
+
+      // How long the live feed takes to swing onto a dart that has just landed. A camera moving to
+      // a dart reads as somebody looking at it; 0 would be a cut.
+      // "transitionMs": 500
+    }
+  }
+}

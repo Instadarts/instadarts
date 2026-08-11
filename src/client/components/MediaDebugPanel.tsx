@@ -18,7 +18,7 @@ import type { StillTiming } from '../hooks/useStillResponder';
 import type { EvidenceTiming } from '../hooks/useDartEvidence';
 import type { PublisherStats } from '../media/videoPublisher';
 import type { VideoFeed } from '../hooks/useVideoFeed';
-import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
+import { videoEncoding } from '../lib/appConfig';
 import { drawOverlay, flashAt, NO_OVERLAY, type FlashText, type OverlayState } from './feedOverlay';
 import { e2eEnabled } from '../lib/e2e';
 
@@ -383,12 +383,12 @@ function FeedView({ peerId, canvas, feed, open, overlay }: {
 
     // Captured from the composite, so what is saved is what is on screen. The rate is the profile's:
     // the source is fifteen frames a second and asking for more would only duplicate them.
-    const stream = target.captureStream(DEFAULT_VIDEO_PROFILE.frameRate);
+    const stream = target.captureStream(videoEncoding().frameRate);
     const media = new MediaRecorder(stream, {
       mimeType: type,
       // Twice the source's, because this is a re-encode of an already-lossy picture and matching the
       // original bitrate would compound the artefacts rather than preserve them.
-      videoBitsPerSecond: DEFAULT_VIDEO_PROFILE.bitrate * 2,
+      videoBitsPerSecond: videoEncoding().bitrate * 2,
     });
 
     chunks.current = [];

@@ -17,7 +17,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, Region } from '../../shared/media';
-import { DART_EVIDENCE_REGION_SIZE, DART_EVIDENCE_TRANSITION_MS, MEDIA_ROLES, STILL } from '../../shared/media';
+import { MEDIA_ROLES, STILL } from '../../shared/media';
+import { dartEvidence } from '../lib/appConfig';
 import type { CurrentVisit } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
 import type { Mesh } from '../media/mesh';
@@ -40,7 +41,7 @@ export function dartRegion(dart: { x: number; y: number }): Region {
   return {
     cx: dart.x / BOARD_MAX,
     cy: dart.y / BOARD_MAX,
-    size: DART_EVIDENCE_REGION_SIZE,
+    size: dartEvidence().regionSize,
   };
 }
 
@@ -157,7 +158,7 @@ export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Optio
       //
       // No `resetMs`, which means the camera comes back on its own — the right shape for this, since
       // nothing here would ever send a second command to release it.
-      directRef.current?.(region, DART_EVIDENCE_TRANSITION_MS);
+      directRef.current?.(region, dartEvidence().transitionMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
   }, [darts, isThrower, measuring]);

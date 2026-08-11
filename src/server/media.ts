@@ -38,9 +38,13 @@
 import type { WebSocket } from 'ws';
 import type { MediaPeer, MediaTier } from '../shared/media';
 import type { Client } from './types';
-import { DEFAULT_VIDEO_PROFILE, MAX_SDP_BYTES } from '../shared/media';
-import { MEDIA_ENABLED, MEDIA_ICE_URLS } from './env';
+import { MAX_SDP_BYTES, videoProfile } from '../shared/media';
+import { CONFIG } from './config';
 import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
+
+// Read once, and named locally because whether this deployment carries media is asked at the top of
+// nearly every handler below.
+const MEDIA_ENABLED = CONFIG.media.enabled;
 import { allClients, getClient, send } from './connections';
 import { publishDevicesState } from './scoringDevices';
 import { devicesForSession, ownerOf, setDeviceMediaTier } from './devices';
@@ -453,14 +457,27 @@ export function publishMediaForRoom(room: string): void {
 // Handlers
 // ============================================================
 
-/** What this deployment allows. Sent to every connection as it arrives, whatever kind it turns out to be. */
-export function sendMediaConfig(ws: WebSocket): void {
+/**
+ * How this deployment is tuned. Sent to every connection as it arrives, whatever kind it turns out
+ * to be.
+ *
+ * The client's share of the settings, and only that: the `server` section stays here. The two things
+ * the file does not answer are filled in on the way out — the ICE urls in the shape the DOM wants,
+ * and how many peers this server will offer at once, which comes from its capacity model.
+ */
+export function sendAppConfig(ws: WebSocket): void {
   send(ws, {
-    type: 'media_config',
-    enabled: MEDIA_ENABLED,
-    iceServers: MEDIA_ICE_URLS.map((urls) => ({ urls })),
-    video: DEFAULT_VIDEO_PROFILE,
-    maxPeers: MEDIA_PEERS_PER_PEER,
+    type: 'app_config',
+    frontend: CONFIG.frontend,
+    scorer: CONFIG.scorer,
+    media: {
+      enabled: MEDIA_ENABLED,
+      iceServers: CONFIG.media.iceUrls.map((urls) => ({ urls })),
+      maxPeers: MEDIA_PEERS_PER_PEER,
+      still: CONFIG.media.still,
+      video: videoProfile(CONFIG.media.video),
+      dartEvidence: CONFIG.media.dartEvidence,
+    },
   });
 }
 

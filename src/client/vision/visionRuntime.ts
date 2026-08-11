@@ -19,6 +19,7 @@ import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vis
 import type { BoardTip, Keypoint, Matrix3x3 } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
 import { DEFAULT_REGION, STILL, clampRegion } from '../../shared/media';
+import { stillSize } from '../lib/appConfig';
 import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
 import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
 
@@ -306,7 +307,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
         frame,
       });
       if (!rect) return null;
-      return captureCrop(video, rect, STILL.size, STILL.mime, STILL.quality);
+      return captureCrop(video, rect, stillSize(), STILL.mime, STILL.quality);
     },
 
     directVideo(region: Region | null, transitionMs: number, resetMs: number) {

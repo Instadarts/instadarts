@@ -13,6 +13,7 @@
 import { useCallback, useRef } from 'react';
 import type { ControlMessage, MediaRole, Region, StillRefusal } from '../../shared/media';
 import { MAX_PENDING_STILLS, STILL, clampAudience } from '../../shared/media';
+import { stillSize } from '../lib/appConfig';
 import type { Mesh } from '../media/mesh';
 import type { Capture } from '../vision/stillCapture';
 import { e2eEnabled } from '../lib/e2e';
@@ -101,8 +102,8 @@ export function useStillResponder(
           kind: 'still',
           id: job.id,
           tag: job.tag,
-          width: STILL.size,
-          height: STILL.size,
+          width: stillSize(),
+          height: stillSize(),
           mime: STILL.mime,
         };
         const payload = new Uint8Array(await capture.blob.arrayBuffer());

@@ -5,3 +5,6 @@ dist
 .vscode
 test-results
 playwright-report
+
+# A deployment's own settings. The committed file is instadarts.config.example.json.
+instadarts.config.json

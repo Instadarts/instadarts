@@ -21,7 +21,7 @@ import { addDartToMatch, undoDartFromMatch, submitVisitToMatch } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
-import { MEDIA_ENABLED } from './env';
+import { CONFIG } from './config';
 import {
   handleMediaLeave,
   handleMediaReady,
@@ -32,7 +32,7 @@ import {
   publishMediaFor,
   publishMediaForRoom,
   releaseMediaState,
-  sendMediaConfig,
+  sendAppConfig,
 } from './media';
 import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
@@ -127,9 +127,9 @@ export function registerClient(ws: WebSocket, client: Client): void {
   addClient(ws, client);
   // What this deployment can play. The client renders the lobby from it and imports no mode code.
   send(ws, { type: 'mode_catalog', modes: allModes().map(describeMode) });
-  // And whether it carries video, which a frontend and a scoring device both need to know and
-  // neither can guess. Sent even when the answer is no, so nobody waits for it.
-  sendMediaConfig(ws);
+  // And how this deployment is tuned — whether it carries video, and the numbers a phone or a
+  // browser runs by. Neither can guess any of it. Sent even when media is off, so nobody waits.
+  sendAppConfig(ws);
 }
 
 export function removeClient(ws: WebSocket): void {
@@ -284,7 +284,7 @@ export function handleMessage(ws: WebSocket, raw: string): void {
   const isMediaMessage = msg.type.startsWith('media_');
   if (client?.deviceId && !isScorerMessage && !isMediaMessage) return;
   if (isScorerMessage && !client?.deviceId && msg.type !== 'scorer_pair' && msg.type !== 'scorer_hello') return;
-  if (isMediaMessage && !MEDIA_ENABLED) return;
+  if (isMediaMessage && !CONFIG.media.enabled) return;
 
   // Where this connection was before the handler ran. A message that moves somebody has to refresh
   // the room it left as well as the one it joined, and afterwards there is no way to ask.

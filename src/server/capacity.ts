@@ -1,8 +1,8 @@
 // How big this server is allowed to get.
 //
-// One number is set — `MAX_MATCHES`, from the environment — and everything below is derived from
-// it. That is the point: the limits are a single coherent statement about the deployment rather
-// than a handful of numbers that drifted apart. To run a bigger server, set that one variable.
+// One number is set — `server.maxMatches`, from the settings file — and everything below is derived
+// from it. That is the point: the limits are a single coherent statement about the deployment rather
+// than a handful of numbers that drifted apart. To run a bigger server, set that one number.
 //
 // Each figure here is one of three kinds, and which one it is matters more than its value:
 //
@@ -16,10 +16,10 @@
 // a connection each and are deliberately not capped per match. The rest are worst cases: they bound
 // what a broken or hostile client can do, not what an ordinary one will.
 
-import { MAX_MATCHES, MEDIA_ENABLED } from './env';
+import { CONFIG } from './config';
 import { getAllLobbies, getAllMatches } from './store';
 
-export { MAX_MATCHES };
+export const MAX_MATCHES = CONFIG.server.maxMatches;
 
 /**
  * Lobbies and matches share one budget, because they are one thing at two moments: `createMatch`
@@ -135,7 +135,7 @@ export function capacityLimits() {
     maxDeviceConnections: MAX_DEVICE_CONNECTIONS,
     devicesPerUser: DEVICES_PER_USER,
     maxDeviceRecords: MAX_DEVICE_RECORDS,
-    mediaEnabled: MEDIA_ENABLED,
+    mediaEnabled: CONFIG.media.enabled,
     mediaPeersPerPeer: MEDIA_PEERS_PER_PEER,
     mediaViewersPerRoom: MEDIA_VIEWERS_PER_ROOM,
   };

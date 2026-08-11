@@ -1,7 +1,8 @@
 import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
 import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
-import type { IceServerConfig, MediaPeer, MediaTier, SignalDescription, VideoProfile } from './media';
+import type { MediaPeer, MediaTier, SignalDescription } from './media';
+import type { ClientConfig } from './config';
 
 // ============================================================
 // Client → Server messages
@@ -534,18 +535,18 @@ export interface ScorerRefusedMessage {
 // ============================================================
 
 /**
- * What this deployment allows, sent on connect to frontends and scoring devices alike — the same
+ * How this deployment is tuned, sent on connect to frontends and scoring devices alike — the same
  * moment and the same reason as `mode_catalog`.
  *
- * Sent even when the feature is off, so a client learns the answer rather than waiting for a message
- * that will never arrive.
+ * Everything a client is entitled to, in one message: what it may do with media, and the handful of
+ * numbers a phone or a browser runs by. The server's own section is deliberately not in it — how big
+ * this server is sized for is nobody's business at the other end of a socket.
+ *
+ * Sent even when media is off, so a client learns the answer rather than waiting for a message that
+ * will never arrive.
  */
-export interface MediaConfigMessage {
-  type: 'media_config';
-  enabled: boolean;
-  iceServers: IceServerConfig[];
-  video: VideoProfile;
-  maxPeers: number;
+export interface AppConfigMessage extends ClientConfig {
+  type: 'app_config';
 }
 
 /**
@@ -589,7 +590,7 @@ export type ServerMessage =
   | ScorerStateMessage
   | ScorerCommandMessage
   | ScorerRefusedMessage
-  | MediaConfigMessage
+  | AppConfigMessage
   | MediaPeersMessage
   | MediaSignalRelayMessage;
 

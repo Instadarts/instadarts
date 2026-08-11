@@ -13,8 +13,10 @@
 // the moment anyone actually wants to look.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaConfig, MediaRole, Region } from '../../shared/media';
-import { DEFAULT_VIDEO_PROFILE } from '../../shared/media';
+import type { ControlMessage, MediaRole, Region } from '../../shared/media';
+import { videoProfile } from '../../shared/media';
+import type { MediaClientConfig } from '../../shared/config';
+import { CONFIG_DEFAULTS } from '../../shared/config';
 import type { Mesh, MeshLink } from '../media/mesh';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
 import { e2eEnabled } from '../lib/e2e';
@@ -32,7 +34,7 @@ const PROVING_AUDIENCE: MediaRole[] = ['owner'];
 
 interface Options {
   mesh: Mesh | null;
-  config: MediaConfig | null;
+  config: MediaClientConfig | null;
   /**
    * The roster as it stands.
    *
@@ -71,7 +73,7 @@ export function useVideoFeed({ mesh, config, links, inRoom }: Options): VideoFee
 
   const meshRef = useRef(mesh);
   meshRef.current = mesh;
-  const profile = config?.video ?? DEFAULT_VIDEO_PROFILE;
+  const profile = config?.video ?? videoProfile(CONFIG_DEFAULTS.media.video);
   const profileRef = useRef(profile);
   profileRef.current = profile;
 

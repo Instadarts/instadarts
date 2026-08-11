@@ -202,7 +202,7 @@ function StatusBadge({ status, scoring, stage }: StatusBadgeProps) {
   return (
     <div className="flex items-center gap-2">
       <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${color}`} />
-      <span className="text-sm text-gray-300" data-testid="scorer-status">{label}</span>
+      <span className="text-sm text-gray-300 hidden" data-testid="scorer-status">{label}</span>
     </div>
   );
 }

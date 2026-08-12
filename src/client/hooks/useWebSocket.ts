@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
 import { getWsUrl, loadReconnectInfo } from '../lib/ws';
+import { e2eEnabled } from '../lib/e2e';
 
 type MessageHandler = (msg: ServerMessage) => void;
 
@@ -109,6 +110,25 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
       wsRef.current?.close();
     };
   }, [connect, standby]);
+
+  // The browser's offline emulation does not sever an established WebSocket. This guarded seam
+  // lets an e2e test create the real close/reconnect lifecycle without replacing the transport.
+  useEffect(() => {
+    if (!e2eEnabled()) return;
+    const target = window as unknown as {
+      __scorerLink?: { disconnect: () => void; reconnect: () => void; pendingMessages: () => number };
+    };
+    target.__scorerLink = {
+      disconnect: () => {
+        intentionalClose.current = true;
+        clearTimeout(reconnectTimer.current);
+        wsRef.current?.close();
+      },
+      reconnect: connect,
+      pendingMessages: () => pendingMessages.current.length,
+    };
+    return () => { delete target.__scorerLink; };
+  }, [connect]);
 
   return { send, connected };
 }

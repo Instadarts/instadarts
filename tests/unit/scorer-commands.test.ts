@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { resetDeviceRegistry } from '../../src/server/devices';
 import { resetScoringSessions } from '../../src/server/scoring/store';
+import { scoringContextId } from '../../src/server/scoring/store';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches } from '../../src/server/store';
 import type { ServerMessage } from '../../src/shared/protocol';
@@ -58,24 +59,32 @@ function pairTo(frontend: Conn) {
 
   const scorer = connect();
   scorer.send({ type: 'scorer_pair', code });
-  const { deviceId } = scorer.last('scorer_paired')!;
+  const { deviceId, token } = scorer.last('scorer_paired')!;
   const { tokenHash } = frontend.last('device_paired')!;
   frontend.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 1 }] });
 
-  return { scorer, deviceId, tokenHash };
+  return { scorer, deviceId, token, tokenHash };
 }
 
 /** A frontend with a device paired to it, and a local lobby ready to start. */
 function setup() {
   const frontend = connect();
-  const { scorer, deviceId, tokenHash } = pairTo(frontend);
+  const { scorer, deviceId, token, tokenHash } = pairTo(frontend);
   frontend.send({ type: 'create_lobby', isLocal: true });
   frontend.send({ type: 'add_local_player', playerName: 'Alice' });
   frontend.send({ type: 'add_local_player', playerName: 'Bob' });
-  return { frontend, scorer, deviceId, tokenHash };
+  return { frontend, scorer, deviceId, token, tokenHash };
 }
 
 const scoring = (conn: Conn) => conn.last('scorer_state')?.scoring;
+
+it('gives different player boards in one match different opaque contexts', () => {
+  const alice = scoringContextId('match-a', 'player-a');
+  const bob = scoringContextId('match-a', 'player-b');
+  expect(alice).not.toBe(bob);
+  expect(alice).not.toContain('match-a');
+  expect(alice).not.toContain('player-a');
+});
 
 beforeEach(() => {
   resetDeviceRegistry();
@@ -95,6 +104,7 @@ describe('a device learning whether it is wanted', () => {
     const { scorer } = setup();
     expect(scorer.last('scorer_state')!.status).toBe('active');
     expect(scoring(scorer)).toBe(false);
+    expect(scorer.last('scorer_state')!.scoringContextId).toBeNull();
   });
 
   it('is told the moment a match starts, not on the first dart', () => {
@@ -106,6 +116,37 @@ describe('a device learning whether it is wanted', () => {
 
     expect(scorer.count('scorer_state')).toBeGreaterThan(before);
     expect(scoring(scorer)).toBe(true);
+    expect(scorer.last('scorer_state')!.scoringContextId).not.toBeNull();
+  });
+
+  it('keeps a context stable across publications and a scorer reconnect', () => {
+    const { frontend, scorer, deviceId, token } = setup();
+    frontend.send({ type: 'start_match' });
+    const context = scorer.last('scorer_state')!.scoringContextId;
+    expect(context).not.toBeNull();
+
+    frontend.send({ type: 'add_dart', dart: { x: 500_000, y: 500_000 } });
+    expect(scorer.last('scorer_state')!.scoringContextId).toBe(context);
+
+    const replacement = connect();
+    replacement.send({ type: 'scorer_hello', deviceId, token });
+    expect(replacement.last('scorer_state')!.scoringContextId).toBe(context);
+  });
+
+  it('uses a new context for the next match', () => {
+    const { frontend, scorer } = setup();
+    frontend.send({ type: 'start_match' });
+    const first = scorer.last('scorer_state')!.scoringContextId;
+
+    frontend.send({ type: 'leave_match' });
+    expect(scorer.last('scorer_state')!.scoringContextId).toBeNull();
+    frontend.send({ type: 'create_lobby', isLocal: true });
+    frontend.send({ type: 'add_local_player', playerName: 'Alice' });
+    frontend.send({ type: 'start_match' });
+
+    const second = scorer.last('scorer_state')!.scoringContextId;
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
   });
 
   it('is told again when the match is left', () => {

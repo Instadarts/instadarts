@@ -9,13 +9,25 @@
 // darts are already physically in the board, or they would all be counted a second time.
 
 import type { MatchState } from '../../shared/types';
+import { createHash } from 'crypto';
 import { getMatch } from '../store';
 import { ScoringSession } from './session';
 
 const sessions = new Map<string, ScoringSession>();
 
+/**
+ * The stable identity of one board's scoring context.
+ *
+ * Also sent to scoring devices so they can tell a reconnect to this same context from a new match
+ * without being given any of the match itself.
+ */
 function sessionKey(matchId: string, ownerPlayerId: string | null): string {
   return `${matchId}::${ownerPlayerId ?? ''}`;
+}
+
+/** Public identity of that key, without exposing either server-side identifier to the device. */
+export function scoringContextId(matchId: string, ownerPlayerId: string | null): string {
+  return createHash('sha256').update(sessionKey(matchId, ownerPlayerId)).digest('base64url');
 }
 
 /**

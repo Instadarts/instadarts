@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { useScorerPower } from '../../hooks/useScorerPower';
 import type { PendingCommand, ScorerLinkStatus } from '../../hooks/useScorerLink';
+import type { ScoringActivation } from '../../lib/scorerReconnect';
 import type { PowerStage } from '../../lib/scorerPower';
 import type { BoardTip } from '../../../shared/vision/types';
 import type { MediaTier } from '../../../shared/media';
@@ -21,6 +22,8 @@ interface ScorerPageProps {
   status: ScorerLinkStatus;
   /** A match is running that this device feeds. What its power management turns on. */
   scoring: boolean;
+  /** Whether a fresh active state starts a new context or resumes the one lost with the socket. */
+  activation: ScoringActivation | null;
   /** The owner's last instruction, numbered so a repeat is not mistaken for a re-render. */
   command: PendingCommand | null;
   /** This device has given up waiting; the socket should close and stay closed. */
@@ -65,6 +68,7 @@ type View = 'scoring' | 'settings' | 'calibration';
 export function ScorerPage({
   status,
   scoring,
+  activation,
   command,
   onStandbyChange,
   name,
@@ -143,6 +147,7 @@ export function ScorerPage({
 
   const power = useScorerPower({
     scoring,
+    activation,
     cameraActive: vision.cameraActive,
     // Minutes are what a person sets; milliseconds are what the timers run on. The overrides exist
     // because no test can wait two minutes, let alone thirty, and do nothing in a shipped build.

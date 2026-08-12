@@ -8,6 +8,7 @@ import {
   type PowerStage,
 } from '../../src/client/lib/scorerPower';
 import { loadSettings, saveSettings } from '../../src/client/lib/scorerStorage';
+import { classifyScoringActivation } from '../../src/client/lib/scorerReconnect';
 
 /**
  * When a scoring device turns things off.
@@ -36,6 +37,22 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 beforeEach(() => store.clear());
+
+describe('scoring state across connections', () => {
+  it('recognises the same context on a replacement socket as a resume', () => {
+    expect(classifyScoringActivation('match-a::player-a', 'match-a::player-a', true)).toBe('resumed');
+  });
+
+  it('recognises a different context or a live inactive-to-active transition as a start', () => {
+    expect(classifyScoringActivation('match-a::player-a', 'match-b::player-a', true)).toBe('started');
+    expect(classifyScoringActivation(null, 'match-a::player-a', false)).toBe('started');
+  });
+
+  it('ignores inactive and duplicate live states', () => {
+    expect(classifyScoringActivation('match-a::player-a', null, true)).toBeNull();
+    expect(classifyScoringActivation('match-a::player-a', 'match-a::player-a', false)).toBeNull();
+  });
+});
 
 function at(over: Partial<PowerInput> = {}): PowerStage {
   return nextStage({

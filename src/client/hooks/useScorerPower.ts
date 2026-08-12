@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { nextStage, type PowerStage } from '../lib/scorerPower';
+import type { ScoringActivation } from '../lib/scorerReconnect';
 import { useScreenWakeLock } from './useScreenWakeLock';
 
 /** The same one-second beat the screensaver runs on. Neither timer is worth more resolution. */
@@ -14,6 +15,8 @@ function tickFor(graceMs: number): number {
 interface Options {
   /** A match is running that this device feeds. From `scorer_state`. */
   scoring: boolean;
+  /** A fresh scoring context, classified against the state before any reconnect. */
+  activation: ScoringActivation | null;
   cameraActive: boolean;
   /** In milliseconds, not minutes: the e2e suite drives these far below what a user can set. */
   graceMs: number;
@@ -28,14 +31,19 @@ interface Options {
  * The scoring device's own power management: the two timers in
  * [lib/scorerPower.ts](../lib/scorerPower.ts), turned into the things they actually switch off.
  *
- * It only ever powers things *down*. Coming back is either a match starting — which includes this
- * device being claimed into one already running — or a person pressing something. That split is
- * deliberate twice over: a touch resets the timers, so a stage that also started cameras would
- * turn the camera back on the instant somebody pressed "Off"; and the camera is started on the
- * *edge* of a match beginning rather than whenever a match is on, so pressing "Off" mid-match
- * sticks, which is what "match events do not enforce anything during a match" means.
+ * It only ever powers things *down* on its timers. Coming back is a new scoring context, a resumed
+ * context whose camera this hook stopped, or a person pressing something. The explicit activation
+ * event is what keeps reconnecting from looking like a match start and undoing a manual camera-off.
  */
-export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stopCamera, startCamera }: Options) {
+export function useScorerPower({
+  scoring,
+  activation,
+  cameraActive,
+  graceMs,
+  standbyMs,
+  stopCamera,
+  startCamera,
+}: Options) {
   const [stage, setStage] = useState<PowerStage>('awake');
 
   const lastActivity = useRef(Date.now());
@@ -46,6 +54,9 @@ export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stop
   const stageRef = useRef(stage);
   stageRef.current = stage;
   const scoringRef = useRef(scoring);
+  scoringRef.current = scoring;
+  const cameraActiveRef = useRef(cameraActive);
+  cameraActiveRef.current = cameraActive;
   const stopRef = useRef(stopCamera);
   stopRef.current = stopCamera;
   const startRef = useRef(startCamera);
@@ -57,6 +68,8 @@ export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stop
    * Only a person clears it.
    */
   const forcedStandby = useRef(false);
+  /** True only when this hook stopped a running camera because its timer expired. */
+  const automaticallyStoppedCamera = useRef(false);
 
   /** A touch, a key, or a command from the frontend. Resets both timers. */
   const noteActivity = useCallback(() => {
@@ -69,6 +82,7 @@ export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stop
   /** The owner pressing power off. One-way from here: nothing but a touch on the phone comes back. */
   const powerOff = useCallback(() => {
     forcedStandby.current = true;
+    automaticallyStoppedCamera.current = false;
     setStage('standby');
   }, []);
 
@@ -79,20 +93,28 @@ export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stop
     };
   }, [noteActivity]);
 
-  // A match beginning is the one thing that starts a camera without a person. On the edge only:
-  // while a match runs, whether the camera is on is the user's business.
+  // Operational scoring is false while disconnected, so this clock starts at the loss of the
+  // socket and stops only after scorer_hello has produced a fresh active state.
   useEffect(() => {
-    const began = scoring && !scoringRef.current;
-    scoringRef.current = scoring;
     notScoringSince.current = scoring ? null : (notScoringSince.current ?? Date.now());
-    if (began) {
-      setStage('awake');
+  }, [scoring]);
+
+  // A new scoring context always starts the camera. A reconnect to the same context starts it only
+  // if this hook stopped it during the outage; a camera its owner switched off remains off.
+  const handledActivation = useRef(0);
+  useEffect(() => {
+    if (!activation || activation.seq === handledActivation.current) return;
+    handledActivation.current = activation.seq;
+    setStage('awake');
+    if (activation.kind === 'started' || automaticallyStoppedCamera.current) {
+      automaticallyStoppedCamera.current = false;
       startRef.current();
     }
-  }, [scoring]);
+  }, [activation]);
 
   useEffect(() => {
     cameraOffSince.current = cameraActive ? null : (cameraOffSince.current ?? Date.now());
+    if (cameraActive) automaticallyStoppedCamera.current = false;
   }, [cameraActive]);
 
   useEffect(() => {
@@ -108,7 +130,12 @@ export function useScorerPower({ scoring, cameraActive, graceMs, standbyMs, stop
         graceMs,
         standbyMs,
       });
-      if (next !== stageRef.current) setStage(next);
+      if (next !== stageRef.current) {
+        if (next !== 'awake' && cameraActiveRef.current) {
+          automaticallyStoppedCamera.current = true;
+        }
+        setStage(next);
+      }
     }, tickFor(graceMs));
     return () => clearInterval(timer);
   }, [graceMs, standbyMs]);

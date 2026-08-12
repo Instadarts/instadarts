@@ -59,6 +59,30 @@ async function cameraOn(page: Page): Promise<boolean> {
   );
 }
 
+async function disconnectScorer(page: Page) {
+  await page.evaluate(() => {
+    const link = (window as unknown as { __scorerLink?: { disconnect: () => void } }).__scorerLink;
+    if (!link) throw new Error('scorer link not exposed — is ?e2e=1 set?');
+    link.disconnect();
+  });
+}
+
+async function reconnectScorer(page: Page) {
+  await page.evaluate(() => {
+    const link = (window as unknown as { __scorerLink?: { reconnect: () => void } }).__scorerLink;
+    if (!link) throw new Error('scorer link not exposed — is ?e2e=1 set?');
+    link.reconnect();
+  });
+}
+
+async function pendingScorerMessages(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const link = (window as unknown as { __scorerLink?: { pendingMessages: () => number } }).__scorerLink;
+    if (!link) throw new Error('scorer link not exposed — is ?e2e=1 set?');
+    return link.pendingMessages();
+  });
+}
+
 async function addPlayersAndStart(player: Page) {
   await player.fill('input[placeholder="New player name"]', 'Alice');
   await player.click('button:has-text("Add")');
@@ -109,14 +133,14 @@ test.describe('a scoring device managing its own power', () => {
     await scorer.context.close();
   });
 
-  test('a match starting brings the camera back, and keeps it on untouched', async ({ browser }) => {
+  test('an outage powers down, then a physical wake resumes its active match', async ({ browser }) => {
     // The push the server cannot get wrong: nothing else would ever restart this camera. And once a
     // match is running, scoring outranks the timer — a quiet leg is not an idle device.
     const frontend = await browser.newContext();
     const player = await frontend.newPage();
     await openLocalLobby(player);
 
-    const scorer = await openScorer(browser, { standbyMs: 600_000 });
+    const scorer = await openScorer(browser);
     await pairCamera(player, scorer.page);
     await startCamera(scorer.page);
     await expect(scorer.page.getByTestId('powered-down')).toBeVisible({ timeout: GRACE_MS + ROUND_TRIP_MS });
@@ -127,10 +151,29 @@ test.describe('a scoring device managing its own power', () => {
       .toHaveText('Scoring for a player', { timeout: ROUND_TRIP_MS });
     await expect.poll(() => cameraOn(scorer.page), { timeout: ROUND_TRIP_MS }).toBe(true);
 
-    // Now leave it strictly alone for several grace periods.
+    // A live match remains awake however quiet the board is.
     await scorer.page.waitForTimeout(GRACE_MS * 3);
     expect(await cameraOn(scorer.page)).toBe(true);
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Scoring for a player');
+
+    // Once the server is unreachable the retained state is no longer operational truth. The short
+    // timer stops the camera and the long one releases the wake lock and closes the socket.
+    await disconnectScorer(scorer.page);
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Connecting…', { timeout: ROUND_TRIP_MS });
+    await scan(scorer.page);
+    expect(await pendingScorerMessages(scorer.page)).toBe(0);
+    await expect(scorer.page.getByTestId('powered-down')).toBeVisible({ timeout: GRACE_MS + ROUND_TRIP_MS });
+    expect(await cameraOn(scorer.page)).toBe(false);
+    await expect(scorer.page.getByTestId('scorer-status'))
+      .toHaveText('Asleep — tap to wake', { timeout: STANDBY_MS + ROUND_TRIP_MS });
+
+    // Connectivity alone cannot wake a phone whose socket is intentionally closed. A physical tap
+    // does; the server returns the same scoring context, and the camera resumes because the timer —
+    // not its owner — was what stopped it.
+    await scorer.page.mouse.click(5, 5);
+    await expect(scorer.page.getByTestId('scorer-status'))
+      .toHaveText('Scoring for a player', { timeout: ROUND_TRIP_MS });
+    await expect.poll(() => cameraOn(scorer.page), { timeout: ROUND_TRIP_MS }).toBe(true);
 
     await frontend.close();
     await scorer.context.close();
@@ -205,6 +248,15 @@ test.describe('an owner reaching a device from the frontend', () => {
 
     // Off mid-match sticks: a match is still running, and nothing turns it back on but a person.
     await scorer.page.waitForTimeout(GRACE_MS * 2);
+    expect(await cameraOn(scorer.page)).toBe(false);
+
+    // It also sticks through a replacement socket. The first fresh state names the same scoring
+    // context, so this is a resume rather than a match beginning.
+    await disconnectScorer(scorer.page);
+    await expect(player.getByTestId('device-status')).toHaveText('offline', { timeout: ROUND_TRIP_MS });
+    await reconnectScorer(scorer.page);
+    await expect(scorer.page.getByTestId('scorer-status'))
+      .toHaveText('Scoring for a player', { timeout: ROUND_TRIP_MS });
     expect(await cameraOn(scorer.page)).toBe(false);
 
     // And on again. Given an explicit wait rather than the whole test budget: the button appears in

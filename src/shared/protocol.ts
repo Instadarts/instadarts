@@ -500,6 +500,11 @@ export interface ScorerStateMessage {
    * decide for itself when to power down.
    */
   scoring: boolean;
+  /**
+   * Opaque identity of the match and board this device currently feeds. Stable across socket
+   * reconnects; changes for a new match, a rematch, or a different player's board.
+   */
+  scoringContextId: string | null;
   /** How many cameras the server is hearing from for this match, including this one. */
   cameras: number;
 }

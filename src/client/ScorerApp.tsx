@@ -94,6 +94,7 @@ export function ScorerApp() {
       <ScorerPage
         status={link.status}
         scoring={link.scoring}
+        activation={link.activation}
         command={link.command}
         onStandbyChange={setStandby}
         name={link.name}

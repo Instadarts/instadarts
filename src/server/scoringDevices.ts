@@ -13,7 +13,7 @@ import type { MatchState } from '../shared/types';
 import type { Client } from './types';
 import { getMatch, updateMatch } from './store';
 import { sanitizeCameraError, sanitizeName, validateDeviceClaims, validateTips } from './validation';
-import { getScoringSession, dropScoringSessions } from './scoring/store';
+import { getScoringSession, dropScoringSessions, scoringContextId } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
 import { canAcceptDevice } from './capacity';
 import {
@@ -79,10 +79,12 @@ function publishScorerState(deviceId: string): void {
   const ws = deviceSockets.get(deviceId);
   if (!ws) return;
   const owner = ownerOf(deviceId);
+  const target = owner ? resolveScoringTarget(owner) : null;
   send(ws, {
     type: 'scorer_state',
     status: owner ? 'active' : 'waiting',
-    scoring: owner ? resolveScoringTarget(owner) !== null : false,
+    scoring: target !== null,
+    scoringContextId: target ? scoringContextId(target.match.id, target.ownerPlayerId) : null,
     cameras: owner ? activeCameras(owner).length : 0,
   });
 }

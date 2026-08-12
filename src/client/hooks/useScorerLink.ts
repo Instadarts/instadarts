@@ -10,6 +10,7 @@ import {
   saveIdentity,
   type ScorerIdentity,
 } from '../lib/scorerStorage';
+import { classifyScoringActivation, type ScoringActivation } from '../lib/scorerReconnect';
 
 export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting' | 'active' | 'full';
 
@@ -48,6 +49,16 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
   const [refusal, setRefusal] = useState<'unpaired' | 'bad_code' | 'server_full' | null>(null);
   const [pairing, setPairing] = useState(false);
   const [command, setCommand] = useState<PendingCommand | null>(null);
+  const [activation, setActivation] = useState<ScoringActivation | null>(null);
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  /** The context that was authoritative immediately before this socket needed replacing. */
+  const reconnectBaseline = useRef<string | null>(null);
+  /** True until scorer_hello has bought the first authoritative state for this connection. */
+  const awaitingFreshState = useRef(true);
+  /** Distinguishes the initial connection from a reconnect with an actual baseline. */
+  const hasConfirmedState = useRef(false);
 
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -74,10 +85,25 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
         if (nameRef.current) sendRef.current({ type: 'scorer_name', name: nameRef.current });
         break;
       }
-      case 'scorer_state':
+      case 'scorer_state': {
+        const previousContextId = awaitingFreshState.current
+          ? reconnectBaseline.current
+          : (stateRef.current?.scoringContextId ?? null);
+        const kind = classifyScoringActivation(
+          previousContextId,
+          msg.scoringContextId,
+          awaitingFreshState.current && hasConfirmedState.current,
+        );
+        awaitingFreshState.current = false;
+        hasConfirmedState.current = true;
+        stateRef.current = msg;
         setState(msg);
+        if (kind) {
+          setActivation((current) => ({ kind, seq: (current?.seq ?? 0) + 1 }));
+        }
         setRefusal(null);
         break;
+      }
       case 'scorer_command':
         // Numbered, because the same command twice in a row is two instructions: the owner turning
         // a camera off, back on, and off again must not collapse into one.
@@ -90,7 +116,12 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
           // The server does not know this identity. Nothing it holds can bring it back.
           forgetIdentity();
           setIdentity(null);
+          stateRef.current = null;
           setState(null);
+          reconnectBaseline.current = null;
+          awaitingFreshState.current = true;
+          hasConfirmedState.current = false;
+          setActivation(null);
         }
         // `server_full` deliberately keeps the identity: the server having no room says nothing
         // about whether the pairing is good, and throwing it away would turn a busy minute into a
@@ -105,12 +136,19 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
   // Identify on every connection, not once on mount: a reconnect after a server restart is exactly
   // when this matters most.
   //
-  // The last known scorer_state is deliberately kept across disconnects rather than cleared.
-  // Clearing it would make `scoring` go false→true on reconnect, which `useScorerPower` reads as a
-  // match beginning and auto-starts the camera — undoing whatever the owner had just asked for.
-  // A reconnect is not a match start, and a device that was scoring before the blip still is.
+  // A disconnected state is stale: the phone cannot feed a match, must not queue tips and must be
+  // allowed to power down. Its context id survives separately, only long enough to classify the
+  // first state bought by the next scorer_hello as a resume or a genuine start.
   useEffect(() => {
-    if (!connected) return;
+    if (!connected) {
+      if (!awaitingFreshState.current) {
+        reconnectBaseline.current = stateRef.current?.scoringContextId ?? null;
+      }
+      awaitingFreshState.current = true;
+      stateRef.current = null;
+      setState(null);
+      return;
+    }
     const current = identityRef.current;
     if (current) {
       send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: nameRef.current });
@@ -135,7 +173,12 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
     send({ type: 'scorer_unpair' });
     forgetIdentity();
     setIdentity(null);
+    stateRef.current = null;
     setState(null);
+    reconnectBaseline.current = null;
+    awaitingFreshState.current = true;
+    hasConfirmedState.current = false;
+    setActivation(null);
     setRefusal(null);
     setPairing(false);
   }, [send]);
@@ -150,7 +193,7 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
     send({ type: 'scorer_camera', active, ...(error ? { error } : {}) });
   }, [send]);
 
-  const scoring = state?.scoring === true;
+  const scoring = connected && state?.scoring === true;
   const scoringRef = useRef(scoring);
   scoringRef.current = scoring;
 
@@ -189,7 +232,9 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
         ? 'pairing'
         : !identity
           ? 'unpaired'
-          : (state?.status ?? 'waiting');
+          : !state
+            ? 'connecting'
+            : state.status;
 
   return {
     identity,
@@ -197,6 +242,7 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
     status,
     state,
     scoring,
+    activation,
     command,
     refusal,
     connected,

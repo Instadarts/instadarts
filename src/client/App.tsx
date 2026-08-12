@@ -139,6 +139,22 @@ export function App() {
     }
   }, [lobby, match, navigate]);
 
+  // When entering a lobby, start cameras on all claimed+online devices so they are already
+  // streaming by the time the match begins. The scorer device's own auto-start on match begin is
+  // kept as a fallback for cameras that powered down during a long lobby.
+  const lobbyCameraStarted = useRef(false);
+  useEffect(() => {
+    if (lobby && !lobbyCameraStarted.current) {
+      lobbyCameraStarted.current = true;
+      for (const d of devices.devices) {
+        if (d.active && d.online && !d.cameraActive) {
+          devices.setCamera(d.deviceId, true);
+        }
+      }
+    }
+    if (!lobby) lobbyCameraStarted.current = false;
+  }, [lobby, devices.devices, devices.setCamera]);
+
   return (
     // The shell is exactly the window, and `main` is what scrolls inside it. That is what lets a
     // screen ask to fill the height it has been given — the match screen does, so that a board and

@@ -14,7 +14,7 @@
 // owns a node.
 
 import { getWebGpuDevice } from "@litertjs/core";
-import { diffMask, fillTileCounts, rgbaToGray, type MotionDefaults } from './motionAnalysis';
+import { diffMask, fillTileCounts, gaussianBlur, rgbaToGray, type MotionDefaults } from './motionAnalysis';
 
 export type { MotionDefaults };
 
@@ -94,10 +94,11 @@ const WEBGPU_MOTION_WORKGROUP_SIZE = 16;
 const MOTION_DEFAULTS: MotionDefaults = {
   gridRows: 8,
   gridCols: 8,
-  tileChangePercent: 10,
+  tileChangePercent: 3,
   minTiles: 1,
   maxTiles: 8,
-  pixelThreshold: 20,
+  pixelThreshold: 25,
+  pixelThresholdMult: 0.2,
   analyzeSize: 240,
   quietTimeMs: 300,
   quietFrames: 3,
@@ -107,21 +108,20 @@ const MOTION_DEFAULTS: MotionDefaults = {
   largeMotionQuietMultiplier: 2,
 };
 
-const WEBGPU_MOTION_PREPROCESS_SHADER = `
+const WEBGPU_MOTION_HBLUR_SHADER = `
 @group(0) @binding(0) var sourceTexture: texture_2d<f32>;
 @group(0) @binding(1) var sourceSampler: sampler;
 @group(0) @binding(2) var<storage, read_write> currentGray: array<u32>;
-@group(0) @binding(3) var<storage, read> previousGray: array<u32>;
-@group(0) @binding(4) var<storage, read_write> rawMask: array<u32>;
+@group(0) @binding(3) var<storage, read_write> hBlur: array<u32>;
 
 struct Params {
   analyzeSize: u32,
-  pixelThreshold: u32,
-  hasPrevious: u32,
-  _pad: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 };
 
-@group(0) @binding(5) var<uniform> params: Params;
+@group(0) @binding(4) var<uniform> params: Params;
 
 fn sampleDownscaledRgb(uv: vec2<f32>) -> vec3<f32> {
   let sourceDimensions = textureDimensions(sourceTexture);
@@ -145,81 +145,61 @@ fn sampleDownscaledRgb(uv: vec2<f32>) -> vec3<f32> {
   return rgbSum / 16.0;
 }
 
+fn sampleGrayAt(x: i32, y: i32) -> u32 {
+  let uvf = vec2<f32>(f32(x), f32(y)) + vec2<f32>(0.5, 0.5);
+  let uv = uvf / f32(params.analyzeSize);
+  let rgb = sampleDownscaledRgb(uv);
+  let grayF = dot(rgb, vec3<f32>(0.299, 0.587, 0.114)) * 255.0;
+  return u32(round(clamp(grayF, 0.0, 255.0)));
+}
+
 @compute @workgroup_size(${WEBGPU_MOTION_WORKGROUP_SIZE}, ${WEBGPU_MOTION_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   if (id.x >= params.analyzeSize || id.y >= params.analyzeSize) {
     return;
   }
 
-  let uv = (vec2<f32>(f32(id.x), f32(id.y)) + vec2<f32>(0.5, 0.5)) / f32(params.analyzeSize);
-  let rgb = sampleDownscaledRgb(uv);
-  let grayF = dot(rgb, vec3<f32>(0.299, 0.587, 0.114)) * 255.0;
-  let gray = u32(round(clamp(grayF, 0.0, 255.0)));
+  let x = i32(id.x);
+  let y = i32(id.y);
+  let size = i32(params.analyzeSize);
   let index = id.y * params.analyzeSize + id.x;
-  currentGray[index] = gray;
 
-  if (params.hasPrevious == 0u) {
-    rawMask[index] = 0u;
-    return;
+  // Horizontal 5-tap Gaussian [1, 4, 6, 4, 1] — each neighbour re-samples the source
+  // independently so there is no cross-thread data dependency inside the dispatch.
+  var hSum = u32(0);
+  let weights = array<i32, 5>(1, 4, 6, 4, 1);
+  for (var i = 0u; i < 5u; i = i + 1u) {
+    let ox = i32(i) - 2i;
+    let sx = clamp(x + ox, 0i, size - 1i);
+    let g = sampleGrayAt(sx, y);
+    hSum = hSum + g * u32(weights[i]);
   }
+  hBlur[index] = hSum;
 
-  let previous = previousGray[index];
-  let diff = select(previous - gray, gray - previous, gray >= previous);
-  rawMask[index] = select(0u, 1u, diff >= params.pixelThreshold);
+  // Also store the raw (un-blurred) centre-pixel grayscale — unused by the motion
+  // pipeline but kept so the CPU/GPU paths write identical state for tests.
+  currentGray[index] = sampleGrayAt(x, y);
 }
 `;
 
-const WEBGPU_MOTION_DILATE_SHADER = `
-@group(0) @binding(0) var<storage, read> inputMask: array<u32>;
-@group(0) @binding(1) var<storage, read_write> outputMask: array<u32>;
+const WEBGPU_MOTION_VBLUR_DIFF_AGGREGATE_SHADER = `
+@group(0) @binding(0) var<storage, read> hBlur: array<u32>;
+@group(0) @binding(1) var<storage, read_write> currentBlurred: array<u32>;
+@group(0) @binding(2) var<storage, read> previousBlurred: array<u32>;
+@group(0) @binding(3) var<storage, read_write> tileCounts: array<atomic<u32>>;
 
 struct Params {
   analyzeSize: u32,
   pixelThreshold: u32,
   hasPrevious: u32,
-  _pad: u32,
-};
-
-@group(0) @binding(2) var<uniform> params: Params;
-
-@compute @workgroup_size(${WEBGPU_MOTION_WORKGROUP_SIZE}, ${WEBGPU_MOTION_WORKGROUP_SIZE})
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  if (id.x >= params.analyzeSize || id.y >= params.analyzeSize) {
-    return;
-  }
-
-  var neighborCount = 0u;
-  for (var oy = -1i; oy <= 1i; oy = oy + 1i) {
-    let yy = i32(id.y) + oy;
-    if (yy < 0i || yy >= i32(params.analyzeSize)) {
-      continue;
-    }
-    for (var ox = -1i; ox <= 1i; ox = ox + 1i) {
-      let xx = i32(id.x) + ox;
-      if (xx < 0i || xx >= i32(params.analyzeSize)) {
-        continue;
-      }
-      neighborCount = neighborCount + inputMask[u32(yy) * params.analyzeSize + u32(xx)];
-    }
-  }
-
-  outputMask[id.y * params.analyzeSize + id.x] = select(0u, 1u, neighborCount >= 2u);
-}
-`;
-
-const WEBGPU_MOTION_ERODE_AGGREGATE_SHADER = `
-@group(0) @binding(0) var<storage, read> inputMask: array<u32>;
-@group(0) @binding(1) var<storage, read_write> cleanMask: array<u32>;
-@group(0) @binding(2) var<storage, read_write> tileCounts: array<atomic<u32>>;
-
-struct Params {
-  analyzeSize: u32,
+  pixelThresholdMultBits: u32,
   gridRows: u32,
   gridCols: u32,
-  _pad: u32,
+  _pad1: u32,
+  _pad2: u32,
 };
 
-@group(0) @binding(3) var<uniform> params: Params;
+@group(0) @binding(4) var<uniform> params: Params;
 
 @compute @workgroup_size(${WEBGPU_MOTION_WORKGROUP_SIZE}, ${WEBGPU_MOTION_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -227,33 +207,48 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     return;
   }
 
-  var neighborCount = 0u;
-  for (var oy = -1i; oy <= 1i; oy = oy + 1i) {
-    let yy = i32(id.y) + oy;
-    if (yy < 0i || yy >= i32(params.analyzeSize)) {
-      neighborCount = 0u;
-      break;
-    }
-    for (var ox = -1i; ox <= 1i; ox = ox + 1i) {
-      let xx = i32(id.x) + ox;
-      if (xx < 0i || xx >= i32(params.analyzeSize)) {
-        neighborCount = 0u;
-        break;
-      }
-      neighborCount = neighborCount + inputMask[u32(yy) * params.analyzeSize + u32(xx)];
-    }
+  let x = i32(id.x);
+  let y = i32(id.y);
+  let size = i32(params.analyzeSize);
+  let index = id.y * params.analyzeSize + id.x;
+
+  // Vertical 5-tap Gaussian [1, 4, 6, 4, 1] from the hBlur intermediate.
+  var vSum = u32(0);
+  let weights = array<i32, 5>(1, 4, 6, 4, 1);
+  for (var i = 0u; i < 5u; i = i + 1u) {
+    let oy = i32(i) - 2i;
+    let sy = clamp(y + oy, 0i, size - 1i);
+    vSum = vSum + hBlur[u32(sy) * params.analyzeSize + id.x] * u32(weights[i]);
   }
 
-  let changed = select(0u, 1u, neighborCount >= 7u);
-  cleanMask[id.y * params.analyzeSize + id.x] = changed;
+  // Two-pass normalisation: each pass sums to 16, combined ÷256.
+  let blurred = vSum / 256u;
+  currentBlurred[index] = blurred;
 
-  if (changed == 1u) {
-    let tileHeight = params.analyzeSize / params.gridRows;
-    let tileWidth = params.analyzeSize / params.gridCols;
-    let tileRow = min(id.y / tileHeight, params.gridRows - 1u);
-    let tileCol = min(id.x / tileWidth, params.gridCols - 1u);
-    atomicAdd(&tileCounts[tileRow * params.gridCols + tileCol], 1u);
+  if (params.hasPrevious == 0u) {
+    return;
   }
+
+  let prev = previousBlurred[index];
+  let diff = select(prev - blurred, blurred - prev, blurred >= prev);
+
+  // Dynamic threshold: parabolic ramp from pixelThresholdMult at brightness
+  // extremes (0 / 255) up to 1.0 at mid-grey (128).
+  // Uses *previous* blurred pixel — the board background (black/white extremes)
+  // gets a lower threshold so a mid-grey dart tip landing on it is detected more easily.
+  let pixelThresholdMult = bitcast<f32>(params.pixelThresholdMultBits);
+  let t = (f32(prev) - 128.0) / 128.0;
+  let factor = 1.0 - (1.0 - pixelThresholdMult) * t * t;
+  let effectiveThreshold = f32(params.pixelThreshold) * factor;
+  if (f32(diff) < effectiveThreshold) {
+    return;
+  }
+
+  let tileHeight = params.analyzeSize / params.gridRows;
+  let tileWidth = params.analyzeSize / params.gridCols;
+  let tileRow = min(id.y / tileHeight, params.gridRows - 1u);
+  let tileCol = min(id.x / tileWidth, params.gridCols - 1u);
+  atomicAdd(&tileCounts[tileRow * params.gridCols + tileCol], 1u);
 }
 `;
 
@@ -588,7 +583,7 @@ export function createMotionDetector({
 function createCpuMotionAnalyzer(defaults: MotionDefaults): MotionAnalyzer {
   let motionCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
   let motionCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
-  let previousGray: Uint8Array | null = null;
+  let previousGray: Uint8Array | null = null;  // blurred grayscale from the previous frame
   const tileCounts = new Uint32Array(defaults.gridRows * defaults.gridCols);
 
   function ensureCanvas() {
@@ -629,7 +624,9 @@ function createCpuMotionAnalyzer(defaults: MotionDefaults): MotionAnalyzer {
       );
 
       const imageData = ctx.getImageData(0, 0, defaults.analyzeSize, defaults.analyzeSize);
-      const currentGray = rgbaToGray(imageData.data);
+      const rawGray = rgbaToGray(imageData.data);
+      // Gaussian blur before differencing — the Android-proven strategy.
+      const currentGray = gaussianBlur(rawGray, defaults.analyzeSize);
       const hasPrevious = Boolean(previousGray);
       tileCounts.fill(0);
 
@@ -660,35 +657,24 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
   // Bound again so it is non-null for the closures below: a narrowing does not survive into them.
   const device: GPUDevice = maybeDevice;
 
-  const preprocessPipeline = device.createComputePipeline({
-    label: "ADPA motion preprocess pipeline",
+  const hBlurPipeline = device.createComputePipeline({
+    label: "ADPA motion h-blur pipeline",
     layout: "auto",
     compute: {
       module: device.createShaderModule({
-        label: "ADPA motion preprocess shader",
-        code: WEBGPU_MOTION_PREPROCESS_SHADER,
+        label: "ADPA motion h-blur shader",
+        code: WEBGPU_MOTION_HBLUR_SHADER,
       }),
       entryPoint: "main",
     },
   });
-  const dilatePipeline = device.createComputePipeline({
-    label: "ADPA motion dilate pipeline",
+  const vBlurDiffAggregatePipeline = device.createComputePipeline({
+    label: "ADPA motion v-blur diff aggregate pipeline",
     layout: "auto",
     compute: {
       module: device.createShaderModule({
-        label: "ADPA motion dilate shader",
-        code: WEBGPU_MOTION_DILATE_SHADER,
-      }),
-      entryPoint: "main",
-    },
-  });
-  const erodeAggregatePipeline = device.createComputePipeline({
-    label: "ADPA motion erode aggregate pipeline",
-    layout: "auto",
-    compute: {
-      module: device.createShaderModule({
-        label: "ADPA motion erode aggregate shader",
-        code: WEBGPU_MOTION_ERODE_AGGREGATE_SHADER,
+        label: "ADPA motion v-blur diff aggregate shader",
+        code: WEBGPU_MOTION_VBLUR_DIFF_AGGREGATE_SHADER,
       }),
       entryPoint: "main",
     },
@@ -711,15 +697,13 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
   let disabled = false;
   let hasPrevious = false;
   const mode = "gpu-bitmap";
-  let preprocessBindGroup: GPUBindGroup | null = null;
-  let dilateBindGroup: GPUBindGroup | null = null;
-  let erodeAggregateBindGroup: GPUBindGroup | null = null;
+  let hBlurBindGroup: GPUBindGroup | null = null;
+  let vBlurDiffAggregateBindGroup: GPUBindGroup | null = null;
 
   const currentGrayBuffer = createStorageBuffer("ADPA motion current gray", grayBufferSize);
-  const previousGrayBuffer = createStorageBuffer("ADPA motion previous gray", grayBufferSize);
-  const rawMaskBuffer = createStorageBuffer("ADPA motion raw mask", grayBufferSize);
-  const dilatedMaskBuffer = createStorageBuffer("ADPA motion dilated mask", grayBufferSize);
-  const cleanMaskBuffer = createStorageBuffer("ADPA motion clean mask", grayBufferSize);
+  const hBlurBuffer = createStorageBuffer("ADPA motion h-blur", grayBufferSize);
+  const previousBlurredBuffer = createStorageBuffer("ADPA motion previous blurred", grayBufferSize);
+  const currentBlurredBuffer = createStorageBuffer("ADPA motion current blurred", grayBufferSize);
   const tileCountsBuffer = device.createBuffer({
     label: "ADPA motion tile counts",
     size: tileCountsBufferSize,
@@ -730,14 +714,14 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
     size: tileCountsBufferSize,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
-  const preprocessParamsBuffer = device.createBuffer({
-    label: "ADPA motion preprocess params",
+  const hBlurParamsBuffer = device.createBuffer({
+    label: "ADPA motion h-blur params",
     size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const aggregateParamsBuffer = device.createBuffer({
-    label: "ADPA motion aggregate params",
-    size: 16,
+  const vBlurParamsBuffer = device.createBuffer({
+    label: "ADPA motion v-blur params",
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -761,53 +745,39 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
       usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
     });
     sourceSize = textureSize;
-    preprocessBindGroup = null;
+    hBlurBindGroup = null;
   }
 
-  function ensurePreprocessBindGroup() {
-    if (preprocessBindGroup) return preprocessBindGroup;
-    preprocessBindGroup = device.createBindGroup({
-      label: "ADPA motion preprocess bind group",
-      layout: preprocessPipeline.getBindGroupLayout(0),
+  function ensureHBlurBindGroup() {
+    if (hBlurBindGroup) return hBlurBindGroup;
+    hBlurBindGroup = device.createBindGroup({
+      label: "ADPA motion h-blur bind group",
+      layout: hBlurPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: sourceTexture!.createView() },
         { binding: 1, resource: sampler },
         { binding: 2, resource: { buffer: currentGrayBuffer } },
-        { binding: 3, resource: { buffer: previousGrayBuffer } },
-        { binding: 4, resource: { buffer: rawMaskBuffer } },
-        { binding: 5, resource: { buffer: preprocessParamsBuffer } },
+        { binding: 3, resource: { buffer: hBlurBuffer } },
+        { binding: 4, resource: { buffer: hBlurParamsBuffer } },
       ],
     });
-    return preprocessBindGroup;
+    return hBlurBindGroup;
   }
 
-  function ensureDilateBindGroup() {
-    if (dilateBindGroup) return dilateBindGroup;
-    dilateBindGroup = device.createBindGroup({
-      label: "ADPA motion dilate bind group",
-      layout: dilatePipeline.getBindGroupLayout(0),
+  function ensureVBlurDiffAggregateBindGroup() {
+    if (vBlurDiffAggregateBindGroup) return vBlurDiffAggregateBindGroup;
+    vBlurDiffAggregateBindGroup = device.createBindGroup({
+      label: "ADPA motion v-blur diff aggregate bind group",
+      layout: vBlurDiffAggregatePipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: rawMaskBuffer } },
-        { binding: 1, resource: { buffer: dilatedMaskBuffer } },
-        { binding: 2, resource: { buffer: preprocessParamsBuffer } },
+        { binding: 0, resource: { buffer: hBlurBuffer } },
+        { binding: 1, resource: { buffer: currentBlurredBuffer } },
+        { binding: 2, resource: { buffer: previousBlurredBuffer } },
+        { binding: 3, resource: { buffer: tileCountsBuffer } },
+        { binding: 4, resource: { buffer: vBlurParamsBuffer } },
       ],
     });
-    return dilateBindGroup;
-  }
-
-  function ensureErodeAggregateBindGroup() {
-    if (erodeAggregateBindGroup) return erodeAggregateBindGroup;
-    erodeAggregateBindGroup = device.createBindGroup({
-      label: "ADPA motion erode aggregate bind group",
-      layout: erodeAggregatePipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: dilatedMaskBuffer } },
-        { binding: 1, resource: { buffer: cleanMaskBuffer } },
-        { binding: 2, resource: { buffer: tileCountsBuffer } },
-        { binding: 3, resource: { buffer: aggregateParamsBuffer } },
-      ],
-    });
-    return erodeAggregateBindGroup;
+    return vBlurDiffAggregateBindGroup;
   }
 
   async function copyImageBitmapToTexture(sourceFrame: HTMLVideoElement) {
@@ -821,8 +791,8 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
       resizeQuality: "high",
     });
     // Size the texture from the *returned* bitmap, not the requested `size`: if a browser ignores
-    // the resize options and hands back a crop-sized bitmap, the preprocess shader's downsample
-    // branch still scales it correctly, and we avoid an out-of-bounds copy.
+    // the resize options and hands back a crop-sized bitmap, the h-blur shader's downsample
+    // branch (via sampleDownscaledRgb) still scales it correctly, and we avoid an out-of-bounds copy.
     try {
       ensureSourceTexture(bitmap.width);
       device.queue.copyExternalImageToTexture(
@@ -845,17 +815,18 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
     try {
       await copyImageBitmapToTexture(sourceFrame);
       onModeChange(mode);
-      device.queue.writeBuffer(preprocessParamsBuffer, 0, new Uint32Array([
+      device.queue.writeBuffer(hBlurParamsBuffer, 0, new Uint32Array([
+        size,
+        0, 0, 0,
+      ]));
+      device.queue.writeBuffer(vBlurParamsBuffer, 0, new Uint32Array([
         size,
         defaults.pixelThreshold,
         hasPrevious ? 1 : 0,
-        0,
-      ]));
-      device.queue.writeBuffer(aggregateParamsBuffer, 0, new Uint32Array([
-        size,
+        new Uint32Array(new Float32Array([defaults.pixelThresholdMult]).buffer)[0],
         defaults.gridRows,
         defaults.gridCols,
-        0,
+        0, 0,
       ]));
       device.queue.writeBuffer(tileCountsBuffer, 0, zeroTileCounts);
 
@@ -866,18 +837,16 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
         label: "ADPA motion compute pass",
       });
       const workgroupCount = Math.ceil(size / WEBGPU_MOTION_WORKGROUP_SIZE);
-      pass.setPipeline(preprocessPipeline);
-      pass.setBindGroup(0, ensurePreprocessBindGroup());
+      pass.setPipeline(hBlurPipeline);
+      pass.setBindGroup(0, ensureHBlurBindGroup());
       pass.dispatchWorkgroups(workgroupCount, workgroupCount);
-      pass.setPipeline(dilatePipeline);
-      pass.setBindGroup(0, ensureDilateBindGroup());
-      pass.dispatchWorkgroups(workgroupCount, workgroupCount);
-      pass.setPipeline(erodeAggregatePipeline);
-      pass.setBindGroup(0, ensureErodeAggregateBindGroup());
+      pass.setPipeline(vBlurDiffAggregatePipeline);
+      pass.setBindGroup(0, ensureVBlurDiffAggregateBindGroup());
       pass.dispatchWorkgroups(workgroupCount, workgroupCount);
       pass.end();
       encoder.copyBufferToBuffer(tileCountsBuffer, 0, readbackBuffer, 0, tileCountsBufferSize);
-      encoder.copyBufferToBuffer(currentGrayBuffer, 0, previousGrayBuffer, 0, grayBufferSize);
+      // Copy the newly blurred frame into previous, ready for the next pass.
+      encoder.copyBufferToBuffer(currentBlurredBuffer, 0, previousBlurredBuffer, 0, grayBufferSize);
       device.queue.submit([encoder.finish()]);
 
       const validationError = await device.popErrorScope();

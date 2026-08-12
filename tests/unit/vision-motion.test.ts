@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diffMask, dilate, erode, fillTileCounts, rgbaToGray, type MotionDefaults } from '../../src/client/vision/motionAnalysis';
+import { diffMask, gaussianBlur, fillTileCounts, rgbaToGray, type MotionDefaults } from '../../src/client/vision/motionAnalysis';
 
 /**
  * The motion gate's arithmetic.
@@ -9,6 +9,9 @@ import { diffMask, dilate, erode, fillTileCounts, rgbaToGray, type MotionDefault
  * hot. Neither shows up as a failure anywhere else, which is why these are pinned so tightly.
  *
  * A 8x8 analysis square keeps the fixtures readable; the real one is 240x240.
+ *
+ * Noise reduction is a 5×5 separable Gaussian blur [1,4,6,4,1] applied *before* frame
+ * differencing — the Android-proven strategy that replaced the old dilate+erode morphology.
  */
 const DEFAULTS: MotionDefaults = {
   gridRows: 2,
@@ -16,7 +19,8 @@ const DEFAULTS: MotionDefaults = {
   tileChangePercent: 10,
   minTiles: 1,
   maxTiles: 8,
-  pixelThreshold: 20,
+  pixelThreshold: 15,
+  pixelThresholdMult: 0.5,
   analyzeSize: 8,
   quietTimeMs: 300,
   quietFrames: 3,
@@ -56,57 +60,89 @@ describe('rgbaToGray', () => {
   });
 });
 
+describe('gaussianBlur', () => {
+  it('preserves a uniform image', () => {
+    const flat = frame(100);
+    const blurred = gaussianBlur(flat, SIZE);
+    // Every output pixel should be within rounding error of the input.
+    for (let i = 0; i < blurred.length; i++) {
+      expect(blurred[i]).toBe(100);
+    }
+  });
+
+  it('spreads a single bright pixel into its neighbourhood', () => {
+    // A single pixel of 255 on a black background. The blur kernel [1,4,6,4,1]²
+    // distributes energy over a 5×5 footprint, so the centre pixel is dimmed and
+    // the immediate neighbours pick up some brightness.
+    const dot = frame(0, { x: 4, y: 4, w: 1, h: 1, value: 255 });
+    const blurred = gaussianBlur(dot, SIZE);
+    // Centre pixel is attenuated — energy spread to neighbours.
+    expect(blurred[4 * SIZE + 4]).toBeLessThan(255);
+    expect(blurred[4 * SIZE + 4]).toBeGreaterThan(0);
+    // At least one immediate neighbour picked up brightness.
+    const neighbourValues = [
+      blurred[3 * SIZE + 4],  // above
+      blurred[5 * SIZE + 4],  // below
+      blurred[4 * SIZE + 3],  // left
+      blurred[4 * SIZE + 5],  // right
+    ];
+    expect(neighbourValues.some(v => v > 0)).toBe(true);
+    // Far-away pixels are still zero.
+    expect(blurred[0]).toBe(0);
+  });
+
+  it('blurs symmetrically', () => {
+    const dot = frame(0, { x: 4, y: 4, w: 1, h: 1, value: 255 });
+    const blurred = gaussianBlur(dot, SIZE);
+    // Horizontal and vertical neighbours at the same distance should be equal.
+    expect(blurred[4 * SIZE + 3]).toBe(blurred[4 * SIZE + 5]);  // left === right
+    expect(blurred[3 * SIZE + 4]).toBe(blurred[5 * SIZE + 4]);  // above === below
+  });
+
+  it('clamps border pixels rather than wrapping', () => {
+    const flat = frame(10);
+    const edge = frame(255, { x: 0, y: 0, w: 1, h: 1, value: 255 });
+    // Both should produce finite, non-wrapping values — no NaN, no negative.
+    const b1 = gaussianBlur(flat, SIZE);
+    const b2 = gaussianBlur(edge, SIZE);
+    for (let i = 0; i < b1.length; i++) {
+      expect(b1[i]).toBeGreaterThanOrEqual(0);
+      expect(b1[i]).toBeLessThanOrEqual(255);
+      expect(b2[i]).toBeGreaterThanOrEqual(0);
+      expect(b2[i]).toBeLessThanOrEqual(255);
+    }
+  });
+});
+
 describe('diffMask', () => {
   it('sees nothing when nothing changed', () => {
     const still = frame(100);
+    // Both frames are already blurred — in the real pipeline gaussianBlur is
+    // called before diffMask, but for identical inputs the blur is irrelevant.
     expect(countSet(diffMask(still, still, DEFAULTS))).toBe(0);
   });
 
   it('ignores a change smaller than the pixel threshold', () => {
-    // 19 is below the threshold of 20: sensor noise must not wake the model up.
+    // 14 is below the threshold of 15: sensor noise must not wake the model up.
     const before = frame(100);
-    const after = frame(100, { x: 1, y: 1, w: 4, h: 4, value: 119 });
+    const after = frame(100, { x: 1, y: 1, w: 4, h: 4, value: 114 });
     expect(countSet(diffMask(before, after, DEFAULTS))).toBe(0);
   });
 
   it('sees a change at the threshold, in either direction', () => {
     const before = frame(100);
-    expect(countSet(diffMask(before, frame(100, { x: 1, y: 1, w: 4, h: 4, value: 120 }), DEFAULTS))).toBeGreaterThan(0);
-    expect(countSet(diffMask(before, frame(100, { x: 1, y: 1, w: 4, h: 4, value: 80 }), DEFAULTS))).toBeGreaterThan(0);
+    expect(countSet(diffMask(before, frame(100, { x: 1, y: 1, w: 4, h: 4, value: 115 }), DEFAULTS))).toBeGreaterThan(0);
+    expect(countSet(diffMask(before, frame(100, { x: 1, y: 1, w: 4, h: 4, value: 85 }), DEFAULTS))).toBeGreaterThan(0);
   });
 
-  it('drops a single changed pixel, and keeps a dart-sized patch', () => {
-    // The dilate-then-erode pair is there to kill speckle. One pixel is noise; a 4x4 block is a
-    // dart. Losing this is how a phone ends up running inference on compression artefacts.
+  it('detects every changed pixel in a patch', () => {
+    // With blur-based noise reduction, diffMask is plain thresholding — it
+    // marks every pixel whose absolute difference crosses the threshold.
+    // (The caller applies gaussianBlur before calling diffMask.)
     const before = frame(0);
-    const speck = frame(0, { x: 4, y: 4, w: 1, h: 1, value: 255 });
     const patch = frame(0, { x: 2, y: 2, w: 4, h: 4, value: 255 });
-
-    expect(countSet(diffMask(before, speck, DEFAULTS))).toBe(0);
-    expect(countSet(diffMask(before, patch, DEFAULTS))).toBeGreaterThan(0);
-  });
-});
-
-describe('dilate and erode', () => {
-  it('dilate grows a region, erode shrinks it back', () => {
-    const mask = new Uint8Array(SIZE * SIZE);
-    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) mask[y * SIZE + x] = 1;
-
-    const grown = dilate(mask, DEFAULTS);
-    expect(countSet(grown)).toBeGreaterThan(countSet(mask));
-    expect(countSet(erode(grown, DEFAULTS))).toBeLessThanOrEqual(countSet(grown));
-  });
-
-  it('erode clears anything touching the edge', () => {
-    // Its 3x3 window bails out at the border, so a region on the edge cannot survive. That is the
-    // behaviour, and it is why a dart at the very rim of the frame does not trigger.
-    const mask = new Uint8Array(SIZE * SIZE).fill(1);
-    const eroded = erode(mask, DEFAULTS);
-    for (let x = 0; x < SIZE; x++) {
-      expect(eroded[x]).toBe(0);
-      expect(eroded[(SIZE - 1) * SIZE + x]).toBe(0);
-    }
-    expect(eroded[3 * SIZE + 3]).toBe(1);
+    // A 4×4 patch at 255 vs 0: all 16 pixels should be flagged.
+    expect(countSet(diffMask(before, patch, DEFAULTS))).toBe(16);
   });
 });
 

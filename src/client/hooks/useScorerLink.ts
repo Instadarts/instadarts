@@ -104,11 +104,13 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
 
   // Identify on every connection, not once on mount: a reconnect after a server restart is exactly
   // when this matters most.
+  //
+  // The last known scorer_state is deliberately kept across disconnects rather than cleared.
+  // Clearing it would make `scoring` go false→true on reconnect, which `useScorerPower` reads as a
+  // match beginning and auto-starts the camera — undoing whatever the owner had just asked for.
+  // A reconnect is not a match start, and a device that was scoring before the blip still is.
   useEffect(() => {
-    if (!connected) {
-      setState(null);
-      return;
-    }
+    if (!connected) return;
     const current = identityRef.current;
     if (current) {
       send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: nameRef.current });

@@ -185,21 +185,6 @@ test.describe('a scoring device managing its own power', () => {
 });
 
 test.describe('an owner reaching a device from the frontend', () => {
-  /**
-   * Retried once, deliberately and temporarily, for a fault that is not in this test.
-   *
-   * Under enough CPU pressure the scoring device's page misses a heartbeat and is cut; the reconnect
-   * makes `scoring` go false and true again, and `useScorerPower` reads that edge as a match
-   * beginning — so it starts the camera the owner had just switched off, and the assertion below
-   * waits forever for a button that will never come back.
-   *
-   * Whether that is a bug is a real question: being *claimed into a match already running* is
-   * supposed to start the camera, and a phone cannot tell that apart from a reconnect. Until it is
-   * settled, this keeps a known and understood flake from failing runs about something else.
-   * See docs/development.md — and delete this the moment the cause is dealt with.
-   */
-  test.describe.configure({ retries: 1 });
-
   test('turns the camera off and on, then powers the device off', async ({ browser }) => {
     const frontend = await browser.newContext();
     const player = await frontend.newPage();

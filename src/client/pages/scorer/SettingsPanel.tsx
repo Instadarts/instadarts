@@ -30,6 +30,10 @@ const MODEL_LABELS: Record<string, string> = {
 export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange, onUnpair, onMediaChange }: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
   const update = (patch: Partial<ScorerSettings>) => onSettingsChange(saveSettings(patch));
+  const updateCompute = (patch: Partial<Pick<ScorerSettings,
+    'forceCpuMotion' | 'forceCpuPreprocessing' | 'forceCpuInference'>>) => {
+    onSettingsChange(vision.setComputeOptions(patch));
+  };
 
   return (
     <div className="w-full max-w-md flex flex-col gap-2 p-4 bg-gray-900 rounded-lg">
@@ -101,6 +105,28 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         />
       </label>
 
+      <div className="py-2 border-y border-gray-800 flex flex-col gap-2">
+        <span className="text-sm font-medium">
+          CPU diagnostics
+          <span className="block text-xs font-normal text-gray-500">Override WebGPU paths independently on this device.</span>
+        </span>
+        <CpuToggle
+          label="Motion detector"
+          checked={settings.forceCpuMotion}
+          onChange={(forceCpuMotion) => updateCompute({ forceCpuMotion })}
+        />
+        <CpuToggle
+          label="Preprocessing"
+          checked={settings.forceCpuPreprocessing}
+          onChange={(forceCpuPreprocessing) => updateCompute({ forceCpuPreprocessing })}
+        />
+        <CpuToggle
+          label="Inference"
+          checked={settings.forceCpuInference}
+          onChange={(forceCpuInference) => updateCompute({ forceCpuInference })}
+        />
+      </div>
+
       <label className="flex items-center justify-between text-sm">
         <span>
           Motion overlay
@@ -155,6 +181,23 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
 
       <Unpair onUnpair={onUnpair} />
     </div>
+  );
+}
+
+function CpuToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between text-sm">
+      <span>{label}</span>
+      <span className="flex items-center gap-2 text-xs text-gray-500">
+        Force CPU
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="w-5 h-5"
+        />
+      </span>
+    </label>
   );
 }
 
@@ -247,4 +290,3 @@ function Unpair({ onUnpair }: { onUnpair: () => void }) {
     </div>
   );
 }
-

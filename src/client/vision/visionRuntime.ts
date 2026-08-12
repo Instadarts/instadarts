@@ -33,7 +33,14 @@ export type FrameInfo = {
   result: PipelineResult | null;
   ms: number;
   accelerator: string;
+  preprocessMode: string;
 };
+
+export interface VisionComputeOptions {
+  forceCpuMotion: boolean;
+  forceCpuPreprocessing: boolean;
+  forceCpuInference: boolean;
+}
 
 export type CameraInfo = CameraChoice;
 
@@ -65,6 +72,7 @@ export interface VisionRuntime {
   setLensCalibration: (value: number) => void;
   readonly lensCalibration: number;
   setThresholds: (thresholds: { board?: number; tip?: number }) => void;
+  setComputeOptions: (options: VisionComputeOptions) => void;
   readonly modelKey: string;
   /** Side of the square the model is fed — the space keypoints are normalised in. */
   readonly inputSize: number;
@@ -117,6 +125,9 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   let boardThreshold = DEFAULT_BOARD_THRESHOLD;
   let tipThreshold = DEFAULT_TIP_THRESHOLD;
   let busy = false;
+  let forceCpuPreprocessing = false;
+  let forceCpuInference = false;
+  let modelNeedsReload = false;
 
   // Lens calibration works on a frozen frame: the phone is hand-held while the slider is dragged,
   // and an overlay drawn over a live picture would move with every wobble. So the exact square the
@@ -193,9 +204,14 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   const inputSize = () => MODELS[modelKey].inputSize;
 
   async function ensureModel() {
+    if (modelNeedsReload) {
+      await unloadModel();
+      model = null;
+      modelNeedsReload = false;
+    }
     if (model) return model;
     onStatus({ stage: 'model', text: `loading ${modelKey}…` });
-    model = await loadModel(MODELS[modelKey].url, 'webgpu');
+    model = await loadModel(MODELS[modelKey].url, forceCpuInference ? 'wasm' : 'webgpu');
     onStatus({ stage: 'model', text: `model ${modelKey} on ${model.accelerator || 'cpu'}` });
     return model;
   }
@@ -208,7 +224,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     try {
       const runner = await ensureModel();
       captureInputFrame();
-      const { outputs } = await runner.run(video, inputSize(), {});
+      const { outputs, preprocessMode } = await runner.run(video, inputSize(), { forceCpuPreprocessing });
       if (!outputs || outputs.length < 2) return [];
 
       // outputs[0] = single [1, 10, N], outputs[1] = multi [1, 3, N]
@@ -222,6 +238,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
         result,
         ms: performance.now() - startedAt,
         accelerator: runner.accelerator || 'cpu',
+        preprocessMode,
       });
       // No homography means the board was not visible enough to say where anything is — which is
       // NOT an empty board. Reporting it as one would read as a takeout and submit the visit
@@ -351,6 +368,13 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     setThresholds({ board, tip }: { board?: number; tip?: number }) {
       if (typeof board === 'number' && Number.isFinite(board)) boardThreshold = board;
       if (typeof tip === 'number' && Number.isFinite(tip)) tipThreshold = tip;
+    },
+    setComputeOptions(options: VisionComputeOptions) {
+      const nextCpuInference = Boolean(options.forceCpuInference);
+      if (nextCpuInference !== forceCpuInference) modelNeedsReload = true;
+      forceCpuInference = nextCpuInference;
+      forceCpuPreprocessing = Boolean(options.forceCpuPreprocessing);
+      motion.setForceCpu(options.forceCpuMotion);
     },
     get modelKey() { return modelKey; },
     get inputSize() { return inputSize(); },

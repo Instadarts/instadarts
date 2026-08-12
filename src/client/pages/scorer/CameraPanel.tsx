@@ -204,7 +204,7 @@ function FrameInfo({ vision }: { vision: Vision }) {
           {frame.result
             ? `${frame.result.boardKeypoints} board points, ${frame.result.tips.length} tips`
             : 'board not found'}
-          {` · ${Math.round(frame.ms)}ms · ${frame.accelerator}`}
+          {` · ${Math.round(frame.ms)}ms · inference ${frame.accelerator} · preprocessing ${frame.preprocessMode}`}
         </p>
       )}
     </div>

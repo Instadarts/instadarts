@@ -64,6 +64,8 @@ export interface MotionDetector {
   /** Remember that a trigger was wanted while an inference was already running. */
   queueTriggerIfArmed: () => void;
   flushQueuedTrigger: () => void;
+  /** Select the CPU analyzer without changing whether automatic scanning is armed. */
+  setForceCpu: (force: boolean) => void;
 }
 
 /**
@@ -288,6 +290,7 @@ export function createMotionDetector({
   // Latches once the WebGPU analyzer fails to construct (e.g. no WebGPU device),
   // so getActiveAnalyzer doesn't retry — and re-log — every frame.
   let gpuAnalyzerUnavailable = false;
+  let forceCpu = false;
 
   function updateControls() {
     report();
@@ -436,7 +439,7 @@ export function createMotionDetector({
   }
 
   function getActiveAnalyzer() {
-    if (ENABLE_WEBGPU_MOTION_DETECTOR && !gpuAnalyzerUnavailable) {
+    if (!forceCpu && ENABLE_WEBGPU_MOTION_DETECTOR && !gpuAnalyzerUnavailable) {
       if (!gpuAnalyzer) {
         try {
           gpuAnalyzer = createWebGpuMotionAnalyzer({
@@ -570,6 +573,24 @@ export function createMotionDetector({
 
   updateControls();
 
+  function setForceCpu(next: boolean) {
+    const force = Boolean(next);
+    if (force === forceCpu) return;
+    forceCpu = force;
+    // The two implementations keep their own previous frame. Neither may compare a new frame with
+    // history captured before the path changed, or toggling this diagnostic could look like motion.
+    cpuAnalyzer?.reset?.();
+    gpuAnalyzer?.reset?.();
+    motionPendingTrigger = false;
+    pendingQuietScale = 1;
+    motionQuietFrames = 0;
+    triggerQueued = false;
+    analyzeTimestamps = [];
+    detectorMode = forceCpu ? 'cpu' : 'webgpu';
+    clearMotionHighlights();
+    report();
+  }
+
   return {
     arm,
     disarm,
@@ -577,6 +598,7 @@ export function createMotionDetector({
     isArmed,
     queueTriggerIfArmed,
     flushQueuedTrigger,
+    setForceCpu,
   };
 }
 

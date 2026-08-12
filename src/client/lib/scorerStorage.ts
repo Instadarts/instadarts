@@ -53,6 +53,10 @@ export interface ScorerSettings {
   media: MediaTier;
   /** Whether to render the motion-tile overlay on the camera preview. */
   motionAnimations: boolean;
+  /** Diagnostic overrides for devices with vendor-specific WebGPU failures. */
+  forceCpuMotion: boolean;
+  forceCpuPreprocessing: boolean;
+  forceCpuInference: boolean;
 }
 
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
@@ -72,6 +76,9 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   standbyAfterMinutes: STANDBY_MINUTES.default,
   media: 'video',
   motionAnimations: true,
+  forceCpuMotion: false,
+  forceCpuPreprocessing: false,
+  forceCpuInference: false,
 };
 
 export function loadIdentity(): ScorerIdentity | null {
@@ -145,6 +152,9 @@ export function loadSettings(): ScorerSettings {
       cameraOffAfterMinutes: clampMinutes(stored.cameraOffAfterMinutes, GRACE_MINUTES),
       standbyAfterMinutes: clampMinutes(stored.standbyAfterMinutes, STANDBY_MINUTES),
       media: asTier(stored.media),
+      forceCpuMotion: stored.forceCpuMotion === true,
+      forceCpuPreprocessing: stored.forceCpuPreprocessing === true,
+      forceCpuInference: stored.forceCpuInference === true,
     };
   } catch {
     return { ...SETTINGS_DEFAULTS };

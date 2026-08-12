@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createVisionRuntime, MODELS } from '../vision/visionRuntime';
-import type { CameraInfo, FrameInfo, VisionRuntime, VisionStatus } from '../vision/visionRuntime';
+import type { CameraInfo, FrameInfo, VisionComputeOptions, VisionRuntime, VisionStatus } from '../vision/visionRuntime';
 import type { MotionReport } from '../vision/motion';
 import type { BoardTip } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
@@ -106,6 +106,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     });
     runtime.setModel(stored.model);
     runtime.setThresholds({ board: stored.boardThreshold, tip: stored.tipThreshold });
+    runtime.setComputeOptions(stored);
     runtimeRef.current = runtime;
     setReady(true);
 
@@ -234,6 +235,13 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     runtime.setThresholds({ board: stored.boardThreshold, tip: stored.tipThreshold });
   }, []);
 
+  const setComputeOptions = useCallback((patch: Partial<VisionComputeOptions>): ScorerSettings => {
+    const stored = saveSettings(patch);
+    setSettings(stored);
+    runtimeRef.current?.setComputeOptions(stored);
+    return stored;
+  }, []);
+
   const setLens = useCallback((value: number) => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
@@ -265,6 +273,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     applyZoom,
     setModel,
     setThresholds,
+    setComputeOptions,
     setLens,
     /**
      * Photograph a square of the board. Read through the ref rather than bound, because a still

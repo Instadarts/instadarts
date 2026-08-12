@@ -57,7 +57,7 @@ async function startLocalMatch(page: Page) {
   await expect(page.locator('text=Submit Visit')).toBeVisible();
 }
 
-async function pairCamera(player: Page, scorer: Page) {
+async function pairCamera(player: Page, scorer: Page, scoring = true) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
   const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
@@ -67,7 +67,11 @@ async function pairCamera(player: Page, scorer: Page) {
   // Two server round trips, not one: the device is bound, then the frontend claims it, and only
   // then does the device learn a match is running. Worth an explicit wait on the first test of a
   // run, where that competes with a 2.4MB model being fetched and compiled.
-  await expect(scorer.getByTestId('scorer-status')).toHaveText('Scoring for a player', { timeout: 20_000 });
+  if (scoring) {
+    await expect(scorer.getByTestId('scorer-status')).toHaveText('Scoring for a player', { timeout: 20_000 });
+  } else {
+    await expect(scorer.getByPlaceholder('CODE')).toHaveCount(0);
+  }
 }
 
 async function startCamera(page: Page) {
@@ -80,6 +84,36 @@ async function startCamera(page: Page) {
 }
 
 test.describe('camera scoring, end to end', () => {
+  test('can force each vision stage onto its CPU path independently', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    const scorer = await openScorer(browser);
+
+    await player.goto('/');
+    await player.click('button:has-text("Local Match")');
+    await pairCamera(player, scorer.page, false);
+
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByRole('checkbox', { name: /Motion detector/ }).check();
+    await scorer.page.getByRole('checkbox', { name: /Preprocessing/ }).check();
+    await scorer.page.getByRole('checkbox', { name: /Inference/ }).check();
+    await scorer.page.getByRole('button', { name: 'Done' }).click();
+
+    await startCamera(scorer.page);
+    await showScene(scorer.page, 'darts');
+    await scan(scorer.page);
+    await expect(scorer.page.getByTestId('frame-info')).toContainText('inference wasm');
+    await expect(scorer.page.getByTestId('frame-info')).toContainText('preprocessing cpu');
+
+    // Re-arm after startCamera's deterministic-test disarm. The analyzer badge is its live report,
+    // so this verifies the toggle reaches the motion gate rather than only persisting in the UI.
+    await scorer.page.getByRole('button', { name: 'Scan automatically' }).click();
+    await expect(scorer.page.getByText(/cpu-detector:/)).toBeVisible({ timeout: 10_000 });
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
   test('a real inference on a real board photo puts real darts in the visit', async ({ browser }) => {
     const frontend = await browser.newContext();
     const player = await frontend.newPage();

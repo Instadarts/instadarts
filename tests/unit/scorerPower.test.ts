@@ -203,9 +203,20 @@ describe('the delays a user can set', () => {
     localStorage.clear();
     expect(loadSettings().cameraOffAfterMinutes).toBe(GRACE_MINUTES.default);
     expect(loadSettings().standbyAfterMinutes).toBe(STANDBY_MINUTES.default);
+    expect(loadSettings().forceCpuMotion).toBe(false);
+    expect(loadSettings().forceCpuPreprocessing).toBe(false);
+    expect(loadSettings().forceCpuInference).toBe(false);
 
-    saveSettings({ standbyAfterMinutes: 45 });
+    saveSettings({
+      standbyAfterMinutes: 45,
+      forceCpuMotion: true,
+      forceCpuPreprocessing: true,
+      forceCpuInference: true,
+    });
     expect(loadSettings().standbyAfterMinutes).toBe(45);
+    expect(loadSettings().forceCpuMotion).toBe(true);
+    expect(loadSettings().forceCpuPreprocessing).toBe(true);
+    expect(loadSettings().forceCpuInference).toBe(true);
     localStorage.clear();
   });
 });

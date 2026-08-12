@@ -54,7 +54,7 @@ export function TopBar({
 }: TopBarProps) {
   const [open, setOpen] = useState(false);
 
-  const scoring = devices.filter((d) => d.active && d.cameraActive).length;
+  const scoring = devices.filter((d) => d.active && d.online).length;
   const summary = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
 
   return (

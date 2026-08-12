@@ -223,9 +223,7 @@ export function ScorerPage({
 
       {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
 
-      {/* Woken by a match starting or ending, not by a tab claiming the device: the screen should
-          come back because somebody is about to throw. */}
-      <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} active={scoring} />
+      <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} />
 
       {import.meta.env.DEV && <LatencyDisplay snapshot={meterSnapshot} />}
     </div>

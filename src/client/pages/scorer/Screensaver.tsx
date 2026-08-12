@@ -18,8 +18,6 @@ interface ScreensaverProps {
   enabled: boolean;
   /** Suppressed while the lens is being calibrated: a screen that keeps blacking out is unusable. */
   suppressed: boolean;
-  /** Whether the scorer is actively scoring — transitions wake the screen. */
-  active: boolean;
 }
 
 /**
@@ -39,22 +37,15 @@ interface ScreensaverProps {
  *     Waking a phone should never score a dart.
  *   · **dim while somebody is setting the device up.** That is what `suppressed` is for.
  *
- * It also wakes on its own when the scoring state changes, which is what a live connection buys
- * over a timer: the screen comes back because somebody threw, not because somebody remembered to
- * touch it.
+ * It only ever wakes on the phone itself: a key, or the lift of a finger that pressed it. Scoring
+ * continues underneath the black screen, so a match has no reason to wake it.
  */
-export function Screensaver({ enabled, suppressed, active }: ScreensaverProps) {
+export function Screensaver({ enabled, suppressed }: ScreensaverProps) {
   const [asleep, setAsleep] = useState(false);
   /** A finger is down: the screen already looks awake, but the overlay is still catching the press. */
   const [revealed, setRevealed] = useState(false);
   const [drift, setDrift] = useState({ x: 30, y: 30 });
   const lastActivity = useRef(Date.now());
-
-  // A change in scoring state (active ↔ waiting) counts as activity, exactly as a touch does.
-  useEffect(() => {
-    lastActivity.current = Date.now();
-    setAsleep(false);
-  }, [active]);
 
   useEffect(() => {
     if (!enabled || suppressed) {

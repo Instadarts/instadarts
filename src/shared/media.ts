@@ -534,8 +534,6 @@ export const VIDEO = {
    * `videoPublisher`.
    */
   keyframeMinIntervalMs: 500,
-  /** How long a directed shot is held before the camera goes back on its own. See `directorTiming`. */
-  defaultResetMs: 2000,
 } as const;
 
 /**
@@ -556,27 +554,33 @@ export function maxBufferedBytes(profile: VideoProfile): number {
  * that what it intends and what happens are the same thing. The asymmetry in the defaults is the
  * interesting part:
  *
- *   · **`transitionMs` defaults to a cut.** Saying nothing about how to move means do not move —
- *     be there. A director who wants a move asks for one.
- *   · **`resetMs` defaults to two seconds.** Saying nothing about how long to stay does *not* mean
+ *   · **`transitionMs` falls back to a cut**, as `media.virtualCamera` ships it. Saying nothing about
+ *     how to move means do not move — be there. A director who wants a move asks for one.
+ *   · **`resetMs` falls back to two seconds.** Saying nothing about how long to stay does *not* mean
  *     stay forever. A director command is fire-and-forget: there is no guarantee another one is
  *     coming, and a camera left zoomed into the 20 bed because the message that would have released
  *     it was never sent is worse than any framing. So a shot expires unless the caller says
  *     otherwise, and `resetMs: 0` is how a caller says otherwise.
  *
+ * A deployment may move either, but not the asymmetry between them: one is about how a move looks and
+ * the other is about not being stranded, which is why they default in opposite directions.
+ *
  * The reset is a move like any other and takes the same `transitionMs` back out — a shot that eased
  * in and then snapped out would read as a glitch rather than as a camera.
  *
- * **The clock starts when the command lands**, not when the move finishes. So a 500ms move with the
- * default reset is half a second in, a second and a half held, and half a second back.
+ * **The clock starts when the command lands**, not when the move finishes. So a 500ms move with a
+ * two-second reset is half a second in, a second and a half held, and half a second back.
+ *
+ * The defaults are passed in rather than read here: they are deployment settings, and this module is
+ * shared with a server that has no `app_config` to consult. The caller is on the side that was told.
  */
-export function directorTiming(command: { transitionMs?: number; resetMs?: number }): {
-  transitionMs: number;
-  resetMs: number;
-} {
+export function directorTiming(
+  command: { transitionMs?: number; resetMs?: number },
+  defaults: { transitionMs: number; resetMs: number },
+): { transitionMs: number; resetMs: number } {
   return {
-    transitionMs: duration(command.transitionMs, 0),
-    resetMs: duration(command.resetMs, VIDEO.defaultResetMs),
+    transitionMs: duration(command.transitionMs, defaults.transitionMs),
+    resetMs: duration(command.resetMs, defaults.resetMs),
   };
 }
 

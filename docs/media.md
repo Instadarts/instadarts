@@ -293,13 +293,23 @@ The two optional numbers on `video_region` default in opposite directions, and
 
 | Left out | Means | Because |
 | --- | --- | --- |
-| `transitionMs` | **0 — cut** | Saying nothing about how to move means do not move. A director who wants a move asks for one. |
-| `resetMs` | **2000 — come back** | Saying nothing about how long to stay does *not* mean stay forever. |
+| `transitionMs` | **`media.virtualCamera.transitionMs` (0 — cut)** | Saying nothing about how to move means do not move. A director who wants a move asks for one. |
+| `resetMs` | **`media.virtualCamera.resetMs` (2000 — come back)** | Saying nothing about how long to stay does *not* mean stay forever. |
 
 A director command is **fire-and-forget**. Nothing guarantees another one is coming, and a camera left
 zoomed into the 20 bed because the message that would have released it was never sent is worse than
 any framing. So a shot expires on its own, and `resetMs: 0` is how a caller that *will* send the
 release says so.
+
+Both fallbacks live in `media.virtualCamera` and are read by the **device**, which is the authority
+on its own camera, so they travel in `app_config` like every other shared number — `directorTiming`
+takes them as an argument rather than reaching for them, since the module it lives in is shared with
+a server that has no config to consult. A deployment may move either, but not the asymmetry between
+them: one is about how a move looks, the other about not being stranded.
+
+Dart evidence relies on neither. It sends both timings outright from `media.dartEvidence`, because
+how long a dart is worth looking at is a question about darts — `virtualCamera` is the backstop for
+callers with no opinion, and this one has two.
 
 Three details that make it read as a camera rather than as a state machine:
 

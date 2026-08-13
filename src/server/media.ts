@@ -518,6 +518,7 @@ export function sendAppConfig(ws: WebSocket): void {
         .filter((urls) => urls !== INTERNAL_ICE || stunPort !== null)
         .map((urls) => ({ urls })),
       stunPort,
+      virtualCamera: CONFIG.media.virtualCamera,
       maxPeers: MEDIA_PEERS_PER_PEER,
       still: CONFIG.media.still,
       video: videoProfile(CONFIG.media.video),

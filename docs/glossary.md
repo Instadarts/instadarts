@@ -863,9 +863,10 @@ otherwise, so in a shipped build the still is the *only* thing a landing dart pr
 never moves. No interface issues one by hand either.
 
 **Fire-and-forget, which is why a shot expires.** Leave the transition out and the camera cuts; leave
-the reset out and it comes back after two seconds anyway. Nothing guarantees a second command is
-coming, and a camera stuck on the last dart of the evening is worse than any framing. `resetMs: 0` is
-how a caller that will send the release says so.
+the reset out and it comes back after `media.virtualCamera.resetMs` anyway. Nothing guarantees a second
+command is coming, and a camera stuck on the last dart of the evening is worse than any framing.
+`resetMs: 0` is how a caller that will send the release says so — and dart evidence, which will not,
+names both timings outright rather than leaning on the default.
 
 ### Virtual camera
 

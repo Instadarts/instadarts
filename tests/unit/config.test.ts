@@ -96,14 +96,6 @@ describe('what the file says', () => {
 });
 
 /**
- * The one setting whose *default* is the interesting half.
- *
- * `iceUrls` decides two things at once — which servers clients are told about, and whether this
- * deployment runs one of its own — and it does so on purpose: a deployment cannot end up running a
- * STUN server nobody is told about, or advertising one that is not running. Each test below is one
- * way that could come apart.
- */
-/**
  * What a person editing the file by hand is likely to leave behind.
  *
  * The shipped file spells every setting out, and deleting one is how you go back to following the
@@ -226,6 +218,64 @@ describe('which file it reads', () => {
   });
 });
 
+/**
+ * The two durations where **zero is a value rather than the absence of one.**
+ *
+ * Everywhere else in this file a zero is a mistake worth complaining about — a size, a port, a frame
+ * rate. Here it means "never release the shot", which is a thing a deployment is allowed to say and
+ * which `positiveInt` would have silently overruled.
+ */
+describe('the virtual camera timings', () => {
+  it('takes a zero, which means the camera never goes back on its own', async () => {
+    const { CONFIG, CONFIG_COMPLAINTS } = await load(`{
+      "media": {
+        "virtualCamera": { "transitionMs": 0, "resetMs": 0 },
+        "dartEvidence": { "resetMs": 0, "transitionMs": 0 }
+      }
+    }`);
+
+    expect(CONFIG.media.virtualCamera).toEqual({ transitionMs: 0, resetMs: 0 });
+    expect(CONFIG.media.dartEvidence.resetMs).toBe(0);
+    // A cut, which is what a zero transition has always meant.
+    expect(CONFIG.media.dartEvidence.transitionMs).toBe(0);
+    expect(CONFIG_COMPLAINTS).toEqual([]);
+  });
+
+  it('keeps the default and complains at a negative one, which means nothing at all', async () => {
+    const { CONFIG, CONFIG_COMPLAINTS } = await load(`{
+      "media": {
+        "virtualCamera": { "resetMs": -1 },
+        "dartEvidence": { "resetMs": 2.5 }
+      }
+    }`);
+
+    expect(CONFIG.media.virtualCamera.resetMs).toBe(CONFIG_DEFAULTS.media.virtualCamera.resetMs);
+    expect(CONFIG.media.dartEvidence.resetMs).toBe(CONFIG_DEFAULTS.media.dartEvidence.resetMs);
+    expect(CONFIG_COMPLAINTS.join('\n')).toContain('media.virtualCamera.resetMs');
+    expect(CONFIG_COMPLAINTS.join('\n')).toContain('media.dartEvidence.resetMs');
+  });
+
+  it('keeps the two apart: the general fallback, and one caller overriding it', async () => {
+    // The distinction the section exists for. A deployment that moves the fallback must not move
+    // what dart evidence sends, and the other way about.
+    const { CONFIG } = await load(`{
+      "media": { "virtualCamera": { "transitionMs": 111, "resetMs": 222 } }
+    }`);
+
+    expect(CONFIG.media.virtualCamera).toEqual({ transitionMs: 111, resetMs: 222 });
+    expect(CONFIG.media.dartEvidence.transitionMs).toBe(CONFIG_DEFAULTS.media.dartEvidence.transitionMs);
+    expect(CONFIG.media.dartEvidence.resetMs).toBe(CONFIG_DEFAULTS.media.dartEvidence.resetMs);
+  });
+});
+
+/**
+ * The one setting whose *default* is the interesting half.
+ *
+ * `iceUrls` decides two things at once — which servers clients are told about, and whether this
+ * deployment runs one of its own — and it does so on purpose: a deployment cannot end up running a
+ * STUN server nobody is told about, or advertising one that is not running. Each test below is one
+ * way that could come apart.
+ */
 describe('the internal stun server', () => {
   it('is what an unconfigured deployment gets', async () => {
     const { CONFIG } = await load('{}');

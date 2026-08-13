@@ -77,6 +77,37 @@ export interface VideoConfig {
   bitrate: number;
 }
 
+/**
+ * What a director command means when it does not say.
+ *
+ * The camera has no lens that moves — a shot is a source rectangle eased across one frame — so these
+ * are the two numbers that make it read as a camera rather than as a crop jumping about. They are
+ * **defaults, not policy**: any command may name its own, and `dartEvidence` below does. This is what
+ * a caller with no opinion gets.
+ *
+ * Read by the **device**, which is the authority on its own camera. See `directorTiming`.
+ */
+export interface VirtualCameraConfig {
+  /**
+   * How long the camera takes to reach a shot it was pointed at.
+   *
+   * `0` is a cut, and is the shipped default: saying nothing about *how* to move means do not move,
+   * be there. A caller that wants the move to be seen asks for one.
+   */
+  transitionMs: number;
+  /**
+   * How long a shot is held before the camera goes back to the whole board.
+   *
+   * Deliberately **not** symmetric with the above: saying nothing about how long to stay does not
+   * mean stay forever. A director command is fire-and-forget — nothing guarantees a second one is
+   * coming — and a camera left framing something the match has moved past is worse than any framing.
+   *
+   * `0` disables the expiry, so a command that says nothing holds its shot indefinitely. That is the
+   * outcome this exists to prevent, so it is a deliberate thing to ask for.
+   */
+  resetMs: number;
+}
+
 /** The close-up under a dart slot. */
 export interface DartEvidenceConfig {
   /** How much of the board a dart's evidence shows: enough to see which side of a wire it is on. */
@@ -84,10 +115,21 @@ export interface DartEvidenceConfig {
   /**
    * How long the live feed takes to swing onto a dart that has just landed.
    *
-   * An evidence decision rather than a video policy: the feed's own default is a cut, and this is
-   * one caller asking for a move because a camera swinging to a dart reads as somebody looking at it.
+   * One caller's override of `virtualCamera.transitionMs`, which is a cut: a camera swinging to a
+   * dart reads as somebody looking at it, and that is an evidence decision rather than a video one.
    */
   transitionMs: number;
+  /**
+   * How long the feed stays on the dart before the camera goes back to the whole board.
+   *
+   * The other override, and both are said outright rather than left to `virtualCamera` — how long a
+   * dart is worth looking at is a question about darts. It matters that this one is said at all,
+   * because nothing in the evidence path ever sends a second command to release the camera.
+   *
+   * `0` means never go back on its own, which here means a camera left zoomed into the 20 bed after
+   * the visit has moved on.
+   */
+  resetMs: number;
 }
 
 /** Shared by every peer in a match. */
@@ -129,6 +171,7 @@ export interface MediaConfig {
   stunPort: number;
   still: StillConfig;
   video: VideoConfig;
+  virtualCamera: VirtualCameraConfig;
   dartEvidence: DartEvidenceConfig;
 }
 
@@ -161,9 +204,14 @@ export const CONFIG_DEFAULTS: AppConfig = {
       frameRate: 15,
       bitrate: 500_000,
     },
+    virtualCamera: {
+      transitionMs: 0,
+      resetMs: 2000,
+    },
     dartEvidence: {
       regionSize: 0.25,
       transitionMs: 500,
+      resetMs: 1000,
     },
   },
 };
@@ -197,6 +245,12 @@ export interface MediaClientConfig {
   maxPeers: number;
   still: StillConfig;
   video: VideoProfile;
+  /**
+   * Sent to every client, though only the **device** reads it: it is the side that receives a
+   * director command and has to decide what the numbers it left out meant. The frontend sends its
+   * own where it has an opinion — see `dartEvidence`.
+   */
+  virtualCamera: VirtualCameraConfig;
   dartEvidence: DartEvidenceConfig;
 }
 

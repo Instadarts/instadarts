@@ -95,15 +95,41 @@
       "bitrate": 500000
     },
 
+    // Pointing the live feed at part of the board. There is no lens that moves — the shot is a
+    // rectangle eased across the picture the camera already has — and these are what a command that
+    // does not say for itself gets. Anything that has an opinion sends its own; dartEvidence below
+    // sends both of them.
+    "virtualCamera": {
+      // How long the camera takes to reach the shot. 0 is a cut: not saying how to move means do
+      // not move, be there.
+      "transitionMs": 0,
+
+      // How long it stays there before going back to the whole board.
+      //
+      // Not saying how long to stay does NOT mean stay forever: pointing the camera is
+      // fire-and-forget, nothing guarantees a second message releasing it, and a camera left staring
+      // at something the match has moved past is worse than any framing. 0 turns the expiry off,
+      // which is the one outcome this exists to prevent — ask for it deliberately.
+      "resetMs": 2000
+    },
+
     // The close-up shown under each dart as it lands.
     "dartEvidence": {
       // How much of the board it shows, as a fraction: enough to see which side of a wire a dart
       // is on. Smaller is a tighter crop.
       "regionSize": 0.25,
 
-      // How long the live feed takes to swing onto a dart that has just landed. A camera moving to
-      // a dart reads as somebody looking at it; 0 would be a cut.
-      "transitionMs": 500
+      // What this one use overrides "virtualCamera" with. A camera swinging onto a dart reads as
+      // somebody looking at it, where the general default is a cut.
+      "transitionMs": 500,
+
+      // How long it stays on the dart before going back to the whole board. Said outright rather
+      // than left to "virtualCamera" above, because how long a dart is worth looking at is a
+      // question about darts — shorter than the general default, since three darts land in quick
+      // succession and a shot that outlasts the next one is in the way. 0 means it never goes back
+      // on its own, and nothing else will send it back — so the camera would sit on that dart for
+      // the rest of the match.
+      "resetMs": 1000
     }
   }
 }

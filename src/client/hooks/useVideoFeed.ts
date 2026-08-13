@@ -55,7 +55,7 @@ export interface VideoFeed {
   /**
    * Point our own board camera at a square of the board. Silent when there is no feed to direct.
    *
-   * `resetMs` left out means the camera releases itself after `VIDEO.defaultResetMs` — see
+   * `resetMs` left out means the camera releases itself after `media.virtualCamera.resetMs` — see
    * `directorTiming`. Pass `0` only where something else will certainly send the release.
    */
   direct: (region: Region, transitionMs: number, resetMs?: number) => void;

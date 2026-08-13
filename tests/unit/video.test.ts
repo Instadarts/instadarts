@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
-import { MEDIA_ROLES, VIDEO, clampAudience, directorTiming, excluded, maxBufferedBytes, videoProfile } from '../../src/shared/media';
+import { MEDIA_ROLES, clampAudience, directorTiming, excluded, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
 
 /** The profile a deployment that changed nothing publishes with. */
@@ -197,33 +197,56 @@ describe('excluded', () => {
 // ============================================================
 
 describe('directorTiming', () => {
-  it('cuts, and comes back, when the command says neither', () => {
-    // The asymmetry is the design: saying nothing about *how to move* means do not move, and saying
-    // nothing about *how long to stay* does not mean stay forever.
-    expect(directorTiming({})).toEqual({ transitionMs: 0, resetMs: VIDEO.defaultResetMs });
+  /**
+   * Distinctive numbers, and deliberately not the shipped defaults.
+   *
+   * Both fallbacks are deployment settings now, passed in rather than reached for — so a test using
+   * the shipped values could not tell "the argument was honoured" from "the argument was ignored and
+   * something else supplied the same number". `transitionMs` especially: its default is 0, which is
+   * also what a missing argument would produce.
+   */
+  const FALLBACK = { transitionMs: 60, resetMs: 7777 };
+
+  it('takes both fallbacks when the command says neither', () => {
+    expect(directorTiming({}, FALLBACK)).toEqual(FALLBACK);
   });
 
-  it('takes the numbers it is given', () => {
-    expect(directorTiming({ transitionMs: 500, resetMs: 4000 })).toEqual({ transitionMs: 500, resetMs: 4000 });
+  it('takes the numbers it is given, over the deployment default', () => {
+    expect(directorTiming({ transitionMs: 500, resetMs: 4000 }, FALLBACK)).toEqual({ transitionMs: 500, resetMs: 4000 });
+  });
+
+  it('ships defaulting in opposite directions, which is the design and not an oversight', () => {
+    // Saying nothing about *how to move* means do not move; saying nothing about *how long to stay*
+    // does not mean stay forever. Asserted against what a deployment actually gets, because the
+    // asymmetry is the part a well-meaning edit to the defaults would quietly destroy.
+    const shipped = CONFIG_DEFAULTS.media.virtualCamera;
+    expect(directorTiming({}, shipped).transitionMs, 'a cut').toBe(0);
+    expect(directorTiming({}, shipped).resetMs, 'and it comes back').toBeGreaterThan(0);
   });
 
   it('treats an explicit zero reset as "stay there"', () => {
-    // Distinct from leaving it out, which is the whole point of the default.
-    expect(directorTiming({ resetMs: 0 }).resetMs).toBe(0);
-    expect(directorTiming({}).resetMs).toBe(VIDEO.defaultResetMs);
+    // Distinct from leaving it out, which is the whole point of the fallback.
+    expect(directorTiming({ resetMs: 0 }, FALLBACK).resetMs).toBe(0);
+    expect(directorTiming({}, FALLBACK).resetMs).toBe(FALLBACK.resetMs);
+  });
+
+  it('lets a deployment turn the expiry off, which is a thing it has to be able to mean', () => {
+    // `media.virtualCamera.resetMs: 0` says a command that asks for nothing holds its shot
+    // indefinitely. Not a good idea, and not ours to refuse — but it must survive being passed through.
+    expect(directorTiming({}, { transitionMs: 0, resetMs: 0 }).resetMs).toBe(0);
   });
 
   it('falls back rather than clamping when a number is not one', () => {
     // These arrive from another machine. Garbage becoming `0` would mean "hold this shot forever" —
-    // the one outcome the default exists to prevent.
+    // the one outcome the fallback exists to prevent.
     for (const bad of [NaN, Infinity, -Infinity, undefined]) {
-      expect(directorTiming({ resetMs: bad }).resetMs).toBe(VIDEO.defaultResetMs);
-      expect(directorTiming({ transitionMs: bad }).transitionMs).toBe(0);
+      expect(directorTiming({ resetMs: bad }, FALLBACK).resetMs).toBe(FALLBACK.resetMs);
+      expect(directorTiming({ transitionMs: bad }, FALLBACK).transitionMs).toBe(FALLBACK.transitionMs);
     }
   });
 
   it('has no use for a negative duration', () => {
-    expect(directorTiming({ transitionMs: -1, resetMs: -1 })).toEqual({ transitionMs: 0, resetMs: 0 });
+    expect(directorTiming({ transitionMs: -1, resetMs: -1 }, FALLBACK)).toEqual({ transitionMs: 0, resetMs: 0 });
   });
 });
 

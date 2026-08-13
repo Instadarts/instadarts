@@ -162,9 +162,12 @@ export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }
       // The same square, as a camera move rather than a photograph. Not conditional on the still
       // having arrived: they are two independent answers to one dart landing.
       //
-      // No `resetMs`, which means the camera comes back on its own — the right shape for this, since
-      // nothing here would ever send a second command to release it.
-      directRef.current?.(region, dartEvidence().transitionMs);
+      // Both timings said outright. Leaving either off would fall back to `media.virtualCamera`,
+      // which is the backstop for callers with no opinion — and this caller has one: how long a dart
+      // is worth looking at is a question about darts, not about the deployment. It matters that it
+      // is said at all, because nothing here ever sends a second command to release the camera.
+      const { transitionMs, resetMs } = dartEvidence();
+      directRef.current?.(region, transitionMs, resetMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
     // `links` is not read in here — it is the signal that a link may have become writable,

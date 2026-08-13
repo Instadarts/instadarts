@@ -92,7 +92,7 @@ the file over them. Four sections, split by whose knob it is:
 | `server` | `port`, `maxMatches` — never leaves the process |
 | `frontend` | ⏳ nothing yet; the section exists so the first one has a home |
 | `scorer` | `cameraFrameRate` |
-| `media` | `enabled`, `iceUrls`, `stunPort`, `still.size`, `video.{size,frameRate,bitrate}`, `dartEvidence.{regionSize,transitionMs}` |
+| `media` | `enabled`, `iceUrls`, `stunPort`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |
 
 Three of the four are needed by code running in a browser, which has no file to read — so the server
 sends a client its share as **`app_config`**, on connect, next to `mode_catalog`. The `server`

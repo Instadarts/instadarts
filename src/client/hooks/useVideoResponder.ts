@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, MediaRole, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
 import { clampAudience, directorTiming, excluded } from '../../shared/media';
+import { virtualCamera } from '../lib/appConfig';
 import type { Mesh, MeshLink } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
 
@@ -204,7 +205,7 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
         // Read here rather than trusted as sent: the numbers came from another machine, and the
         // camera is the authority on its own framing. `directorTiming` is what both ends agree they
         // mean.
-        const { transitionMs, resetMs } = directorTiming(message);
+        const { transitionMs, resetMs } = directorTiming(message, virtualCamera());
         directRef.current?.(message.region, transitionMs, resetMs);
         break;
       }

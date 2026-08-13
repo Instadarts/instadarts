@@ -162,6 +162,22 @@ function positiveInt(raw: Raw, path: string, key: string, fallback: number): num
   return value;
 }
 
+/**
+ * A whole number that may be zero, for the durations where zero says something.
+ *
+ * `resetMs: 0` means "hold the shot indefinitely" rather than "release it immediately", so zero is a
+ * setting here and not the absence of one — which is exactly why it cannot go through `positiveInt`.
+ */
+function nonNegativeInt(raw: Raw, path: string, key: string, fallback: number): number {
+  const value = raw[key];
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    complain(`${path}.${key} should be a whole number, zero or above; keeping ${fallback}`);
+    return fallback;
+  }
+  return value;
+}
+
 /** A number above zero that need not be whole. */
 function positiveNumber(raw: Raw, path: string, key: string, fallback: number): number {
   const value = raw[key];
@@ -289,7 +305,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(rawScorer, 'scorer', ['cameraFrameRate']);
 
   const rawMedia = section(raw, 'media');
-  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'stunPort', 'still', 'video', 'dartEvidence']);
+  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'stunPort', 'still', 'video', 'virtualCamera', 'dartEvidence']);
 
   const rawStill = section(rawMedia, 'still');
   reportUnknown(rawStill, 'media.still', ['size']);
@@ -297,8 +313,11 @@ function readConfig(): { config: AppConfig; from: string | null } {
   const rawVideo = section(rawMedia, 'video');
   reportUnknown(rawVideo, 'media.video', ['size', 'frameRate', 'bitrate']);
 
+  const rawCamera = section(rawMedia, 'virtualCamera');
+  reportUnknown(rawCamera, 'media.virtualCamera', ['transitionMs', 'resetMs']);
+
   const rawEvidence = section(rawMedia, 'dartEvidence');
-  reportUnknown(rawEvidence, 'media.dartEvidence', ['regionSize', 'transitionMs']);
+  reportUnknown(rawEvidence, 'media.dartEvidence', ['regionSize', 'transitionMs', 'resetMs']);
 
   return {
     from,
@@ -323,9 +342,14 @@ function readConfig(): { config: AppConfig; from: string | null } {
           frameRate: positiveNumber(rawVideo, 'media.video', 'frameRate', defaults.media.video.frameRate),
           bitrate: positiveInt(rawVideo, 'media.video', 'bitrate', defaults.media.video.bitrate),
         },
+        virtualCamera: {
+          transitionMs: nonNegativeInt(rawCamera, 'media.virtualCamera', 'transitionMs', defaults.media.virtualCamera.transitionMs),
+          resetMs: nonNegativeInt(rawCamera, 'media.virtualCamera', 'resetMs', defaults.media.virtualCamera.resetMs),
+        },
         dartEvidence: {
           regionSize: fraction(rawEvidence, 'media.dartEvidence', 'regionSize', defaults.media.dartEvidence.regionSize),
-          transitionMs: positiveInt(rawEvidence, 'media.dartEvidence', 'transitionMs', defaults.media.dartEvidence.transitionMs),
+          transitionMs: nonNegativeInt(rawEvidence, 'media.dartEvidence', 'transitionMs', defaults.media.dartEvidence.transitionMs),
+          resetMs: nonNegativeInt(rawEvidence, 'media.dartEvidence', 'resetMs', defaults.media.dartEvidence.resetMs),
         },
       },
     },

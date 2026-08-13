@@ -16,7 +16,7 @@
 // client announcing itself to a deployment that does not carry media.
 
 import { useSyncExternalStore } from 'react';
-import { CONFIG_DEFAULTS, INTERNAL_ICE, type ClientConfig, type DartEvidenceConfig, type MediaClientConfig } from '../../shared/config';
+import { CONFIG_DEFAULTS, INTERNAL_ICE, type ClientConfig, type DartEvidenceConfig, type MediaClientConfig, type VirtualCameraConfig } from '../../shared/config';
 import { videoProfile, type IceServerConfig, type VideoProfile } from '../../shared/media';
 
 let current: ClientConfig | null = null;
@@ -96,9 +96,19 @@ export function stillSize(): number {
   return current?.media.still.size ?? CONFIG_DEFAULTS.media.still.size;
 }
 
-/** How much of the board a dart's evidence shows, and how the feed gets there. */
+/** How much of the board a dart's evidence shows, how the feed gets there, and how long it stays. */
 export function dartEvidence(): DartEvidenceConfig {
   return current?.media.dartEvidence ?? CONFIG_DEFAULTS.media.dartEvidence;
+}
+
+/**
+ * What a director command means when it did not say.
+ *
+ * Read by the receiving device rather than the sender — see `directorTiming`, which takes it as an
+ * argument because the module it lives in is shared with a server that has no config to read.
+ */
+export function virtualCamera(): VirtualCameraConfig {
+  return current?.media.virtualCamera ?? CONFIG_DEFAULTS.media.virtualCamera;
 }
 
 /**

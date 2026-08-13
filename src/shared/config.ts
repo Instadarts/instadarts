@@ -21,6 +21,15 @@
 
 import type { IceServerConfig, VideoProfile } from './media';
 
+/**
+ * The `iceUrls` entry that means "the STUN server this deployment carries of its own".
+ *
+ * Not a url, because the thing it stands for has no address the server could write down: it answers
+ * on whatever host the client reached it at. The client is the one that knows that host, so the
+ * client is where this becomes a url — see the resolver in `client/lib/appConfig.ts`.
+ */
+export const INTERNAL_ICE = 'internal';
+
 /** The process. Read at boot; nothing here can change while it runs. */
 export interface ServerConfig {
   port: number;
@@ -96,15 +105,28 @@ export interface MediaConfig {
    */
   enabled: boolean;
   /**
-   * STUN or TURN servers the clients should use. **Empty by default**, which means host candidates
-   * only: a scoring device reaches its own frontend across the room, and an opponent in another
-   * house reaches nobody.
+   * Where clients should look for their public address: STUN or TURN urls, and `internal` for the
+   * server this deployment carries itself.
    *
-   * That is a deliberate default rather than an oversight — nothing about a match should leave the
-   * deployment unless somebody asked for it. There is no TURN credential handling: where a peer
-   * connection cannot be made, the feature is simply unavailable to that user.
+   * **`["internal"]` by default**, so nothing about a match leaves the deployment unless somebody
+   * asks for it — naming a public STUN server is naming a third party to tell every player's address
+   * to. Listing anything here replaces that default and so switches the internal server off, unless
+   * `internal` is listed alongside; order is kept, so `["internal", "stun:…"]` means ours first.
+   * `[]` means host candidates only: a phone reaches its own frontend across the room, and an
+   * opponent in another house reaches nobody.
+   *
+   * There is no TURN credential handling and no relay of any kind. Where a peer connection cannot be
+   * made, the feature is simply unavailable to that user.
    */
   iceUrls: string[];
+  /**
+   * The UDP port the internal STUN server answers on. Only consulted when `iceUrls` asks for it.
+   *
+   * 3478 is the number the protocol was assigned and the one a firewall rule is likeliest to already
+   * name. It has to be reachable from the clients as UDP, which is the one part of a deployment a
+   * reverse proxy will not arrange: proxies forward TCP.
+   */
+  stunPort: number;
   still: StillConfig;
   video: VideoConfig;
   dartEvidence: DartEvidenceConfig;
@@ -129,7 +151,8 @@ export const CONFIG_DEFAULTS: AppConfig = {
   },
   media: {
     enabled: true,
-    iceUrls: [],
+    iceUrls: [INTERNAL_ICE],
+    stunPort: 3478,
     still: {
       size: 320,
     },
@@ -150,9 +173,10 @@ export const CONFIG_DEFAULTS: AppConfig = {
 // ============================================================
 
 /**
- * The media section as it reaches a browser: what the file said, plus the two things only the server
- * can answer — where the ICE servers are, in the shape the DOM wants, and how many peers this
- * deployment will offer at once, which comes from its capacity model rather than from the file.
+ * The media section as it reaches a browser: what the file said, plus the things only the server can
+ * answer — where the ICE servers are, in the shape the DOM wants, whether the internal one among
+ * them actually came up, and how many peers this deployment will offer at once, which comes from its
+ * capacity model rather than from the file.
  *
  * `video` arrives as a full `VideoProfile` rather than the file's three numbers: the codec and the
  * keyframe interval are policy that does not vary by deployment, so the server completes the profile
@@ -161,6 +185,14 @@ export const CONFIG_DEFAULTS: AppConfig = {
 export interface MediaClientConfig {
   enabled: boolean;
   iceServers: IceServerConfig[];
+  /**
+   * The port the internal STUN server is answering on, or null if there is none to answer.
+   *
+   * Null is the whole of how a client learns the server did not come up: the `internal` entry is
+   * dropped from `iceServers` at the same time, so a client is never told to use something that is
+   * not there.
+   */
+  stunPort: number | null;
   /** Most peers this connection will ever be offered at once. */
   maxPeers: number;
   still: StillConfig;

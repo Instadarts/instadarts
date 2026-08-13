@@ -8,7 +8,7 @@ import './modes/registry.js';
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
-import { mediaPeerCount } from './media';
+import { mediaPeerCount, startInternalStun } from './media';
 import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
@@ -34,6 +34,10 @@ if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', '
 // The clock that gives every lobby and match a definite end. There is no collector besides it:
 // nothing here is reclaimed by being noticed later, only by its own deadline arriving.
 startLifecycle();
+
+// The STUN server, if this deployment carries one. Before the HTTP listener rather than after, so
+// that the first client to connect is already told the truth about whether it came up.
+await startInternalStun();
 
 const PORT = CONFIG.server.port;
 

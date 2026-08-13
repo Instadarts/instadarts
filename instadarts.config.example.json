@@ -43,10 +43,28 @@
     // Off, the server relays nothing and neither app shows a thing.
     // "enabled": true,
 
-    // STUN or TURN servers, for peers that cannot reach each other directly. Empty by default,
-    // which means a phone reaches its own browser across the room and an opponent in another house
-    // reaches nobody — nothing about a match leaves the deployment unless you ask for it.
-    // "iceUrls": ["stun:stun.example.org:19302"],
+    // Where devices look up their own public address, so that two behind different routers can
+    // find each other. "internal" is the STUN server this deployment carries itself, and is the
+    // default — naming a public one instead means telling a stranger every player's address.
+    //
+    // Listing anything here replaces that default, so "internal" has to be listed again to keep it:
+    //   ["internal"]                                    the default
+    //   ["internal", "stun:stun.example.org:19302"]     ours first, theirs as a fallback
+    //   ["stun:stun.example.org:19302"]                 theirs only; nothing runs here
+    //   []                                              neither: devices on one network only
+    //
+    // None of this is needed for a match. It only decides whether two people in different houses
+    // can see each other's board, and even with it there is no TURN and no relay: some pairs of
+    // home routers simply cannot be connected, and the app treats that as ordinary.
+    // "iceUrls": ["internal"],
+
+    // The UDP port the internal STUN server answers on.
+    //
+    // It has to be reachable from the devices as UDP, which is the one part of a deployment a
+    // reverse proxy does not arrange — proxies forward TCP. Behind one, this port needs its own
+    // firewall rule straight to this machine. On a home network it is reachable already and does
+    // nothing useful, which is why it is safe to leave on.
+    // "stunPort": 3478,
 
     // One photograph of part of the board: the close-up under a dart, and what a viewer is sent
     // when they ask what the board looks like.

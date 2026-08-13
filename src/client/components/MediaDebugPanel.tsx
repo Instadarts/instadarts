@@ -156,7 +156,14 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       {open && (
         <div className="mt-1 p-2 bg-gray-900 border border-gray-700 rounded max-w-[90vw] overflow-x-auto">
           <p className="text-gray-500">
-            self {selfId?.slice(0, 8) ?? '—'} · ice {config?.iceServers.length ?? 0} · {config?.enabled ? 'allowed' : 'disabled'}
+            self {selfId?.slice(0, 8) ?? '—'} ·{' '}
+            {/* Hover for the urls themselves: `internal` has been resolved against this page's own
+                host by now, so this is the only place to see what it became — or that it was
+                dropped because the server had nothing listening. */}
+            <span title={config?.iceServers.map((s) => s.urls).join('\n') || 'host candidates only'}>
+              ice {config?.iceServers.length ?? 0}
+            </span>
+            {' '}· {config?.enabled ? 'allowed' : 'disabled'}
           </p>
           {links.length === 0 && <p className="text-gray-600 mt-1">no peers offered</p>}
 
@@ -199,6 +206,15 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                 )}
                 {s.currentRoundTripTime !== undefined && (
                   <span className="text-gray-500">{Math.round(s.currentRoundTripTime * 1000)}ms</span>
+                )}
+                {/* An ICE server that answered and refused. Not the same as one that is unreachable,
+                    which raises nothing at all and shows up as a link that took two seconds to
+                    negotiate. The link may well still say `connected` either way: host candidates
+                    carry a LAN pair whether or not anything else worked. */}
+                {s.lastIceError && (
+                  <span className="text-amber-600" title={`${s.iceErrors} ICE server errors`}>
+                    ice {s.lastIceError}
+                  </span>
                 )}
               </div>
             );

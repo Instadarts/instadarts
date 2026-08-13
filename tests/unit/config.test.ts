@@ -86,6 +86,56 @@ describe('what the file says', () => {
   });
 });
 
+/**
+ * The one setting whose *default* is the interesting half.
+ *
+ * `iceUrls` decides two things at once — which servers clients are told about, and whether this
+ * deployment runs one of its own — and it does so on purpose: a deployment cannot end up running a
+ * STUN server nobody is told about, or advertising one that is not running. Each test below is one
+ * way that could come apart.
+ */
+describe('the internal stun server', () => {
+  it('is what an unconfigured deployment gets', async () => {
+    const { CONFIG } = await load('{}');
+    expect(CONFIG.media.iceUrls).toEqual(['internal']);
+    expect(CONFIG.media.stunPort).toBe(3478);
+  });
+
+  it('survives being written down, and is not mistaken for a bad url', async () => {
+    const { CONFIG, CONFIG_COMPLAINTS } = await load('{ "media": { "iceUrls": ["internal"] } }');
+    expect(CONFIG.media.iceUrls).toEqual(['internal']);
+    expect(CONFIG_COMPLAINTS).toEqual([]);
+  });
+
+  it('is switched off by naming somebody else, and kept by naming both', async () => {
+    const { CONFIG: theirs } = await load('{ "media": { "iceUrls": ["stun:stun.example.org:19302"] } }');
+    expect(theirs.media.iceUrls).toEqual(['stun:stun.example.org:19302']);
+
+    // Order is what makes this worth saying rather than a set: ours first means ours is tried first.
+    const { CONFIG: both } = await load(`{
+      "media": { "iceUrls": ["internal", "stun:stun.example.org:19302"] }
+    }`);
+    expect(both.media.iceUrls).toEqual(['internal', 'stun:stun.example.org:19302']);
+  });
+
+  it('is switched off by an empty list, which is host candidates only', async () => {
+    // The distinction that has to hold: an empty list is a deployment saying something, and the
+    // default is a deployment saying nothing. They must not collapse into each other.
+    const { CONFIG, CONFIG_COMPLAINTS } = await load('{ "media": { "iceUrls": [] } }');
+    expect(CONFIG.media.iceUrls).toEqual([]);
+    expect(CONFIG_COMPLAINTS).toEqual([]);
+  });
+
+  it('takes a port, and keeps the default rather than a port that cannot be one', async () => {
+    const { CONFIG: moved } = await load('{ "media": { "stunPort": 19302 } }');
+    expect(moved.media.stunPort).toBe(19302);
+
+    const { CONFIG, CONFIG_COMPLAINTS } = await load('{ "media": { "stunPort": 0 } }');
+    expect(CONFIG.media.stunPort).toBe(CONFIG_DEFAULTS.media.stunPort);
+    expect(CONFIG_COMPLAINTS.join('\n')).toContain('media.stunPort');
+  });
+});
+
 describe('what the file gets wrong', () => {
   it('keeps the default and complains, rather than taking a number that would disable a limit', async () => {
     // A zero, a fraction or a word in maxMatches would divide through every derived limit.

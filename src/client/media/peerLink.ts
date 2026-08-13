@@ -104,6 +104,17 @@ export interface LinkStats {
   bytesSent?: number;
   bytesReceived?: number;
   currentRoundTripTime?: number;
+  /**
+   * How many times an ICE server answered with an error, and the last one that did.
+   *
+   * Narrower than it sounds, and worth knowing which failure it is *not*: a STUN server that never
+   * answers at all raises nothing here. Chrome keeps waiting on it, gathering never completes, and
+   * the only symptom is that this link sat out `GATHER_TIMEOUT_MS` before offering what it had. What
+   * does land here is a server that replied and said no — a TURN credential refused, an error
+   * response — which is otherwise invisible from anywhere in the app.
+   */
+  iceErrors?: number;
+  lastIceError?: string;
 }
 
 export function createPeerLink(options: PeerLinkOptions): PeerLink {
@@ -176,6 +187,17 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       makingOffer = false;
     }
   };
+
+  // An ICE server that did not answer. Counted rather than acted on: by the time this fires the
+  // browser has already carried on with the candidates it does have, and there is nothing useful to
+  // do except be able to say so afterwards.
+  let iceErrors = 0;
+  let lastIceError: string | undefined;
+  pc.addEventListener('icecandidateerror', (event) => {
+    const error = event as RTCPeerConnectionIceErrorEvent;
+    iceErrors++;
+    lastIceError = `${error.errorCode} ${error.url ?? '?'}`;
+  });
 
   pc.onconnectionstatechange = () => {
     switch (pc.connectionState) {
@@ -298,6 +320,10 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
     },
     close,
     async stats(): Promise<LinkStats> {
+      // Reported whether or not a pair was ever nominated. A link that never connected is exactly
+      // the one whose ICE errors are worth reading.
+      const ice = iceErrors ? { iceErrors, lastIceError } : {};
+
       const report = await pc.getStats();
       let pair: RTCIceCandidatePairStats | undefined;
       for (const entry of report.values()) {
@@ -305,10 +331,11 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
           pair = entry as RTCIceCandidatePairStats;
         }
       }
-      if (!pair) return {};
+      if (!pair) return ice;
       const local = report.get(pair.localCandidateId ?? '');
       const remote = report.get(pair.remoteCandidateId ?? '');
       return {
+        ...ice,
         localCandidateType: local?.candidateType,
         remoteCandidateType: remote?.candidateType,
         bytesSent: pair.bytesSent,

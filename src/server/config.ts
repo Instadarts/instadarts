@@ -22,7 +22,7 @@
 
 import { readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
-import { CONFIG_DEFAULTS, type AppConfig } from '../shared/config';
+import { CONFIG_DEFAULTS, INTERNAL_ICE, type AppConfig } from '../shared/config';
 import { QUIET } from './env';
 
 const FILE_NAME = 'instadarts.config.json';
@@ -140,7 +140,13 @@ function bool(raw: Raw, path: string, key: string, fallback: boolean): boolean {
   return value;
 }
 
-/** Only the two schemes a STUN or TURN url can have. A typo becomes no server rather than a client that throws. */
+/**
+ * The `internal` sentinel, or a url with one of the schemes ICE understands. A typo becomes no
+ * server rather than a client that throws.
+ *
+ * An empty list is a deployment saying host candidates only, and is left exactly as written — the
+ * fallback is for a value that could not be read at all, and `[]` reads fine.
+ */
 function iceUrls(raw: Raw, path: string, key: string, fallback: string[]): string[] {
   const value = raw[key];
   if (value === undefined) return fallback;
@@ -149,9 +155,11 @@ function iceUrls(raw: Raw, path: string, key: string, fallback: string[]): strin
     return fallback;
   }
   const urls = (value as string[]).map((url) => url.trim());
-  const good = urls.filter((url) => /^stuns?:|^turns?:/.test(url));
+  const good = urls.filter((url) => url === INTERNAL_ICE || /^stuns?:|^turns?:/.test(url));
   for (const url of urls) {
-    if (!good.includes(url)) complain(`${path}.${key} entry "${url}" is not a stun: or turn: url; ignoring it`);
+    if (!good.includes(url)) {
+      complain(`${path}.${key} entry "${url}" is not "${INTERNAL_ICE}" or a stun:/turn: url; ignoring it`);
+    }
   }
   return good;
 }
@@ -206,7 +214,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(rawScorer, 'scorer', ['cameraFrameRate']);
 
   const rawMedia = section(raw, 'media');
-  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'still', 'video', 'dartEvidence']);
+  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'stunPort', 'still', 'video', 'dartEvidence']);
 
   const rawStill = section(rawMedia, 'still');
   reportUnknown(rawStill, 'media.still', ['size']);
@@ -231,6 +239,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
       media: {
         enabled: bool(rawMedia, 'media', 'enabled', defaults.media.enabled),
         iceUrls: iceUrls(rawMedia, 'media', 'iceUrls', defaults.media.iceUrls),
+        stunPort: positiveInt(rawMedia, 'media', 'stunPort', defaults.media.stunPort),
         still: {
           size: positiveInt(rawStill, 'media.still', 'size', defaults.media.still.size),
         },

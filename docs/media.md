@@ -521,16 +521,63 @@ leaves everything else working and only stops anybody seeing *your* board.
 ## ICE, and why video may simply not work
 
 ```json
-"media": { "iceUrls": ["stun:stun.example.org:19302"] }   // default: none
+"media": { "iceUrls": ["internal"], "stunPort": 3478 }   // the defaults
 ```
 
-**Empty by default**, which means host candidates only: a scoring device reaches its own frontend
-across the room, and an opponent in another house reaches nobody. Nothing about a match leaves the
-deployment unless somebody asks for it.
+Two devices behind different routers cannot guess each other's addresses. STUN is how each learns
+the address its own router presents to the world — its **server-reflexive** candidate — so that it
+has something to offer the other. Without it there are only host candidates: a scoring device
+reaches its own frontend across the room, and an opponent in another house reaches nobody.
 
-There is no TURN and there is no fallback. Where a peer connection cannot be made the feature is
-unavailable to that user, and the interface must treat that as ordinary rather than as an error —
-even with STUN configured, symmetric NAT will defeat some pairs.
+`iceUrls` decides both which servers clients are told about *and* whether this deployment runs one,
+which is deliberate — the two cannot then disagree. Listing anything replaces the default, so
+`internal` has to be listed again to keep it:
+
+| `iceUrls` | what runs, what clients get |
+|---|---|
+| `["internal"]` | the default: our own server, and nobody else's |
+| `["internal", "stun:…"]` | both, ours first — order is kept |
+| `["stun:…"]` | theirs only; nothing is started here |
+| `[]` | neither: host candidates only |
+
+**Carrying our own** is the reason this exists. The alternative is naming a public STUN server, in
+practice Google's, which hands the address of every player to a third party to make an optional
+feature work. [`stun.ts`](../src/server/stun.ts) is about a hundred lines and no dependency, because
+plain STUN is one question and one answer.
+
+**The server never learns its own address.** It cannot, reliably — its own interfaces show a LAN
+address from behind a NAT, and a `Host` header is whatever a proxy chose to pass on. So `internal`
+travels to the client as the word `internal`, and [`appConfig.ts`](../src/client/lib/appConfig.ts)
+turns it into `stun:<location.hostname>:<stunPort>` on arrival. The browser is holding a hostname
+that demonstrably reaches the server, because it just used it.
+
+### What it needs, and what it does not fix
+
+The STUN port must be reachable **as UDP**, which is the one part of a deployment a reverse proxy
+does not arrange: proxies forward TCP. nginx can do it from a `stream {}` block with `listen … udp`;
+Caddy does not proxy UDP at all. In practice it means a firewall rule straight to this machine.
+
+On a single network the server answers with the address the device already had, and ICE discards the
+redundant candidate (RFC 8445 §5.1.3) — harmless, and pointless, which is the right way round for
+something that is on by default.
+
+There is still **no TURN and no fallback**. Where a peer connection cannot be made the feature is
+unavailable to that user, and the interface must treat that as ordinary rather than as an error:
+symmetric NAT at both ends defeats STUN too.
+
+### When the port is blocked
+
+Nothing fails and nothing is reported. Gathering falls back to host candidates, a link on one network
+comes up as it always did, and the only symptom is **delay**: descriptions are not sent until
+gathering finishes ([`peerLink.ts`](../src/client/media/peerLink.ts)), so every link waits out
+`GATHER_TIMEOUT_MS` — two seconds — before offering what it has. Chrome does not raise
+`icecandidateerror` for a server that merely never answers; it keeps waiting, and gathering never
+completes at all.
+
+A bind that fails is the half we can be loud about: the server says so on startup and then drops
+`internal` from what it advertises, so no client is ever pointed at a port with nothing behind it.
+For the other half, the diagnostics panel carries whatever ICE did report — see
+[Reading a real link](#reading-a-real-link).
 
 ## Capacity
 
@@ -551,6 +598,7 @@ asked to do.
 src/shared/config.ts         the tuned numbers: still size, video size/rate/bitrate, dart evidence
 src/shared/media.ts          peers, rosters, roles and audiences, the channel names, video policy
 src/server/media.ts          the peer map, the plan, the roster, the relay
+src/server/stun.ts           one UDP socket: what address do you see me at
 src/client/media/peerLink.ts one RTCPeerConnection: perfect negotiation, half-trickle, two channels
 src/client/media/mesh.ts     the set of links, and who counts as a viewer
 src/client/media/frames.ts   how bytes are framed on each channel — both formats
@@ -574,6 +622,13 @@ It exists because headless Chromium cannot answer the question that decides whet
 works — whether a phone on your Wi-Fi reaches your laptop, and whether two households reach each
 other with no TURN. The candidate pair is what to read: `host` means the two ends were on one
 network, `srflx` means they found each other through a NAT.
+
+Two things about ICE are worth knowing where to find. The header counts the configured servers, and
+hovering it lists them — `internal` has been resolved against this page's own host by then, so this
+is the only place to see what it became, or that it was dropped because the server had nothing
+listening. And a link that reports `ice …` was told by an ICE server that answered and refused — which is *not*
+the unreachable case, since a server that never answers raises nothing. That one shows up as a link
+that took two seconds to negotiate, and nothing else.
 
 > **A trap worth knowing about.** Chrome hides local IPs behind `.local` mDNS names in ICE
 > candidates, and mDNS does not resolve in a headless container, so two browser contexts cannot find

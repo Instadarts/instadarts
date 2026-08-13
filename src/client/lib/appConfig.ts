@@ -16,15 +16,49 @@
 // client announcing itself to a deployment that does not carry media.
 
 import { useSyncExternalStore } from 'react';
-import { CONFIG_DEFAULTS, type ClientConfig, type DartEvidenceConfig, type MediaClientConfig } from '../../shared/config';
-import { videoProfile, type VideoProfile } from '../../shared/media';
+import { CONFIG_DEFAULTS, INTERNAL_ICE, type ClientConfig, type DartEvidenceConfig, type MediaClientConfig } from '../../shared/config';
+import { videoProfile, type IceServerConfig, type VideoProfile } from '../../shared/media';
 
 let current: ClientConfig | null = null;
 const listeners = new Set<() => void>();
 
-/** Called by whoever owns the socket, when the server says how it is tuned. */
+/**
+ * Turn the `internal` entry into a url, using the one address we know reaches this server: the one
+ * this page was loaded from.
+ *
+ * **The server cannot do this.** It does not know its own public address, and every way of finding
+ * out is worse than asking the client — its own interfaces give a LAN address from behind a NAT, an
+ * external lookup service would put a third party back into a stack that has none, and the `Host`
+ * header is whatever a reverse proxy chose to pass on. The browser, meanwhile, is holding a hostname
+ * that demonstrably reaches the server, because it just used it.
+ *
+ * `location.hostname` brackets an IPv6 literal, which is already the form a STUN uri wants.
+ */
+function resolveIceServers(servers: IceServerConfig[], stunPort: number | null): IceServerConfig[] {
+  return servers.flatMap((server) => {
+    if (server.urls !== INTERNAL_ICE) return [server];
+    // Dropped rather than guessed at: the server sends null when it has nothing listening, and a
+    // url built anyway would point every client at a closed port.
+    if (stunPort === null) return [];
+    return [{ ...server, urls: `stun:${window.location.hostname}:${stunPort}` }];
+  });
+}
+
+/**
+ * Called by whoever owns the socket, when the server says how it is tuned.
+ *
+ * ICE is resolved here rather than at each use, so that everything downstream — the mesh, its links,
+ * the diagnostics panel — sees one finished list, and so that the memo keying the mesh on that list
+ * does not see it change shape.
+ */
 export function setAppConfig(config: ClientConfig): void {
-  current = config;
+  current = {
+    ...config,
+    media: {
+      ...config.media,
+      iceServers: resolveIceServers(config.media.iceServers, config.media.stunPort),
+    },
+  };
   for (const listener of listeners) listener();
 }
 

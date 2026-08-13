@@ -39,6 +39,7 @@ import type { WebSocket } from 'ws';
 import type { MediaPeer, MediaTier } from '../shared/media';
 import type { Client } from './types';
 import { MAX_SDP_BYTES, videoProfile } from '../shared/media';
+import { INTERNAL_ICE } from '../shared/config';
 import { CONFIG } from './config';
 import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 
@@ -49,7 +50,43 @@ import { allClients, getClient, send } from './connections';
 import { publishDevicesState } from './scoringDevices';
 import { devicesForSession, ownerOf, setDeviceMediaTier } from './devices';
 import { getLobby, getMatch } from './store';
+import { startStunServer } from './stun';
 import { validateSignal } from './validation';
+import { QUIET } from './env';
+
+// ============================================================
+// The STUN server this deployment carries
+// ============================================================
+
+/**
+ * The port to tell clients about, or null.
+ *
+ * Null covers both "nobody asked for one" and "one was asked for and could not be started", which
+ * are the same thing to a client: there is nothing at that port, so it must not be sent there. It is
+ * the *only* record of that — `sendAppConfig` drops the `internal` entry alongside it, so the two
+ * cannot come apart.
+ */
+let stunPort: number | null = null;
+
+/**
+ * Bring up the internal STUN server, if this deployment asked for one.
+ *
+ * Called once at boot and never again. Failure is reported and survived: a UDP port that will not
+ * bind costs the reflexive candidate, which is an optional part of an optional feature, and is not a
+ * reason to refuse to serve darts.
+ */
+export async function startInternalStun(): Promise<void> {
+  if (!MEDIA_ENABLED || !CONFIG.media.iceUrls.includes(INTERNAL_ICE)) return;
+
+  const server = await startStunServer(CONFIG.media.stunPort);
+  if (server.port === null) {
+    console.warn(`STUN: could not listen on UDP ${CONFIG.media.stunPort} — ${server.problem}`);
+    console.warn('  Peers will use host candidates only, as if "internal" were not configured.');
+    return;
+  }
+  stunPort = server.port;
+  if (!QUIET) console.log(`STUN: UDP ${server.port} (must be reachable from clients)`);
+}
 
 // ============================================================
 // Who is taking part
@@ -461,9 +498,14 @@ export function publishMediaForRoom(room: string): void {
  * How this deployment is tuned. Sent to every connection as it arrives, whatever kind it turns out
  * to be.
  *
- * The client's share of the settings, and only that: the `server` section stays here. The two things
- * the file does not answer are filled in on the way out — the ICE urls in the shape the DOM wants,
- * and how many peers this server will offer at once, which comes from its capacity model.
+ * The client's share of the settings, and only that: the `server` section stays here. What the file
+ * does not answer is filled in on the way out — the ICE urls in the shape the DOM wants, whether the
+ * internal STUN server is actually there to be used, and how many peers this server will offer at
+ * once, which comes from its capacity model.
+ *
+ * The `internal` entry is passed on as it stands rather than resolved: it means "the STUN server at
+ * the address you reached me on", and the client is the side that knows what address that was. It is
+ * dropped entirely when nothing came up behind it, so a client is never pointed at a closed port.
  */
 export function sendAppConfig(ws: WebSocket): void {
   send(ws, {
@@ -472,7 +514,10 @@ export function sendAppConfig(ws: WebSocket): void {
     scorer: CONFIG.scorer,
     media: {
       enabled: MEDIA_ENABLED,
-      iceServers: CONFIG.media.iceUrls.map((urls) => ({ urls })),
+      iceServers: CONFIG.media.iceUrls
+        .filter((urls) => urls !== INTERNAL_ICE || stunPort !== null)
+        .map((urls) => ({ urls })),
+      stunPort,
       maxPeers: MEDIA_PEERS_PER_PEER,
       still: CONFIG.media.still,
       video: videoProfile(CONFIG.media.video),

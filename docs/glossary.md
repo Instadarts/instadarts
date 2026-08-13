@@ -916,6 +916,13 @@ On the client it lands in [`lib/appConfig.ts`](../src/client/lib/appConfig.ts), 
 rather than React state, because the things that read it are not all React — the vision runtime, the
 camera and the still capture are plain modules built once and driven by callbacks.
 
+One value is not delivered as written. **`internal`** in `media.iceUrls` names the STUN server the
+deployment carries itself, and is the only setting the *client* finishes: the server has no reliable
+way to know its own public address, so it sends the word and the client turns it into
+`stun:<the host this page came from>:<stunPort>`. The server drops it instead when nothing came up
+behind it, so a client is never sent to a closed port. See
+[media.md](./media.md#ice-and-why-video-may-simply-not-work).
+
 ### Match settings and device settings
 
 **Match settings** are `MatchSettings` — the mode, the mode's own `ModeSettings`, and the

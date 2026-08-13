@@ -77,7 +77,7 @@ the file over them. Four sections, split by whose knob it is:
 | `server` | `port`, `maxMatches` — never leaves the process |
 | `frontend` | ⏳ nothing yet; the section exists so the first one has a home |
 | `scorer` | `cameraFrameRate` |
-| `media` | `enabled`, `iceUrls`, `still.size`, `video.{size,frameRate,bitrate}`, `dartEvidence.{regionSize,transitionMs}` |
+| `media` | `enabled`, `iceUrls`, `stunPort`, `still.size`, `video.{size,frameRate,bitrate}`, `dartEvidence.{regionSize,transitionMs}` |
 
 Three of the four are needed by code running in a browser, which has no file to read — so the server
 sends a client its share as **`app_config`**, on connect, next to `mode_catalog`. The `server`
@@ -104,9 +104,11 @@ by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
 
 Media is peer-to-peer video between the devices in a match, and `media.enabled` turns it off in the
 strongest sense: the server mints no peer ids, publishes no rosters and relays nothing, and neither
-frontend shows a thing. With no `iceUrls` — the default — a scoring device reaches its own frontend
-across the room and an opponent in another house reaches nobody. There is no TURN, so where a
-connection cannot be made the feature is simply unavailable. See [media.md](./media.md).
+frontend shows a thing. `iceUrls` decides how two devices behind different routers find each other,
+and defaults to `["internal"]` — the STUN server this deployment carries itself, on `stunPort`, so
+that making remote play work does not mean naming a third party. It needs that UDP port reachable,
+which a reverse proxy will not arrange. There is still no TURN, so where a connection cannot be made
+the feature is simply unavailable. See [media.md](./media.md).
 
 What is *not* in the file is whether this is a development or a production build. That is `NODE_ENV`,
 decided when the program is built, and it stays an environment variable because it is already true by

@@ -19,6 +19,11 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
 - [Media](./media.md) — the optional peer-to-peer video feature: who the server lets connect to whom
   and why that one rule is the whole security model, why a link carries no video track, and how to
   turn it off. Today it is transport only; read the ⏳ list before assuming a picture exists.
-- [Working on this app](./development.md) — how to run the app, the tests and the typechecks, how to
-  check a UI change, and the traps that have caught people here. Read this first if you are about to
-  run something.
+- [Working on this app](./development.md) — how to run the app, how a deployment is tuned, the tests
+  and the typechecks, how to check a UI change, and the traps that have caught people here. Read this
+  first if you are about to run something.
+
+Deployment settings live in one optional file, described in
+[development.md](./development.md#settings) and shown with every knob commented out in
+[`instadarts.config.example.json`](../instadarts.config.example.json). There are no configuration
+environment variables — `NODE_ENV` decides whether a build is a development one, and that is all.

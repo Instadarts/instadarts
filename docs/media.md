@@ -130,7 +130,7 @@ canvas that is already the still's size — and then the JPEG. The canvas and it
 once and kept**, like the preprocessing canvas in `model.ts`; a capture allocates nothing but the
 picture it returns. A burst of three darts shares them.
 
-Measured in the e2e container at the sizes in `STILL`: **under 1ms to draw, 1ms to encode, 7–17ms
+Measured in the e2e container at the default sizes: **under 1ms to draw, 1ms to encode, 7–17ms
 round trip** for a ~14.5kB still, the first of a run being the quick one — the two behind it wait
 their turn in the queue.
 
@@ -456,7 +456,7 @@ every gameplay handler.
 | → | `media_leave` | stop taking part |
 | → | `media_select_camera` | `{ deviceId \| null }` — a frontend nominating one of its own claimed devices as the board camera |
 | → | `media_signal` | `{ to, description }` |
-| ← | `media_config` | what the deployment allows, sent on connect beside `mode_catalog` |
+| ← | `app_config` | how the deployment is tuned, sent on connect beside `mode_catalog` |
 | ← | `media_peers` | `{ self, peers }` — a retained topic, pushed on every change |
 | ← | `media_signal` | `{ from, description }` |
 
@@ -508,7 +508,7 @@ Three independent answers, and all three have to be yes.
 
 | Who | How | Default |
 | --- | --- | --- |
-| the deployment | `MEDIA=0 npm start` ([`env.ts`](../src/server/env.ts)) | on |
+| the deployment | `media.enabled: false` in the settings file ([`config.ts`](../src/server/config.ts)) | on |
 | a browser | the switch in the top bar's device panel | on |
 | a phone | *Share this view*, in the scoring device's settings — `disabled`, `stills` or `video` | `video` |
 
@@ -520,8 +520,8 @@ leaves everything else working and only stops anybody seeing *your* board.
 
 ## ICE, and why video may simply not work
 
-```sh
-MEDIA_ICE_URLS=stun:stun.example.org:19302 npm start   # default: none
+```json
+"media": { "iceUrls": ["stun:stun.example.org:19302"] }   // default: none
 ```
 
 **Empty by default**, which means host candidates only: a scoring device reaches its own frontend
@@ -548,7 +548,8 @@ asked to do.
 ## Where the code is
 
 ```
-src/shared/media.ts          peers, rosters, roles and audiences, the profile, the channel names
+src/shared/config.ts         the tuned numbers: still size, video size/rate/bitrate, dart evidence
+src/shared/media.ts          peers, rosters, roles and audiences, the channel names, video policy
 src/server/media.ts          the peer map, the plan, the roster, the relay
 src/client/media/peerLink.ts one RTCPeerConnection: perfect negotiation, half-trickle, two channels
 src/client/media/mesh.ts     the set of links, and who counts as a viewer

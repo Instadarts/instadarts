@@ -47,7 +47,8 @@ for the places where that has already gone wrong.
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
 | [Scoring](#scoring-and-the-two-power-stages) | A match is running that this device feeds | `scorer_state.scoring`, `resolveScoringTarget` |
 | [Standby](#scoring-and-the-two-power-stages) | Device asleep: wake lock released, socket closed | `PowerStage`, `useScorerPower` |
-| [Media](#media) | The optional feature: p2p video between the devices in a match | `MEDIA_ENABLED`, `media_*` messages |
+| [Scoring context](#scoring-context-started-and-resumed) | The match and board a device feeds; a reconnect is not a new one | `scoringContextId`, `classifyScoringActivation` |
+| [Media](#media) | The optional feature: p2p video between the devices in a match | `media.enabled`, `media_*` messages |
 | [Peer](#peer--peer-id) | One connection taking part in media | `peerId`, `MediaPeer` |
 | [Roster](#roster) | The peers a peer may connect to. **The authorization** | `media_peers`, `planFor` |
 | [Link](#link--mesh) | One RTCPeerConnection between two peers | `PeerLink`, `peerLink.ts` |
@@ -55,7 +56,7 @@ for the places where that has already gone wrong.
 | [Media tier](#media-tier) | How much a device is willing to send | `MediaTier`, `media_ready` |
 | [Board camera](#board-camera) | The one device a user is showing, if any | `media_select_camera` |
 | [Region of interest](#region-of-interest) | A square of a board, asked for by name | `Region`, `clampRegion` |
-| [Still](#still) | One photograph of a region, on request | `still_request`, `STILL` |
+| [Still](#still) | One photograph of a region, on request | `still_request`, `StillConfig` |
 | [Dart evidence](#dart-evidence) | The still under a dart slot | `useDartEvidence` |
 
 ---
@@ -633,6 +634,29 @@ is willing ([media tier](#media-tier)) *and* nominated ([board camera](#board-ca
 Both stages are decided by [`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts) and belong to
 the device: the server never switches anything off, it only says whether a device is scoring.
 
+### Scoring context, started and resumed
+
+**Scoring context** — the match and the board a device is currently feeding, identified on the wire
+by `scorer_state.scoringContextId`: an opaque hash of the match id and the owning player, stable
+across socket reconnects, and different for a new match, a re-match, or another player's board. The
+device is given the hash and never either identifier.
+
+It exists because `scoring` alone cannot tell a reconnect from a match start — a socket that drops
+and comes back makes it go false and then true again. Reading that edge as a match beginning is what
+used to restart a camera its owner had just switched off.
+
+So each fresh state is classified against the one before it
+([`lib/scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts)):
+
+- **Started** — a context this device was not in. A new match, a re-match, or being claimed into one
+  already running. This is what may bring a camera back on its own.
+- **Resumed** — the same context, arriving on a replacement socket. Not a match start: the device was
+  already scoring and still is. A camera comes back only if this device's own timer was what stopped
+  it.
+
+"A reconnect is not a match start" is the rule; *started* and *resumed* are the words for the two
+halves of it.
+
 ### What belongs to the pairing, and what belongs to the phone
 
 Unpairing throws away the **identity** — the `deviceId` and token — and nothing else. Everything
@@ -787,8 +811,9 @@ is for. That asymmetry is the whole shape of it: an opponent and a spectator see
 camera was asked to show them and have no say in what that is. [Dart evidence](#dart-evidence)
 addresses all three roles.
 
-Every still is a square JPEG of one fixed size, whatever region it was asked for — see `STILL` in
-`shared/media.ts`, the one place that size and its quality live.
+Every still is a square JPEG of one size, whatever region it was asked for. The size is a
+[deployment setting](#deployment-settings) (`media.still.size`) and reaches both ends of a link through
+`app_config`; its mime and quality are not tuneable and stay in `STILL` in `shared/media.ts`.
 
 ### Dart evidence
 
@@ -851,6 +876,59 @@ Its destination is re-resolved every frame rather than fixed when the command la
 lets a feed open on the camera's own square before the board has been located and slide onto the
 board the moment it is. A move that is interrupted departs from wherever the shot had reached, so a
 second command — or a reset arriving mid-swing — reads as one continuous camera.
+
+---
+
+## Settings
+
+Three different things are called *settings*, and they belong to three different people. Keeping
+them apart is the whole of this entry; when the distinction matters, name it.
+
+| | Who sets it | Where it lives | Scope |
+| --- | --- | --- | --- |
+| **Deployment settings** | whoever runs the server | `instadarts.config.json`, one optional file | the whole deployment |
+| **Match settings** | the lobby's host | in the lobby, then the match | one match |
+| **Device settings** | the person holding the phone | that browser's own storage | one device |
+
+### Deployment settings
+
+The knobs an operator turns: how big the server may get, whether it carries media, the numbers a
+camera and a publisher run by. Declared once with their defaults in
+[`shared/config.ts`](../src/shared/config.ts), read from the file by
+[`server/config.ts`](../src/server/config.ts), and **entirely optional** — with no file, the defaults
+are the deployment.
+
+Four sections: `server`, `frontend` (⏳ empty), `scorer`, `media`. The last three are needed by code
+running in a browser, which has no file to read, so the server sends a client its share as
+[`app_config`](#app-config) on connect. The `server` section stays on the server.
+
+**Never a user setting.** Anything a person can change from the app's own screens is a *device* or a
+*match* setting; this file is for what an operator decides once. See
+[development.md](./development.md#settings).
+
+### App config
+
+`app_config` — the message carrying a client's share of the [deployment settings](#deployment-settings),
+sent to frontends and scoring devices alike on connect, beside `mode_catalog`. Sent even when media is
+off, so nobody waits for a message that will never come.
+
+On the client it lands in [`lib/appConfig.ts`](../src/client/lib/appConfig.ts), a module-level store
+rather than React state, because the things that read it are not all React — the vision runtime, the
+camera and the still capture are plain modules built once and driven by callbacks.
+
+It replaced `media_config`, which carried the same idea for media alone.
+
+### Match settings and device settings
+
+**Match settings** are `MatchSettings` — the mode, the mode's own `ModeSettings`, and the
+legs/sets format. Set in the [lobby](#lobby) by the host, validated against the mode's declared
+fields, and fixed for that match. See [game-modes.md](./game-modes.md#settings).
+
+**Device settings** belong to one phone or one browser and outlive any match: a scoring device's
+name, its lens calibration, its remembered camera and zoom, its power delays, its
+[media tier](#media-tier). Stored locally ([`scorerStorage.ts`](../src/client/lib/scorerStorage.ts))
+and, notably, they survive unpairing — see
+[what belongs to the pairing](#what-belongs-to-the-pairing-and-what-belongs-to-the-phone).
 
 ---
 

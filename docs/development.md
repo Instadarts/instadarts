@@ -11,6 +11,7 @@ Three trees. `shared/` is the only one both of the others may import, and it hol
 ```
 src/shared/     types.ts        the match, the visit, the mode's view of both — the wire's vocabulary
                 protocol.ts     every message, in both directions, and the parse/format pair
+                config.ts       every knob a deployment may turn, and its default
                 settings.ts     how a setting declares itself, and how to read one out of the bag
                 matchFormat.ts  sets and legs: standings, the winner, whose throw it is
                 scoring.ts      board coordinates → a dart's score. The one authority on what was hit
@@ -31,6 +32,7 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                 lifecycle.ts    deadlines — the idle timeout and the summary clock, and the
                                 only thing that deletes a lobby or a match
                 capacity.ts     how big this server may get, all of it derived from one number
+                config.ts       the optional settings file: where it is, and what a bad one does
                 rateLimit.ts, env.ts, invite.ts, player.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
@@ -39,6 +41,7 @@ src/client/     App.tsx         routes, and the one hook that holds match state
                 components/     the match screen's parts, the dartboard, the top bar
                 modes/          a mode's optional panel component, found by filename
                 hooks/          the socket, the match, the vision runtime, paired devices
+                lib/            storage, power, the settings the server sent (appConfig.ts)
                 vision/         the camera, the model, the motion gate, the geometry
                 media/          peer connections between the devices in a match
 ```
@@ -56,31 +59,60 @@ npm run test:e2e  # the whole browser suite. Around twenty seconds
 npm run build   # production build — and see the warning below
 ```
 
-### Scaling the server
+### Settings
 
-`MAX_MATCHES` is the only capacity number a deployment sets; everything the server refuses or evicts
-by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
+**One optional file, and no environment variables.** Copy
+[`instadarts.config.example.json`](../instadarts.config.example.json) to `instadarts.config.json`
+and edit it; with no file at all, the defaults are the deployment. It is looked for in the working
+directory and beside the running executable, and `INSTADARTS_CONFIG=/path/to/file` overrides both —
+that variable locates the file and sets nothing in it, which is what lets a second instance run
+beside a first.
+
+The knobs and their defaults are declared once in
+[`shared/config.ts`](../src/shared/config.ts); [`server/config.ts`](../src/server/config.ts) reads
+the file over them. Four sections, split by whose knob it is:
+
+| | |
+| --- | --- |
+| `server` | `port`, `maxMatches` — never leaves the process |
+| `frontend` | ⏳ nothing yet; the section exists so the first one has a home |
+| `scorer` | `cameraFrameRate` |
+| `media` | `enabled`, `iceUrls`, `still.size`, `video.{size,frameRate,bitrate}`, `dartEvidence.{regionSize,transitionMs}` |
+
+Three of the four are needed by code running in a browser, which has no file to read — so the server
+sends a client its share as **`app_config`**, on connect, next to `mode_catalog`. The `server`
+section is not in it. On the client, that lands in
+[`lib/appConfig.ts`](../src/client/lib/appConfig.ts), which is a module-level store rather than React
+state because the readers are not all React: the vision runtime, the camera and the still capture are
+plain modules built once.
+
+Nothing a user can change from the app's own screens belongs here — those are per-device settings and
+live in that screen's storage.
+
+**JSON with comments**, stripped before parsing, because a settings file that cannot explain itself
+is one nobody edits confidently. A value of the wrong type or out of range is ignored, the default
+stands, and it says which one on the way past; an unrecognised key is named for the same reason.
+A file that cannot be parsed at all stops the server with one line and no stack — a deployment that
+believes it is configured and is not is worse than one that will not start.
 
 ```sh
-MAX_MATCHES=50000 npm start     # default is 10000
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
 ```
 
-Anything that is not a positive whole number is ignored in favour of the default — a `NaN` there
-would make every comparison false and silently disable the limits that divide from it.
+`maxMatches` is the only capacity number a deployment sets; everything the server refuses or evicts
+by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
 
-### Turning media off, and letting it out of the LAN
+Media is peer-to-peer video between the devices in a match, and `media.enabled` turns it off in the
+strongest sense: the server mints no peer ids, publishes no rosters and relays nothing, and neither
+frontend shows a thing. With no `iceUrls` — the default — a scoring device reaches its own frontend
+across the room and an opponent in another house reaches nobody. There is no TURN, so where a
+connection cannot be made the feature is simply unavailable. See [media.md](./media.md).
 
-```sh
-MEDIA=0 npm start                                   # no peer connections at all
-MEDIA_ICE_URLS=stun:stun.example.org:19302 npm start  # default: none, so host candidates only
-```
-
-Media is peer-to-peer video between the devices in a match, and it is optional in the strongest
-sense: off, the server mints no peer ids, publishes no rosters and relays nothing, and neither
-frontend shows a thing. With no STUN configured — the default — a scoring device reaches its own
-frontend across the room and an opponent in another house reaches nobody. There is no TURN, so where
-a connection cannot be made the feature is simply unavailable. See [media.md](./media.md).
+What is *not* in the file is whether this is a development or a production build. That is `NODE_ENV`,
+decided when the program is built, and it stays an environment variable because it is already true by
+the time a file could be read. `QUIET` and `CLIENT_DIR` are the same kind of thing — properties of
+the run rather than of the deployment — and are what is left in
+[`env.ts`](../src/server/env.ts).
 
 ### Connections that vanish without closing
 
@@ -107,17 +139,28 @@ settable on the device between 1–10 and 10–600.
 
 `scoring` is a field on `scorer_state`, and it is the server's own answer to "would I accept this
 device's tips" — `resolveScoringTarget`, the same call that gates the tips themselves. That is what
-makes a match starting, a match ending, a re-match, being unclaimed, being disconnected and being
-claimed mid-match all one condition rather than six rules. The one push that must not be missed is
-`handleStartMatch`'s: a camera that powered down has nothing else to bring it back.
+makes a match starting, a match ending, a re-match, being unclaimed and being claimed mid-match all
+one condition rather than five rules. The one push that must not be missed is `handleStartMatch`'s:
+a camera that powered down has nothing else to bring it back.
 
-Two things worth knowing before changing any of it:
+**Losing the socket is deliberately not one of them.** The device keeps the last `scorer_state` it
+was told across a disconnect rather than clearing it — see the third point below.
 
-- **A stage never starts a camera.** Stages only power things down. Coming back is a match starting
-  or a person pressing something — otherwise the touch that resets the timers would turn the camera
-  back on the instant somebody pressed "Off".
+Three things worth knowing before changing any of it:
+
+- **A stage never starts a camera.** Stages only power things down. Coming back is a scoring context
+  arriving or a person pressing something — otherwise the touch that resets the timers would turn the
+  camera back on the instant somebody pressed "Off".
 - **The camera is started on the *edge* of a match beginning**, not whenever one is running, so
   turning it off mid-match sticks.
+- **A reconnect is not a match start.** `scoring` alone cannot tell them apart: a socket that drops
+  and comes back makes it go false and true again, and reading that edge as a match beginning
+  restarts a camera the owner had just switched off. So `scorer_state` also carries
+  **`scoringContextId`** — an opaque hash of the match and the board, stable across reconnects and
+  different for a new match, a re-match or another player's board — and
+  [`lib/scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts) classifies each fresh state as
+  `started` or `resumed` against it. Only a `started` brings a camera back on its own; a `resumed`
+  restarts one only if this device's own timer was what stopped it.
 
 The e2e suite drives the delays down through `?e2e=1&graceMs=…&standbyMs=…`
 ([`lib/e2e.ts`](../src/client/lib/e2e.ts)), which does nothing in a shipped build. What it cannot
@@ -158,26 +201,22 @@ nothing about whether the socket the first test opens has anyone listening on 30
 use. That is usually what you want; be aware the tests are then running against your dev server's
 state.
 
-### A known flake, and why the codec spec runs on its own
+### Why the codec spec runs on its own
 
-`scorer-power.spec.ts` → *"turns the camera off and on, then powers the device off"* can fail with the
-camera mysteriously back **on**, and the cause is not in that test:
+`media-codec.spec.ts` encodes real H.264 in software, `media-stills.spec.ts` drives the detection
+model, and `media-video.spec.ts` does both at once, so `playwright.config.ts` puts all three in a
+`heavy` project with a `dependencies` on the rest, and none of them ever runs beside anything else.
 
-1. the scoring device's page is starved of CPU long enough to miss a heartbeat, and the server cuts it;
-2. `useScorerLink` clears its state on disconnect, so `scoring` goes false;
-3. the reconnect brings `scoring` back true, and `useScorerPower` reads that edge as *a match
-   beginning* — which starts the camera, including one the owner had deliberately switched off.
+That started as one of two holds on a flake in `scorer-power.spec.ts` → *"turns the camera off and
+on, then powers the device off"*, which used to fail with the camera mysteriously back **on**. The
+cause was never in that test: CPU pressure made the device's page miss a heartbeat, the server cut
+it, and the reconnect made `scoring` go false and true again — an edge `useScorerPower` read as *a
+match beginning*, which started the camera the owner had just switched off.
 
-Whether step 3 is a bug is a real question — being *claimed into a match already running* is
-supposed to start the camera, and from the phone that is indistinguishable from a reconnect — so it
-is left alone for now. Two things hold it at bay in the meantime, and **both should go when the
-cause is dealt with**:
-
-- `media-codec.spec.ts` encodes real H.264 in software, `media-stills.spec.ts` drives the detection
-  model, and `media-video.spec.ts` does both at once, so `playwright.config.ts` puts all three in a
-  `heavy` project with a `dependencies` on the rest, and none of them ever runs beside anything else;
-- that one describe block carries `test.describe.configure({ retries: 1 })`, and the interaction that
-  hangs has an explicit wait rather than the whole test budget, so a miss costs seconds.
+**That cause is dealt with**, by teaching the device to tell a reconnect from a match start — see
+`scoringContextId` above. The retry that held the test up in the meantime is gone. Keeping the heavy
+project is a separate and still-good idea: those three specs are genuinely expensive and starving the
+rest of the suite of CPU is how intermittent failures get made.
 
 **Worker count is not the lever.** The suite has failed at eight workers and passed at thirteen; what
 matters is which files happen to overlap, not how many run at once. If this reappears, look for a new

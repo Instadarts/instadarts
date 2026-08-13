@@ -9,10 +9,10 @@ This repository is where the pipeline is developed. There is no upstream to defe
 ## The path a dart takes
 
 ```
-camera.ts        a square 15fps stream, autofocus, zoom remembered per lens
+camera.ts        a square stream at the configured rate (15fps), autofocus, zoom per lens
    ↓
 motion.ts        did the picture change? Only run the model if it did
-   ↓             (motionAnalysis.ts is the arithmetic: grey → diff → clean → per-tile counts)
+   ↓             (motionAnalysis.ts is the arithmetic: grey → blur → diff → per-tile counts)
 model.ts         one frame → two tensors. WebGPU preprocessing + inference, WASM CPU fallback
    ↓
 postprocess.ts   tensors → keypoints: 8 board classes and up to 32 dart tips
@@ -36,7 +36,7 @@ so a person can slide the lens correction until the drawn lines sit on the real 
 | | where | what it pins |
 |---|---|---|
 | Tensor decoding | `tests/unit/vision-postprocess.test.ts` | the `[C, N]` stride, the confidence floor, the 32 cap, pixel-vs-normalized coordinates |
-| Motion arithmetic | `tests/unit/vision-motion.test.ts` | luma weights, the pixel threshold, speckle rejection, tile counting |
+| Motion arithmetic | `tests/unit/vision-motion.test.ts` | luma weights, the Gaussian kernel and its edge clamping, the pixel threshold, tile counting |
 | Lens geometry | `tests/unit/vision-lens.test.ts` | the homography round trip, ring order, k1 direction, bed placement |
 | Board geometry | `tests/unit/vision-geometry.test.ts` | image→board projection and scoring |
 | Fusion and tracking | `tests/unit/vision-fusion.test.ts`, `vision-session.test.ts`, `scorer-tips.test.ts` | which tips are one dart, when a visit ends |
@@ -59,9 +59,11 @@ checked on hardware — nothing in this repository will tell you that you broke 
   video texture straight into the tensor buffer. In CI, WebGPU is unavailable and the CPU canvas
   path runs instead, so the shader is never compiled. A wrong swizzle or a wrong normalization here
   produces *plausible but wrong* keypoints, not an error.
-- **The three motion shaders** (`motion.ts`: preprocess, dilate, erode-and-aggregate) — the WGSL
-  reimplementation of what `motionAnalysis.ts` does in TypeScript. The unit tests pin the
-  TypeScript; nothing pins that the shaders still agree with it.
+- **The two motion shaders** (`motion.ts`: horizontal blur, then vertical-blur-diff-and-aggregate)
+  — the WGSL reimplementation of what `motionAnalysis.ts` does in TypeScript. The unit tests pin the
+  TypeScript; nothing pins that the shaders still agree with it. The split is two dispatches rather
+  than three because the horizontal pass re-samples the source independently per thread, which
+  removes the cross-thread dependency a shared intermediate would have needed.
 - **The fallback chain itself** — WebGPU → WASM on device loss, and the mid-run fall back from the
   GPU analyzer to the CPU one when a pass throws.
 
@@ -69,6 +71,13 @@ checked on hardware — nothing in this repository will tell you that you broke 
 frame line under the preview reads `webgpu` rather than `cpu` — then throw, and confirm scoring
 behaves as expected. Note the reported ms while you are there: it is the number to compare against
 after any change to this path.
+
+**The three CPU toggles in the scorer's settings** are the tool for this. *Motion detector*,
+*Preprocessing* and *Inference* each force one WebGPU path onto its CPU equivalent, independently and
+per device, and they are the only way to answer the two questions a phone actually raises: whether a
+vendor's WebGPU is producing wrong results — turn one off and see whether scoring gets better — and
+what each path is really costing, by timing it both ways on the same board. They persist in that
+device's settings, so a phone left with one on stays that way.
 
 ### The WASM runtime
 
@@ -103,6 +112,20 @@ real room, against real movement and real light, is not something they can answe
 how much of the picture changed and how long it stayed changed, and only a board in a room exercises
 that.
 
+Two parts of it are about noise rather than about motion, and neither can be judged from synthetic
+pixels:
+
+- **A 5×5 separable Gaussian blur `[1,4,6,4,1]`, applied before the frame difference.** It replaced a
+  dilate-then-erode morphology, which had a blind spot: a dart edge pixel that fell just below the
+  threshold was lost and could not be recovered by anything downstream. Blurring first integrates the
+  neighbourhood instead, so a weak edge contributes rather than disappearing. Border pixels clamp to
+  the edge; the kernel is never truncated.
+- **A per-pixel threshold that varies with brightness** (`pixelThresholdMult`). The multiplier is a
+  parabolic ramp: 1.0× at mid-grey, `pixelThresholdMult`× at black and white. It reads the
+  **previous** frame's pixel — the board behind the dart — so a dark wire or a white segment gets a
+  lowered threshold, and a mid-grey dart tip landing on one is easier to see. What that costs in a
+  noisy room is exactly what only a room can tell you.
+
 *To check:* play with it. Arm the board, use it as it would be used, and confirm it behaves as
 expected — both that throws are picked up and that it stays quiet when it should. If it does not,
 `MOTION_DEFAULTS` in `motion.ts` is where that is decided.
@@ -129,11 +152,22 @@ are unreachable from a headless run:
 - **Whether the socket survives sleep on Android.** It may not, which is fine: the device closes it
   deliberately on the way into standby, and the server's heartbeat
   ([`heartbeat.ts`](../src/server/heartbeat.ts)) reclaims anything that dies without closing.
+- **A real Wi-Fi blip, as against a heartbeat cut in a test.** A device that drops and comes back
+  must not read its own reconnect as a match starting — that is what
+  [`scoringContextId`](../src/shared/protocol.ts) and
+  [`lib/scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts) are for, and the e2e suite covers
+  the mechanism. What it cannot produce is the real thing: a phone that loses its access point for
+  two minutes, with the camera off because its owner switched it off.
+
+The screen going black is *not* one of these stages. The screensaver is a display state and nothing
+else — inference, motion gating and tips carry on underneath it, and **only a touch or a key on the
+phone itself brings the screen back**. A match starting or ending does not.
 
 *To check:* mount the phone, pair it, and leave it alone through an evening. Confirm the camera
 stops when it should and comes back when a match starts, that the device sleeps and that a tap
-wakes it, and — the only measurement that answers the question this was built for — that the battery
-is in a reasonable state the next morning.
+wakes it, that switching the camera off from the frontend and then walking out of Wi-Fi range leaves
+it off when the phone reconnects, and — the only measurement that answers the question this was built
+for — that the battery is in a reasonable state the next morning.
 
 ### Full screen
 

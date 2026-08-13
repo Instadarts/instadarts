@@ -642,8 +642,8 @@ across socket reconnects, and different for a new match, a re-match, or another 
 device is given the hash and never either identifier.
 
 It exists because `scoring` alone cannot tell a reconnect from a match start — a socket that drops
-and comes back makes it go false and then true again. Reading that edge as a match beginning is what
-used to restart a camera its owner had just switched off.
+and comes back makes it go false and then true again. Read as a match beginning, that edge would
+restart a camera its owner had deliberately switched off.
 
 So each fresh state is classified against the one before it
 ([`lib/scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts)):
@@ -915,8 +915,6 @@ off, so nobody waits for a message that will never come.
 On the client it lands in [`lib/appConfig.ts`](../src/client/lib/appConfig.ts), a module-level store
 rather than React state, because the things that read it are not all React — the vision runtime, the
 camera and the still capture are plain modules built once and driven by callbacks.
-
-It replaced `media_config`, which carried the same idea for media alone.
 
 ### Match settings and device settings
 

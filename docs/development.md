@@ -207,16 +207,11 @@ state.
 model, and `media-video.spec.ts` does both at once, so `playwright.config.ts` puts all three in a
 `heavy` project with a `dependencies` on the rest, and none of them ever runs beside anything else.
 
-That started as one of two holds on a flake in `scorer-power.spec.ts` → *"turns the camera off and
-on, then powers the device off"*, which used to fail with the camera mysteriously back **on**. The
-cause was never in that test: CPU pressure made the device's page miss a heartbeat, the server cut
-it, and the reconnect made `scoring` go false and true again — an edge `useScorerPower` read as *a
-match beginning*, which started the camera the owner had just switched off.
-
-**That cause is dealt with**, by teaching the device to tell a reconnect from a match start — see
-`scoringContextId` above. The retry that held the test up in the meantime is gone. Keeping the heavy
-project is a separate and still-good idea: those three specs are genuinely expensive and starving the
-rest of the suite of CPU is how intermittent failures get made.
+**Starving the suite of CPU is how intermittent failures get made, and not hypothetically.** A page
+that misses a heartbeat under load is cut by the server, and a scoring device that reconnects then
+walks the whole path this app takes most seriously — see `scoringContextId` above. The symptom lands
+in whichever spec happened to be running, never in the one that caused it, which is why isolating the
+expensive specs is worth a `dependencies` edge rather than a comment asking people to be careful.
 
 **Worker count is not the lever.** The suite has failed at eight workers and passed at thirteen; what
 matters is which files happen to overlap, not how many run at once. If this reappears, look for a new

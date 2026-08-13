@@ -115,11 +115,10 @@ that.
 Two parts of it are about noise rather than about motion, and neither can be judged from synthetic
 pixels:
 
-- **A 5×5 separable Gaussian blur `[1,4,6,4,1]`, applied before the frame difference.** It replaced a
-  dilate-then-erode morphology, which had a blind spot: a dart edge pixel that fell just below the
-  threshold was lost and could not be recovered by anything downstream. Blurring first integrates the
-  neighbourhood instead, so a weak edge contributes rather than disappearing. Border pixels clamp to
-  the edge; the kernel is never truncated.
+- **A 5×5 separable Gaussian blur `[1,4,6,4,1]`, applied before the frame difference.** Every pixel
+  is compared carrying its neighbourhood with it, so a dart edge too faint to cross the threshold on
+  its own still contributes instead of being dropped — and a pixel dropped here is gone, since
+  nothing downstream can recover it. Border pixels clamp to the edge; the kernel is never truncated.
 - **A per-pixel threshold that varies with brightness** (`pixelThresholdMult`). The multiplier is a
   parabolic ramp: 1.0× at mid-grey, `pixelThresholdMult`× at black and white. It reads the
   **previous** frame's pixel — the board behind the dart — so a dark wire or a white segment gets a

@@ -7,10 +7,10 @@
 //
 // The numbers these work from are measurements against real boards and phones. Do not retune.
 //
-// Noise reduction: a 5×5 separable Gaussian blur [1,4,6,4,1] applied *before* frame differencing.
-// This is the Android-proven strategy — it integrates more spatial context than the old
-// dilate+erode morphology and avoids the blind spot where a dart edge pixel just below the
-// threshold is unrecoverably lost.
+// Noise reduction: a 5×5 separable Gaussian blur [1,4,6,4,1] applied *before* frame differencing,
+// so every pixel is compared carrying its neighbourhood with it. A dart edge too faint to cross the
+// threshold on its own still contributes rather than being dropped — and a pixel dropped here is
+// gone, because nothing downstream can recover it.
 
 /** The tuning. Every field here was measured, not chosen. */
 export interface MotionDefaults {

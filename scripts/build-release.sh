@@ -8,6 +8,7 @@
 #   instadarts.mjs                  the whole server, dependencies inlined
 #   client/                         the built frontend
 #   instadarts.config.example.jsonc every setting, at its default
+#   LICENSE                         ours: the GNU AGPL v3
 #   THIRD-PARTY-NOTICES.txt         what the bundled licences ask us to carry
 #   README.md
 #
@@ -73,11 +74,23 @@ npx esbuild src/server/index.ts \
   --metafile="$OUT/server-meta.json" \
   --outfile="$STAGE/instadarts.mjs"
 
-# ── 3. What everyone else's licences ask for ─────────────────────────
-#    The archive carries other people's code — express and ws inside the
-#    .mjs, React and LiteRT inside client/ — and every licence involved
-#    asks for its notice to travel with it. Generated from the metafile
-#    above, so it cannot fall behind what was actually bundled.
+# ── 3. What the licences ask for — ours first ────────────────────────
+#    The AGPL asks that a copy travel with every conveyed copy of the
+#    program, so this is a condition of distributing the archive at all
+#    rather than a courtesy. Fail loudly: an archive without it is one
+#    we had no right to hand out.
+
+if [ ! -f LICENSE ]; then
+  echo "!!! no LICENSE — refusing to build an archive we may not distribute" >&2
+  exit 1
+fi
+cp LICENSE "$STAGE/"
+
+#    Then everyone else's. The archive carries other people's code —
+#    express and ws inside the .mjs, React and LiteRT inside client/ —
+#    and every licence involved asks for its notice to travel with it.
+#    Generated from the metafile above, so it cannot fall behind what
+#    was actually bundled.
 
 echo "=== Third-party notices ==="
 node scripts/third-party-notices.mjs "$OUT/server-meta.json" "$STAGE/THIRD-PARTY-NOTICES.txt"

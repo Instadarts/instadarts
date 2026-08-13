@@ -6,6 +6,22 @@ parts by hand.
 
 This repository is where the pipeline is developed. There is no upstream to defer to.
 
+## Where the model came from
+
+`src/client/public/models/s_960.tflite` and `s_1280.tflite` are **ours**: an architecture of our own,
+trained here on training data collected and labelled here. Nothing is inherited and nothing is
+fine-tuned from somebody else's weights, so no upstream licence reaches this repository — they are
+covered by the same GNU AGPL v3 as the code, in [`LICENSE`](../LICENSE).
+
+Worth stating explicitly because it is the question a reader of a repository that ships weights will
+have, and because the answer is not the usual one. Detection weights in this space are commonly
+Ultralytics-derived, which would drag AGPL obligations in from outside and constrain what the rest of
+the stack could be licensed as. That is not the situation here.
+
+The two differ only in input size — 960 and 1280 — and
+[`visionRuntime.ts`](../src/client/vision/visionRuntime.ts) picks between them. The training data
+itself is not in this repository.
+
 ## The path a dart takes
 
 ```

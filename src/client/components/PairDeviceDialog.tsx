@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { PairingCode } from '../hooks/useScoringDevices';
+import { QrCode } from './QrCode';
+import { pairingUrl } from '../lib/pairingUrl';
 
 interface PairDeviceDialogProps {
   code: PairingCode | null;
@@ -8,8 +10,12 @@ interface PairDeviceDialogProps {
 }
 
 /**
- * The pairing code, and where to type it. The code is short because somebody reads it off one
- * screen and taps it into another; the link is there because that is faster when both are to hand.
+ * The pairing code, as a thing to scan and as a thing to type.
+ *
+ * The QR is first because it is what the device being paired is best at: a camera phone is already
+ * pointed at a screen and already has a scanner, and reading six characters off one screen to tap
+ * into another is the slowest part of setting this up. The code stays, in full, for the phone whose
+ * scanner will not open, or which is already on the scoring page.
  */
 export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialogProps) {
   const remaining = useCountdown(code?.expiresAt ?? null);
@@ -23,8 +29,18 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-sm text-gray-400">Scan this with the camera device:</p>
+      <div className="flex justify-center">
+        {/* Padded in white rather than sitting on the dark panel: the quiet zone the encoder draws
+            is only a quiet zone if what surrounds it is the same colour as it. */}
+        <div className="rounded-lg bg-white p-2">
+          <QrCode text={pairingUrl(code.code)} size={180} />
+        </div>
+      </div>
       <p className="text-sm text-gray-400">
-        Open <span className="font-mono text-gray-200">{scorerUrl}</span> on the camera device and enter:
+        Or open{' '}
+        <span className="font-mono text-gray-200">{scorerUrl}</span>
+        {' '}there and enter:
       </p>
       <p className="text-4xl font-mono font-bold tracking-[0.3em] text-green-400 text-center select-text">
         {code.code}

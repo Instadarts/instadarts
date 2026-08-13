@@ -218,3 +218,98 @@ test.describe('scoring device pairing', () => {
     await stranger.close();
   });
 });
+
+// ============================================================
+// Pairing by scanning
+// ============================================================
+//
+// The QR carries the same six characters the dialog prints, wrapped in a url the phone can simply
+// open. Nothing about the pairing itself changes — these tests are about the phone arriving at the
+// scoring page with a code already in hand instead of somebody typing one.
+
+test.describe('pairing by scanning', () => {
+  test('a scanned link pairs the phone with nobody typing anything', async ({ browser }) => {
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    await player.goto('/');
+    const code = await requestPairingCode(player);
+
+    // The dialog offers the code as something to point a camera at, beside the characters.
+    await expect(player.getByRole('img', { name: 'Pairing code, as a QR code' })).toBeVisible();
+
+    // What scanning that does: open the scoring page with the code already attached.
+    const context = await browser.newContext();
+    const scorer = await context.newPage();
+    await scorer.goto(`/scorer?code=${code}`);
+
+    // No code field, no Pair button — it is already somebody's camera.
+    await expect(scorer.getByTestId('scorer-status')).toHaveText('Ready — no match running');
+    await expect(player.getByText('connected')).toBeVisible();
+    await expect(scorer.getByPlaceholder('CODE')).toHaveCount(0);
+
+    // And the code is out of the address bar. It is single-use, so a phone that restores this tab
+    // tomorrow morning must not open on a refusal about a code its owner never saw.
+    await expect.poll(() => scorer.evaluate(() => window.location.search)).toBe('');
+    await expect.poll(() => scorer.evaluate(() => window.location.pathname)).toBe('/scorer');
+
+    await frontend.close();
+    await context.close();
+  });
+
+  test('a bad code in the link leaves the phone on the ordinary pairing screen', async ({ browser }) => {
+    const context = await browser.newContext();
+    const scorer = await context.newPage();
+    // Right shape, never minted — so it reaches the server and is refused, rather than being
+    // discarded as malformed before it is sent.
+    await scorer.goto('/scorer?code=ZZZZZZ');
+
+    await expect(scorer.getByPlaceholder('CODE')).toBeVisible();
+    await expect.poll(() => scorer.evaluate(() => window.location.search)).toBe('');
+
+    await context.close();
+  });
+
+  test('a scanned link takes a phone that already belongs to somebody, and keeps its settings', async ({ browser }) => {
+    const first = await browser.newContext();
+    const owner = await first.newPage();
+    await owner.goto('/');
+
+    const scorer = await openScorer(browser);
+    await pairScorer(scorer.page, await requestPairingCode(owner));
+    await expect(owner.getByText('connected')).toBeVisible();
+
+    // Everything that describes this phone rather than who it answers to.
+    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
+    await scorer.page.getByPlaceholder('Name this device').blur();
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByLabel('Screensaver').uncheck();
+    await scorer.page.getByRole('button', { name: 'Done' }).click();
+
+    // Somebody else's screen, somebody else's code — and no unpairing first. Scanning is the whole
+    // interaction: a phone on a wall should not have to be talked out of its last pairing before it
+    // can be given a new one.
+    const second = await browser.newContext();
+    const newOwner = await second.newPage();
+    await newOwner.goto('/');
+    const code = await requestPairingCode(newOwner);
+    await scorer.page.goto(`/scorer?code=${code}`);
+
+    await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
+    await expect(newOwner.getByText('connected')).toBeVisible();
+    await expect(newOwner.getByText('Board camera')).toBeVisible();
+
+    // The settings are untouched: they describe this camera on this mount, and none of that changed
+    // by it being handed to somebody else.
+    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('Board camera');
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
+
+    // The browser it left is told, rather than being left holding a camera that is simply never
+    // heard from again. Its device panel has been open since it showed its code.
+    await expect(owner.getByText('offline')).toBeVisible();
+
+    await first.close();
+    await second.close();
+    await scorer.context.close();
+  });
+});

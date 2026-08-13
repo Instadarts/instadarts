@@ -11,6 +11,7 @@ import {
   type ScorerIdentity,
 } from '../lib/scorerStorage';
 import { classifyScoringActivation, type ScoringActivation } from '../lib/scorerReconnect';
+import { clearPairingCode, readPairingCode } from '../lib/pairingUrl';
 
 export type ScorerLinkStatus = 'connecting' | 'unpaired' | 'pairing' | 'waiting' | 'active' | 'full';
 
@@ -62,6 +63,14 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
 
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  /**
+   * A code this page was opened with, from a scanned QR — read once, and spent once.
+   *
+   * A ref rather than state because it is neither rendered nor reactive: it is an instruction that
+   * arrived with the page, carried out on the first connection and then gone. Reading it at mount
+   * also means it survives the address bar being tidied immediately afterwards.
+   */
+  const pendingPairingCode = useRef<string | null>(readPairingCode());
   const nameRef = useRef(name);
   nameRef.current = name;
   /** Set once `send` exists, so the pairing handler below can answer with this device's name. */
@@ -133,6 +142,35 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
   const { send, connected } = useWebSocket(handleMessage, { resumeSession: false, standby });
   sendRef.current = send;
 
+  /** Everything this phone remembers about being somebody's camera, dropped. The settings stay. */
+  const clearPairingState = useCallback(() => {
+    forgetIdentity();
+    setIdentity(null);
+    stateRef.current = null;
+    setState(null);
+    reconnectBaseline.current = null;
+    awaitingFreshState.current = true;
+    hasConfirmedState.current = false;
+    setActivation(null);
+  }, []);
+
+  /**
+   * Give a pairing up from a connection that has not identified itself yet — the scanned-code path.
+   *
+   * The hello is not redundant. A socket may only unpair the device it is bound to, and a page that
+   * has just loaded is bound to nothing, so without identifying first the old owner is never told
+   * and is left with a camera in its list that is simply never coming back. Both messages go out in
+   * order down one socket, so the server sees "this is who I was" and "I am giving that up" before
+   * it sees anybody else's code.
+   */
+  const forfeitPairing = useCallback(() => {
+    const current = identityRef.current;
+    if (!current) return;
+    send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: nameRef.current });
+    send({ type: 'scorer_unpair' });
+    clearPairingState();
+  }, [send, clearPairingState]);
+
   // Identify on every connection, not once on mount: a reconnect after a server restart is exactly
   // when this matters most.
   //
@@ -149,11 +187,27 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
       setState(null);
       return;
     }
+    // A scanned code outranks the pairing this phone already had. Handled here rather than in its
+    // own effect so that it cannot race the hello below: on one connection this device either
+    // identifies as who it was, or becomes somebody else's — never both in an order nobody chose.
+    const code = pendingPairingCode.current;
+    if (code) {
+      pendingPairingCode.current = null;
+      // Out of the address bar immediately: a pairing code is single-use, and a phone that restores
+      // its tabs tomorrow morning must not greet its owner by trying to redeem a spent one.
+      clearPairingCode();
+      if (identityRef.current) forfeitPairing();
+      setPairing(true);
+      setRefusal(null);
+      send({ type: 'scorer_pair', code });
+      return;
+    }
+
     const current = identityRef.current;
     if (current) {
       send({ type: 'scorer_hello', deviceId: current.deviceId, token: current.token, name: nameRef.current });
     }
-  }, [connected, send]);
+  }, [connected, send, forfeitPairing]);
 
   const pair = useCallback((code: string) => {
     setPairing(true);
@@ -170,18 +224,13 @@ export function useScorerLink({ standby = false, onServerMessage }: ScorerLinkOp
    * a new code.
    */
   const unpair = useCallback(() => {
+    // No hello first, unlike `forfeitPairing`: a phone being unpaired by hand has been sitting here
+    // paired, so its socket is already bound and the server knows whose device it is.
     send({ type: 'scorer_unpair' });
-    forgetIdentity();
-    setIdentity(null);
-    stateRef.current = null;
-    setState(null);
-    reconnectBaseline.current = null;
-    awaitingFreshState.current = true;
-    hasConfirmedState.current = false;
-    setActivation(null);
+    clearPairingState();
     setRefusal(null);
     setPairing(false);
-  }, [send]);
+  }, [send, clearPairingState]);
 
   /**
    * What this device's camera is doing, and why it is not doing it.

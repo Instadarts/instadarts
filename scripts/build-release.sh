@@ -8,6 +8,7 @@
 #   instadarts.mjs                  the whole server, dependencies inlined
 #   client/                         the built frontend
 #   instadarts.config.example.json  every setting, commented out
+#   THIRD-PARTY-NOTICES.txt         what the bundled licences ask us to carry
 #   README.md
 #
 # What the reader has to do with that is install Node and run `node instadarts.mjs`. **No npm
@@ -69,9 +70,19 @@ npx esbuild src/server/index.ts \
   --target="node${NODE_MAJOR}" \
   --format=esm \
   --banner:js="$banner" \
+  --metafile="$OUT/server-meta.json" \
   --outfile="$STAGE/instadarts.mjs"
 
-# ── 3. What the reader reads ─────────────────────────────────────────
+# ── 3. What everyone else's licences ask for ─────────────────────────
+#    The archive carries other people's code — express and ws inside the
+#    .mjs, React and LiteRT inside client/ — and every licence involved
+#    asks for its notice to travel with it. Generated from the metafile
+#    above, so it cannot fall behind what was actually bundled.
+
+echo "=== Third-party notices ==="
+node scripts/third-party-notices.mjs "$OUT/server-meta.json" "$STAGE/THIRD-PARTY-NOTICES.txt"
+
+# ── 4. What the reader reads ─────────────────────────────────────────
 
 cp instadarts.config.example.json "$STAGE/"
 if [ -f README.md ]; then
@@ -80,7 +91,7 @@ else
   echo "!!! no README.md — the archive will ship without one"
 fi
 
-# ── 4. The archive ───────────────────────────────────────────────────
+# ── 5. The archive ───────────────────────────────────────────────────
 
 # A .zip rather than a .tar.gz, because Windows opens one by double-clicking and needs a program
 # for the other. `zip` where it exists, Python's zipfile where it does not — the archive is the

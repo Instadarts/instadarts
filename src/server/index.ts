@@ -14,10 +14,16 @@ import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
 import { CLIENT_DIR, QUIET } from './env';
-import { CONFIG, reportConfig } from './config';
+import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
-// everything below is sized by it.
+// everything below is sized by it — and a settings file that could not be read at all stops us here,
+// with the reason and nothing else. A deployment that believes it is configured and is not is worse
+// than one that will not start.
+if (CONFIG_FATAL) {
+  console.error(CONFIG_FATAL);
+  process.exit(1);
+}
 reportConfig();
 
 // Find the installed game modes. A deployment adds or removes one by adding or removing a file in

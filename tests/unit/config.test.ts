@@ -36,11 +36,12 @@ describe('with no file at all', () => {
     vi.resetModules();
     // A path that is not there, which is the ordinary case: an install nobody has configured.
     vi.stubEnv('INSTADARTS_CONFIG', join(dir, 'nothing-here.json'));
-    const { CONFIG, CONFIG_PATH, CONFIG_COMPLAINTS } = await import('../../src/server/config');
+    const { CONFIG, CONFIG_PATH, CONFIG_COMPLAINTS, CONFIG_FATAL } = await import('../../src/server/config');
 
     expect(CONFIG).toEqual(CONFIG_DEFAULTS);
     expect(CONFIG_PATH).toBe(null);
     expect(CONFIG_COMPLAINTS).toEqual([]);
+    expect(CONFIG_FATAL).toBe(null);
   });
 });
 
@@ -122,10 +123,15 @@ describe('what the file gets wrong', () => {
   it('refuses to start on a file it cannot parse', async () => {
     // A single value being wrong is worth surviving; a file that is not JSON means the operator's
     // intent is entirely unknown, and starting anyway would run a deployment nobody asked for.
-    await expect(load('{ "server": { "port": 3000 } ')).rejects.toThrow(/not valid JSON/);
+    // Reported rather than thrown, so what reaches the operator is the reason and not a stack.
+    const { CONFIG_FATAL, CONFIG } = await load('{ "server": { "port": 3000 } ');
+    expect(CONFIG_FATAL).toMatch(/not valid JSON/);
+    // And nothing half-applied: what is left is the defaults, which nobody will get to run.
+    expect(CONFIG).toEqual(CONFIG_DEFAULTS);
   });
 
   it('refuses to start on a file that is not an object', async () => {
-    await expect(load('[1, 2, 3]')).rejects.toThrow(/should hold an object/);
+    const { CONFIG_FATAL } = await load('[1, 2, 3]');
+    expect(CONFIG_FATAL).toMatch(/should hold an object/);
   });
 });

@@ -248,7 +248,23 @@ function readConfig(): { config: AppConfig; from: string | null } {
   };
 }
 
-const { config, from } = readConfig();
+/**
+ * Held rather than thrown.
+ *
+ * A file that cannot be read or parsed still has to stop the server, but a throw from a module's top
+ * level is a stack trace, and a stack trace is the wrong answer to a mistyped brace: it buries the
+ * one line that says which file and where. So the reason is kept here and `index.ts` says it plainly
+ * and exits.
+ */
+let fatal: string | null = null;
+
+let config = CONFIG_DEFAULTS;
+let from: string | null = null;
+try {
+  ({ config, from } = readConfig());
+} catch (err) {
+  fatal = (err as Error).message;
+}
 
 /** Where the settings came from, or null if nothing was found and the defaults are the deployment. */
 export const CONFIG_PATH = from;
@@ -258,6 +274,9 @@ export const CONFIG = config;
 
 /** What the file got wrong, for whoever is starting the server to hear about. */
 export const CONFIG_COMPLAINTS = complaints;
+
+/** Why the settings could not be used at all, or null if they could. Fatal — see above. */
+export const CONFIG_FATAL = fatal;
 
 /** Said once at boot, and only when there is something to say or somebody to say it to. */
 export function reportConfig(): void {

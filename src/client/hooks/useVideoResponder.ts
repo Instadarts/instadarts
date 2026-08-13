@@ -19,11 +19,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, MediaRole, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
 import { clampAudience, directorTiming, excluded } from '../../shared/media';
-import type { Mesh } from '../media/mesh';
+import type { Mesh, MeshLink } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
 
 interface Options {
   meshRef: React.MutableRefObject<Mesh | null>;
+  /**
+   * The links as they stand — reactive, where `meshRef` deliberately is not.
+   *
+   * Wanted for one thing only: noticing that somebody new can now be told something. See the effect
+   * that repeats the announcement.
+   */
+  links: MeshLink[];
   sourceRef: React.MutableRefObject<VideoFrameSource | null>;
   /** Where the director's commands land. Held apart from the frame source: this one survives a
    *  camera restart, and the source does not. */
@@ -54,7 +61,7 @@ export interface VideoResponder {
   audience: () => readonly MediaRole[] | null;
 }
 
-export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
+export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
   /** What the owner asked for, which is not the same as what is happening. */
   const [wanted, setWanted] = useState(false);
   /**
@@ -67,6 +74,8 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
   const audience = useRef<MediaRole[]>([]);
   const publisher = useRef<ReturnType<typeof createVideoPublisher> | null>(null);
   const [publishing, setPublishing] = useState(false);
+  /** The last thing this camera said about itself, or null if it has never said anything. */
+  const last = useRef<{ on: boolean; reason?: VideoRefusal } | null>(null);
 
   /**
    * Tell every viewer where the feed stands — including, and especially, the ones it is not for.
@@ -80,6 +89,8 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
   const announce = useCallback((on: boolean, reason?: VideoRefusal) => {
     const mesh = meshRef.current;
     if (!mesh) return;
+    // Kept so it can be said again to somebody who could not hear it the first time — see below.
+    last.current = { on, reason };
 
     const addressed: ControlMessage = reason ? { kind: 'video_state', on, reason } : { kind: 'video_state', on };
     for (const link of mesh.viewers(on ? audience.current : undefined)) link.sendControl(addressed);
@@ -135,6 +146,28 @@ export function useVideoResponder({ meshRef, sourceRef, directRef, tier, profile
       setPublishing(false);
     };
   }, [wanted, tier, cameraActive, profile, meshRef, sourceRef, announce]);
+
+  /**
+   * Say it again whenever somebody new could hear it.
+   *
+   * Every `announce` above fires at a moment that matters to the *camera*: a feed starting, stopping,
+   * being refused, being re-addressed. A viewer arriving is a moment that matters to somebody else —
+   * a spectator opening a match where a feed is already running, or any peer whose channels finish
+   * opening a fraction after the announcement went out. `sendControl` drops a message on a channel
+   * that is not open yet, and from the other end a dropped message and a camera that never spoke are
+   * the same silence.
+   *
+   * There is nothing the viewer can do about it: `video_state` is a camera telling, and the protocol
+   * has no matching question. So the camera repeats its last word instead — whatever that was, a
+   * running feed or a refusal — whenever the set of peers that could hear it changes. One control
+   * message per viewer per roster change, and idempotent at the other end.
+   *
+   * Keyed on *which* peers are reachable rather than on the array, which is rebuilt on every change.
+   */
+  const reachable = links.filter((link) => link.ready).map((link) => link.peer.peerId).sort().join(' ');
+  useEffect(() => {
+    if (last.current) announce(last.current.on, last.current.reason);
+  }, [reachable, announce]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     // The one command anyone may send. Answered before the ownership check rather than after, so the

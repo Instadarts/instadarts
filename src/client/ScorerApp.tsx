@@ -65,6 +65,7 @@ export function ScorerApp() {
 
   const video = useVideoResponder({
     meshRef,
+    links: mesh.links,
     sourceRef: videoSource,
     directRef: directVideo,
     tier: wantsMedia,

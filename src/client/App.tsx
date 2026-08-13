@@ -93,6 +93,7 @@ export function App() {
 
   const evidence = useDartEvidence({
     mesh: media.mesh,
+    links: media.links,
     currentVisit: match?.currentVisit,
     isThrower: Boolean(isThrower),
     // Every dart the evidence asks about is also a shot the director calls, at the same square. Two

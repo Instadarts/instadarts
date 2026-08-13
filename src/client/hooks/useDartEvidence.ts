@@ -21,7 +21,7 @@ import { MEDIA_ROLES, STILL } from '../../shared/media';
 import { dartEvidence } from '../lib/appConfig';
 import type { CurrentVisit } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
-import type { Mesh } from '../media/mesh';
+import type { Mesh, MeshLink } from '../media/mesh';
 import { e2eEnabled } from '../lib/e2e';
 
 const TIMING_LIMIT = 20;
@@ -47,6 +47,12 @@ export function dartRegion(dart: { x: number; y: number }): Region {
 
 interface Options {
   mesh: Mesh | null;
+  /**
+   * The links as they stand, so that a request dropped on a channel that was not open yet is tried
+   * again the moment one is. Reactive where `mesh` is not, and wanted only for that — the same
+   * reason `useVideoFeed` watches them.
+   */
+  links: MeshLink[];
   /** The visit being thrown, or undefined between visits. */
   currentVisit: CurrentVisit | undefined;
   /** Whether this user is the one throwing — only they may ask their camera for anything. */
@@ -84,7 +90,7 @@ export interface DartEvidence {
   available: boolean;
 }
 
-export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Options): DartEvidence {
+export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }: Options): DartEvidence {
   const [images, setImages] = useState<(string | undefined)[]>([]);
   /** Object URLs we made, so they can be revoked. A blob URL leaks until it is. */
   const urls = useRef<(string | undefined)[]>([]);
@@ -161,7 +167,9 @@ export function useDartEvidence({ mesh, currentVisit, isThrower, direct }: Optio
       directRef.current?.(region, dartEvidence().transitionMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
-  }, [darts, isThrower, measuring]);
+    // `links` is not read in here — it is the signal that a link may have become writable,
+    // which is what turns the `if (!sent) continue;` above into a retry rather than a loss.
+  }, [darts, isThrower, measuring, links]);
 
   const handleControl = useCallback((from: string, message: ControlMessage, payload?: Uint8Array) => {
     if (message.kind !== 'still' || !payload) return;

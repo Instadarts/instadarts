@@ -502,7 +502,13 @@ test.describe('board video', () => {
 
     // The frontend will not have asked — it can see the tier in the roster — so ask by hand, which
     // is what tests the device's own gate rather than the frontend's politeness.
-    await expect.poll(() => cameraPeer(host), { timeout: 20_000 }).toBeTruthy();
+    //
+    // Waiting for the link and not merely for the roster entry, because asking by hand skips the
+    // retry the app itself has: `useVideoFeed` only records that it asked when `sendControl`
+    // reported the message went, and tries again when the links change. A bare `sendControl` on a
+    // channel that is still opening is dropped, and the refusal being waited for below would never
+    // be sent — a camera that was never asked looks exactly like one that ignored the question.
+    await linkedToCamera(host);
     const camera = await cameraPeer(host);
     expect(camera.tier).toBe('stills');
     await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, { kind: 'video_start' }), camera.peerId);

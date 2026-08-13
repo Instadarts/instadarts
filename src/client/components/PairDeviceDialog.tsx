@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { PairingCode } from '../hooks/useScoringDevices';
 import { QrCode } from './QrCode';
+import { CopyableText } from './CopyableText';
 import { pairingUrl } from '../lib/pairingUrl';
 
 interface PairDeviceDialogProps {
@@ -39,7 +40,10 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
       </div>
       <p className="text-sm text-gray-400">
         Or open{' '}
-        <span className="font-mono text-gray-200">{scorerUrl}</span>
+        <CopyableText
+          value={scorerUrl}
+          className="font-mono text-gray-200 hover:text-green-400 underline decoration-dotted underline-offset-2"
+        />
         {' '}there and enter:
       </p>
       <p className="text-4xl font-mono font-bold tracking-[0.3em] text-green-400 text-center select-text">

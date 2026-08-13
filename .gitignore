@@ -1,10 +1,14 @@
 plans
 tmp
 node_modules
-dist
 .vscode
 test-results
 playwright-report
+
+# Build output. Not committed — a release is built by CI and attached to the GitHub release, so
+# nobody has to build this and the repository never carries 43MB of WASM per revision.
+dist
+release
 
 # A deployment's own settings. The committed file is instadarts.config.example.json.
 instadarts.config.json

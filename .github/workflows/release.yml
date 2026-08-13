@@ -1,0 +1,69 @@
+# Build the downloadable release and attach it to the GitHub release.
+#
+# Nothing built is committed: the repository holds source, and `dist/` would otherwise put 43MB of
+# WASM into every revision of it. This is where that build happens instead.
+#
+# Triggered by a version tag — `git tag v0.1.0 && git push --tags` — or by hand from the Actions
+# tab, which builds the archive and uploads it as a workflow artifact without publishing anything.
+# That is the dry run: it exercises the whole path without a release existing.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release and upload the archive to it
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same floor package.json declares. Kept as a literal rather than read from the file so
+      # that a bump in one place fails loudly here rather than being silently followed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: npm
+
+      - run: npm ci
+
+      # A release nobody checked is a release nobody should download. Cheap enough to be
+      # unconditional: the unit suite is seconds, and the typechecks are what `npm run build` does
+      # not do for the client.
+      - name: Test and typecheck
+        run: |
+          npm test
+          npx tsc -p tsconfig.server.json --noEmit
+          npx tsc -p tsconfig.client.json --noEmit
+
+      # A tag names the version; a manual run has no tag, so package.json names it and the archive
+      # is stamped with the commit to say which build it actually is.
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(node -p "require('./package.json').version")+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the release archive
+        run: ./scripts/build-release.sh "${{ steps.version.outputs.value }}"
+
+      # For a manual run: the archive, downloadable from the workflow, with no release involved.
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: instadarts-${{ github.sha }}
+          path: release/*.zip
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/*.zip --generate-notes

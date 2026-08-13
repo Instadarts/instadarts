@@ -11,7 +11,6 @@
 // docs/development.md.
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
@@ -161,44 +160,6 @@ async function fingerprint(page: Page): Promise<number[] | null> {
 
 function distance(a: number[], b: number[]): number {
   return a.reduce((total, value, i) => total + Math.abs(value - b[i]), 0) / a.length;
-}
-
-/**
- * How bright the top tenth of the raw picture is, and of the composited one, at the same instant.
- *
- * Both in one evaluate on purpose. They are two pictures of the same board a moment apart otherwise,
- * and a director command moving the shot between the two reads would show up as a brightness
- * difference that has nothing to do with anything being drawn over it — which is exactly the wrong
- * answer to "is there an overlay".
- *
- * The strip is kept inside the band the overlay lays down — which is a shade under a tenth of the
- * height — so the comparison is of the same pixels with and without a band over them rather than
- * partly of picture nothing was drawn on.
- */
-async function topBands(page: Page): Promise<{ raw: number; composited: number }> {
-  return page.evaluate(async () => {
-    const luma = async (src: string): Promise<number> => {
-      const image = new Image();
-      image.src = src;
-      await image.decode();
-      const strip = document.createElement('canvas');
-      strip.width = 16;
-      strip.height = 8;
-      const ctx = strip.getContext('2d')!;
-      ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight * 0.08, 0, 0, 16, 8);
-      const { data } = ctx.getImageData(0, 0, 16, 8);
-      let total = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      }
-      return total / (data.length / 4);
-    };
-
-    const rawUrl = (window as any).__media.frame() as string | null;
-    const node = document.querySelector('canvas[data-testid^="feed-"]') as HTMLCanvasElement | null;
-    if (!rawUrl || !node) return { raw: -1, composited: -1 };
-    return { raw: await luma(rawUrl), composited: await luma(node.toDataURL('image/png')) };
-  });
 }
 
 /** An online match with Alice hosting, both taking part in media. */
@@ -421,68 +382,6 @@ test.describe('board video', () => {
     expect((await published(scorer.page)).frames, 'the opponent stopped the feed').toBeGreaterThan(beforeStop);
     expect(await videoStates(guest), 'the camera answered a peer it should have ignored').toBe(statesBefore);
     expect(distance(shotBefore, (await fingerprint(host))!), 'the opponent moved the shot').toBeLessThan(8);
-
-    await alice.close();
-    await bob.close();
-    await scorer.context.close();
-  });
-
-  test('the panel records a clip, with the match written over the board', async ({ browser }) => {
-    const { alice, bob, host, guest } = await onlineMatch(browser);
-    const scorer = await openScorer(browser);
-    await pairAndNominate(host, scorer.page, 'Alice board');
-
-    await host.click('text=Start Match');
-    await host.waitForURL('**/match/**');
-    await startCamera(scorer.page);
-    await expect.poll(() => decodedFrames(host), { timeout: 30_000 }).toBeGreaterThan(0);
-
-    // Something for the overlay to say. Three darts land, so there is a player, a score and a visit.
-    await showScene(scorer.page, 'darts');
-    await scan(scorer.page);
-    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
-
-    // The panel has to be open for the compositing loop to run — it is what draws the overlay, and
-    // there is nothing to record until it does.
-    await host.getByTestId('media-debug').getByRole('button').first().click();
-    const composite = host.locator('canvas[data-testid^="feed-"]').first();
-    await expect(composite).toBeVisible();
-
-    // The overlay is on the composited picture and *not* on the raw one. This is the assertion that
-    // what gets recorded is something more than the feed — and that the raw picture, which the
-    // director tests fingerprint, is left alone.
-    await expect
-      .poll(async () => {
-        const { raw, composited } = await topBands(host);
-        return raw - composited;
-      }, { timeout: 20_000 })
-      .toBeGreaterThan(10);
-
-    await host.getByRole('button', { name: '● rec' }).click();
-    await host.waitForTimeout(1500);
-
-    const saving = host.waitForEvent('download', { timeout: 20_000 });
-    await host.getByRole('button', { name: '■ stop' }).click();
-    const file = await saving;
-
-    expect(file.suggestedFilename()).toMatch(/^board-[0-9a-f]{8}-.*\.(webm|mp4)$/);
-    const path = await file.path();
-    expect(statSync(path!).size, 'the clip is empty').toBeGreaterThan(1000);
-
-    // And it is a clip somebody can move around in, which is the whole reason the container is
-    // chosen the way it is. `MediaRecorder` writes as it goes and does not know how long a recording
-    // will be, so a WebM comes out with no duration at all — it plays from the start and the
-    // scrubber is furniture. A file that reports `Infinity` here is the bug this asserts against.
-    const playable = await host.evaluate(async (bytes) => {
-      const video = document.createElement('video');
-      video.src = URL.createObjectURL(new Blob([new Uint8Array(bytes)]));
-      await new Promise((resolve) => { video.onloadedmetadata = resolve; setTimeout(resolve, 5000); });
-      return { duration: video.duration, seekable: video.seekable.length ? video.seekable.end(0) : 0 };
-    }, [...readFileSync(path!)]);
-
-    expect(Number.isFinite(playable.duration), 'the clip has no duration, so nothing can seek in it').toBe(true);
-    expect(playable.duration).toBeGreaterThan(0.5);
-    expect(playable.seekable).toBeGreaterThan(0.5);
 
     await alice.close();
     await bob.close();

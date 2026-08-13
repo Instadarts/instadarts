@@ -24,19 +24,19 @@ test.describe('Home screen', () => {
   test('invalid invite code redirects to home', async ({ page }) => {
     await page.goto('/lobby/join/DOESNOTEXIST');
     await page.waitForURL('/', { timeout: 10000 });
-    await expect(page.locator('text=InstaDarts')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
   });
 
   test('non-existent lobby redirects to home', async ({ page }) => {
     await page.goto('/lobby/nonexistent-id');
     await page.waitForURL('/', { timeout: 10000 });
-    await expect(page.locator('text=InstaDarts')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
   });
 
   test('non-existent match redirects to home', async ({ page }) => {
     await page.goto('/match/nonexistent-id');
     await page.waitForURL('/', { timeout: 10000 });
-    await expect(page.locator('text=InstaDarts')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
   });
 
   test('joining a full lobby redirects to home', async ({ browser }) => {
@@ -72,7 +72,7 @@ test.describe('Home screen', () => {
     await page3.goto(`/lobby/join/${code!.trim()}`);
     // Should redirect to home because lobby is full
     await page3.waitForURL('/', { timeout: 10000 });
-    await expect(page3.locator('text=InstaDarts')).toBeVisible();
+    await expect(page3.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();
@@ -112,7 +112,7 @@ test.describe('Home screen', () => {
     await page3.goto(`/lobby/join/${code!.trim()}`);
     // Should redirect to home because a joiner is already connected
     await page3.waitForURL('/', { timeout: 10000 });
-    await expect(page3.locator('text=InstaDarts')).toBeVisible();
+    await expect(page3.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();

@@ -14,6 +14,7 @@ import { LobbyPage } from './pages/LobbyPage';
 import { MatchScreen } from './pages/MatchScreen';
 import { JoinHandler } from './pages/JoinHandler';
 import { TopBar } from './components/TopBar';
+import { SourceFooter } from './components/SourceFooter';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
 import type { ControlMessage } from '../shared/media';
@@ -238,6 +239,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
+      <SourceFooter />
       <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} overlay={overlay} />
     </div>
   );

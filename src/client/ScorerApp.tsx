@@ -10,6 +10,7 @@ import { useMediaMesh } from './hooks/useMediaMesh';
 import { JoinView } from './pages/scorer/JoinView';
 import { ScorerPage } from './pages/scorer/ScorerPage';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
+import { SourceFooter } from './components/SourceFooter';
 import { loadSettings } from './lib/scorerStorage';
 
 /**
@@ -86,6 +87,7 @@ export function ScorerApp() {
           serverFull={link.refusal === 'server_full'}
           connected={link.connected}
         />
+        <SourceFooter />
       </div>
     );
   }
@@ -110,6 +112,7 @@ export function ScorerApp() {
         directVideo={directVideo}
         latencyMeterRef={latencyMeterRef}
       />
+      <SourceFooter />
       <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherAudience={video.audience} />
     </div>
   );

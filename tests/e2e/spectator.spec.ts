@@ -170,7 +170,7 @@ test.describe('Spectator mode', () => {
     // Spectator leaves
     await page2.click('text=Leave');
     await page2.waitForURL('/');
-    await expect(page2.locator('text=InstaDarts')).toBeVisible({ timeout: 5000 });
+    await expect(page2.getByRole('heading', { name: 'InstaDarts' })).toBeVisible({ timeout: 5000 });
 
     // Spectator tries to join same lobby via invite code — should not hang
     await page2.click('text=Join Online Match');

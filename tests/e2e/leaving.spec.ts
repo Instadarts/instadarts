@@ -117,11 +117,11 @@ test.describe('Lobby leave scenarios', () => {
     // Joiner leaves — should go to home
     await page2.click('text=Leave');
     await page2.waitForURL('/');
-    await expect(page2.locator('text=InstaDarts')).toBeVisible({ timeout: 5000 });
+    await expect(page2.getByRole('heading', { name: 'InstaDarts' })).toBeVisible({ timeout: 5000 });
 
     // Verify joiner STAYS on home (no stale lobby_state re-navigation)
     await page2.waitForTimeout(1500);
-    await expect(page2.locator('text=InstaDarts')).toBeVisible();
+    await expect(page2.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();

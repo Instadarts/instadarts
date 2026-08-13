@@ -24,6 +24,6 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
   first if you are about to run something.
 
 Deployment settings live in one optional file, described in
-[development.md](./development.md#settings) and shown with every knob commented out in
-[`instadarts.config.example.json`](../instadarts.config.example.json). There are no configuration
+[development.md](./development.md#settings) and shown with every knob at its default in
+[`instadarts.config.example.jsonc`](../instadarts.config.example.jsonc). There are no configuration
 environment variables — `NODE_ENV` decides whether a build is a development one, and that is all.

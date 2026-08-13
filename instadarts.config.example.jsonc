@@ -1,26 +1,39 @@
-// InstaDarts settings — an example, and inert as it stands.
+// InstaDarts settings — every knob there is, set to what it already does.
 //
-// To use it: copy this file to `instadarts.config.json`, beside the executable or in the directory
-// you start it from, and uncomment whatever you want to change. Every setting below is shown with
-// the value it already has, so uncommenting one without editing it changes nothing.
+// To use it: copy this file to `instadarts.config.jsonc`, beside the executable or in the directory
+// you start it from, and change what you want changed. Copied as it stands it changes nothing —
+// every value below is the one the server would have used anyway.
 //
-// Everything is optional, including the file itself. What you leave out keeps its default.
+// **Delete a line to go back to following the default.** That is not the same as setting it to the
+// number printed here: a deleted setting follows whatever a future version decides is right, and one
+// left in place keeps this number for good. If you have no opinion about a setting, deleting it is
+// the better answer.
+//
+// The file itself is optional too. With no file at all, all of this is what you get.
+//
+// `.jsonc` is JSON with comments — which is what this is, and why it is not named `.json`: an editor
+// told it is reading JSON is right to object to the lines below. `instadarts.config.json` is
+// accepted too, if you prefer the familiar name.
+//
+// Don't worry about the commas. A comma left dangling before a `}` or a `]` — which is what deleting
+// or commenting out the last setting in a section leaves behind — is understood and ignored.
 //
 // One thing that is deliberately NOT here: whether this is a development or a production build. That
 // is decided when the program is built, not when it is run.
 //
 // A value that is the wrong type or out of range is ignored and reported at startup — the default
-// stands and the server carries on. A file that is not valid JSON stops the server, because a
-// deployment that thinks it is configured and is not is worse than one that will not start.
+// stands and the server carries on. A file that cannot be read as JSON at all stops the server, and
+// says which line it gave up on, because a deployment that thinks it is configured and is not is
+// worse than one that will not start.
 
 {
   // ── The process itself ──────────────────────────────────────────────
   "server": {
-    // "port": 3000,
+    "port": 3000,
 
     // How big this deployment is sized for. The one number that scales the server: every limit it
     // refuses or evicts by is derived from this, so this is the only figure to change.
-    // "maxMatches": 10000
+    "maxMatches": 10000
   },
 
   // ── The playing browser ─────────────────────────────────────────────
@@ -32,7 +45,7 @@
     // Frames a second to ask the camera for. An ideal, not a demand: a camera that cannot manage it
     // gives what it can. Higher costs battery for pictures the motion gate mostly discards; lower
     // risks a dart landing between two frames.
-    // "cameraFrameRate": 15
+    "cameraFrameRate": 15
   },
 
   // ── Shared by every device in a match ───────────────────────────────
@@ -41,14 +54,14 @@
   "media": {
     // Whether this deployment carries video and stills between the devices in a match at all.
     // Off, the server relays nothing and neither app shows a thing.
-    // "enabled": true,
+    "enabled": true,
 
     // Where devices look up their own public address, so that two behind different routers can
     // find each other. "internal" is the STUN server this deployment carries itself, and is the
     // default — naming a public one instead means telling a stranger every player's address.
     //
-    // Listing anything here replaces that default, so "internal" has to be listed again to keep it:
-    //   ["internal"]                                    the default
+    // Whatever is listed here is the whole list, so "internal" has to stay in it to be used:
+    //   ["internal"]                                    as shipped
     //   ["internal", "stun:stun.example.org:19302"]     ours first, theirs as a fallback
     //   ["stun:stun.example.org:19302"]                 theirs only; nothing runs here
     //   []                                              neither: devices on one network only
@@ -56,7 +69,7 @@
     // None of this is needed for a match. It only decides whether two people in different houses
     // can see each other's board, and even with it there is no TURN and no relay: some pairs of
     // home routers simply cannot be connected, and the app treats that as ordinary.
-    // "iceUrls": ["internal"],
+    "iceUrls": ["internal"],
 
     // The UDP port the internal STUN server answers on.
     //
@@ -64,33 +77,33 @@
     // reverse proxy does not arrange — proxies forward TCP. Behind one, this port needs its own
     // firewall rule straight to this machine. On a home network it is reachable already and does
     // nothing useful, which is why it is safe to leave on.
-    // "stunPort": 3478,
+    "stunPort": 3478,
 
     // One photograph of part of the board: the close-up under a dart, and what a viewer is sent
     // when they ask what the board looks like.
     "still": {
       // Side of the delivered image, in pixels. Square.
-      // "size": 320
+      "size": 320
     },
 
     // The live picture a board camera publishes.
     "video": {
       // Side of the encoded picture, in pixels. Square, like everything else a camera here sends.
-      // "size": 320,
-      // "frameRate": 15,
+      "size": 320,
+      "frameRate": 15,
       // Bits per second. Fixed rather than adaptive: there is no bandwidth estimator to feed one.
-      // "bitrate": 500000
+      "bitrate": 500000
     },
 
     // The close-up shown under each dart as it lands.
     "dartEvidence": {
       // How much of the board it shows, as a fraction: enough to see which side of a wire a dart
       // is on. Smaller is a tighter crop.
-      // "regionSize": 0.25,
+      "regionSize": 0.25,
 
       // How long the live feed takes to swing onto a dart that has just landed. A camera moving to
       // a dart reads as somebody looking at it; 0 would be a cut.
-      // "transitionMs": 500
+      "transitionMs": 500
     }
   }
 }

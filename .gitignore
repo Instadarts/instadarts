@@ -10,5 +10,7 @@ playwright-report
 dist
 release
 
-# A deployment's own settings. The committed file is instadarts.config.example.json.
+# A deployment's own settings, under either accepted name. The committed file is
+# instadarts.config.example.jsonc.
+instadarts.config.jsonc
 instadarts.config.json

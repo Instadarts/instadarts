@@ -7,7 +7,7 @@
 #
 #   instadarts.mjs                  the whole server, dependencies inlined
 #   client/                         the built frontend
-#   instadarts.config.example.json  every setting, commented out
+#   instadarts.config.example.jsonc every setting, at its default
 #   THIRD-PARTY-NOTICES.txt         what the bundled licences ask us to carry
 #   README.md
 #
@@ -42,12 +42,12 @@ cp -r dist/client "$STAGE/client"
 #    code reads them. Everything is one module after bundling, so "first
 #    in the file" is genuinely first.
 #
-#    INSTADARTS_CONFIG is defaulted rather than set, so it only applies
-#    when the environment is silent — and it points beside this file, so
-#    the settings can sit next to the thing they configure whichever
-#    directory it is started from. A path that is not there falls through
-#    to the working directory, which is what makes it a default and not a
-#    demand.
+#    INSTADARTS_DIR names the directory beside this file, so the settings
+#    can sit next to the thing they configure whichever directory it is
+#    started from. A directory rather than a path, because the file has
+#    two accepted names and picking one here would rule out the other.
+#    It is a place to look and not a demand: nothing there means the
+#    working directory is tried next, exactly as without it.
 
 NODE_MAJOR="$(node --version | cut -d. -f1 | tr -d v)"
 
@@ -61,7 +61,7 @@ banner+="const require = __createRequire(import.meta.url);"
 banner+="const __here = __dir(__toPath(import.meta.url));"
 banner+="process.env.NODE_ENV = 'production';"
 banner+="process.env.CLIENT_DIR = __join(__here, 'client');"
-banner+="process.env.INSTADARTS_CONFIG = process.env.INSTADARTS_CONFIG ?? __join(__here, 'instadarts.config.json');"
+banner+="process.env.INSTADARTS_DIR = process.env.INSTADARTS_DIR ?? __here;"
 
 echo "=== Bundling server ==="
 npx esbuild src/server/index.ts \
@@ -84,7 +84,7 @@ node scripts/third-party-notices.mjs "$OUT/server-meta.json" "$STAGE/THIRD-PARTY
 
 # ── 4. What the reader reads ─────────────────────────────────────────
 
-cp instadarts.config.example.json "$STAGE/"
+cp instadarts.config.example.jsonc "$STAGE/"
 if [ -f README.md ]; then
   cp README.md "$STAGE/"
 else

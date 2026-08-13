@@ -886,7 +886,7 @@ them apart is the whole of this entry; when the distinction matters, name it.
 
 | | Who sets it | Where it lives | Scope |
 | --- | --- | --- | --- |
-| **Deployment settings** | whoever runs the server | `instadarts.config.json`, one optional file | the whole deployment |
+| **Deployment settings** | whoever runs the server | `instadarts.config.jsonc`, one optional file | the whole deployment |
 | **Match settings** | the lobby's host | in the lobby, then the match | one match |
 | **Device settings** | the person holding the phone | that browser's own storage | one device |
 

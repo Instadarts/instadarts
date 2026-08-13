@@ -4,14 +4,21 @@
 // for the knobs themselves and their defaults. It is entirely optional: with no file the defaults
 // are the deployment, which is what makes the executable something you can simply run.
 //
+// **Two extensions, and why.** The file carries comments, which JSON does not have — so a file named
+// `.json` is one an editor is right to complain about, and `.jsonc` is the name for what it actually
+// is. That is the one to prefer and the one shipped. `.json` is still accepted, because somebody who
+// renames it will not think of it as a mistake and should not be told it was.
+//
 // **Where it is looked for**, first hit wins:
 //
-//   1. `INSTADARTS_CONFIG`, if set — a path to the file, not a directory. The one environment
-//      variable in this story, and it locates the file rather than setting anything in it. It exists
-//      so a test run, or a second instance beside a first, can be pointed at its own file.
-//   2. `instadarts.config.json` in the working directory.
-//   3. `instadarts.config.json` beside the running executable, which is where it naturally sits when
-//      the program *is* the executable rather than a script handed to `node`.
+//   1. `INSTADARTS_CONFIG`, if set — a path to the file, not a directory. It locates the file rather
+//      than setting anything in it, so a test run, or a second instance beside a first, can be
+//      pointed at its own.
+//   2. `INSTADARTS_DIR`, if set — a directory to look in. What the release bundle sets, so that the
+//      settings can sit beside the thing they configure whichever directory it is started from.
+//   3. The working directory.
+//   4. Beside the running executable, which is where the file naturally sits when the program *is*
+//      the executable rather than a script handed to `node`.
 //
 // **What a bad file does.** A file that is present but cannot be read or parsed stops the server: a
 // deployment that thinks it is configured and is not is worth hearing about at boot rather than at
@@ -25,13 +32,18 @@ import { dirname, join, resolve } from 'path';
 import { CONFIG_DEFAULTS, INTERNAL_ICE, type AppConfig } from '../shared/config';
 import { QUIET } from './env';
 
-const FILE_NAME = 'instadarts.config.json';
+/** Preferred first. Both are the same format; only the name differs. */
+const FILE_NAMES = ['instadarts.config.jsonc', 'instadarts.config.json'];
 
 function candidatePaths(): string[] {
   const paths: string[] = [];
   if (process.env.INSTADARTS_CONFIG) paths.push(resolve(process.env.INSTADARTS_CONFIG));
-  paths.push(resolve(process.cwd(), FILE_NAME));
-  paths.push(join(dirname(process.execPath), FILE_NAME));
+  const dirs = [
+    ...(process.env.INSTADARTS_DIR ? [resolve(process.env.INSTADARTS_DIR)] : []),
+    process.cwd(),
+    dirname(process.execPath),
+  ];
+  for (const dir of dirs) for (const name of FILE_NAMES) paths.push(join(resolve(dir), name));
   return [...new Set(paths)];
 }
 
@@ -76,6 +88,48 @@ function stripComments(text: string): string {
     out += ch;
   }
   return out;
+}
+
+/**
+ * JSON, less a comma that separates nothing.
+ *
+ * The failure this exists for is **deleting a setting**, which is the one edit the shipped file
+ * actively invites: it spells every knob out, and dropping one is how you go back to following the
+ * default rather than pinning today's number forever. Delete the last line of a section and the line
+ * above it is left with a comma and nothing to separate. Strict JSON refuses that — and refuses it
+ * *pointing at the brace*, a line or more below the one that was actually touched.
+ *
+ * A knob commented out rather than deleted lands in the same place, from the other direction.
+ *
+ * Run after `stripComments`, so a comma separated from its bracket by nothing but a comment is seen
+ * for what it is. Replaced with a space rather than removed, which keeps every later position — and
+ * so every line number in a parse error — exactly where it was.
+ */
+function stripTrailingCommas(text: string): string {
+  const out = [...text];
+  let inString = false;
+  /** The last comma seen with only whitespace since. -1 when the run has been broken. */
+  let pending = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; pending = -1; continue; }
+    if (ch === ',') { pending = i; continue; }
+    if (ch === '}' || ch === ']') {
+      if (pending >= 0) out[pending] = ' ';
+      pending = -1;
+      continue;
+    }
+    // Anything else with content ends the run. `,,` therefore survives to be rejected: a doubled
+    // comma is a mistake with a value missing from it, not a comma with nothing left to separate.
+    if (ch.trim() !== '') pending = -1;
+  }
+  return out.join('');
 }
 
 /** Everything the file got wrong, gathered rather than thrown one at a time. */
@@ -164,6 +218,26 @@ function iceUrls(raw: Raw, path: string, key: string, fallback: string[]): strin
   return good;
 }
 
+/**
+ * The line the parser gave up on, quoted from the file the reader is actually looking at.
+ *
+ * `JSON.parse` reports a character offset and a line, but into the *stripped* text — and it names
+ * where the grammar broke rather than where the mistake is, which for a missing comma is the line
+ * after. Quoting the source line turns "position 392" into something a person can go and look at,
+ * and it comes from the original text because that is the one with the comments still in it.
+ *
+ * Comments are blanked rather than deleted and a trailing comma becomes a space, so line numbers
+ * survive both passes exactly. Returns nothing at all if the message has no position in it: a guess
+ * pointing at the wrong line would be worse than no line.
+ */
+function quoteLine(err: unknown, stripped: string, original: string): string {
+  const at = /at position (\d+)/.exec((err as Error).message);
+  if (!at) return '';
+  const line = stripped.slice(0, Number(at[1])).split('\n').length;
+  const source = original.split('\n')[line - 1];
+  return source === undefined ? '' : `\n  ${line} | ${source.trim()}`;
+}
+
 /** Anything in the file that no knob answers to. Almost always a typo, and always worth saying. */
 function reportUnknown(raw: Raw, path: string, known: string[]): void {
   for (const key of Object.keys(raw)) {
@@ -191,11 +265,12 @@ function readConfig(): { config: AppConfig; from: string | null } {
   }
   if (text === null || from === null) return { config: defaults, from: null };
 
+  const bare = stripTrailingCommas(stripComments(text));
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripComments(text));
+    parsed = JSON.parse(bare);
   } catch (err) {
-    throw new Error(`${from} is not valid JSON: ${(err as Error).message}`);
+    throw new Error(`${from} is not valid JSON: ${(err as Error).message}${quoteLine(err, bare, text)}`);
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${from} should hold an object with the sections server, frontend, scorer and media`);
@@ -290,6 +365,6 @@ export const CONFIG_FATAL = fatal;
 /** Said once at boot, and only when there is something to say or somebody to say it to. */
 export function reportConfig(): void {
   if (QUIET) return;
-  console.log(from ? `Settings: ${from}` : 'Settings: defaults (no instadarts.config.json)');
+  console.log(from ? `Settings: ${from}` : 'Settings: defaults (no instadarts.config.jsonc)');
   for (const complaint of complaints) console.warn(`  ${complaint}`);
 }

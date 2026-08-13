@@ -62,11 +62,26 @@ npm run build   # production build — and see the warning below
 ### Settings
 
 **One optional file, and no environment variables.** Copy
-[`instadarts.config.example.json`](../instadarts.config.example.json) to `instadarts.config.json`
+[`instadarts.config.example.jsonc`](../instadarts.config.example.jsonc) to `instadarts.config.jsonc`
 and edit it; with no file at all, the defaults are the deployment. It is looked for in the working
 directory and beside the running executable, and `INSTADARTS_CONFIG=/path/to/file` overrides both —
 that variable locates the file and sets nothing in it, which is what lets a second instance run
-beside a first.
+beside a first. `INSTADARTS_DIR` names a directory to look in rather than a file, and is what the
+release bundle sets so the settings can sit beside the executable.
+
+**The example holds every knob at its default**, so a copy of it changes nothing and the file shows
+its own shape rather than describing it. The cost is that a copy *pins* those values: a setting left
+in place keeps today's number even if a later version picks a better one, and only a setting deleted
+follows the default onwards. So deleting is the right way to say "no opinion", which is a large part
+of why a trailing comma has to be survivable. `tests/unit/config.test.ts` reads the example through
+the real loader and requires it to equal `CONFIG_DEFAULTS` exactly, so the file cannot drift from the
+code without a test saying so.
+
+**`.jsonc`, because that is what it is**: JSON with comments, which a file named `.json` would be
+telling an editor it is not. `instadarts.config.json` is accepted too — someone who renames it has
+not made a mistake. Comments are stripped before parsing, and so is a comma left dangling before a
+`}` or `]`, which is exactly what deleting the last setting in a section leaves behind. Strings
+are respected by both passes, so a `//` inside an ICE url survives.
 
 The knobs and their defaults are declared once in
 [`shared/config.ts`](../src/shared/config.ts); [`server/config.ts`](../src/server/config.ts) reads
@@ -89,10 +104,9 @@ plain modules built once.
 Nothing a user can change from the app's own screens belongs here — those are per-device settings and
 live in that screen's storage.
 
-**JSON with comments**, stripped before parsing, because a settings file that cannot explain itself
-is one nobody edits confidently. A value of the wrong type or out of range is ignored, the default
-stands, and it says which one on the way past; an unrecognised key is named for the same reason.
-A file that cannot be parsed at all stops the server with one line and no stack — a deployment that
+A value of the wrong type or out of range is ignored, the default stands, and it says which one on
+the way past; an unrecognised key is named for the same reason. A file that cannot be parsed at all
+stops the server with one line and no stack, quoting the line it gave up on — a deployment that
 believes it is configured and is not is worse than one that will not start.
 
 ```sh
@@ -114,7 +128,8 @@ What is *not* in the file is whether this is a development or a production build
 decided when the program is built, and it stays an environment variable because it is already true by
 the time a file could be read. `QUIET` and `CLIENT_DIR` are the same kind of thing — properties of
 the run rather than of the deployment — and are what is left in
-[`env.ts`](../src/server/env.ts).
+[`env.ts`](../src/server/env.ts). `INSTADARTS_CONFIG` and `INSTADARTS_DIR` are not settings at all:
+they say where to look for the file, and set nothing in it.
 
 ### Connections that vanish without closing
 

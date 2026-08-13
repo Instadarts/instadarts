@@ -393,6 +393,12 @@ test.describe('board video', () => {
 
     // Bob is linked to Alice's camera — that link is the only reason he could ever see her board —
     // and goes straight down it, bypassing anything the interface would or would not offer him.
+    //
+    // Waited for rather than assumed, because the count below is only meaningful once it has stopped
+    // moving for reasons of its own: a camera says its state again whenever the set of peers that can
+    // hear it changes, so a link finishing its negotiation mid-window is an announcement that nothing
+    // Bob did caused.
+    await linkedToCamera(guest);
     const camera = await cameraPeer(guest);
     expect(camera.own, 'the camera is not the opponent\'s').toBe(false);
 

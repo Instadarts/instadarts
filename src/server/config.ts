@@ -20,6 +20,9 @@
 //   4. Beside the running executable, which is where the file naturally sits when the program *is*
 //      the executable rather than a script handed to `node`.
 //
+// Test processes skip the two implicit locations. They may still name a fixture with either
+// environment variable, but a developer's deployment settings must not change a test run.
+//
 // **What a bad file does.** A file that is present but cannot be read or parsed stops the server: a
 // deployment that thinks it is configured and is not is worth hearing about at boot rather than at
 // the first dart. A single value that is the wrong type or out of range is a different thing — it is
@@ -40,8 +43,7 @@ function candidatePaths(): string[] {
   if (process.env.INSTADARTS_CONFIG) paths.push(resolve(process.env.INSTADARTS_CONFIG));
   const dirs = [
     ...(process.env.INSTADARTS_DIR ? [resolve(process.env.INSTADARTS_DIR)] : []),
-    process.cwd(),
-    dirname(process.execPath),
+    ...(process.env.NODE_ENV === 'test' ? [] : [process.cwd(), dirname(process.execPath)]),
   ];
   for (const dir of dirs) for (const name of FILE_NAMES) paths.push(join(resolve(dir), name));
   return [...new Set(paths)];

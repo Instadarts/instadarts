@@ -64,9 +64,14 @@ const webServer = [
   {
     command: 'node --import tsx/esm src/server/index.ts',
     url: `http://[::1]:${SERVER_PORT}/server-stats`,
-    // QUIET is a property of the run rather than of the deployment, so it stays an environment
-    // variable. Everything the deployment is tuned to goes in the file above, when there is one.
-    env: { QUIET: '1', ...(SETTINGS ? { INSTADARTS_CONFIG: SETTINGS } : {}) },
+    // NODE_ENV keeps a deployment config in the repository from leaking into the test harness.
+    // QUIET is also a property of the run rather than of the deployment. Everything the test is
+    // explicitly tuned to goes in the file above, when there is one.
+    env: {
+      NODE_ENV: 'test',
+      QUIET: '1',
+      ...(SETTINGS ? { INSTADARTS_CONFIG: SETTINGS } : {}),
+    },
   },
   {
     command: 'npx vite',

@@ -69,6 +69,10 @@ that variable locates the file and sets nothing in it, which is what lets a seco
 beside a first. `INSTADARTS_DIR` names a directory to look in rather than a file, and is what the
 release bundle sets so the settings can sit beside the executable.
 
+Test processes do not inspect the working directory or executable directory for settings. Unit and
+browser tests therefore run against defaults unless the harness explicitly supplies a fixture with
+`INSTADARTS_CONFIG` or `INSTADARTS_DIR`; a developer's local deployment file cannot affect them.
+
 **The example holds every knob at its default**, so a copy of it changes nothing and the file shows
 its own shape rather than describing it. The cost is that a copy *pins* those values: a setting left
 in place keeps today's number even if a later version picks a better one, and only a setting deleted

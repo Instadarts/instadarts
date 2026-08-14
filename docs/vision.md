@@ -104,6 +104,18 @@ harness calls (`runCamera`, `runBoard`) rather than one, because they answer dif
 frame's real cost can only be measured on the real source, and an answer can only be checked against
 a picture whose answer is known. Nobody knows what the camera is pointed at.
 
+**Step four is optional, and is the only part of setup that draws anything.** Offered from the
+results rather than imposed: point the phone at a real board and it runs the chosen configuration
+about twice a second, drawing a cyan spider where it thinks the board is and orange dots on the tips
+it finds, with a bar counting board points out of eight. It exists because everything before it
+proved the device can read *photographs* — which is what makes it a validation, and also what stops
+it being the whole story. Nobody has yet aimed this phone at the board it will watch, and the step
+that shows the model working is the same step that can say where to stand it.
+
+Everything drawn is filtered at the pipeline's own thresholds, so what appears is what would be
+scored and the bar can never read red under a spider that is showing. It computes no scores and
+displays none — the question is whether it can see the board, not what anybody hit.
+
 Reach it again from **Settings → Set up again**, which also clears the camera choice and its zoom —
 step one asks for them again. The decision logic is in
 [`lib/onboarding.ts`](../src/client/lib/onboarding.ts) and is unit-tested against fakes; everything

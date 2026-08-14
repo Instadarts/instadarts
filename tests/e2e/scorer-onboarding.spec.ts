@@ -15,6 +15,7 @@
 //   6. it settles on some working configuration and says which
 //   7. the two reference boards read 8/0 and 8/3 under whatever it settled on
 //   8. a phone that cannot have a camera is told why, and can still leave
+//   9. the optional last step draws what the model sees on the live feed
 //
 // (7) is also the only thing that checks the downscaled 1280 px images that ship to the client. The
 // rest of the suite asserts against the 1920 px originals in tests/media, so if a resize ever spoils
@@ -83,13 +84,13 @@ test.describe('setting up a scoring device', () => {
 
     // 2. The name comes first — answerable before the phone is anywhere near a board, and the only
     // step that needs nothing of the device. Nothing has asked for the camera yet.
-    await expect(scorer.getByText('Step 1 of 3 · Naming this device')).toBeVisible();
+    await expect(scorer.getByText('Step 1 of 4 · Naming this device')).toBeVisible();
     await expect(scorer.getByTestId('onboarding-preview')).toHaveCount(0);
     await nameDevice(scorer, 'Board camera');
 
     // 3. The camera comes next, and opens by itself because this context already granted access —
     // no second button to press. The preview carrying frames is the proof it really opened.
-    await expect(scorer.getByText('Step 2 of 3 · Choosing a camera')).toBeVisible();
+    await expect(scorer.getByText('Step 2 of 4 · Choosing a camera')).toBeVisible();
     // Setup is one screen with one thing to do on it: no status badge, no name field, no Settings.
     await expect(scorer.getByPlaceholder('Name this device')).toHaveCount(0);
     await expect(scorer.getByRole('button', { name: 'Settings' })).toHaveCount(0);
@@ -99,7 +100,7 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByTestId('onboarding-stages')).toHaveCount(0);
 
     await scorer.getByTestId('onboarding-start-checks').click();
-    await expect(scorer.getByText('Step 3 of 3 · Checking what this device can do')).toBeVisible();
+    await expect(scorer.getByText('Step 3 of 4 · Checking what this device can do')).toBeVisible();
 
     // 4. It reaches a verdict.
     await expect(scorer.getByTestId('onboarding-verdict')).toBeVisible({ timeout: RUN_TIMEOUT });
@@ -140,6 +141,17 @@ test.describe('setting up a scoring device', () => {
     // where the small model wins, the stream is still the one it was benchmarked at.
     const expected = settings.model === 's_1280' ? 1280 : 960;
     expect(await previewSize(scorer)).toEqual({ width: expected, height: expected });
+
+    // 9. The optional last step, on the way out. The fake camera is showing a real board with three
+    // darts in it, so this is the whole feature end to end against the real model: the spider is
+    // drawn, every board point is found, and three tips are marked. Nothing here is hardware —
+    // which is worth saying, because it is the only part of setup that draws anything.
+    await scorer.getByTestId('onboarding-try-board').click();
+    await expect(scorer.getByText('Step 4 of 4 · Pointing it at a board')).toBeVisible();
+    await expect(scorer.getByTestId('aim-overlay')).toBeVisible({ timeout: RUN_TIMEOUT });
+    await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-quality', 'full');
+    await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-points', '8');
+    await expect(scorer.getByTestId('aim-tips').locator('> g')).toHaveCount(3);
 
     // Leaving, and staying left, are asserted here rather than in a test of their own **because a
     // second full run is the single most expensive thing this suite can ask for** — two model loads
@@ -185,6 +197,25 @@ test.describe('setting up a scoring device', () => {
 
     // No hang, no half-torn-down runtime: the reload is what makes abandoning it safe.
     await expect(scorer.getByRole('button', { name: 'Settings' })).toBeVisible();
+    expect((await storedSettings(scorer)).didOnboard).toBe(true);
+
+    await frontend.close();
+    await phone.close();
+  });
+
+  test('the last step is optional — Done from the results leaves without it', async ({ browser }) => {
+    test.setTimeout(RUN_TIMEOUT + 60_000);
+    const { frontend, phone, scorer } = await pairedScorer(browser);
+    await nameDevice(scorer);
+    await scorer.getByTestId('onboarding-start-checks').click();
+    await expect(scorer.getByTestId('onboarding-verdict')).toBeVisible({ timeout: RUN_TIMEOUT });
+
+    // Both are offered; taking the plain one goes straight to scoring, and nothing loads a model to
+    // draw with on the way.
+    await expect(scorer.getByTestId('onboarding-try-board')).toBeVisible();
+    await scorer.getByTestId('onboarding-leave').click();
+    await expect(scorer.getByRole('button', { name: 'Settings' })).toBeVisible();
+    await expect(scorer.getByTestId('aim-overlay')).toHaveCount(0);
     expect((await storedSettings(scorer)).didOnboard).toBe(true);
 
     await frontend.close();

@@ -24,6 +24,9 @@ import {
 import { createOnboardingHarness } from '../../lib/onboardingHarness';
 import { useOnboardingCamera } from '../../hooks/useOnboardingCamera';
 import { saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
+import { useAimPreview } from '../../hooks/useAimPreview';
+import { AimStep } from './AimStep';
+import { BoardOverlay } from './BoardOverlay';
 import { CameraStep } from './CameraStep';
 import { NameStep } from './NameStep';
 
@@ -38,14 +41,15 @@ interface OnboardingViewProps {
   onDone: () => void;
 }
 
-/** Where the flow is. The last two are one step — the checks, before and after they have run. */
-type Step = 'name' | 'camera' | 'running' | 'finished';
+/** Where the flow is. `running` and `finished` are one step, before and after the checks have run. */
+type Step = 'name' | 'camera' | 'running' | 'finished' | 'aim';
 
 const STEP_LABEL: Record<Step, string> = {
-  name: 'Step 1 of 3 · Naming this device',
-  camera: 'Step 2 of 3 · Choosing a camera',
-  running: 'Step 3 of 3 · Checking what this device can do',
-  finished: 'Step 3 of 3 · Checking what this device can do',
+  name: 'Step 1 of 4 · Naming this device',
+  camera: 'Step 2 of 4 · Choosing a camera',
+  running: 'Step 3 of 4 · Checking what this device can do',
+  finished: 'Step 3 of 4 · Checking what this device can do',
+  aim: 'Step 4 of 4 · Pointing it at a board',
 };
 
 const VERDICT_COLOUR: Record<Verdict, string> = {
@@ -81,6 +85,10 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
   // braces, since leaving reloads the page, but a camera left running because a component unmounted
   // is not a thing to leave to chance.
   useEffect(() => dispose, [dispose]);
+
+  // The last step's live inference. Loads a model of its own — the self-test disposed its harness on
+  // the way to the results — and only while that step is open.
+  const reading = useAimPreview(camera.handle(), settings, step === 'aim');
 
   // The `settings` prop changes underneath this as decisions are applied, but nothing here reads it
   // again after the run starts — the starting configuration is taken once, at the top.
@@ -161,6 +169,9 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
               Camera preview
             </span>
           )}
+          {/* Over the video and inside the same square box, which is the whole reason the geometry
+              needs no scaling — see `BoardOverlay`. */}
+          {step === 'aim' && <BoardOverlay spider={reading?.spider ?? null} tips={reading?.tips ?? []} />}
         </div>
       )}
 
@@ -195,8 +206,23 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
               {failure ?? `Ready. Using the ${settings.model === 's_1280' ? '1280' : '960'} px model${describeOverrides(settings)}.`}
             </p>
           )}
+
+          {/* The one optional step, offered rather than imposed: the phone is already usable, and
+              this is for somebody standing next to a board who wants to see it work. Not offered
+              when the checks found nothing that works — there would be no configuration to show. */}
+          {step === 'finished' && !failure && (
+            <button
+              onClick={() => setStep('aim')}
+              data-testid="onboarding-try-board"
+              className="self-start px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
+            >
+              Test on a board
+            </button>
+          )}
         </>
       )}
+
+      {step === 'aim' && <AimStep reading={reading} camera={camera} />}
 
       {/* One button, on every step, that changes its word rather than coming and going.
 
@@ -213,7 +239,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
         data-testid="onboarding-leave"
         className="self-start px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
       >
-        {step === 'finished' ? 'Done' : 'Skip'}
+        {step === 'finished' || step === 'aim' ? 'Done' : 'Skip'}
       </button>
     </div>
   );

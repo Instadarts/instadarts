@@ -102,7 +102,9 @@ export default defineConfig({
    *
    * `media-codec` encodes and decodes real H.264 in software — there is no hardware encoder in a
    * headless container — `media-stills` drives a detection model to solve a homography before it can
-   * crop anything, and `media-video` does both at once. Any of them beside the specs that are
+   * crop anything, `media-video` does both at once, and `scorer-onboarding` runs the device
+   * self-test for real: five model loads and some thirty inferences on a CPU that has no GPU to fall
+   * back from. Any of them beside the specs that are
    * already driving a model is enough contention
    * to starve a scoring device's page until it misses a heartbeat, and a scoring
    * device that reconnects mid-match restarts a camera its owner had switched off
@@ -115,10 +117,22 @@ export default defineConfig({
    *
    * Note worker count is *not* the lever — the suite has failed at eight workers and passed at
    * thirteen. What matters is which files happen to overlap, not how many run at once.
+   *
+   * **`dependencies` orders projects; it does not serialise the files inside one.** The three specs
+   * in `heavy` still run beside each other, and Playwright 1.62 offers no per-project `workers` to
+   * change that — `Project` has no such field, so setting one is silently ignored rather than
+   * rejected. A project containing a single file is therefore the only way to make a spec run on its
+   * own, which is what `onboarding` below is for.
    */
   projects: [
-    { name: 'app', testIgnore: /media-codec|media-stills|media-video/ },
+    { name: 'app', testIgnore: /media-codec|media-stills|media-video|scorer-onboarding/ },
     { name: 'heavy', testMatch: /media-codec|media-stills|media-video/, dependencies: ['app'] },
+    // A project of its own, after `heavy`, because it is one file and a project's files are the only
+    // thing Playwright will run in parallel here. One file in a project of its own therefore runs
+    // alone — which nothing inside `heavy` does, and which this needs. Adding it to `heavy` as a
+    // fourth file cost a flake in roughly one run in three, and what failed was `media-stills`,
+    // which has nothing to do with it.
+    { name: 'onboarding', testMatch: /scorer-onboarding/, dependencies: ['heavy'] },
   ],
   // An explicit base URL means somebody else is running the app; there is nothing here to start.
   webServer: process.env.E2E_BASE_URL ? undefined : webServer,

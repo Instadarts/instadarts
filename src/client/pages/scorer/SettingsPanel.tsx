@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { MediaTier } from '../../../shared/media';
-import { saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
+import { resetSettings, saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
 import { GRACE_MINUTES, STANDBY_MINUTES, type MinuteBounds } from '../../lib/scorerPower';
 import { Slider } from './Slider';
 
@@ -179,7 +179,85 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         onChange={(v) => update({ standbyAfterMinutes: v })}
       />
 
-      <Unpair onUnpair={onUnpair} />
+      {/* Start over: `resetSettings` keeps the name, the screensaver, both timers and what this
+          phone is willing to share, and puts back everything the self-test is about to work out for
+          itself. Then a reload, which is what makes it safe — a fresh page rebuilds the vision
+          runtime and opens on onboarding, rather than unpicking a loaded model and a running camera
+          in place. Confirmed first, because it throws away a lens calibration somebody may have
+          spent a while on. */}
+      <ConfirmRow
+        label="Set up again"
+        hint="Run the setup checks again from the start."
+        confirmHint="Re-measures this device. The lens calibration and the model choice are reset; the name and the timers are kept."
+        action="Set up"
+        onConfirm={() => {
+          resetSettings();
+          window.location.reload();
+        }}
+      />
+
+      {/* Letting go of the browser this device is paired to, so it can be paired to another one.
+          There is no undo: the old browser is not told and cannot give the pairing back, so a
+          mis-tap costs a trip to the other screen for a fresh code. Everything else on this panel
+          survives it — the model, the thresholds and the lens describe this camera, not whoever it
+          was scoring for. */}
+      <ConfirmRow
+        label="Pairing"
+        hint="Un-pair this device."
+        confirmHint="You will need a new pairing code."
+        action="Unpair"
+        danger
+        onConfirm={onUnpair}
+      />
+    </div>
+  );
+}
+
+interface ConfirmRowProps {
+  label: string;
+  hint: string;
+  /** Replaces the hint once the button has been pressed once: what is about to happen. */
+  confirmHint: string;
+  /** The word on the button, before and after. The same one twice, so the target does not move. */
+  action: string;
+  /** Red rather than green, for the one that cannot be undone from this device. */
+  danger?: boolean;
+  onConfirm: () => void;
+}
+
+/** A row at the foot of the panel whose button asks once more before it does anything. */
+function ConfirmRow({ label, hint, confirmHint, action, danger, onConfirm }: ConfirmRowProps) {
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <div className="pt-3 border-t border-gray-800 flex items-center justify-between gap-3 text-sm">
+      <span>
+        {label}
+        <span className="block text-xs text-gray-500">{confirming ? confirmHint : hint}</span>
+      </span>
+      {confirming ? (
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setConfirming(false)}
+            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-3 py-1 rounded transition-colors ${danger ? 'bg-red-700 hover:bg-red-600' : 'bg-green-700 hover:bg-green-600'}`}
+          >
+            {action}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          className="px-3 py-1 shrink-0 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+        >
+          {action}
+        </button>
+      )}
     </div>
   );
 }
@@ -240,53 +318,5 @@ function Minutes({ label, hint, value, bounds, onChange }: MinutesProps) {
         <span className="text-gray-500">min</span>
       </span>
     </label>
-  );
-}
-
-/**
- * Letting go of the browser this device is paired to, so it can be paired to another one.
- *
- * Behind a confirmation because there is no undo: the old browser is not told and cannot give the
- * pairing back, so a mis-tap here costs a trip to the other screen for a fresh code. Everything
- * else on this panel survives it — the model, the thresholds and the lens describe this camera,
- * not whoever it was scoring for.
- */
-function Unpair({ onUnpair }: { onUnpair: () => void }) {
-  const [confirming, setConfirming] = useState(false);
-
-  return (
-    <div className="pt-3 border-t border-gray-800 flex items-center justify-between gap-3 text-sm">
-      <span>
-        Pairing
-        <span className="block text-xs text-gray-500">
-          {confirming
-            ? 'You will need a new pairing code.'
-            : 'Un-pair this device.'}
-        </span>
-      </span>
-      {confirming ? (
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setConfirming(false)}
-            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onUnpair}
-            className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded transition-colors"
-          >
-            Unpair
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => setConfirming(true)}
-          className="px-3 py-1 shrink-0 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-        >
-          Unpair
-        </button>
-      )}
-    </div>
   );
 }

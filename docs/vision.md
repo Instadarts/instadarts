@@ -69,6 +69,65 @@ CI runs headless Chromium on a machine with no GPU and no camera. Everything bel
 its fallback path during tests, or does not run at all. **If you change any of it, it must be
 checked on hardware — nothing in this repository will tell you that you broke it.**
 
+### The device self-test answers part of this, on the device
+
+A phone that has just been paired opens on **onboarding**
+([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), and its one step is a
+self-test that does on real hardware what CI cannot: it times both motion analyzers, times each model
+on all four pairings of preprocessing and inference, and then reads two photographs whose answers are
+known — 8 board points and no tips on the empty one, 8 and 3 on the other. It sets the model and the
+three CPU overrides from what it finds, and where the results are wrong it walks down the fallbacks
+until they are right, which is what catches the failure mode where a vendor's WebGPU returns *empty
+results and no error at all*.
+
+Reach it again from **Settings → Set up again**. The decision logic is in
+[`lib/onboarding.ts`](../src/client/lib/onboarding.ts) and is unit-tested against fakes; everything
+that needs a GPU is behind `OnboardingHarness` in
+[`lib/onboardingHarness.ts`](../src/client/lib/onboardingHarness.ts).
+
+#### What each number is, and how it relates to the frame line
+
+Each row of the results shows only what the path it settled on cost; **tapping the row** opens the
+working behind it — the two analyzers for motion, the four pairings for a model. The self-test and
+the frame line under the camera preview measure different spans, so they are not expected to agree —
+this is what each one covers.
+
+| Row | Covers | Notes |
+| --- | --- | --- |
+| Motion detector | one analyzer pass, on each analyzer | Always at `analyzeSize` **240 px** whatever the camera runs at, so this does not move with camera resolution. A single-digit CPU result is normal: it is 57,600 pixels, and the GPU cannot amortise `createImageBitmap` plus a `mapAsync` readback over that little work. |
+| 960 / 1280 px model | a **whole `run()`**, on all four pairings | Preprocessing, inference and readback together. Not split into a preprocessing figure and an inference figure: the GPU preprocessor never synchronises, so its compute lands inside the readback LiteRT's `modelMs` covers while the CPU's happens in full beforehand — subtracting would credit the GPU with work it merely hid. The whole run contains the same things on every path. |
+| **The frame line** (`CameraPanel`) | all of `infer()` | Everything in a model cell, plus `ensureModel`, the calibration frame capture, `postprocess` and the geometry. |
+
+So the frame line should read **a little above the winning cell** of whichever model is in use. Far
+above it is the camera path costing something the self-test never touches.
+
+#### The four pairings, and why it is a table
+
+Preprocessing and inference each have a CPU and a GPU path, and they **interact** — the fastest
+pairing is not always the pairing of the two individually fastest, and holding one constant while
+varying the other can only ever answer "which is better, given the other". So each model is timed on
+all four, and both switches are set from the single cell that won. That is also what stops the two
+settings ending up in a combination nothing ever measured.
+
+`gpu-cpu` — preprocess in the shader, infer on the CPU — is the interesting one. It has to move the
+input tensor from the GPU into WASM memory to run it: **11.1 MB at 960 px, 19.7 MB at 1280**. Whether
+that beats a CPU preprocess is genuinely a question about the device, which is why it is measured
+rather than assumed. It is opt-in per call, so callers that pass no options get exactly the old
+behaviour.
+
+#### The WebGPU device is ours, when LiteRT has none
+
+Nothing here creates its own device: the preprocessing shader and the motion detector's analyzer both
+ask LiteRT for one. So when LiteRT's `createDefaultWebGpuDevice` comes back empty, three features
+lose their GPU path at once and each reports it as its own failure — which is exactly how a machine
+with a working graphics card ends up reporting `cpu` everywhere.
+
+`ensureLiteRtReady` now requests an adapter and hands LiteRT a device through `setWebGpuDevice` **when
+it has none of its own**, before the first model is compiled (`setWebGpuDevice` replaces the default
+environment, and a model compiled into the old one does not belong to the new one). It never replaces
+a working device: LiteRT asks its adapter for whatever its own inference needs, and a plainer device
+of ours could be worse.
+
 ### WebGPU
 
 - **The preprocessing compute shader** (`WEBGPU_PREPROCESS_SHADER` in `model.ts`) — samples the
@@ -83,17 +142,21 @@ checked on hardware — nothing in this repository will tell you that you broke 
 - **The fallback chain itself** — WebGPU → WASM on device loss, and the mid-run fall back from the
   GPU analyzer to the CPU one when a pass throws.
 
-*To check:* open the scorer on a phone whose browser has WebGPU, start the camera, and confirm the
-frame line under the preview reads `webgpu` rather than `cpu` — then throw, and confirm scoring
-behaves as expected. Note the reported ms while you are there: it is the number to compare against
-after any change to this path.
+*To check:* **run the self-test** (Settings → Set up again) on a phone whose browser has WebGPU. It
+reports which path each stage actually took and what each one cost, and it will not finish green
+unless the chosen configuration reads both reference boards correctly — so a shader that produces
+plausible-but-wrong keypoints fails it rather than passing quietly. Then start the camera and throw,
+because the self-test runs on a photograph and cannot tell you the live pipeline is right.
 
-**The three CPU toggles in the scorer's settings** are the tool for this. *Motion detector*,
-*Preprocessing* and *Inference* each force one WebGPU path onto its CPU equivalent, independently and
-per device, and they are the only way to answer the two questions a phone actually raises: whether a
-vendor's WebGPU is producing wrong results — turn one off and see whether scoring gets better — and
-what each path is really costing, by timing it both ways on the same board. They persist in that
-device's settings, so a phone left with one on stays that way.
+**The three CPU toggles in the scorer's settings** — *Motion detector*, *Preprocessing* and
+*Inference* — each force one WebGPU path onto its CPU equivalent, independently and per device. They
+persist in that device's settings, so a phone left with one on stays that way.
+
+The self-test sets them, which is most of what they are for: it notices a path that fell back on its
+own and makes the setting agree, and it turns one on when that is what makes the reference boards
+read correctly. Setting them by hand is still the tool for the question it cannot ask — whether a
+vendor's WebGPU is subtly wrong *on a real board* rather than on a photograph. Turn one off, throw,
+and see whether scoring gets better.
 
 ### The WASM runtime
 
@@ -103,9 +166,11 @@ device's settings, so a phone left with one on stays that way.
   suite asserts `crossOriginIsolated` is true, which catches the headers being wrong, but not the
   performance consequence.
 
-*To check:* run a full leg on the phone you intend to use, watch the ms figure, and confirm it
-behaves as expected over the length of a session rather than only at the start. `WASM_MAX_THREADS`
-is the knob if it does not.
+*To check:* the self-test's inference figure is the quick reading, and is what the model choice is
+made from — under 250 ms on the small model is what makes the large one worth trying at all. It
+cannot see heat, though: run a full leg on the phone you intend to use, watch the ms figure, and
+confirm it behaves over the length of a session rather than only at the start. `WASM_MAX_THREADS` is
+the knob if it does not.
 
 ### The camera
 

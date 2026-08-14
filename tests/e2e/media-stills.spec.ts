@@ -14,6 +14,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
+import { skipOnboarding } from './appHelpers';
 
 const SCENES = {
   darts: fileURLToPath(new URL('../media/board-three-darts.jpg', import.meta.url)),
@@ -24,6 +25,7 @@ test.setTimeout(120_000);
 
 async function openScorer(browser: Browser) {
   const context = await browser.newContext({ permissions: ['camera'] });
+  await skipOnboarding(context);
   const page = await context.newPage();
   await installVirtualCamera(page, SCENES);
   await page.goto('/scorer?e2e=1');

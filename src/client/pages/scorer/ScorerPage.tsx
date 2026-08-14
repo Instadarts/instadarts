@@ -9,10 +9,11 @@ import type { MediaTier } from '../../../shared/media';
 import type { StillSource } from '../../hooks/useStillResponder';
 import type { VideoFrameSource } from '../../media/videoPublisher';
 import type { Region } from '../../../shared/media';
-import { loadSettings } from '../../lib/scorerStorage';
+import { loadSettings, saveSettings } from '../../lib/scorerStorage';
 import { e2eNumber } from '../../lib/e2e';
 import { CameraPanel } from './CameraPanel';
 import { CalibrationView } from './CalibrationView';
+import { OnboardingView } from './OnboardingView';
 import { FullscreenButton } from '../../components/FullscreenButton';
 import { Screensaver } from './Screensaver';
 import { SettingsPanel } from './SettingsPanel';
@@ -62,7 +63,7 @@ interface ScorerPageProps {
   latencyMeterRef?: React.MutableRefObject<{ onStillRequest: () => void } | null>;
 }
 
-type View = 'scoring' | 'settings' | 'calibration';
+type View = 'scoring' | 'settings' | 'calibration' | 'onboarding';
 
 /** The scoring screen: what this device is looking at, and what the match it feeds looks like. */
 export function ScorerPage({
@@ -139,11 +140,36 @@ export function ScorerPage({
   stillSource.current = { capture: vision.captureStill, located: vision.located };
   videoSource.current = { grab: vision.grabVideoFrame, element: vision.videoElement };
   directVideo.current = vision.directVideo;
-  const [view, setView] = useState<View>('scoring');
   const [settings, setSettings] = useState(() => loadSettings());
+  // A phone that has never been set up opens on that rather than on a board it has no settings for.
+  // Read once at mount: `didOnboard` only changes on the way out of that screen, and on that path
+  // the page reloads anyway.
+  const [view, setView] = useState<View>(() => (settings.didOnboard ? 'scoring' : 'onboarding'));
 
-  const startCamera = useCallback(() => { void vision.startPreferred(); }, [vision.startPreferred]);
+  // The self-test takes over the model singleton, so nothing else may load one underneath it. Two
+  // things could: a match starting (through the power hook's activation) and a `camera_on` from the
+  // owner. Both go through `startCamera`, so guarding it once covers both. Constant for the life of
+  // the page — the only way out of onboarding reloads — so this does not churn the power timers.
+  const onboarding = view === 'onboarding';
+
+  const startCamera = useCallback(() => {
+    if (onboarding) return;
+    void vision.startPreferred();
+  }, [onboarding, vision.startPreferred]);
   const stopCamera = useCallback(() => { void vision.stop(); }, [vision.stop]);
+
+  /**
+   * Leave onboarding, however it went — finished, skipped, or abandoned mid-run.
+   *
+   * Always a reload, and not for tidiness. The self-test calls `unloadModel()` on its way out, which
+   * leaves the vision runtime holding a runner that has been deleted; the next inference would use
+   * it. Reloading rebuilds the runtime against whatever the self-test decided, which is also exactly
+   * what has to happen for a new model or accelerator to take effect.
+   */
+  const leaveOnboarding = useCallback(() => {
+    saveSettings({ didOnboard: true });
+    window.location.reload();
+  }, []);
 
   const power = useScorerPower({
     scoring,
@@ -198,12 +224,16 @@ export function ScorerPage({
             className="w-32 px-2 py-1 text-sm text-right bg-transparent border-b border-gray-800 focus:border-green-500 focus:outline-none"
           />
           <FullscreenButton />
-          <button
-            onClick={() => setView((v) => (v === 'scoring' ? 'settings' : 'scoring'))}
-            className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-          >
-            {view === 'scoring' ? 'Settings' : 'Done'}
-          </button>
+          {/* Not offered during onboarding: that screen leaves by reloading, and this button would
+              drop straight to scoring with a model the self-test has already unloaded. */}
+          {!onboarding && (
+            <button
+              onClick={() => setView((v) => (v === 'scoring' ? 'settings' : 'scoring'))}
+              className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+            >
+              {view === 'scoring' ? 'Settings' : 'Done'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -227,6 +257,10 @@ export function ScorerPage({
       )}
 
       {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
+
+      {view === 'onboarding' && (
+        <OnboardingView settings={settings} onSettingsChange={setSettings} onDone={leaveOnboarding} />
+      )}
 
       <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} />
 

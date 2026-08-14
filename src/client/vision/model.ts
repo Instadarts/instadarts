@@ -8,7 +8,7 @@
 // The numbers here — the thread cap, the workgroup size, the tensor reuse — are measurements, not
 // preferences. Do not "clean up" this file without a benchmark on a real phone.
 
-import { getWebGpuDevice, loadLiteRt, loadAndCompile, Tensor } from '@litertjs/core';
+import { getWebGpuDevice, setWebGpuDevice, isWebGPUSupported, loadLiteRt, loadAndCompile, Tensor } from '@litertjs/core';
 
 
 /** A source the pipeline can read a frame from. */
@@ -98,11 +98,43 @@ let liteRtPromise: Promise<void> | null = null;
 export async function ensureLiteRtReady() {
   if (liteRtReady) return;
   if (!liteRtPromise) {
-    liteRtPromise = loadLiteRtWithBestCpuBackend().then(() => {
-      liteRtReady = true;
-    });
+    liteRtPromise = loadLiteRtWithBestCpuBackend()
+      .then(ensureWebGpuDevice)
+      .then(() => {
+        liteRtReady = true;
+      });
   }
   return liteRtPromise;
+}
+
+/**
+ * Make sure LiteRT has a WebGPU device, supplying one of our own if it has none.
+ *
+ * **Everything with a GPU path asks LiteRT for the device rather than making its own** — the
+ * preprocessing shader here, and the motion detector's analyzer in motion.ts. So when LiteRT's own
+ * `createDefaultWebGpuDevice` comes back empty, three separate features silently lose their GPU
+ * path at once and each of them reports it as its own failure.
+ *
+ * Only ever *adds* a device, never replaces a working one: where LiteRT already has one, everything
+ * downstream is exactly as it was. That matters because LiteRT asks its adapter for whatever limits
+ * and features its own inference wants, and a plainer device of ours could be worse. Where it has
+ * none, there was no GPU path to lose.
+ *
+ * Must happen before the first `loadAndCompile`: `setWebGpuDevice` replaces the default
+ * *environment*, and a model compiled into the old one does not belong to the new one.
+ */
+async function ensureWebGpuDevice() {
+  if (getWebGpuDevice()) return;
+  if (!isWebGPUSupported() || typeof navigator === 'undefined' || !navigator.gpu) return;
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return;
+    setWebGpuDevice(await adapter.requestDevice());
+    console.info('[ADPA] LiteRT had no WebGPU device; supplied one of ours');
+  } catch (e) {
+    // No device is the state we were already in, so this costs nothing but the log.
+    console.warn('[ADPA] Could not create a WebGPU device for LiteRT', e);
+  }
 }
 
 // LiteRT only loads the multithreaded WASM build when threads:true is passed; it
@@ -522,27 +554,75 @@ function getModelDetails(model: any) {
   };
 }
 
+/**
+ * The CPU inference runner — which can still preprocess on the GPU, if asked and if there is one.
+ *
+ * That combination is not obviously silly and not obviously worthwhile, which is exactly why it is
+ * available to be measured rather than assumed either way. The shader does the resize and the
+ * planar-float conversion far faster than the JS loop, and then the whole input tensor has to come
+ * back across to WASM memory to be run: **11.1 MB at 960 px, 19.7 MB at 1280**. Whether that trade
+ * pays depends entirely on the device, and the self-test in `lib/onboarding.ts` is what asks it.
+ *
+ * The GPU path is opt-in per call and latches off on failure, exactly as the WebGPU runner's does.
+ * With no options — every existing caller — this behaves precisely as it always has.
+ */
 function createWasmRunner(model: any): ModelRunner {
+  let gpuPreprocessor: ReturnType<typeof createWebGpuPreprocessor> | null = null;
+  let gpuPreprocessorDisabled = !ENABLE_WEBGPU_PREPROCESSING;
+
+  /** Built on first use rather than at construction: most runs of this runner never want it. */
+  function ensureGpuPreprocessor() {
+    if (gpuPreprocessor || gpuPreprocessorDisabled) return gpuPreprocessor;
+    try {
+      gpuPreprocessor = createWebGpuPreprocessor();
+    } catch (e) {
+      gpuPreprocessorDisabled = true;
+      console.warn("[ADPA] LiteRT: WebGPU preprocessing unavailable to the CPU runner", e);
+    }
+    return gpuPreprocessor;
+  }
+
   return {
     accelerator: "wasm",
     ...getModelDetails(model),
-    async run(sourceFrame, inputSize) {
-      const inputTensor = createCpuInputTensor(sourceFrame, inputSize);
+    async run(sourceFrame, inputSize, options = {}) {
+      let gpuTensor: Tensor | null = null;
+      let inputTensor: Tensor | null = null;
+      let preprocessMode = "cpu";
+
+      if (!options.forceCpuPreprocessing && ensureGpuPreprocessor()) {
+        try {
+          gpuTensor = await gpuPreprocessor!.preprocess(sourceFrame, inputSize);
+          // The readback. `moveTo` is what makes the GPU actually finish the work as well as hand
+          // it over, so the cost of the shader is inside this await rather than hidden behind it.
+          inputTensor = await gpuTensor.moveTo("wasm");
+          preprocessMode = "gpu-bitmap";
+        } catch (e) {
+          gpuPreprocessorDisabled = true;
+          console.warn("[ADPA] LiteRT: WebGPU preprocessing failed on the CPU runner; using CPU preprocessing", e);
+        }
+      }
+      if (!inputTensor) inputTensor = createCpuInputTensor(sourceFrame, inputSize);
+
       let outputs = null;
       const tModel = performance.now();
       try {
         outputs = await model.run(inputTensor);
       } finally {
+        // Both, when the GPU path ran: `moveTo` hands back a second tensor and leaves the first.
+        deleteTensor(gpuTensor);
         deleteTensor(inputTensor);
       }
       const result = await readOutputs(outputs, () => false);
       return {
         outputs: result,
         modelMs: performance.now() - tModel,
-        preprocessMode: "cpu",
+        preprocessMode,
       };
     },
     delete() {
+      // It may have built one lazily; the WebGPU runner releases its own the same way.
+      gpuPreprocessor?.delete?.();
       deleteTensor(model);
     },
   };

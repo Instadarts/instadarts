@@ -6,7 +6,33 @@
 //
 // Not a spec file: Playwright only collects `*.spec.ts`, so this is imported, never run.
 
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
+
+/**
+ * Tell a scoring device it has already been set up, before it loads.
+ *
+ * A freshly paired phone opens on onboarding rather than on the scoring screen, which is right for
+ * a person and wrong for the six specs that pair one to test something else entirely.
+ *
+ * Seeded into storage rather than clicked through, for two reasons. It costs no page reload — the
+ * Skip button leaves by reloading, which every one of those specs would then have to wait out. And
+ * it keeps specs about power management or media links from failing the day somebody renames a
+ * button on a screen they do not care about. The real Skip button is covered by
+ * `scorer-onboarding.spec.ts`, where it is the thing under test.
+ *
+ * Merged rather than assigned: a spec that seeds its own settings must not have them thrown away.
+ */
+export async function skipOnboarding(context: BrowserContext) {
+  await context.addInitScript(() => {
+    const KEY = 'instadarts_scorer_settings';
+    try {
+      const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+      localStorage.setItem(KEY, JSON.stringify({ ...stored, didOnboard: true }));
+    } catch {
+      // An opaque origin (about:blank) has no storage to seed. The next navigation has.
+    }
+  });
+}
 
 /**
  * Click a position on the dartboard SVG.

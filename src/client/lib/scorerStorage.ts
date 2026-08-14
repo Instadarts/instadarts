@@ -57,6 +57,15 @@ export interface ScorerSettings {
   forceCpuMotion: boolean;
   forceCpuPreprocessing: boolean;
   forceCpuInference: boolean;
+  /**
+   * Whether this phone has been through onboarding, which is what stops it opening again.
+   *
+   * A setting rather than part of the identity, and deliberately so: a phone handed to another
+   * browser has not forgotten what it measured about itself, so unpairing and pairing again does
+   * not ask somebody to sit through the self-test a second time. Only the button in the settings
+   * clears it — see `resetSettings`.
+   */
+  didOnboard: boolean;
 }
 
 // The remembered camera and its zoom are NOT here: they live in vision/camera.js, which is the
@@ -79,6 +88,7 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   forceCpuMotion: false,
   forceCpuPreprocessing: false,
   forceCpuInference: false,
+  didOnboard: false,
 };
 
 export function loadIdentity(): ScorerIdentity | null {
@@ -155,6 +165,9 @@ export function loadSettings(): ScorerSettings {
       forceCpuMotion: stored.forceCpuMotion === true,
       forceCpuPreprocessing: stored.forceCpuPreprocessing === true,
       forceCpuInference: stored.forceCpuInference === true,
+      // Anything that is not exactly `true` means "not yet", including the `undefined` a phone that
+      // has been running an older build has. Those devices get the self-test once, which is right.
+      didOnboard: stored.didOnboard === true,
     };
   } catch {
     return { ...SETTINGS_DEFAULTS };
@@ -181,6 +194,34 @@ export function saveSettings(patch: Partial<ScorerSettings>): ScorerSettings {
     // ignore
   }
   return next;
+}
+
+/**
+ * Put this phone back to where onboarding starts, keeping what the person chose.
+ *
+ * **Selective, not a wipe.** The line runs between what the self-test is about to work out for
+ * itself — the model, the three CPU overrides, the confidence thresholds, the lens calibration —
+ * and what somebody sat down and decided about how this phone behaves. Measuring the first set
+ * again is the point of pressing the button; making somebody re-type the device name and re-set two
+ * timers because they wanted the model re-checked is not.
+ *
+ * The kept fields are named one by one rather than subtracted from a list, so a setting added later
+ * is **reset** unless somebody deliberately adds it here — the safer default, and one the compiler
+ * has no opinion about either way.
+ *
+ * The pairing is untouched — it lives under a different key entirely (see `ScorerIdentity`), which
+ * is what lets this exist at all.
+ */
+export function resetSettings(): ScorerSettings {
+  const { deviceName, screensaver, cameraOffAfterMinutes, standbyAfterMinutes, media } = loadSettings();
+  return saveSettings({
+    ...SETTINGS_DEFAULTS,
+    deviceName,
+    screensaver,
+    cameraOffAfterMinutes,
+    standbyAfterMinutes,
+    media,
+  });
 }
 
 export function lensForCamera(settings: ScorerSettings, cameraLabel: string): number {

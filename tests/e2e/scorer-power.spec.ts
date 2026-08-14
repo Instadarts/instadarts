@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
+import { skipOnboarding } from './appHelpers';
 
 /**
  * A scoring device deciding for itself when to stop costing battery, and an owner reaching one from
@@ -31,6 +32,7 @@ const STANDBY_MS = 6_000;
 
 async function openScorer(browser: Browser, { standbyMs = STANDBY_MS } = {}) {
   const context = await browser.newContext({ permissions: ['camera'] });
+  await skipOnboarding(context);
   const page = await context.newPage();
   await installVirtualCamera(page, SCENES);
   await page.goto(`/scorer?e2e=1&graceMs=${GRACE_MS}&standbyMs=${standbyMs}`);

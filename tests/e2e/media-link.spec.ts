@@ -11,6 +11,7 @@
 // nothing at all in a shipped bundle.
 
 import { test, expect, type Browser, type Page } from '@playwright/test';
+import { skipOnboarding } from './appHelpers';
 
 // ============================================================
 // Reaching into a page's mesh
@@ -74,6 +75,7 @@ async function pairScorer(browser: Browser, frontend: Page, name: string) {
   const code = (await frontend.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
 
   const context = await browser.newContext();
+  await skipOnboarding(context);
   const page = await context.newPage();
   await page.goto('/scorer?e2e=1');
   await page.getByPlaceholder('CODE').fill(code);

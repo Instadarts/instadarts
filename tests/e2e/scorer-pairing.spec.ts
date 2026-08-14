@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
+import { skipOnboarding } from './appHelpers';
 
 // ============================================================
 // Helpers
@@ -16,6 +17,7 @@ async function requestPairingCode(page: Page): Promise<string> {
 
 async function openScorer(browser: Browser) {
   const context = await browser.newContext();
+  await skipOnboarding(context);
   const page = await context.newPage();
   await page.goto('/scorer');
   return { context, page };

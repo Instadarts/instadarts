@@ -66,6 +66,21 @@ export interface MotionDetector {
   flushQueuedTrigger: () => void;
   /** Select the CPU analyzer without changing whether automatic scanning is armed. */
   setForceCpu: (force: boolean) => void;
+  /**
+   * One analyzer pass, run now and timed. For measurement only — see the onboarding self-test.
+   *
+   * Exists because nothing else here can answer "how long does a pass take". The loop is paced to
+   * one pass per 100 ms, so `MotionReport.fps` measures the pacing rather than the work and tops
+   * out around ten however fast the device is.
+   *
+   * Goes through the same analyzer selection as the loop, so whichever path a real frame would take
+   * is the path timed — including a WebGPU analyzer that has already fallen back. It does **not**
+   * touch armed state, the debounce, the fps window or the badge: a measurement that changed what it
+   * measured would be worth nothing.
+   *
+   * `mode` is what actually ran, never what was asked for.
+   */
+  analyzeOnce: () => Promise<{ ms: number; mode: string }>;
 }
 
 /**
@@ -438,6 +453,22 @@ export function createMotionDetector({
     }
   }
 
+  /**
+   * See `MotionDetector.analyzeOnce`.
+   *
+   * No fallback to the CPU analyzer when the GPU one throws, unlike `processMotionFrame` above: a
+   * caller measuring the GPU path wants to be told it failed, not handed a CPU number under a GPU
+   * heading. It measures the other path in its own call.
+   */
+  async function analyzeOnce(): Promise<{ ms: number; mode: string }> {
+    if (!preview.videoWidth || !preview.videoHeight) {
+      throw new Error('motion: nothing to analyze — the preview has no frame yet');
+    }
+    const started = performance.now();
+    const result = await getActiveAnalyzer().analyze(preview);
+    return { ms: performance.now() - started, mode: result.mode };
+  }
+
   function getActiveAnalyzer() {
     if (!forceCpu && ENABLE_WEBGPU_MOTION_DETECTOR && !gpuAnalyzerUnavailable) {
       if (!gpuAnalyzer) {
@@ -599,6 +630,7 @@ export function createMotionDetector({
     queueTriggerIfArmed,
     flushQueuedTrigger,
     setForceCpu,
+    analyzeOnce,
   };
 }
 

@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
+import { skipOnboarding } from './appHelpers';
 
 /**
  * Waking a blacked-out phone, without also pressing what the black was covering.
@@ -16,6 +17,7 @@ async function openScorer(browser: Browser) {
   // A real touchscreen, because that is where the problem lives: a touch that ends over an element
   // leaves a synthesised click behind, and a mouse does not.
   const context = await browser.newContext({ hasTouch: true });
+  await skipOnboarding(context);
   const page = await context.newPage();
   await page.goto(`/scorer?e2e=1&screensaverMs=${IDLE_MS}`);
   return { context, page };

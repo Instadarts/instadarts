@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
+import { skipOnboarding } from './appHelpers';
 
 // The two reference photographs: the same board, with three darts in the 20 bed and then empty.
 const SCENES = {
@@ -42,6 +43,7 @@ async function visitHistory(player: Page): Promise<{ darts: string[]; total: str
 
 async function openScorer(browser: Browser) {
   const context = await browser.newContext({ permissions: ['camera'] });
+  await skipOnboarding(context);
   const page = await context.newPage();
   await installVirtualCamera(page, SCENES);
   await page.goto('/scorer?e2e=1');

@@ -14,6 +14,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installVirtualCamera, scan, showScene } from './virtualCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
+import { skipOnboarding } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
 // feed that starts by showing a board nobody has thrown at is the honest starting state.
@@ -27,6 +28,7 @@ test.setTimeout(120_000);
 
 async function openScorer(browser: Browser) {
   const context = await browser.newContext({ permissions: ['camera'] });
+  await skipOnboarding(context);
   const page = await context.newPage();
   await installVirtualCamera(page, SCENES);
   await page.goto('/scorer?e2e=1');

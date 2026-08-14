@@ -58,7 +58,7 @@ const STAGE_LABEL: Record<StageOutcome['stage'], string> = {
   motion: 'Motion detector',
   model960: '960 px model',
   model1280: '1280 px model',
-  validation: 'Reading a real board',
+  validation: 'Validating model output',
 };
 
 export function OnboardingView({ settings, onSettingsChange, name, onRename, onNameSettled, onDone }: OnboardingViewProps) {

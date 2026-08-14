@@ -70,18 +70,18 @@ function bestCombo(matrix: ModelMatrix): ComboKey | null {
 /**
  * The gates that decide the model, and the brackets that colour the numbers.
  *
- * The two are deliberately tied rather than written twice: "okay" for the small model *is* the
- * ceiling under which the large one is worth trying, and "okay" for the large one *is* the ceiling
- * under which it is worth keeping. Writing them separately would let them drift into disagreeing
- * about the same decision.
+ * Two jobs, and since they are two sets of numbers they are allowed to disagree about the middle: a
+ * small-model run can read "okay" and still leave no headroom for the larger one to be worth trying.
+ * What they may not disagree about is the top — nothing should be coloured green that a gate then
+ * refuses, which holds as long as each `good` stays at or under its gate.
  */
 export const TRY_LARGE_BELOW_MS = 250;
 export const KEEP_LARGE_BELOW_MS = 300;
 
 export const BRACKETS = {
   motion: { good: 15, okay: 35 },
-  inference: { good: 120, okay: TRY_LARGE_BELOW_MS },
-  inferenceLarge: { good: 200, okay: KEEP_LARGE_BELOW_MS },
+  inference: { good: 200, okay: 350 },
+  inferenceLarge: { good: 200, okay: 350 },
 } as const;
 
 export function verdictFor(bracket: { good: number; okay: number }, ms: number): Verdict {
@@ -91,24 +91,32 @@ export function verdictFor(bracket: { good: number; okay: number }, ms: number):
 }
 
 /**
- * How much better the CPU has to be before overriding a GPU path that works.
+ * How much better the CPU has to be before overriding a GPU path that works, *in the matrix*.
  *
- * Every figure here is an average over a busy device, so a millisecond either way is noise. Flipping
- * a stored setting on noise means two runs of the same self-test on the same phone disagree, which
- * is worse than either answer on its own.
+ * Every figure there is an average over a busy device, so a millisecond either way is noise, and
+ * flipping a stored setting on noise means two runs of the same self-test on one phone disagree.
  */
-const MARGIN_MS = 3;
-const MARGIN_RATIO = 0.1;
+const MARGIN_MS = 2;
+const MARGIN_RATIO = 0.05;
 
 function clearlyFaster(cpuMs: number, gpuMs: number): boolean {
   return gpuMs - cpuMs > Math.max(MARGIN_MS, gpuMs * MARGIN_RATIO);
 }
 
-/** Keep the GPU unless it could not be measured, or the CPU beat it by more than noise. */
-export function selectPath(cpu: PathResult, gpu: PathResult): 'cpu' | 'gpu' {
+/**
+ * The faster of two paths outright, ties going to the CPU. Used for the motion gate, and only there.
+ *
+ * **Deliberately not the margin-and-prefer-the-GPU rule the matrix uses**, because the motion gate
+ * is not like the other stages: it runs ten times a second for as long as the camera is on, and what
+ * it costs is not really its own time but time the GPU is then not spending on the work that
+ * actually needs it. So a CPU pass that merely ties is the better answer — it leaves the whole GPU
+ * to preprocessing and inference, where a frame's cost really lives — and a GPU pass has to be
+ * genuinely faster to be worth taking that away.
+ */
+export function fasterPath(cpu: PathResult, gpu: PathResult): 'cpu' | 'gpu' {
   if (gpu.kind !== 'ms') return 'cpu';
   if (cpu.kind !== 'ms') return 'gpu';
-  return clearlyFaster(cpu.ms, gpu.ms) ? 'cpu' : 'gpu';
+  return cpu.ms <= gpu.ms ? 'cpu' : 'gpu';
 }
 
 /** Warmup is not measured: the first CPU motion pass has no previous frame and does less work. */
@@ -233,7 +241,7 @@ export async function runOnboarding(
   log('Measuring the motion detector…');
   const motionCpu = await measureMotion(harness, true);
   const motionGpu = await measureMotion(harness, false);
-  const motionPick = selectPath(motionCpu, motionGpu);
+  const motionPick = fasterPath(motionCpu, motionGpu);
 
   decide(
     { forceCpuMotion: motionPick === 'cpu' },

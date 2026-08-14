@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   runOnboarding,
   rungsFrom,
-  selectPath,
+  fasterPath,
   verdictFor,
   took,
   DNF,
@@ -132,16 +132,23 @@ describe('verdicts and path selection', () => {
     expect(verdictFor(BRACKETS.motion, BRACKETS.motion.okay)).toBe('bad');
   });
 
-  it('ties the inference brackets to the model gates, so the two cannot disagree', () => {
-    expect(BRACKETS.inference.okay).toBe(TRY_LARGE_BELOW_MS);
-    expect(BRACKETS.inferenceLarge.okay).toBe(KEEP_LARGE_BELOW_MS);
+  it('never colours a reading green that the model gates then refuse', () => {
+    // The brackets colour and the gates decide, and they are separate numbers — an "okay" run of the
+    // small model may still be too slow for the larger one to be worth trying, which is a fair thing
+    // to say. Calling a configuration good and then refusing it is not.
+    expect(BRACKETS.inference.good).toBeLessThanOrEqual(TRY_LARGE_BELOW_MS);
+    expect(BRACKETS.inferenceLarge.good).toBeLessThanOrEqual(KEEP_LARGE_BELOW_MS);
   });
 
-  it('keeps a working GPU unless the CPU wins by more than noise', () => {
-    expect(selectPath(took(20), took(21))).toBe('gpu'); // a millisecond is not a result
-    expect(selectPath(took(4), took(40))).toBe('cpu');
-    expect(selectPath(took(10), DNF)).toBe('cpu');
-    expect(selectPath(DNF, took(10))).toBe('gpu');
+  it('gives the motion gate to whichever path is faster, ties included', () => {
+    // No noise margin and no preference for the GPU, unlike the matrix below. The gate runs ten
+    // times a second for as long as the camera is on, so a GPU that only draws is a GPU held away
+    // from the model for nothing.
+    expect(fasterPath(took(20), took(21))).toBe('cpu');
+    expect(fasterPath(took(21), took(20))).toBe('gpu');
+    expect(fasterPath(took(10), took(10))).toBe('cpu');
+    expect(fasterPath(took(10), DNF)).toBe('cpu');
+    expect(fasterPath(DNF, took(10))).toBe('gpu');
   });
 });
 
@@ -161,9 +168,17 @@ describe('the motion detector', () => {
     expect(result.settings.forceCpuMotion).toBe(true);
   });
 
-  it('picks the CPU when it is clearly faster, and says both numbers', async () => {
+  it('picks the CPU when it is faster, and says both numbers', async () => {
     const { stage, result } = await run({ motion: { cpu: 4, gpu: 30 } });
     expect(stage('motion').paths).toEqual({ cpu: took(4), gpu: took(30), selected: 'cpu' });
+    expect(result.settings.forceCpuMotion).toBe(true);
+  });
+
+  it('leaves the GPU alone when the two analyzers are close', async () => {
+    // The matrix would keep the GPU here — a millisecond is inside its noise margin. Motion does
+    // not, because the cost that matters is what the gate denies the model, not what it spends.
+    const { stage, result } = await run({ motion: { cpu: 20, gpu: 21 } });
+    expect(stage('motion').paths).toMatchObject({ selected: 'cpu' });
     expect(result.settings.forceCpuMotion).toBe(true);
   });
 

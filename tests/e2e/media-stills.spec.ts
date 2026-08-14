@@ -12,7 +12,7 @@
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { installVirtualCamera, scan, showScene } from './virtualCamera';
+import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
 import { skipOnboarding } from './appHelpers';
 
@@ -27,7 +27,7 @@ async function openScorer(browser: Browser) {
   const context = await browser.newContext({ permissions: ['camera'] });
   await skipOnboarding(context);
   const page = await context.newPage();
-  await installVirtualCamera(page, SCENES);
+  await installFakeCamera(page, SCENES);
   await page.goto('/scorer?e2e=1');
   return { context, page };
 }

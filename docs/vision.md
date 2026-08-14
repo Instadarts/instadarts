@@ -60,8 +60,8 @@ so a person can slide the lens correction until the drawn lines sit on the real 
 
 The e2e run is the strongest of these: it loads the actual model and asserts the actual darts. It
 replaces exactly one thing — `getUserMedia` returns a canvas painted with a board photo
-([`virtualCamera.ts`](../tests/e2e/virtualCamera.ts)) — and leaves the model, the preprocessing and
-the geometry alone.
+([`fakeCamera.ts`](../tests/e2e/fakeCamera.ts)) — and leaves the model, the preprocessing and the
+geometry alone.
 
 ## What no test here can reach
 
@@ -72,17 +72,36 @@ checked on hardware — nothing in this repository will tell you that you broke 
 ### The device self-test answers part of this, on the device
 
 A phone that has just been paired opens on **onboarding**
-([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), and its one step is a
-self-test that does on real hardware what CI cannot: it times both motion analyzers, times each model
-on all four pairings of preprocessing and inference, and then reads two photographs whose answers are
-known — 8 board points and no tips on the empty one, 8 and 3 on the other. It sets the model and the
-three CPU overrides from what it finds, and where the results are wrong it walks down the fallbacks
-until they are right, which is what catches the failure mode where a vendor's WebGPU returns *empty
-results and no error at all*.
+([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), in two steps.
 
-Reach it again from **Settings → Set up again**. The decision logic is in
+**Step one is the camera** ([`useOnboardingCamera.ts`](../src/client/hooks/useOnboardingCamera.ts)):
+access is requested if it has not already been granted, a camera is chosen where there is more than
+one, and the zoom is offered. Nothing here asks anybody to aim at a board — that is done on the mount,
+later. A phone with no camera, or whose owner refuses one, cannot finish setup; it is told which of
+those happened and can still leave.
+
+Deliberately **not** the vision runtime: `visionRuntime.start()` arms the motion gate, whose trigger
+runs inferences through the same model singleton step two loads and unloads. So this drives
+[`camera.ts`](../src/client/vision/camera.ts) directly against a preview of its own, while
+`ScorerPage` keeps the runtime's camera shut.
+
+**Step two is the self-test**, and it runs *through that camera* — which is the point: it does on
+real hardware what CI cannot. It times both motion analyzers, times each model on all four pairings
+of preprocessing and inference, and then reads two photographs whose answers are known — 8 board
+points and no tips on the empty one, 8 and 3 on the other. It sets the model and the three CPU
+overrides from what it finds, and where the results are wrong it walks down the fallbacks until they
+are right, which is what catches the failure mode where a vendor's WebGPU returns *empty results and
+no error at all*.
+
+**Timings come from the camera; correctness comes from the photographs.** The two are separate
+harness calls (`runCamera`, `runBoard`) rather than one, because they answer different questions: a
+frame's real cost can only be measured on the real source, and an answer can only be checked against
+a picture whose answer is known. Nobody knows what the camera is pointed at.
+
+Reach it again from **Settings → Set up again**, which also clears the camera choice and its zoom —
+step one asks for them again. The decision logic is in
 [`lib/onboarding.ts`](../src/client/lib/onboarding.ts) and is unit-tested against fakes; everything
-that needs a GPU is behind `OnboardingHarness` in
+that needs a GPU or a camera is behind `OnboardingHarness` in
 [`lib/onboardingHarness.ts`](../src/client/lib/onboardingHarness.ts).
 
 #### What each number is, and how it relates to the frame line
@@ -95,11 +114,12 @@ this is what each one covers.
 | Row | Covers | Notes |
 | --- | --- | --- |
 | Motion detector | one analyzer pass, on each analyzer | Always at `analyzeSize` **240 px** whatever the camera runs at, so this does not move with camera resolution. A single-digit CPU result is normal: it is 57,600 pixels, and the GPU cannot amortise `createImageBitmap` plus a `mapAsync` readback over that little work. |
-| 960 / 1280 px model | a **whole `run()`**, on all four pairings | Preprocessing, inference and readback together. Not split into a preprocessing figure and an inference figure: the GPU preprocessor never synchronises, so its compute lands inside the readback LiteRT's `modelMs` covers while the CPU's happens in full beforehand — subtracting would credit the GPU with work it merely hid. The whole run contains the same things on every path. |
+| 960 / 1280 px model | a **whole `run()`**, on all four pairings | Preprocessing, inference and readback together. Not split into a preprocessing figure and an inference figure: the GPU preprocessor never synchronises, so its compute lands inside the readback LiteRT's `modelMs` covers while the CPU's happens in full beforehand — subtracting would credit the GPU with work it merely hid. The whole run contains the same things on every path. **The camera is re-opened at each model's input size** before it is timed, since capture is square at that size and the scoring screen does the same — timing the large model against a small stream would measure a configuration that never runs. |
 | **The frame line** (`CameraPanel`) | all of `infer()` | Everything in a model cell, plus `ensureModel`, the calibration frame capture, `postprocess` and the geometry. |
 
-So the frame line should read **a little above the winning cell** of whichever model is in use. Far
-above it is the camera path costing something the self-test never touches.
+So the frame line should read **a little above the winning cell** of whichever model is in use — the
+two now read the same source at the same size, so a large gap is the rest of `infer()` and not a
+difference in what was measured.
 
 #### The four pairings, and why it is a table
 
@@ -145,8 +165,8 @@ of ours could be worse.
 *To check:* **run the self-test** (Settings → Set up again) on a phone whose browser has WebGPU. It
 reports which path each stage actually took and what each one cost, and it will not finish green
 unless the chosen configuration reads both reference boards correctly — so a shader that produces
-plausible-but-wrong keypoints fails it rather than passing quietly. Then start the camera and throw,
-because the self-test runs on a photograph and cannot tell you the live pipeline is right.
+plausible-but-wrong keypoints fails it rather than passing quietly. Then throw, because the self-test
+reads its answers off photographs and so cannot tell you the live pipeline is right.
 
 **The three CPU toggles in the scorer's settings** — *Motion detector*, *Preprocessing* and
 *Inference* — each force one WebGPU path onto its CPU equivalent, independently and per device. They
@@ -175,8 +195,8 @@ the knob if it does not.
 ### The camera
 
 - **Constraints** — `resizeMode: crop-and-scale`, `focusMode: continuous`, `contentHint: detail`.
-  None is standard; each is honoured by some browsers and ignored by others, and the virtual camera
-  in tests honours none of them.
+  None is standard; each is honoured by some browsers and ignored by others, and the fake camera in
+  tests honours none of them — only the requested square size, which onboarding depends on.
 - **Zoom** — `getCapabilities().zoom` exists on Android Chrome and mostly does not on iOS Safari.
   The per-lens zoom memory can only be exercised with a lens.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is
@@ -218,8 +238,8 @@ e2e suite drives the delays down to seconds, but three of the browser behaviours
 are unreachable from a headless run:
 
 - **Re-opening a camera without a prompt.** After `track.stop()`, a later `getUserMedia` should
-  resolve straight away because the origin's permission is already granted. The virtual camera in
-  tests grants everything, so it can never show this failing.
+  resolve straight away because the origin's permission is already granted. The fake camera in tests
+  grants everything, so it can never show this failing.
 - **iOS Safari's permission lifetime.** Safari's grant is per page-session rather than per origin,
   so a device that reloaded may be prompted again — and a prompt raised from a timer rather than a
   tap is one nobody is there to answer.

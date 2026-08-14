@@ -24,8 +24,17 @@ export interface ScorerSettings {
   model: string;
   boardThreshold: number;
   tipThreshold: number;
+  /**
+   * Which camera this phone scores with, by **label**.
+   *
+   * A label and not a deviceId, which browsers do not keep stable between sessions — the same
+   * reason the two per-camera maps below are keyed that way.
+   */
+  camera: string;
   /** Slider position (-100…100), per camera *label* — the value describes a lens, not a device. */
   lensByCamera: Record<string, number>;
+  /** Zoom, per camera *label*. Absent until somebody moves the slider; there is no neutral value. */
+  zoomByCamera: Record<string, number>;
   screensaver: boolean;
   /**
    * What this device calls itself.
@@ -78,7 +87,9 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   model: 's_960',
   boardThreshold: DEFAULT_BOARD_THRESHOLD,
   tipThreshold: DEFAULT_TIP_THRESHOLD,
+  camera: '',
   lensByCamera: {},
+  zoomByCamera: {},
   screensaver: true,
   deviceName: '',
   cameraOffAfterMinutes: GRACE_MINUTES.default,
@@ -157,6 +168,7 @@ export function loadSettings(): ScorerSettings {
       ...SETTINGS_DEFAULTS,
       ...stored,
       lensByCamera: { ...stored.lensByCamera },
+      zoomByCamera: { ...stored.zoomByCamera },
       // Clamped on the way out rather than on the way in, so a value hand-edited into storage — or
       // left behind by an older build — cannot switch off a limit that exists to protect a battery.
       cameraOffAfterMinutes: clampMinutes(stored.cameraOffAfterMinutes, GRACE_MINUTES),
@@ -199,11 +211,11 @@ export function saveSettings(patch: Partial<ScorerSettings>): ScorerSettings {
 /**
  * Put this phone back to where onboarding starts, keeping what the person chose.
  *
- * **Selective, not a wipe.** The line runs between what the self-test is about to work out for
- * itself — the model, the three CPU overrides, the confidence thresholds, the lens calibration —
- * and what somebody sat down and decided about how this phone behaves. Measuring the first set
- * again is the point of pressing the button; making somebody re-type the device name and re-set two
- * timers because they wanted the model re-checked is not.
+ * **Selective, not a wipe.** The line runs between what setup is about to work out or ask for again
+ * — the camera and its zoom, the model, the three CPU overrides, the confidence thresholds, the lens
+ * calibration — and what somebody sat down and decided about how this phone behaves. Doing the first
+ * set again is the point of pressing the button; making somebody re-type the device name and re-set
+ * two timers because they wanted the model re-checked is not.
  *
  * The kept fields are named one by one rather than subtracted from a list, so a setting added later
  * is **reset** unless somebody deliberately adds it here — the safer default, and one the compiler
@@ -231,4 +243,15 @@ export function lensForCamera(settings: ScorerSettings, cameraLabel: string): nu
 export function setLensForCamera(cameraLabel: string, value: number): ScorerSettings {
   const settings = loadSettings();
   return saveSettings({ lensByCamera: { ...settings.lensByCamera, [cameraLabel]: value } });
+}
+
+/** Null rather than a number where nothing is stored: a camera's own default is not 1×. */
+export function zoomForCamera(settings: ScorerSettings, cameraLabel: string): number | null {
+  const stored = settings.zoomByCamera[cameraLabel];
+  return typeof stored === 'number' ? stored : null;
+}
+
+export function setZoomForCamera(cameraLabel: string, value: number): ScorerSettings {
+  const settings = loadSettings();
+  return saveSettings({ zoomByCamera: { ...settings.zoomByCamera, [cameraLabel]: value } });
 }

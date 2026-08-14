@@ -239,8 +239,11 @@ test.describe('pairing by scanning', () => {
     // The dialog offers the code as something to point a camera at, beside the characters.
     await expect(player.getByRole('img', { name: 'Pairing code, as a QR code' })).toBeVisible();
 
-    // What scanning that does: open the scoring page with the code already attached.
+    // What scanning that does: open the scoring page with the code already attached. Seeded as
+    // already set up, like every other scorer spec: this is about the route into pairing, not about
+    // what a brand-new phone is shown next — and setup has no status badge to read.
     const context = await browser.newContext();
+    await skipOnboarding(context);
     const scorer = await context.newPage();
     await scorer.goto(`/scorer?code=${code}`);
 

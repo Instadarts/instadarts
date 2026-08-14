@@ -4,10 +4,13 @@
 // measurements rather than preferences. A camera is remembered by **label** and not by deviceId,
 // because deviceId is not stable across sessions.
 //
-// The storage keys are the scorer's own, so this app and the gaming frontend can share a browser
-// without overwriting each other.
+// What is remembered lives in the scorer's settings rather than in keys of this module's own. The
+// choice and its zoom are things a person made, sitting beside the lens calibration that is keyed
+// the same way — and putting them there is what lets `resetSettings` clear them when somebody asks
+// to set this phone up again.
 
 import { cameraFrameRate } from '../lib/appConfig';
+import { loadSettings, saveSettings, setZoomForCamera, zoomForCamera } from '../lib/scorerStorage';
 
 /** One camera the browser will let us open. */
 export interface CameraChoice {
@@ -55,9 +58,6 @@ function supports(constraint: 'focusMode'): boolean {
   return constraint in navigator.mediaDevices.getSupportedConstraints();
 }
 
-const STORE_ZOOMS = 'instadarts_scorer_zooms';
-const STORE_LAST_CAMERA = 'instadarts_scorer_last_camera';
-
 /**
  * Square capture at the model's input size, at the configured frame rate, continuous autofocus
  * where supported. crop-and-scale keeps the sensor's centre square rather than letterboxing.
@@ -86,15 +86,28 @@ export async function listCameras(): Promise<CameraChoice[]> {
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
 }
 
-/** deviceId is not stable across sessions, so the remembered camera is matched by label. */
-export function rememberCamera(label: string): void {
-  try { window.localStorage.setItem(STORE_LAST_CAMERA, label); } catch { /* private mode */ }
-}
+/**
+ * How a phone names the camera on its back. Both spellings are in the wild: iOS says "Back Camera",
+ * Android's `camera2` labels say "facing back", and some desktop and tablet firmware says "rear".
+ */
+const BACK_CAMERA = /\b(back|rear)\b/i;
 
+/**
+ * The camera to open, matched by label — see `ScorerSettings.camera` for why not by deviceId.
+ *
+ * A stored choice always wins. With none, the back camera is the better guess than the first in the
+ * list: a phone on a mount is pointed at the board with its back, and the browser tends to enumerate
+ * the selfie camera first. **Only when exactly one camera says so** — a handset that reports a wide
+ * and an ultra-wide rear lens is asking a question this cannot answer, so it falls through to the
+ * first and lets somebody pick in setup.
+ */
 export function preferredCamera(cameras: CameraChoice[]): CameraChoice | null {
-  let last = '';
-  try { last = window.localStorage.getItem(STORE_LAST_CAMERA) || ''; } catch { /* private mode */ }
-  return cameras.find((c) => c.label === last) ?? cameras[0] ?? null;
+  const chosen = loadSettings().camera;
+  const stored = cameras.find((c) => c.label === chosen);
+  if (stored) return stored;
+
+  const backs = cameras.filter((c) => BACK_CAMERA.test(c.label));
+  return (backs.length === 1 ? backs[0] : null) ?? cameras[0] ?? null;
 }
 
 export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
@@ -111,7 +124,9 @@ export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
     // "detail" asks the encoder to favour sharpness over smoothness — dart tips are small.
     if (track) track.contentHint = 'detail';
     label = track?.label ?? '';
-    rememberCamera(label);
+    // Remembered here rather than by whoever picked, so every route to an open camera — the picker,
+    // the preferred one at boot, a restart for a bigger model — leaves the same answer behind.
+    saveSettings({ camera: label });
     video.srcObject = stream;
     await video.play().catch(() => { /* autoplay policies; the preview still fills in */ });
     return { label, settings: track?.getSettings?.() ?? {} };
@@ -136,23 +151,12 @@ export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
     if (!range || !track) return null;
     const clamped = Math.min(Math.max(Number(value), range.min), range.max);
     await track.applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] });
-    storeZoom(label, clamped);
+    setZoomForCamera(label, clamped);
     return clamped;
   }
 
   function storedZoom(): number | null {
-    try {
-      const all = JSON.parse(window.localStorage.getItem(STORE_ZOOMS) || '{}');
-      return typeof all[label] === 'number' ? all[label] : null;
-    } catch { return null; }
-  }
-
-  function storeZoom(cameraLabel: string, value: number): void {
-    try {
-      const all = JSON.parse(window.localStorage.getItem(STORE_ZOOMS) || '{}');
-      all[cameraLabel] = value;
-      window.localStorage.setItem(STORE_ZOOMS, JSON.stringify(all));
-    } catch { /* private mode */ }
+    return zoomForCamera(loadSettings(), label);
   }
 
   return {

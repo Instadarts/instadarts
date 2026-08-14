@@ -1,8 +1,13 @@
-// The self-test's hands: the only part of onboarding that touches a GPU, a canvas or a model.
+// The self-test's hands: the only part of onboarding that touches a GPU, a camera or a model.
 //
 // Everything with an opinion lives in `onboarding.ts` behind `OnboardingHarness`. This is the
 // implementation of that interface against a real browser — and it is deliberately the dull half,
 // because it is the half no unit test can reach.
+//
+// It measures through the **camera the person just chose**, at the capture size the model in
+// question wants, because that is the pipeline the scoring screen will actually run. Only the final
+// validation departs from that: it reads two photographs whose answers are known, since a check
+// against whatever the camera happens to be pointed at proves nothing.
 
 import { ensureLiteRtReady, loadModel, unloadModel } from '../vision/model';
 import { MODELS } from '../vision/visionRuntime';
@@ -10,25 +15,11 @@ import { createMotionDetector } from '../vision/motion';
 import { postprocess } from '../vision/postprocess';
 import { processPredictions } from '../vision/predictionPipeline';
 import { DEFAULT_BOARD_THRESHOLD, DEFAULT_TIP_THRESHOLD } from '../../shared/vision/constants';
-import { REFERENCE_BOARDS, type ChosenSettings, type OnboardingHarness, type ReferenceBoard, type RunSample } from './onboarding';
-
-/**
- * The square the motion source is painted at.
- *
- * The gate resizes whatever it is given down to its own 240 px working size, so this only has to be
- * big enough to be a realistic thing to resize *from* — the camera runs at the model's input size,
- * and 960 is the smaller of the two.
- */
-const MOTION_SOURCE_SIZE = 960;
-
-/** Frames a second the fake stream offers, matching what the scorer asks a real camera for. */
-const SOURCE_FRAME_RATE = 15;
-
-/** How often the canvas is repainted. A `captureStream` only emits a frame when something is drawn. */
-const REPAINT_MS = 100;
+import type { OnboardingCamera } from '../hooks/useOnboardingCamera';
+import { REFERENCE_BOARDS, type ChosenSettings, type OnboardingHarness, type ReferenceBoard } from './onboarding';
 
 export interface OnboardingHarnessHandle extends OnboardingHarness {
-  /** Release the model, the stream and the decoded photographs. Safe to call twice. */
+  /** Release the model and the decoded photographs. The camera belongs to the step, not to this. */
   dispose(): Promise<void>;
 }
 
@@ -40,6 +31,7 @@ export interface OnboardingHarnessHandle extends OnboardingHarness {
  */
 export async function createOnboardingHarness(
   apply: (patch: Partial<ChosenSettings>) => void,
+  camera: OnboardingCamera,
 ): Promise<OnboardingHarnessHandle> {
   const boards = await decodeBoards();
 
@@ -53,31 +45,8 @@ export async function createOnboardingHarness(
   // thing that has it, and a stage order is too easy to change without noticing what depended on it.
   await ensureLiteRtReady();
 
-  // A canvas painted with a real board, published as a stream, read back through a `<video>`. The
-  // motion gate takes a video element and nothing else, and this is the same shape the e2e suite
-  // feeds it — so what gets timed is the work a live camera would cause, not an approximation of it.
-  const canvas = document.createElement('canvas');
-  canvas.width = MOTION_SOURCE_SIZE;
-  canvas.height = MOTION_SOURCE_SIZE;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('This browser would not give us a 2D canvas to test with.');
-
-  const source = boards.get('darts')!;
-  const paint = () => ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  paint();
-
-  const stream = canvas.captureStream(SOURCE_FRAME_RATE);
-  const repaint = window.setInterval(paint, REPAINT_MS);
-
-  const video = document.createElement('video');
-  video.srcObject = stream;
-  video.muted = true;
-  video.playsInline = true;
-  await video.play();
-  await firstFrame(video);
-
   const motion = createMotionDetector({
-    preview: video,
+    preview: camera.video,
     // Never armed, never triggered: the loop is what paces passes to ten a second, and this only
     // ever calls `analyzeOnce`. Saying no to all three makes that structural rather than a habit.
     canArm: () => false,
@@ -90,6 +59,18 @@ export async function createOnboardingHarness(
   /** Which model `runner` is, since a `ModelRunner` does not say. Set only by `loadRunner`. */
   let loadedModel = '';
   let disposed = false;
+
+  /** The size the loaded model wants, which is also the size the camera is open at. */
+  const inputSize = () => MODELS[loadedModel].inputSize;
+
+  async function timedRun(source: HTMLVideoElement | ImageBitmap, forceCpuPreprocessing: boolean) {
+    if (!runner) throw new Error('run before loadRunner');
+    // Wall clock around the whole call, which is what makes the cells comparable: LiteRT's own
+    // `modelMs` starts after preprocessing, so it barely moves between the preprocessing paths.
+    const startedAt = performance.now();
+    const result = await runner.run(source, inputSize(), { forceCpuPreprocessing });
+    return { totalMs: performance.now() - startedAt, result };
+  }
 
   return {
     now: () => performance.now(),
@@ -110,42 +91,39 @@ export async function createOnboardingHarness(
       // It also clears the latch that disables GPU preprocessing after one failure, so a single
       // hiccup cannot poison every measurement that follows it.
       await unloadModel();
+      // The camera follows the model here exactly as it does on the scoring screen: capture is
+      // square at the input size, so timing the larger model against a smaller stream would measure
+      // a configuration that never runs. `ensureInputSize` is a no-op at the size already open, so
+      // this costs one restart per model rather than one per inference path.
+      await camera.ensureInputSize(entry.inputSize);
       runner = await loadModel(entry.url, forceCpuInference ? 'wasm' : 'webgpu');
       loadedModel = model;
       return { accelerator: runner.accelerator || 'wasm' };
     },
 
-    async run(board: ReferenceBoard, forceCpuPreprocessing): Promise<RunSample> {
-      if (!runner) throw new Error('run() before loadRunner()');
+    async runCamera(forceCpuPreprocessing) {
+      const { totalMs, result } = await timedRun(camera.video, forceCpuPreprocessing);
+      return { totalMs, preprocessMode: result.preprocessMode };
+    },
+
+    async runBoard(board: ReferenceBoard, forceCpuPreprocessing) {
       const bitmap = boards.get(board.key);
       if (!bitmap) throw new Error(`No reference image for ${board.key}`);
-      // The input size has to match the model that is loaded, not the one the settings name: the
-      // two differ for the whole of stage three, which is the point of that stage.
-      const inputSize = MODELS[loadedModel].inputSize;
-
-      // Wall clock around the whole call, which is what makes the cells comparable: LiteRT's own
-      // `modelMs` starts after preprocessing, so it barely moves between the preprocessing paths.
-      const startedAt = performance.now();
-      const result = await runner.run(bitmap, inputSize, { forceCpuPreprocessing });
-      const totalMs = performance.now() - startedAt;
+      const { result } = await timedRun(bitmap, forceCpuPreprocessing);
 
       // Thresholds are the tuned defaults rather than this device's stored ones, because the counts
       // the reference boards are expected to produce were established at those. No lens correction:
       // these are somebody else's photographs, not this camera's optics.
       const counts = result.outputs.length >= 2
-        ? summarise(postprocess(result.outputs[0], result.outputs[1], inputSize)[0])
+        ? summarise(postprocess(result.outputs[0], result.outputs[1], inputSize())[0])
         : null;
-
-      return { totalMs, preprocessMode: result.preprocessMode, counts };
+      return { counts };
     },
 
     async dispose() {
       if (disposed) return;
       disposed = true;
-      window.clearInterval(repaint);
       motion.reset();
-      for (const track of stream.getTracks()) track.stop();
-      video.srcObject = null;
       for (const bitmap of boards.values()) bitmap.close();
       await unloadModel();
       runner = null;
@@ -170,33 +148,4 @@ async function decodeBoards(): Promise<Map<string, ImageBitmap>> {
     }),
   );
   return new Map(entries);
-}
-
-/**
- * Wait until the element actually has a picture in it.
- *
- * `play()` resolving is not the same thing: it says the element started, not that a frame arrived,
- * and the motion gate refuses a preview with no dimensions. The timeout turns a stream that never
- * produces anything into a message rather than a screen that sits there.
- */
-function firstFrame(video: HTMLVideoElement): Promise<void> {
-  if (video.videoWidth > 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('The test picture never arrived — this browser may not support canvas capture.'));
-    }, 5000);
-    const done = () => {
-      if (video.videoWidth === 0) return;
-      cleanup();
-      resolve();
-    };
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      video.removeEventListener('loadedmetadata', done);
-      video.removeEventListener('timeupdate', done);
-    };
-    video.addEventListener('loadedmetadata', done);
-    video.addEventListener('timeupdate', done);
-  });
 }

@@ -21,7 +21,6 @@ import {
   type ChosenSettings,
   type OnboardingHarness,
   type OnboardingEvent,
-  type RunSample,
   type StageOutcome,
 } from '../../src/client/lib/onboarding';
 
@@ -55,6 +54,8 @@ function fakeHarness(device: Device) {
   const applied: Partial<ChosenSettings>[] = [];
   const chosen: ChosenSettings = { ...DEFAULTS };
   const loads: { model: string; forceCpuInference: boolean }[] = [];
+  /** Which photographs validation actually put through the model. */
+  const boardsRead: string[] = [];
   let clock = 0;
   let motionForcedCpu = false;
   let accelerator = 'webgpu';
@@ -81,22 +82,26 @@ function fakeHarness(device: Device) {
       accelerator = device.accelerator?.(model, forceCpuInference) ?? (forceCpuInference ? 'wasm' : 'webgpu');
       return { accelerator };
     },
-    async run(board, forceCpuPreprocessing): Promise<RunSample> {
+    // One inference, whatever it is pointed at. Both harness methods go through this, because every
+    // way a device can fail — a GPU preprocessor that is not there, one that quietly gives way —
+    // fails the same way for a camera frame and for a photograph.
+    async runCamera(forceCpuPreprocessing) {
       const pre = device.preprocess ?? { gpu: 2, cpu: 6 };
       if (!forceCpuPreprocessing && pre.gpu === 'throws') throw new Error('no webgpu preprocessing');
       if (!forceCpuPreprocessing && loadedCpu && device.noGpuPreprocessOnCpuInference) {
         throw new Error('no webgpu device while running on the cpu');
       }
       const preMs = forceCpuPreprocessing ? pre.cpu : (pre.gpu as number);
-      const ok = device.reads ? device.reads(chosen) : true;
       const base = device.inference?.[chosen.model] ?? 100;
       const inferenceMs = loadedCpu ? base * (device.cpuInferenceFactor ?? 1) : base;
       const ranOnGpu = !forceCpuPreprocessing && !device.gpuPreprocessFallsBack;
-      return {
-        totalMs: inferenceMs + preMs,
-        preprocessMode: ranOnGpu ? 'gpu-bitmap' : 'cpu',
-        counts: ok ? { boardKeypoints: board.boardKeypoints, tipKeypoints: board.tipKeypoints } : null,
-      };
+      return { totalMs: inferenceMs + preMs, preprocessMode: ranOnGpu ? 'gpu-bitmap' : 'cpu' };
+    },
+    async runBoard(board, forceCpuPreprocessing) {
+      await harness.runCamera(forceCpuPreprocessing);
+      boardsRead.push(board.key);
+      const ok = device.reads ? device.reads(chosen) : true;
+      return { counts: ok ? { boardKeypoints: board.boardKeypoints, tipKeypoints: board.tipKeypoints } : null };
     },
     apply(patch) {
       applied.push(patch);
@@ -105,15 +110,15 @@ function fakeHarness(device: Device) {
     now: () => clock,
   };
 
-  return { harness, applied, loads };
+  return { harness, applied, loads, boardsRead };
 }
 
 async function run(device: Device, start: ChosenSettings = DEFAULTS) {
-  const { harness, applied, loads } = fakeHarness(device);
+  const { harness, applied, loads, boardsRead } = fakeHarness(device);
   const events: OnboardingEvent[] = [];
   const result = await runOnboarding(harness, (e) => events.push(e), start);
   const stage = (name: StageOutcome['stage']) => result.stages.find((s) => s.stage === name)!;
-  return { result, applied, loads, events, stage };
+  return { result, applied, loads, boardsRead, events, stage };
 }
 
 /** A device with no working WebGPU at all — the headless-CI shape. */
@@ -277,15 +282,16 @@ describe('the validation ladder', () => {
   it('checks both boards, not just the interesting one', async () => {
     // A device that reads darts but not an empty board is broken in a way that would score phantom
     // darts all evening, so the empty board is not optional.
-    const seen: string[] = [];
-    const { harness } = fakeHarness({});
-    const original = harness.run.bind(harness);
-    harness.run = async (board, force) => {
-      seen.push(board.key);
-      return original(board, force);
-    };
-    await runOnboarding(harness, () => {}, DEFAULTS);
-    expect(new Set(seen)).toEqual(new Set(REFERENCE_BOARDS.map((b) => b.key)));
+    const { boardsRead } = await run({});
+    expect(new Set(boardsRead)).toEqual(new Set(REFERENCE_BOARDS.map((b) => b.key)));
+  });
+
+  it('validates against the photographs, never against what the camera can see', async () => {
+    // The camera is what the *timings* are measured through — it is the real pipeline. It is worth
+    // nothing as a check of correctness, because nobody knows what it is pointed at. So the boards
+    // are the only thing validation is allowed to read, and this is the seam that enforces it.
+    const { boardsRead } = await run({});
+    expect(boardsRead.length).toBe(REFERENCE_BOARDS.length);
   });
 });
 

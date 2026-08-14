@@ -146,10 +146,12 @@ export function ScorerPage({
   // the page reloads anyway.
   const [view, setView] = useState<View>(() => (settings.didOnboard ? 'scoring' : 'onboarding'));
 
-  // The self-test takes over the model singleton, so nothing else may load one underneath it. Two
-  // things could: a match starting (through the power hook's activation) and a `camera_on` from the
-  // owner. Both go through `startCamera`, so guarding it once covers both. Constant for the life of
-  // the page — the only way out of onboarding reloads — so this does not churn the power timers.
+  // Setup runs a camera and a model of its own, so the runtime must not open either underneath it —
+  // a second stream off one device, and a second claim on the model singleton it is loading and
+  // unloading. Two things could: a match starting (through the power hook's activation) and a
+  // `camera_on` from the owner. Both go through `startCamera`, so guarding it once covers both.
+  // Constant for the life of the page — the only way out of onboarding reloads — so this does not
+  // churn the power timers.
   const onboarding = view === 'onboarding';
 
   const startCamera = useCallback(() => {
@@ -211,31 +213,33 @@ export function ScorerPage({
 
   return (
     <div className="flex-1 flex flex-col items-center p-4 gap-2">
-      <div className="w-full max-w-md flex items-center justify-between gap-2">
-        <StatusBadge status={status} scoring={scoring} stage={power.stage} />
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onRename(e.target.value.slice(0, 20))}
-            onBlur={onNameSettled}
-            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            placeholder="Name this device"
-            className="w-32 px-2 py-1 text-sm text-right bg-transparent border-b border-gray-800 focus:border-green-500 focus:outline-none"
-          />
-          <FullscreenButton />
-          {/* Not offered during onboarding: that screen leaves by reloading, and this button would
-              drop straight to scoring with a model the self-test has already unloaded. */}
-          {!onboarding && (
+      {/* No top bar during setup. Every control on it belongs to a phone that is already working —
+          a link status somebody has not finished establishing, a name for a device not yet set up,
+          and a Settings button that would drop straight to scoring with a model the self-test has
+          unloaded. Setup is one screen with one thing to do on it. */}
+      {!onboarding && (
+        <div className="w-full max-w-md flex items-center justify-between gap-2">
+          <StatusBadge status={status} scoring={scoring} stage={power.stage} />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => onRename(e.target.value.slice(0, 20))}
+              onBlur={onNameSettled}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              placeholder="Name this device"
+              className="w-32 px-2 py-1 text-sm text-right bg-transparent border-b border-gray-800 focus:border-green-500 focus:outline-none"
+            />
+            <FullscreenButton />
             <button
               onClick={() => setView((v) => (v === 'scoring' ? 'settings' : 'scoring'))}
               className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors"
             >
               {view === 'scoring' ? 'Settings' : 'Done'}
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {!window.isSecureContext && <InsecureContextHint />}
 

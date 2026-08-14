@@ -1,14 +1,13 @@
-// Setting a phone up: what it can do, and what that means for its settings.
+// Setting a phone up: which camera, what it can do, and what that means for its settings.
 //
-// Built as a **step shell** with one step in it. That is deliberate — more setup steps are coming,
-// and a screen written as "the self-test" would have to be taken apart to accept a second one,
-// where a screen written as "step 1 of n" only has to be added to.
+// A **step shell**. Two steps today — choose a camera, then measure the device through it — and the
+// shell is what lets a third be an addition rather than a redesign.
 //
-// Nothing starts on its own. Somebody arrives here, reads what is about to happen, and presses a
-// button; a phone that opens a screen and immediately seizes its GPU for twenty seconds is a phone
-// that looks broken.
+// Nothing measures on its own. The camera opens when somebody allows it, and the checks start when
+// somebody presses the button that says so; a phone that opens a screen and immediately seizes its
+// GPU for half a minute is a phone that looks broken.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DNF,
   runOnboarding,
@@ -21,7 +20,9 @@ import {
   type Verdict,
 } from '../../lib/onboarding';
 import { createOnboardingHarness } from '../../lib/onboardingHarness';
+import { useOnboardingCamera } from '../../hooks/useOnboardingCamera';
 import { saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
+import { CameraStep } from './CameraStep';
 
 interface OnboardingViewProps {
   settings: ScorerSettings;
@@ -30,7 +31,14 @@ interface OnboardingViewProps {
   onDone: () => void;
 }
 
-type Phase = 'intro' | 'running' | 'finished';
+/** Where the flow is. `camera` is step one; the other two are step two before and during results. */
+type Phase = 'camera' | 'running' | 'finished';
+
+const STEP_LABEL: Record<Phase, string> = {
+  camera: 'Step 1 of 2 · Choosing a camera',
+  running: 'Step 2 of 2 · Checking what this device can do',
+  finished: 'Step 2 of 2 · Checking what this device can do',
+};
 
 const VERDICT_COLOUR: Record<Verdict, string> = {
   good: 'text-green-400',
@@ -46,11 +54,21 @@ const STAGE_LABEL: Record<StageOutcome['stage'], string> = {
 };
 
 export function OnboardingView({ settings, onSettingsChange, onDone }: OnboardingViewProps) {
-  const [phase, setPhase] = useState<Phase>('intro');
+  const [phase, setPhase] = useState<Phase>('camera');
   /** Only the newest line is ever shown, so only the newest line is kept. */
   const [log, setLog] = useState('');
   const [stages, setStages] = useState<StageOutcome[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
+  const camera = useOnboardingCamera();
+
+  // The permission question is asked once, on arrival, and answers itself where access is already
+  // granted. `dispose` on the way out is belt and braces — leaving reloads the page — but a camera
+  // left running because a component unmounted is not a thing to leave to chance.
+  const { begin, dispose } = camera;
+  useEffect(() => {
+    void begin();
+    return dispose;
+  }, [begin, dispose]);
 
   // The `settings` prop changes underneath this as decisions are applied, but nothing here reads it
   // again after the run starts — the starting configuration is taken once, at the top.
@@ -68,7 +86,9 @@ export function OnboardingView({ settings, onSettingsChange, onDone }: Onboardin
 
     let harness: Awaited<ReturnType<typeof createOnboardingHarness>> | null = null;
     try {
-      harness = await createOnboardingHarness(apply);
+      const handle = camera.handle();
+      if (!handle) throw new Error('The camera stopped before the checks could start.');
+      harness = await createOnboardingHarness(apply, handle);
       // `ScorerSettings` is a superset of the four the self-test decides, so it *is* a starting
       // configuration; nothing over there can reach the rest.
       const result = await runOnboarding(harness, onEvent, settings);
@@ -85,37 +105,40 @@ export function OnboardingView({ settings, onSettingsChange, onDone }: Onboardin
     <div className="w-full max-w-md flex flex-col gap-3 p-4">
       <header>
         <h2 className="text-lg font-semibold text-green-400">Setting up this camera</h2>
-        {/* Step 1 of 1 today. The counter is here so the second step is an addition rather than a
-            redesign, and so somebody can see there is an end to this. */}
-        <p className="text-xs text-gray-500">Step 1 of 1 · Checking what this device can do</p>
+        {/* A counter, so somebody can see there is an end to this — and so the day a third step
+            arrives it is a line to edit rather than a screen to rethink. */}
+        <p className="text-xs text-gray-500">{STEP_LABEL[phase]}</p>
       </header>
 
-      {phase === 'intro' && (
-        <>
-          <p className="text-sm text-gray-400">
-            This measures how fast this phone can watch a board, then reads two photographs whose
-            answers are already known — so it can pick the right settings, and tell you if something
-            here does not work at all.
-          </p>
-          <p className="text-sm text-gray-500">It takes about half a minute. The camera stays off.</p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => void start()}
-              className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
-            >
-              Start
-            </button>
-            <button
-              onClick={onDone}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-            >
-              Skip
-            </button>
-          </div>
-        </>
-      )}
+      {/* The preview belongs to the whole screen, not to the step that introduces it. It is the
+          element the benchmark reads its frames out of, so unmounting it when the step changes
+          would hand the harness a detached video half way through — and it is worth seeing during
+          the run anyway, since that is the camera being measured.
 
-      {phase !== 'intro' && (
+          **The box is always there and always square**, with the video laid inside it rather than
+          sizing it. A `<video>` is sized by the stream in it, so it collapses to nothing while there
+          is none — which threw everything below it up the screen when the camera opened, and again
+          every time the model change re-opened it at 1280. Capture is square at the model's input
+          size, so a square box fits every stream this will ever hold. */}
+      <div className="relative w-full aspect-square rounded overflow-hidden bg-gray-950 border border-gray-800">
+        <video
+          ref={camera.videoRef}
+          playsInline
+          muted
+          autoPlay
+          data-testid="onboarding-preview"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        {camera.phase !== 'ready' && (
+          <span className="absolute inset-0 flex items-center justify-center text-sm text-gray-600">
+            Camera preview
+          </span>
+        )}
+      </div>
+
+      {phase === 'camera' && <CameraStep camera={camera} onContinue={() => void start()} />}
+
+      {phase !== 'camera' && (
         <>
           {/* Which model row is in bold is read from the live settings rather than carried on the
               stage, because it is not knowable when a stage finishes: the 960 px row is the choice
@@ -144,25 +167,26 @@ export function OnboardingView({ settings, onSettingsChange, onDone }: Onboardin
               {failure ?? `Ready. Using the ${settings.model === 's_1280' ? '1280' : '960'} px model${describeOverrides(settings)}.`}
             </p>
           )}
-
-          {/* One button that changes its word, rather than two that come and go.
-
-              Leaving is available *during* the run: this holds the GPU for half a minute, and
-              somebody who would rather be scoring should not have to wait it out. Whatever has
-              already been measured stays applied — see `onDone`.
-
-              It is one element because the run can finish while a finger is on the way down. Two
-              buttons meant the one being reached for was removed mid-tap and the tap landed on
-              nothing, which is also what made this flaky to test. */}
-          <button
-            onClick={onDone}
-            data-testid="onboarding-leave"
-            className="self-start px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-          >
-            {phase === 'running' ? 'Skip' : 'Done'}
-          </button>
         </>
       )}
+
+      {/* One button, on every step, that changes its word rather than coming and going.
+
+          Leaving is available throughout — before the camera is allowed, *during* the run, and at
+          the end. A phone with no camera, or whose owner will not grant one, cannot finish setup and
+          must still be able to leave it; and somebody who would rather be scoring should not have to
+          sit out half a minute of benchmark. Whatever has already been measured stays applied.
+
+          It is one element because the run can finish while a finger is on the way down. Two buttons
+          meant the one being reached for was removed mid-tap and the tap landed on nothing, which is
+          also what made this flaky to test. */}
+      <button
+        onClick={onDone}
+        data-testid="onboarding-leave"
+        className="self-start px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+      >
+        {phase === 'finished' ? 'Done' : 'Skip'}
+      </button>
     </div>
   );
 }

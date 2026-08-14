@@ -221,8 +221,13 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     if (!runtime.camera.active) return;
     const current = cameras.find((c) => c.label === runtime.camera.label)?.deviceId;
     await stop();
+    // `startPreferred` rather than nothing when the lookup misses. It matches the open camera by
+    // label against a list only `listCameras()` fills, so a page that never enumerated — or a
+    // browser where the track's label and the device's differ — used to stop the camera here and
+    // never bring it back, leaving a scoring device dark because somebody changed the model.
     if (current) await start(current);
-  }, [cameras, start, stop]);
+    else await startPreferred();
+  }, [cameras, start, startPreferred, stop]);
 
   const setThresholds = useCallback((next: { board?: number; tip?: number }) => {
     const runtime = runtimeRef.current;

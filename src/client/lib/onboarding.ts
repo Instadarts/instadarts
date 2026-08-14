@@ -140,23 +140,18 @@ export interface ChosenSettings {
   forceCpuInference: boolean;
 }
 
-/** One `run()` of the model, as the harness reports it. */
-export interface RunSample {
-  /** Wall clock around the entire call: preprocessing, inference and readback together. */
-  totalMs: number;
-  /** What preprocessing actually did: `gpu-bitmap` or `cpu`. Never what was asked for. */
-  preprocessMode: string;
-  /** Counts from `processPredictions`, or null where it could not solve a homography at all. */
-  counts: { boardKeypoints: number; tipKeypoints: number } | null;
-}
-
 /**
  * Everything the self-test needs from the outside world.
  *
  * `loadRunner` is required to unload first, every time — `loadModel` caches by url and ignores the
  * requested accelerator on a cache hit, so without that a "CPU" measurement can quietly be the
  * WebGPU runner again. Unloading also clears the sticky latch that disables GPU preprocessing after
- * a single failure, so one hiccup cannot poison every later measurement.
+ * a single failure, so one hiccup cannot poison every later measurement. It is also where the
+ * camera is re-opened at the model's capture size, which is why nothing below mentions resolution.
+ *
+ * **Two ways to run an inference, because they answer different questions.** `runCamera` is what a
+ * frame really costs, measured through the stream the scoring screen will use. `runBoard` is the
+ * only way to know the answer is *right*, and needs a picture whose answer is known.
  */
 export interface OnboardingHarness {
   /** One motion analyzer pass, timed. Reports the path that actually ran. */
@@ -165,11 +160,19 @@ export interface OnboardingHarness {
   setMotionForceCpu(force: boolean): void;
   /** Unload whatever is loaded, then load this. Returns what actually came up. */
   loadRunner(model: string, forceCpuInference: boolean): Promise<{ accelerator: string }>;
-  /** One inference on a reference board through the currently loaded runner. */
-  run(board: ReferenceBoard, forceCpuPreprocessing: boolean): Promise<RunSample>;
+  /** One inference on the live camera frame — a cell of the matrix. */
+  runCamera(forceCpuPreprocessing: boolean): Promise<{ totalMs: number; preprocessMode: string }>;
+  /** One inference on a reference photograph. Validation only; the timing is not wanted. */
+  runBoard(board: ReferenceBoard, forceCpuPreprocessing: boolean): Promise<{ counts: Counts | null }>;
   /** Persist and apply a decision the moment it is made, so a cancelled run keeps what it proved. */
   apply(patch: Partial<ChosenSettings>): void;
   now(): number;
+}
+
+/** What `processPredictions` saw. Null from `runBoard` means it could not solve a homography. */
+export interface Counts {
+  boardKeypoints: number;
+  tipKeypoints: number;
 }
 
 export interface StageOutcome {
@@ -250,8 +253,7 @@ export async function runOnboarding(
   // neither slice shows it. Holding one constant while varying the other can only ever say which is
   // better *given the other*, and the fastest pairing is not always the pairing of the two fastest.
   log('Timing the 960 px model…');
-  const board = REFERENCE_BOARDS[1];
-  const small = await measureMatrix(harness, 's_960', board);
+  const small = await measureMatrix(harness, 's_960');
   const smallBest = bestCombo(small);
   finish({
     stage: 'model960',
@@ -267,7 +269,7 @@ export async function runOnboarding(
   // The larger model is only worth its own table if the small one left headroom for it.
   if (bestMs < TRY_LARGE_BELOW_MS) {
     log(`The 960 px model runs in ${Math.round(bestMs)}ms — trying the larger one.`);
-    const large = await measureMatrix(harness, 's_1280', board);
+    const large = await measureMatrix(harness, 's_1280');
     const largeBest = bestCombo(large);
     const largeMs = msOf(large, largeBest);
     const keep = largeMs < KEEP_LARGE_BELOW_MS && largeBest !== null;
@@ -401,17 +403,17 @@ export function rungsFrom(chosen: ChosenSettings): { patch: Partial<ChosenSettin
 async function validate(harness: OnboardingHarness, chosen: ChosenSettings): Promise<string | null> {
   await harness.loadRunner(chosen.model, chosen.forceCpuInference);
   for (const board of REFERENCE_BOARDS) {
-    let sample: RunSample;
+    let counts: Counts | null;
     try {
-      sample = await harness.run(board, chosen.forceCpuPreprocessing);
+      ({ counts } = await harness.runBoard(board, chosen.forceCpuPreprocessing));
     } catch {
       return `The ${board.key} board could not be read at all on this path.`;
     }
     // Null counts mean `processPredictions` could not solve a homography — fewer than four board
     // keypoints. That is the exact shape of the silent failure this stage is here to catch.
-    if (!sample.counts) return `The ${board.key} board produced no usable keypoints.`;
-    if (sample.counts.boardKeypoints !== board.boardKeypoints || sample.counts.tipKeypoints !== board.tipKeypoints) {
-      return `The ${board.key} board read ${sample.counts.boardKeypoints} board points and ${sample.counts.tipKeypoints} tips, expected ${board.boardKeypoints} and ${board.tipKeypoints}.`;
+    if (!counts) return `The ${board.key} board produced no usable keypoints.`;
+    if (counts.boardKeypoints !== board.boardKeypoints || counts.tipKeypoints !== board.tipKeypoints) {
+      return `The ${board.key} board read ${counts.boardKeypoints} board points and ${counts.tipKeypoints} tips, expected ${board.boardKeypoints} and ${board.tipKeypoints}.`;
     }
   }
   return null;
@@ -427,11 +429,7 @@ async function validate(harness: OnboardingHarness, chosen: ChosenSettings): Pro
  * It also means nothing has to be probed in advance: a runner that comes up on the wrong accelerator
  * says so, and both of that column's cells stay `dnf` without either being attempted.
  */
-async function measureMatrix(
-  harness: OnboardingHarness,
-  model: string,
-  board: ReferenceBoard,
-): Promise<ModelMatrix> {
+async function measureMatrix(harness: OnboardingHarness, model: string): Promise<ModelMatrix> {
   const cells: ModelMatrix = { 'cpu-cpu': DNF, 'cpu-gpu': DNF, 'gpu-cpu': DNF, 'gpu-gpu': DNF };
 
   for (const inference of ['cpu', 'gpu'] as const) {
@@ -446,7 +444,7 @@ async function measureMatrix(
     if (accelerator === null || (accelerator === 'wasm') !== forceCpuInference) continue;
 
     for (const preprocessing of ['cpu', 'gpu'] as const) {
-      cells[`${preprocessing}-${inference}`] = await cell(harness, board, preprocessing === 'cpu');
+      cells[`${preprocessing}-${inference}`] = await cell(harness, preprocessing === 'cpu');
     }
   }
   return cells;
@@ -459,17 +457,13 @@ async function measureMatrix(
  * the figures would have come from the other path, and filing them here would invent a measurement
  * that never happened.
  */
-async function cell(
-  harness: OnboardingHarness,
-  board: ReferenceBoard,
-  forceCpuPreprocessing: boolean,
-): Promise<PathResult> {
+async function cell(harness: OnboardingHarness, forceCpuPreprocessing: boolean): Promise<PathResult> {
   try {
-    await harness.run(board, forceCpuPreprocessing);
+    await harness.runCamera(forceCpuPreprocessing);
     const totals: number[] = [];
     let preprocessMode = '';
     for (let i = 0; i < MATRIX_RUNS; i++) {
-      const result = await harness.run(board, forceCpuPreprocessing);
+      const result = await harness.runCamera(forceCpuPreprocessing);
       totals.push(result.totalMs);
       preprocessMode = result.preprocessMode;
     }

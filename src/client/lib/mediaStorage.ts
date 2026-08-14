@@ -17,8 +17,8 @@ const MEDIA_KEY = 'instadarts_media';
 /**
  * Default on, where the deployment allows it at all.
  *
- * Nothing is sent from a frontend today — it has no camera — so opting in costs a peer connection
- * and nothing else. The switch exists for the person who does not want even that.
+ * A frontend has no camera of its own, but it commands its nominated scoring device and receives the
+ * opponent's board. The switch exists for somebody who wants neither side of that exchange.
  */
 export function loadMediaEnabled(): boolean {
   try {
@@ -44,7 +44,7 @@ export function saveMediaEnabled(enabled: boolean): boolean {
 const BOARD_CAMERA_KEY = 'instadarts_board_camera';
 
 /**
- * Which of this tab's claimed devices is showing the board, if any.
+ * Which of this tab's claimed devices is shared as its board, if any.
  *
  * **sessionStorage**, matching the grabs in deviceStorage.ts, because you can only nominate a device
  * this tab actually holds — a choice in one tab has no meaning in another that never claimed it.

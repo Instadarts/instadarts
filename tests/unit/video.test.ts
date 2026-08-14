@@ -11,149 +11,17 @@ import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/visio
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, clampAudience, directorTiming, excluded, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
+import {
+  VIDEO_STALL_MS,
+  frameIsFresh,
+  selectVideoFeed,
+  type VideoFeedStatus,
+  type VideoFeedView,
+} from '../../src/client/hooks/useVideoFeed';
+import type { CropRect } from '../../src/client/vision/stillCapture';
 
 /** The profile a deployment that changed nothing publishes with. */
 const DEFAULT_PROFILE = videoProfile(CONFIG_DEFAULTS.media.video);
-import { FLASH_MS, flashAt, flashShape, overlayFor, toneColour } from '../../src/client/components/feedOverlay';
-import type { CropRect } from '../../src/client/vision/stillCapture';
-import type { MatchState } from '../../src/shared/types';
-import { viewOf } from '../../src/server/match';
-import { makeMatch, throwDart } from '../helpers';
-
-// ============================================================
-// The match, written over the picture
-// ============================================================
-
-/**
- * The overlay a clip of this match would carry, built from the mode's real output.
- *
- * Driven through `viewOf` rather than a hand-written `ModeView` on purpose: every word and every
- * colour the overlay shows is x01's, so a fixture here would be a second copy of x01's opinions —
- * exactly the drift the test is meant to catch.
- */
-function overlayOf(match: MatchState) {
-  const thrower = match.players[match.currentPlayerIndex];
-  return overlayFor(thrower, match.currentVisit?.darts ?? [], viewOf(match));
-}
-
-describe('what the overlay says', () => {
-  it('flashes the visit as it stands, not the dart that just landed', () => {
-    // The number a person watching a clip back wants: 60, then 120, then 170. The dart's own label
-    // is already on the strip below, and repeating it across the middle of the board says nothing.
-    let match = throwDart(makeMatch(), 'p1', 'T20').match;
-    expect(overlayOf(match).flash).toEqual({ text: '60', tone: 'default' });
-
-    match = throwDart(match, 'p1', 'T20').match;
-    expect(overlayOf(match).flash).toEqual({ text: '120', tone: 'default' });
-
-    match = throwDart(match, 'p1', 'DB').match;
-    expect(overlayOf(match).flash).toEqual({ text: '170', tone: 'default' });
-  });
-
-  it('says "miss" rather than a total that did not move', () => {
-    const match = throwDart(makeMatch(), 'p1', 'miss').match;
-    expect(overlayOf(match).flash).toEqual({ text: 'miss', tone: 'danger' });
-  });
-
-  it('borrows the mode\'s own verdicts, and takes their side', () => {
-    // Neither string is written down in the overlay: x01 already says "Bust!" on the player's card
-    // the instant it happens, and a clip should say what the screen said.
-    const bust = throwDart(makeMatch({ settings: { startScore: 40 } }), 'p1', 'T20').match;
-    expect(overlayOf(bust).flash).toEqual({ text: 'Bust!', tone: 'danger' });
-
-    const out = throwDart(makeMatch({ settings: { startScore: 32 } }), 'p1', 'D16').match;
-    expect(overlayOf(out).flash).toEqual({ text: 'Checkout!', tone: 'positive' });
-  });
-
-  it('colours the strip: the dart that finished it, the ones that scored nothing', () => {
-    let match = throwDart(makeMatch({ settings: { startScore: 72 } }), 'p1', 'miss').match;
-    match = throwDart(match, 'p1', 'S20').match;
-    expect(overlayOf(match).darts).toEqual([
-      { label: 'miss', tone: 'danger' },
-      { label: 'S20', tone: 'default' },
-    ]);
-
-    // 52 left, D16 does not finish it — and then D10 does.
-    match = throwDart(match, 'p1', 'D16').match;
-    expect(overlayOf(match).darts[2]).toEqual({ label: 'D16', tone: 'default' });
-
-    const finished = throwDart(makeMatch({ settings: { startScore: 20 } }), 'p1', 'D10').match;
-    expect(overlayOf(finished).darts).toEqual([{ label: 'D10', tone: 'positive' }]);
-  });
-
-  it('reads the same three colours the rest of the screen means', () => {
-    expect(toneColour('positive')).not.toBe(toneColour('danger'));
-    // Everything else is just the score. A board feed has no use for a fourth shade.
-    expect(toneColour('default')).toBe(toneColour('muted'));
-    expect(toneColour('default')).toBe(toneColour('accent'));
-  });
-});
-
-// ============================================================
-// The dart that just landed, written over the picture
-// ============================================================
-
-const T20 = { text: 'T20', tone: 'default' } as const;
-
-describe('the overlay flash', () => {
-  it('is over when it is over', () => {
-    const started = 1000;
-    expect(flashAt(started, started - 1, T20)).toBeNull();
-    expect(flashAt(started, started + FLASH_MS, T20)).toBeNull();
-    expect(flashAt(started, started + FLASH_MS + 5000, T20)).toBeNull();
-    expect(flashAt(started, started + FLASH_MS / 2, T20)).toEqual({ ...T20, progress: 0.5 });
-  });
-
-  it('is done inside a second, because a flourish that outlasts the next throw is not one', () => {
-    expect(FLASH_MS).toBeLessThanOrEqual(1000);
-  });
-
-  it('starts filling most of the picture and grows out of it', () => {
-    expect(flashShape(0).scale).toBe(1);
-    expect(flashShape(1).scale).toBeGreaterThan(2);
-    // Monotonic, or it would read as a wobble rather than a throw.
-    let previous = 0;
-    for (let t = 0; t <= 1; t += 0.05) {
-      expect(flashShape(t).scale).toBeGreaterThan(previous);
-      previous = flashShape(t).scale;
-    }
-  });
-
-  it('begins at three quarters opacity and ends at none', () => {
-    expect(flashShape(0).alpha).toBeCloseTo(0.75, 10);
-    expect(flashShape(1).alpha).toBeCloseTo(0, 10);
-  });
-
-  it('is thinnest exactly where it is largest', () => {
-    // The two move against each other on purpose: at the point it covers most of the board it is
-    // barely there, so it never hides the thing it is annotating.
-    const early = flashShape(0.2);
-    const late = flashShape(0.8);
-    expect(late.scale).toBeGreaterThan(early.scale);
-    expect(late.alpha).toBeLessThan(early.alpha);
-  });
-
-  it('spends most of its life at a size you can read, then leaves quickly', () => {
-    // The point of the shaping, and the thing that was wrong before it. Easing the growth *out*
-    // makes a second of animation contain a tenth of a second of legible label: it is past a
-    // readable size almost immediately and merely large and faint for the rest. Easing it in holds
-    // it near its starting size and then throws it off the screen.
-    const readable = (t: number) => flashShape(t).scale < 1.5;
-    expect(readable(0.5), 'unreadable by the midpoint').toBe(true);
-    expect(readable(0.6)).toBe(true);
-    expect(readable(1)).toBe(false);
-
-    const first = flashShape(0.25).scale - flashShape(0).scale;
-    const last = flashShape(1).scale - flashShape(0.75).scale;
-    expect(last, 'the exit should be the quick part').toBeGreaterThan(first);
-  });
-
-  it('stays legible while it is legibly sized', () => {
-    // Opacity has to hold through the readable stretch or the shaping above buys nothing: a label
-    // at a readable size and a quarter opacity is not readable.
-    expect(flashShape(0.5).alpha).toBeGreaterThan(0.5);
-  });
-});
 
 // ============================================================
 // Who a command's result is for
@@ -189,6 +57,54 @@ describe('excluded', () => {
     expect(excluded(['owner'])).toEqual(['opponent', 'spectator']);
     expect(excluded([...MEDIA_ROLES])).toEqual([]);
     expect(excluded([])).toEqual([...MEDIA_ROLES]);
+  });
+});
+
+// ============================================================
+// Which decoded board is allowed to cover the virtual one
+// ============================================================
+
+const fakeCanvas = {} as HTMLCanvasElement;
+
+function feed(playerId: string, status: VideoFeedStatus = 'live'): VideoFeedView {
+  return {
+    peerId: `camera-${playerId}`,
+    playerId,
+    canvas: fakeCanvas,
+    status,
+    lastFrameAt: status === 'live' ? 1000 : null,
+    stats: null,
+  };
+}
+
+describe('live board selection', () => {
+  it('uses exactly three seconds as the frozen-picture boundary', () => {
+    expect(frameIsFresh(null, 10_000)).toBe(false);
+    expect(frameIsFresh(1000, 1000 + VIDEO_STALL_MS - 1)).toBe(true);
+    expect(frameIsFresh(1000, 1000 + VIDEO_STALL_MS)).toBe(false);
+  });
+
+  it('shows an opponent but never the local player to a participant', () => {
+    const feeds = [feed('p1'), feed('p2')];
+    expect(selectVideoFeed(feeds, 'p1', 'p1', false, false)).toBeNull();
+    expect(selectVideoFeed(feeds, 'p2', 'p1', false, false)?.peerId).toBe('camera-p2');
+  });
+
+  it('follows the current player for a spectator', () => {
+    const feeds = [feed('p1'), feed('p2')];
+    expect(selectVideoFeed(feeds, 'p1', null, true, false)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed(feeds, 'p2', null, true, false)?.peerId).toBe('camera-p2');
+  });
+
+  it('falls through to the virtual board for every unusable state', () => {
+    for (const status of ['waiting', 'stalled', 'off', 'unavailable'] as const) {
+      expect(selectVideoFeed([feed('p2', status)], 'p2', 'p1', false, false)).toBeNull();
+    }
+    expect(selectVideoFeed([], 'p2', 'p1', false, false)).toBeNull();
+  });
+
+  it('never selects video in a local match', () => {
+    expect(selectVideoFeed([feed('p2')], 'p2', null, true, true)).toBeNull();
   });
 });
 

@@ -24,7 +24,7 @@ interface TopBarProps {
    */
   media: boolean | null;
   onMediaChange: (enabled: boolean) => void;
-  /** The device showing the board, or null for none. Also what the opponent is offered. */
+  /** The device shared as this player's board, or null for none. */
   boardCamera: string | null;
   onBoardCameraChange: (deviceId: string | null) => void;
 }
@@ -129,7 +129,7 @@ export function TopBar({
                     onChange={() => onBoardCameraChange(null)}
                     className="accent-green-600"
                   />
-                  show nothing — not to you, and not to your opponent
+                  share no board video with opponents or spectators
                 </label>
               )}
             </div>
@@ -172,15 +172,15 @@ function BoardCameraChoice({ device, selected, onSelect }: BoardCameraChoiceProp
       {!offered
         ? 'this device is not sharing its view'
         : device.media === 'stills'
-          ? 'show this view in the match — stills only'
-          : 'show this view in the match'}
+          ? 'share this board in the match — stills only'
+          : 'share this board with opponents and spectators'}
     </label>
   );
 }
 
 interface DeviceRowProps {
   device: DeviceView;
-  /** The device currently showing the board, so this row knows whether it is the one. */
+  /** The device currently shared as the board, so this row knows whether it is the one. */
   boardCamera: string | null;
   /** Hidden entirely when this browser has media switched off — there is nothing to choose. */
   showBoardChoice: boolean;

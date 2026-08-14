@@ -699,9 +699,9 @@ on a wall.
 The optional feature that carries video and stills peer-to-peer between the devices already in a
 match. Full write-up in [media.md](./media.md); this section is the vocabulary.
 
-**Today it is transport only.** Links come up and carry a control message; ⏳ nothing encodes,
-decodes or displays a picture yet, and no user interface exists outside a dev-only diagnostics panel.
-Do not write about the video itself as though it existed.
+Stills provide dart evidence, and live video replaces the read-only virtual board with the current
+remote player's camera in online matches. Spectators receive both boards and follow the thrower;
+participants never receive their own board video.
 
 Say **media** for the feature. Never "stream" (unused, and ambiguous between a `MediaStream` and the
 thing a viewer watches) and never "call" — nobody rings anybody.
@@ -733,13 +733,12 @@ a viewer should expect and ask for — the server allows both the same link with
 
 ### Board camera
 
-The one scoring device a user is showing, chosen from those their tab has
+The one scoring device a user is sharing, chosen from those their tab has
 [claimed](#pairing-claiming-grabbing-and-the-camera). At most one, and **none** is a real answer.
 
 The second of the two gates: a device is offered to nobody until its owner nominates it, however
-willing the phone is. What the owner watches is exactly what the opponent is offered, so there is
-never a question of which board somebody is seeing — and nominating nothing takes the view away from
-everyone, opponent included.
+willing the phone is. It identifies the owner's board for opponents and spectators; nominating
+nothing takes the view away from all of them.
 
 Distinct from the browser's own media switch: that decides whether this user takes part at all
 (including watching the opponent), while this decides only whether anybody sees *their* board.
@@ -804,7 +803,7 @@ near the top and the useful answer is the closest square that still holds it.
 ### Still
 
 One photograph of a [region](#region-of-interest), taken on request and delivered over the control
-channel — as against the continuous video that will one day flow on the media channel.
+channel — as against the continuous match video flowing on the media channel.
 
 Only the [owner](#board-camera) may ask, and the request says which [audience](#audience) the answer
 is for. That asymmetry is the whole shape of it: an opponent and a spectator see what the owner's
@@ -833,11 +832,10 @@ region, because starting a feed and framing it are separate decisions.
 **One camera, one feed.** A second `video_start` re-addresses the running one rather than opening
 another; `video_stop` ends it for everybody.
 
-⏳ **Built and unused.** The transmission works end to end; its only caller is the diagnostics panel,
-under `?e2e=1`, addressed to the owner alone — the picture, the clip recorder and the match overlay
-drawn over it all live there. The device's half is not gated at all and would publish to whoever is
-entitled the moment it were asked; nothing in the product asks, so a board camera in a shipped build
-takes [stills](#still) and nothing else. See [docs/media.md](./media.md#live-board-video).
+During an in-progress online match, each owner asks their nominated camera to publish to `opponent`
+and `spectator`, never `owner`. Participants display it only on the opponent's turn; spectators
+display the current player's feed. Missing, refused or three-seconds-stale video uncovers the virtual
+board, and local matches never start a feed. See [docs/media.md](./media.md#live-board-video).
 
 ### Audience
 
@@ -858,9 +856,8 @@ plus the two things a moving picture needs that a photograph does not.
 The owner's alone, like every command except a keyframe request. Dart evidence issues one for each
 dart, at the same square it photographs.
 
-⏳ Only under `?e2e=1`, like the [feed](#board-video) it points. The frontend drops the command
-otherwise, so in a shipped build the still is the *only* thing a landing dart provokes — the camera
-never moves. No interface issues one by hand either.
+The production dart-evidence path issues this alongside the still request, so remote live viewers see
+the same per-dart camera move. No interface issues one by hand.
 
 **Fire-and-forget, which is why a shot expires.** Leave the transition out and the camera cuts; leave
 the reset out and it comes back after `media.virtualCamera.resetMs` anyway. Nothing guarantees a second

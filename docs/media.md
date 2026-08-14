@@ -4,21 +4,16 @@ The optional feature that lets the people in a match see something: a board, and
 other. It is off in one place and on in one place, and where a peer connection cannot be made it is
 simply unavailable rather than degraded.
 
-**What exists today is the transport, stills on top of it, and live board video behind the `?e2e=1`
-seam.** Links come up between every pair that needs one, each with two datachannels; a camera will
-photograph a square of its board on request — which is what puts a picture of each dart under the
-dart slots — and it will also publish a live feed of a square it is *told* to look at, from one
-encoder to however many viewers. Both say who they are for: a command carries an
-[audience](#addressing-a-camera).
+**The media system carries stills and live board video in online matches.**
+Links come up between every pair that needs one, each with two datachannels; a camera photographs a
+square of its board on request — which puts a picture of each dart under the dart slots — and
+publishes one live feed from one encoder to however many remote viewers are addressed.
 
-**Only the first of those two has a user.** Dart evidence is shipped, and photographing darts is the
-whole of what a board camera does in a production build. Everything about the live feed — asking for
-one, pointing it, watching it, [recording a clip](#recording-a-clip) of it and the match overlay drawn
-over that — lives inside the diagnostics panel and is unreachable without the seam, because it has not
-been proven on real phones. It is documented at full length below anyway: the pipeline is real and
-finished, and the gate is the only thing between it and a board on the match screen. See the warning
-under [Live board video](#live-board-video) for where each gate sits, and
-[What is not built](#what-is-not-built) for what is missing.
+The player at that board is never sent their own video: they are already looking at the real thing.
+An opponent sees the feed in place of the read-only virtual board during that player's turn, and a
+spectator receives both players' feeds and follows whoever is throwing. A missing, refused or frozen
+feed simply uncovers the virtual board underneath. Local matches do not start live video. Dart
+evidence uses stills addressed to every role.
 
 ---
 
@@ -59,9 +54,8 @@ the opponent's view away without touching a setting on a phone in another room. 
 overrule the other: nominating a device that declined achieves nothing, and a willing device that
 nobody nominated is in no roster at all.
 
-**One nomination, one picture.** What the owner watches is exactly what the opponent is offered, so
-nobody has to wonder which board they are looking at — and nominating nothing is a complete opt-out
-the opponent cannot work around.
+**One nomination, one picture.** It is the owner's board offered to opponents and spectators;
+nominating nothing is a complete opt-out they cannot work around.
 
 `stills` and `video` do not differ in what the server allows: both open the same link with the same
 two channels. The distinction is what a viewer should expect and ask for. Only `disabled` is a rule.
@@ -187,8 +181,8 @@ without one; the rest of the loop still runs.
 
 ## Addressing a camera
 
-`still_request` and `video_start` both carry `to` — the kinds of viewer the result is for. Who may
-*command* has not changed; what is new is that a command says who the answer is for.
+`still_request` and `video_start` both carry `to` — the kinds of viewer the result is for. Command
+authority and result audience are independent: only the owner commands the camera.
 
 | Role | |
 | --- | --- |
@@ -227,35 +221,22 @@ the audience its feed is currently addressed to.
 | Caller | Audience | |
 | --- | --- | --- |
 | Dart evidence | all three | An observer's copy must not drift from the thrower's. |
-| The lobby video feed | `['owner']` | ⏳ a thing being proven, not a thing being shown. |
+| Live match video | `['opponent', 'spectator']` | The owner is at the physical board and receives no copy. |
 
 ## Live board video
 
-> ⚠️ **The transmission system is finished; nothing in the product invokes it.** Not a prototype and
-> not a sketch — encoder, fan-out, decoder, the commands and the virtual camera all work end to end,
-> and the only caller they have is the diagnostics panel. So this section describes a built thing, and
-> what follows is where its single gate sits.
->
-> Everything on the frontend's side of the feed is behind [`e2eEnabled()`](../src/client/lib/e2e.ts),
-> which needs a dev or `VITE_E2E` build **and** `?e2e=1` in the URL:
->
-> | | where the gate is |
-> | --- | --- |
-> | Asking for a feed — `video_start`, `video_stop` | `useVideoFeed`, `asking` |
-> | **Directing it** — `video_region` | `useVideoFeed.direct`, which returns early. So dart evidence's per-dart camera move, described below as though it happens, does not happen in a shipped build. |
-> | Rendering one | `MediaDebugPanel` → `FeedView`, the only place `feed.canvases` is read anywhere |
-> | [Recording a clip](#recording-a-clip), and the match overlay drawn on it | the same component |
-> | `window.__media` | the same gate |
->
-> **The device's half is not gated and is live in production.** A phone whose tier is `video` will
-> encode and publish to whoever is entitled the moment it is asked. Nothing ever asks it.
->
-> **Stills are not in this category.** [Dart evidence](#asking-a-camera-for-a-picture) is a shipped
-> feature and the only thing a board camera is actually used for today — `useDartEvidence` requests a
-> photograph per dart unconditionally, and only its timing measurements are behind the seam.
->
-> The code ships either way: `e2eEnabled()` compiles to a constant `false`, so the panel, the recorder
-> and the overlay are all present in `dist` and unreachable rather than absent from it.
+An owner frontend sends `video_start` when an online match begins and `video_stop` when it finishes or
+is left. The audience is always `opponent` and `spectator`; turn changes only decide which decoded
+canvas covers a viewer's virtual board and never restart the encoder. Links may be negotiated in the
+lobby, but no video is published there or on the finished-match summary.
+
+The receiver waits for an actually decoded frame before showing anything. A refusal, a missing or
+failed link, a tier below `video`, an unsupported decoder, or three seconds without a decoded frame
+keeps or restores the virtual board. The next decoded frame restores the live picture immediately.
+This failure path is ordinary because STUN without TURN cannot connect every pair of home networks.
+
+Local matches never issue a start or director command. [Dart evidence](#asking-a-camera-for-a-picture)
+independently requests one still photograph per dart.
 
 Three commands, and the split between the first two and the third is the point:
 
@@ -282,9 +263,9 @@ split, and an unaddressed viewer is told so rather than told `on` and shown noth
 one of `not_offered` (the phone's tier is not `video`), `no_camera`, `no_encoder` (a browser without
 `VideoEncoder`; Safari before 16.4), or `not_addressed`.
 
-**The owner's wish outlives the camera.** A feed asked for in the lobby starts when the camera does,
-and survives the camera being switched off and on — the owner never withdrew the request and cannot
-see that anything happened.
+**The match request outlives a camera restart.** While the online match remains in progress, switching
+the scorer camera off and on resumes the requested feed. Finishing or leaving the match, opting the
+frontend out, or removing the board nomination ends it.
 
 ### A shot expires; a move does not happen unless asked for
 
@@ -370,7 +351,7 @@ the pixels where the encoder is.
 
 [`videoPublisher.ts`](../src/client/media/videoPublisher.ts) owns the single `VideoEncoder` and writes
 its output to `mesh.viewers()` — the same call a still's fan-out makes. This is what
-[Why a link carries no video track](#why-a-link-carries-no-video-track) has been reserving space for.
+[Why a link carries no video track](#why-a-link-carries-no-video-track) enables.
 
 - `latencyMode: 'realtime'` and `avc: { format: 'annexb' }`. Annex B puts SPS/PPS in front of every
   keyframe, so a keyframe is everything a decoder needs to start — which is what lets a viewer who
@@ -383,7 +364,7 @@ its output to `mesh.viewers()` — the same call a still's fan-out makes. This i
   written as a flat 16KB is a quarter-second at 500kbps and *less than one frame* at 5Mbps, where it
   would throw away frames the link could carry.
 - **A keyframe counts from the moment it is on a wire**, not from the moment it was encoded. Both of
-  the rules above can throw one away, and a keyframe nobody could take has repaired nothing; recording
+  the rules above can throw one away, and a keyframe nobody could take has repaired nothing; counting
   the attempt would satisfy the schedule with a frame that never went. The publisher keeps the two
   clocks apart — when one last *went out*, which drives the schedule, and when one was last *asked
   of the encoder*, which bounds the retry.
@@ -625,8 +606,9 @@ src/client/hooks/useDartEvidence.ts    the only place that knows what a still is
 
 ## Reading a real link
 
-The diagnostics panel is dev-only, behind the same [`e2eEnabled()`](../src/client/lib/e2e.ts) seam as
-the power-management overrides: open `/?e2e=1` or `/scorer?e2e=1` and it appears bottom-left.
+The diagnostics panel is dev-only, behind the [`e2eEnabled()`](../src/client/lib/e2e.ts) seam: open
+`/?e2e=1` or `/scorer?e2e=1` and it appears bottom-left. This gate affects diagnostics only, never
+whether a production match starts or displays video.
 
 It exists because headless Chromium cannot answer the question that decides whether this feature
 works — whether a phone on your Wi-Fi reaches your laptop, and whether two households reach each
@@ -645,86 +627,15 @@ that took two seconds to negotiate, and nothing else.
 > each other and the failure looks exactly like a bug in this code.
 > `playwright.config.ts` passes `--disable-features=WebRtcHideLocalIpsWithMdns` for that reason.
 
-### Recording a clip
-
-⚠️ Panel-only, like everything else about the feed — see [Live board video](#live-board-video). It is
-a debugging instrument for looking at what a real phone sent, not a feature anybody is offered.
-
-Each feed in the panel has a **● rec** button. Press it, press it again, and the browser saves what
-was on screen in between.
-
-It is a re-encode of the decoded picture rather than a copy of the wire, which is the trade that
-makes it play anywhere by double-clicking. Frames the decoder rejected are not in it; a stall shows
-as a freeze, because a canvas capture repeats the last painted frame.
-
-**MP4 is preferred, and not because it is the nicer format.** `MediaRecorder` writes its container as
-it goes, without knowing how long the recording will turn out to be — and a WebM written that way
-carries no Cues element and no Duration, so a player loads it, reports `duration: Infinity`, and
-offers a scrubber that does nothing. It plays; you cannot move around in it. VLC and Chrome both
-refuse. The fragmented MP4 the same recorder produces carries a real duration in its `moov`, and both
-seek in it happily. Measured out of the e2e Chromium, three seconds each:
-
-| | duration | seekable end | Cues |
-| --- | --- | --- | --- |
-| `video/webm;codecs=vp8` | `Infinity` | `Infinity` | none |
-| `video/mp4;codecs=avc1` | `2.981633` | `2.981633` | — |
-
-`avc1` is asked for explicitly because bare `video/mp4` produced VP9-in-MP4: playable, four times the
-size for the same three seconds, and fussier about what will open it. WebM stays in the list as the
-fallback for a browser with no MP4 recorder — Firefox — because an unseekable clip beats no clip. It
-is simply not the one to prefer.
-
-The e2e loads the saved file into a `<video>` and asserts its duration is finite, so a change that
-reintroduced the unseekable container would fail rather than merely look fine.
-
-**The clip carries the match on it.** A camera sends a picture of a board and nothing else — it does
-not know whose throw it is or what the dart it just watched land was worth — so a clip of a raw feed
-is a dartboard with no story attached. [`feedOverlay.ts`](../src/client/components/feedOverlay.ts)
-draws the player and score along the top, the visit along the bottom, and flashes the visit as it
-stands over the middle as each dart lands: three quarters opaque, growing out of the frame as it
-fades, gone inside a second.
-
-**The visit, not the dart.** 60, then 120, then 170 — the number somebody watching a clip back is
-actually keeping. The dart's own label is already on the strip below, and repeating it enormously
-across the board says nothing new. Three moments are not the total, and they are the three where the
-total is not the news: a dart that scored nothing flashes "miss", a visit thrown away flashes the
-mode's "Bust!", a leg won flashes its "Checkout!". The first two are red and the third is green, and
-the strip along the bottom is coloured the same way — a dart worth nothing in red, the dart that
-finished the leg in green, everything else white.
-
-Both of the flash's curves are weighted towards the start, and that is the whole of the tuning. The
-obvious shaping — ease the growth out, fade linearly — spends the motion budget immediately: the
-label is past a readable size within a tenth of a second and half transparent by the midpoint, so a
-second of animation holds barely a tenth of a second of legible label. Easing the growth *in* and
-squaring the fade holds it near its starting size and near full opacity for two thirds of the
-duration, then throws it off the screen. Same length, same shape, **665ms readable instead of
-109ms**.
-
-**Two canvases, and the reason matters.** The receiver's holds the decoded picture untouched; the
-panel owns a second and composites picture-then-overlay onto it on every animation frame, and records
-*that*. So the raw picture stays raw — `__media.frame()` and the fingerprints the director tests
-compare see a board rather than a player's name across it — and the flash animates on its own clock
-instead of only when a video frame happens to arrive.
-
-The overlay is assembled in [`App.tsx`](../src/client/App.tsx), where the match is, by `overlayFor` —
-the one piece of this that runs outside the gate, because it is one small object per render and a
-branch to avoid building it would cost more to read than to compute. Nothing draws it unless the
-panel is open. And it holds no rules. Every word and every colour is read off the mode's own `ModeView`, the same one
-the match screen renders: the visit total it already puts under the board, the verdict it already puts
-on a player's card. It knows a bust only in the sense that it can see the mode saying so — **a card
-score carrying a tone at all is a verdict rather than a number**, and `danger` is the only tone that
-means the visit came to nothing. The panel below it draws what it is handed and knows even less.
+The panel reports link/ICE data, publisher audience and counters, receiver counters, and still
+timings. It deliberately does not duplicate the production picture. `window.__media.frame()` still
+reads the raw receiver canvas for automated diagnostics. The match screen mounts the selected
+current-player canvas directly in the board area.
 
 ## What is not built
 
-All ⏳. The framework exists to make these expressible, and takes no position on them.
+The framework leaves these future uses expressible and takes no position on them.
 
-- **Video anybody can actually use** — the feed, the clip recorder and the overlay drawn on it are
-  asked for, rendered and reachable only behind `?e2e=1`, so the only thing a board camera does in a
-  shipped build is photograph darts. What is missing is not the pipeline but the product: somewhere on
-  the match screen to put a board, a way for a person to ask for one, and enough time on real phones
-  to trust it. See the warning under [Live board video](#live-board-video) for exactly where each gate
-  sits.
 - **Anything but a board camera publishing** — the mesh is symmetric and a frontend could publish a
   face; none does.
 - **Which link to open when** — the mesh connects to every peer it is offered. Note this is a smaller
@@ -741,5 +652,5 @@ All ⏳. The framework exists to make these expressible, and takes no position o
 - **No board video while the camera is off.** Media reads the vision runtime's camera and never
   starts one, so the two-minute camera-off stage ends the board view and standby ends everything.
   Between legs there is nothing to watch. See [the two power stages](./glossary.md#scoring-and-the-two-power-stages).
-- **Encoding once does not make decoding free.** A frontend watching two boards and an opponent runs
-  three decoders.
+- **Encoding once does not make decoding free.** A spectator receiving both players' boards runs two
+  decoders even though only the current player's canvas is displayed.

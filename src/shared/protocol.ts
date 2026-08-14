@@ -260,9 +260,9 @@ export interface MediaReadyMessage {
  * A frontend nominating one of its claimed scoring devices as **the** board camera, or `null` for
  * none.
  *
- * At most one, deliberately. It is the picture the owner watches and the same picture the opponent
- * is offered, so "which board am I showing" has exactly one answer rather than one per viewer —
- * and nominating nothing is a complete opt-out that the opponent cannot work around.
+ * At most one, deliberately. It is the owner's board offered to opponents and spectators, so
+ * "which board am I sharing" has exactly one answer rather than one per viewer — and nominating
+ * nothing is a complete opt-out remote viewers cannot work around.
  *
  * Only ever honoured for a device this connection actually holds; naming somebody else's gets
  * silence. Re-sent on every connect, like `activate_devices`, since the server keeps nothing.

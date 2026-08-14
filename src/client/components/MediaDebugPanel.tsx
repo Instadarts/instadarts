@@ -6,11 +6,11 @@
 // is where you read the answer off a real device, and the candidate types are the whole point of it:
 // `host` means the two ends were on one network, `srflx` means they found each other through a NAT.
 //
-// Gated by the same `?e2e=1` seam as the power-management overrides, so it does not exist in a
-// shipped bundle. It also exposes `window.__media`, which is what the e2e spec drives — the states
+// Gated by the same `?e2e=1` seam as the power-management overrides, so production users never see
+// it. It also exposes `window.__media`, which is what the e2e spec drives — the states
 // below are readable, but a test should not have to scrape a screen for them.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
 import type { ControlMessage, MediaRole } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
@@ -18,8 +18,6 @@ import type { StillTiming } from '../hooks/useStillResponder';
 import type { EvidenceTiming } from '../hooks/useDartEvidence';
 import type { PublisherStats } from '../media/videoPublisher';
 import type { VideoFeed } from '../hooks/useVideoFeed';
-import { videoEncoding } from '../lib/appConfig';
-import { drawOverlay, flashAt, NO_OVERLAY, type FlashText, type OverlayState } from './feedOverlay';
 import { e2eEnabled } from '../lib/e2e';
 import { getCameraCanvas } from '../vision/videoCamera';
 
@@ -39,15 +37,8 @@ interface Props {
   publisherStats?: () => PublisherStats | null;
   /** Who that feed is currently addressed to. Null when nothing is publishing. */
   publisherAudience?: () => readonly MediaRole[] | null;
-  /** The feeds this frontend is watching, and the canvases they land in. */
+  /** The feeds this frontend is watching. */
   feed?: VideoFeed;
-  /**
-   * What the match looks like right now, drawn over a feed and recorded with it.
-   *
-   * A frontend's to supply and a scoring device's to know nothing about: a camera sends a picture of
-   * a board, and whose throw it is has never been on it.
-   */
-  overlay?: OverlayState;
 }
 
 /** Median and worst of a set of measurements. The spread is the interesting half. */
@@ -57,7 +48,7 @@ function summarise(values: number[]): string {
   return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
 }
 
-export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed, overlay }: Props) {
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -118,8 +109,8 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       }),
       /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
       frame: (peerId?: string) => {
-        const entry = feed?.canvases.find((c) => !peerId || c.peerId === peerId);
-        return entry ? entry.canvas.toDataURL('image/png') : null;
+        const entry = feed?.feeds.find((candidate) => candidate.canvas && (!peerId || candidate.peerId === peerId));
+        return entry?.canvas?.toDataURL('image/png') ?? null;
       },
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
@@ -184,12 +175,18 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
             </p>
           )}
 
-          {/* The feed, from whichever end this is. A camera reports what it encoded; a viewer
-              reports what survived the trip, and shows the picture — which is the only way to tell a
-              feed that is working from one that is delivering frames of nothing. */}
+          {/* Video statistics only. The production match surface owns the picture. */}
           <PublisherRow stats={publisherStats} audience={publisherAudience} open={open} />
-          {feed?.canvases.map(({ peerId, canvas }) => (
-            <FeedView key={peerId} peerId={peerId} canvas={canvas} feed={feed} open={open} overlay={overlay} />
+          {feed?.feeds.map(({ peerId, label, status, reason }) => (
+            <ReceiverRow
+              key={peerId}
+              peerId={peerId}
+              label={label}
+              status={status}
+              reason={reason}
+              feed={feed}
+              open={open}
+            />
           ))}
           {links.map((l) => {
             const s = stats[l.peer.peerId] ?? {};
@@ -267,113 +264,16 @@ function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats 
   );
 }
 
-/**
- * The container this browser will actually record into.
- *
- * Asked rather than assumed, because no browser supports all of these: Chrome records WebM and has
- * only lately learned MP4, Safari records MP4 and not WebM, Firefox records WebM and not MP4.
- * Whichever answers first decides the file's extension too, so a clip is never named after a format
- * it is not in.
- *
- * **MP4 first, and not because it is the nicer format.** `MediaRecorder` writes a container as it
- * goes, without knowing how long the recording will turn out to be — and a WebM written that way has
- * no Cues element and no Duration, so a player loads it and reports `duration: Infinity`. It plays
- * from the start and the scrubber is furniture: VLC and Chrome both refuse to seek in one. The
- * fragmented MP4 the same recorder writes carries a real duration in its `moov`, and both seek in
- * it. Measured, not assumed — 3s clips out of this Chromium:
- *
- * ```
- * probe.webm       duration=Infinity   seekable-end=Infinity   0 Cues elements
- * probe-avc1.mp4   duration=2.981633   seekable-end=2.981633
- * ```
- *
- * `avc1` is asked for explicitly because bare `video/mp4` gave VP9-in-MP4 here — playable, four
- * times the size for the same three seconds, and a good deal fussier about what will open it.
- *
- * The WebM entries stay as the fallback for a browser with no MP4 recorder. An unseekable clip is
- * worth more than no clip; it is just not worth *preferring*.
- */
-function recordingType(): string | null {
-  if (typeof MediaRecorder !== 'function') return null;
-  const candidates = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp8', 'video/webm'];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
-}
-
-/**
- * Stop a recording growing past this, in bytes.
- *
- * A recording lives in memory until it is saved and the only thing that ends one is somebody
- * remembering to press the button again. Generous — tens of minutes at this picture size — and it
- * fails by keeping what it has rather than by taking the tab down.
- */
-const MAX_RECORDING_BYTES = 64 * 1024 * 1024;
-
-/**
- * One feed being watched: the picture, what it took to get it, and a button that saves a clip.
- *
- * ## Two canvases, on purpose
- *
- * The receiver owns one and paints the decoded picture into it. This component owns a second, and on
- * every animation frame draws the first into it and the overlay on top. The recording is of the
- * second.
- *
- * Compositing rather than drawing into the receiver's canvas buys two things. The raw picture stays
- * raw, so `__media.frame()` and the fingerprints the director tests compare see the board and not a
- * player's name written across it. And the overlay animates on its own clock rather than only when a
- * video frame happens to arrive, which at fifteen frames a second is the difference between a flash
- * that moves and one that stutters.
- */
-function FeedView({ peerId, canvas, feed, open, overlay }: {
+/** One receiver's counters, polled only while the diagnostics panel is open. */
+function ReceiverRow({ peerId, label, status, reason, feed, open }: {
   peerId: string;
-  canvas: HTMLCanvasElement;
+  label?: string;
+  status: string;
+  reason?: string;
   feed: VideoFeed;
   open: boolean;
-  overlay?: OverlayState;
 }) {
-  const composite = useRef<HTMLCanvasElement>(null);
   const [shown, setShown] = useState<{ on: boolean; reason?: string; decoded: number; dropped: number; gaps: number } | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordedBytes, setRecordedBytes] = useState(0);
-
-  // Read by the draw loop, which must not restart every time a dart lands.
-  const state = useRef<OverlayState>(NO_OVERLAY);
-  state.current = overlay ?? NO_OVERLAY;
-  /** The flash in progress: what it says, and when it began. */
-  const flash = useRef<{ text: FlashText; startedAt: number } | null>(null);
-  const lastDarts = useRef(0);
-
-  // A dart appeared. Not a dart *changed* — undo shortens the visit and a new visit empties it, and
-  // neither is something to celebrate.
-  const darts = overlay?.darts.length ?? 0;
-  if (overlay && darts > lastDarts.current) {
-    // Copied, not read live: the flash is a second long, and a visit that is submitted underneath it
-    // would otherwise rewrite what it says half way through.
-    flash.current = { text: overlay.flash, startedAt: performance.now() };
-  }
-  lastDarts.current = darts;
-
-  // Composite while anybody could be looking, and while anybody is recording even if they are not.
-  useEffect(() => {
-    if (!open && !recording) return;
-    const target = composite.current;
-    const ctx = target?.getContext('2d', { alpha: false });
-    if (!target || !ctx) return;
-
-    let handle = 0;
-    const draw = () => {
-      handle = requestAnimationFrame(draw);
-      if (canvas.width === 0) return;
-      if (target.width !== canvas.width) { target.width = canvas.width; target.height = canvas.height; }
-      ctx.drawImage(canvas, 0, 0);
-
-      const current = flash.current;
-      const showing = current ? flashAt(current.startedAt, performance.now(), current.text) : null;
-      if (current && !showing) flash.current = null;
-      drawOverlay(ctx, target.width, state.current, showing);
-    };
-    draw();
-    return () => cancelAnimationFrame(handle);
-  }, [open, recording, canvas]);
 
   useEffect(() => {
     if (!open) return;
@@ -386,93 +286,12 @@ function FeedView({ peerId, canvas, feed, open, overlay }: {
     return () => clearInterval(handle);
   }, [open, feed, peerId]);
 
-  const recorder = useRef<MediaRecorder | null>(null);
-  const chunks = useRef<Blob[]>([]);
-
-  const toggleRecording = () => {
-    if (recorder.current) {
-      // The file is built in `onstop`, which fires after the last `dataavailable` — collecting it
-      // here would drop whatever the recorder had not handed over yet.
-      recorder.current.stop();
-      return;
-    }
-
-    const target = composite.current;
-    const type = recordingType();
-    if (!target || !type) return;
-
-    // Captured from the composite, so what is saved is what is on screen. The rate is the profile's:
-    // the source is fifteen frames a second and asking for more would only duplicate them.
-    const stream = target.captureStream(videoEncoding().frameRate);
-    const media = new MediaRecorder(stream, {
-      mimeType: type,
-      // Twice the source's, because this is a re-encode of an already-lossy picture and matching the
-      // original bitrate would compound the artefacts rather than preserve them.
-      videoBitsPerSecond: videoEncoding().bitrate * 2,
-    });
-
-    chunks.current = [];
-    setRecordedBytes(0);
-    media.ondataavailable = (event) => {
-      if (event.data.size === 0) return;
-      chunks.current.push(event.data);
-      const total = chunks.current.reduce((sum, part) => sum + part.size, 0);
-      setRecordedBytes(total);
-      if (total >= MAX_RECORDING_BYTES) media.stop();
-    };
-    media.onstop = () => {
-      for (const track of stream.getTracks()) track.stop();
-      recorder.current = null;
-      setRecording(false);
-      if (chunks.current.length > 0) save(new Blob(chunks.current, { type }), peerId, type);
-      chunks.current = [];
-    };
-
-    // A chunk a second rather than one at the end: it bounds what is lost if the tab dies mid-clip,
-    // and it is what makes the byte counter beside the button move.
-    media.start(1000);
-    recorder.current = media;
-    setRecording(true);
-  };
-
-  useEffect(() => () => { recorder.current?.stop(); }, []);
-
   return (
-    <div className="mt-1">
-      <p className="text-gray-500">
-        watching {peerId.slice(0, 8)}
-        {shown && ` · ${shown.decoded}f`}
-        {shown && shown.gaps > 0 && <span className="text-yellow-500"> · {shown.gaps} gaps</span>}
-        {shown && shown.dropped > 0 && <span className="text-gray-600"> · {shown.dropped} dropped</span>}
-        {shown && !shown.on && <span className="text-red-400"> · off{shown.reason ? ` (${shown.reason})` : ''}</span>}
-      </p>
-      <div className="mt-1 flex items-center gap-2">
-        <button
-          onClick={toggleRecording}
-          disabled={recordingType() === null}
-          className={`px-2 py-0.5 rounded border disabled:opacity-40 ${
-            recording ? 'border-red-500 text-red-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`}
-        >
-          {recording ? '■ stop' : '● rec'}
-        </button>
-        {recording && <span className="text-gray-500">{Math.round(recordedBytes / 1024)}kB</span>}
-      </div>
-      {/* Shown at the profile's own size, one recorded pixel to one screen pixel. Scaling it down
-          would hide the thing anyone opens this panel to judge. */}
-      <canvas ref={composite} className="mt-1 bg-black rounded" data-testid={`feed-${peerId.slice(0, 8)}`} />
-    </div>
+    <p className="mt-1 text-gray-500">
+      watching {label ?? peerId.slice(0, 8)} · {status}{reason ? ` (${reason})` : ''}
+      {shown && ` · ${shown.decoded}f`}
+      {shown && shown.gaps > 0 && <span className="text-yellow-500"> · {shown.gaps} gaps</span>}
+      {shown && shown.dropped > 0 && <span className="text-gray-600"> · {shown.dropped} dropped</span>}
+    </p>
   );
-}
-
-/** Hand a finished clip to the browser as a file. */
-function save(blob: Blob, peerId: string, type: string): void {
-  const url = URL.createObjectURL(blob);
-  const when = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `board-${peerId.slice(0, 8)}-${when}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
-  link.click();
-  // On a delay: a synthetic click starts the save asynchronously, and revoking underneath it
-  // cancels the download in some browsers.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

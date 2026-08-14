@@ -44,9 +44,11 @@ export interface ReceiverOptions {
   profile: VideoProfile;
   /** Ask the publisher for a keyframe. Called when there is no way forward without one. */
   requestKeyframe: () => void;
+  /** A decoded frame was actually painted and is safe to put on screen. */
+  onFrame?: () => void;
 }
 
-export function createVideoReceiver({ profile, requestKeyframe }: ReceiverOptions): VideoReceiver {
+export function createVideoReceiver({ profile, requestKeyframe, onFrame }: ReceiverOptions): VideoReceiver {
   const canvas = document.createElement('canvas');
   canvas.width = profile.width;
   canvas.height = profile.height;
@@ -65,6 +67,7 @@ export function createVideoReceiver({ profile, requestKeyframe }: ReceiverOption
         // something else gets round to painting it, and a `VideoFrame` is not the kind of object to
         // leave lying about.
         context?.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        onFrame?.();
       } finally {
         frame.close();
       }

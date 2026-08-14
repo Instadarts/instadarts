@@ -21,8 +21,8 @@
 //      hardware offers. It never says the device is in use, and neither its owner nor the opponent
 //      can change it: a camera pointed somewhere its owner would rather not broadcast stays that way.
 //   2. **The owner has nominated it** — exactly one of the devices a frontend has claimed may be
-//      the **board camera**, or none at all. This is the same picture the opponent sees; nominate
-//      nothing and the opponent sees nothing.
+//      the **board camera**, or none at all. This is the owner's board offered to remote viewers;
+//      nominate nothing and they see nothing.
 //
 // So a device that has opted in is not thereby watchable, and a device that has been nominated is
 // not thereby willing. Both gates are enforced where every other rule is — in the plan the server

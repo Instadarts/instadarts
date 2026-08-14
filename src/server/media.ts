@@ -19,8 +19,7 @@
 // different people on purpose: a phone can be permanently opted in without being permanently
 // watchable, and an owner can take the opponent's view away without touching a setting on a phone in
 // another room. Exactly one device per frontend may be nominated, or none — and that one picture is
-// what the owner watches *and* what the opponent is offered, so there is never a question of which
-// board somebody is seeing.
+// the owner's board offered to opponents and spectators.
 //
 // ## Nothing here outlives a socket
 //
@@ -135,8 +134,8 @@ const roomMembers = new Map<string, Set<WebSocket>>();
 /**
  * Which of its claimed devices each frontend has nominated as **the** board camera.
  *
- * At most one per session, and that one picture is what its owner watches *and* what the opponent
- * is offered — so "which board am I showing" has a single answer rather than one per viewer.
+ * At most one per session, and that one picture is the owner's board offered to remote viewers — so
+ * "which board am I sharing" has a single answer rather than one per viewer.
  * Nominating nothing is a complete opt-out the opponent has no way around.
  *
  * The second of the two gates on a device (the phone's own willingness is the first), and like

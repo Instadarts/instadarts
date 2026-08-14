@@ -4,9 +4,8 @@ import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
 import { useDartEvidence } from './hooks/useDartEvidence';
-import { useVideoFeed } from './hooks/useVideoFeed';
+import { selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
-import { overlayFor } from './components/feedOverlay';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
@@ -59,7 +58,7 @@ export function App() {
   devicesHandler.current = devices.handleMessage;
 
   const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
-  // Which of this tab's claimed devices is showing the board — to the opponent as much as to us.
+  // Which of this tab's claimed devices is shared as this player's board.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
   // Whose visit is on screen — the thrower's, whoever that is. Only they may ask a camera for
   // anything; everyone else receives the same picture unasked.
@@ -81,13 +80,13 @@ export function App() {
   });
   mediaHandler.current = media.handleMessage;
 
-  // The live board. Asked for in the lobby and only under `?e2e=1` — the feed is being proven rather
-  // than shipped, and the diagnostics panel is the only place it is rendered.
+  // Ask our scorer to publish only during an online match. Reception is independent of this flag:
+  // opponent feeds keep decoding across turns even while the virtual board is on top.
   const feed = useVideoFeed({
     mesh: media.mesh,
     config: media.config,
     links: media.links,
-    inRoom: Boolean(lobby || match),
+    publish: Boolean(match?.status === 'in_progress' && !match.isLocal && !isSpectator),
   });
   feedHandler.current = feed.handleControl;
   feedMedia.current = feed.handleMedia;
@@ -106,13 +105,13 @@ export function App() {
   // a user not using the feature versus one whose first picture has not arrived.
   const evidenceImages = evidence.available ? evidence.images : null;
 
-  // What a recorded clip of a board says about the match it was recording. Assembled here because
-  // this is where the match lives; the panel draws it and knows nothing about what any of it means,
-  // and every word of it is the mode's own rather than something this file worked out.
-  const thrower = match?.players[match.currentPlayerIndex];
-  const overlay = match && thrower
-    ? overlayFor(thrower, match.currentVisit?.darts ?? [], view)
-    : undefined;
+  const liveFeed = selectVideoFeed(
+    feed.feeds,
+    currentPlayer?.id ?? null,
+    ownPlayerId,
+    isSpectator,
+    match?.isLocal ?? true,
+  );
 
   const navigate = useNavigate();
 
@@ -227,20 +226,21 @@ export function App() {
             submitVisit={submitVisit}
             onVoteRematch={voteRematch}
             evidence={evidenceImages}
+            liveFeed={liveFeed}
             navigate={navigate}
             error={error}
           />
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} />
+          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
       <SourceFooter />
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} overlay={overlay} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
     </div>
   );
 }
@@ -296,11 +296,12 @@ interface MatchWrapperProps {
   submitVisit: (matchId: string) => void;
   onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
   evidence: (string | undefined)[] | null;
+  liveFeed: ReturnType<typeof selectVideoFeed>;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, liveFeed, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -317,6 +318,7 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, 
       onSubmitVisit={() => submitVisit(match.id)}
       onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
       evidence={evidence}
+      liveFeed={liveFeed}
     />
   );
 }
@@ -331,9 +333,10 @@ interface SpectateWrapperProps {
   leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   evidence: (string | undefined)[] | null;
+  liveFeed: ReturnType<typeof selectVideoFeed>;
 }
 
-function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -378,6 +381,7 @@ function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatc
         onSubmitVisit={() => {}}
         onVoteRematch={() => {}}
         evidence={evidence}
+        liveFeed={liveFeed}
       />
     );
   }

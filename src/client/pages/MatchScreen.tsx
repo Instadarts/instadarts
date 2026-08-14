@@ -7,6 +7,7 @@ import { MatchHistory } from '../components/MatchHistory';
 import { modeTextClasses } from '../components/modeText';
 import { standingsOf } from '../../shared/matchFormat';
 import { ModePanelBlock } from '../components/ModePanelBlock';
+import type { VideoFeedView } from '../hooks/useVideoFeed';
 
 interface MatchScreenProps {
   match: MatchState;
@@ -22,6 +23,8 @@ interface MatchScreenProps {
   isSpectator: boolean;
   /** A photograph per dart slot from the board camera, or null where no camera is in play. */
   evidence: (string | undefined)[] | null;
+  /** The fresh current player's remote board feed, or null for the virtual-board fallback. */
+  liveFeed: VideoFeedView | null;
 }
 
 /**
@@ -85,7 +88,7 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence, liveFeed }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -106,6 +109,10 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
   }, [match.id, onSubmitVisit]);
 
   const over = match.status === 'finished';
+  const liveBoard = liveFeed?.canvas ? {
+    canvas: liveFeed.canvas,
+    ...(liveFeed.label ? { label: liveFeed.label } : {}),
+  } : null;
 
   return (
     // From `lg` this screen is exactly as tall as what it was given and never scrolls: the columns
@@ -148,6 +155,7 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
                 locked={visitLocked}
                 readOnly={!isMyTurn || isSpectator}
                 hideActions={isSpectator}
+                liveBoard={liveBoard}
               />
             </section>
 

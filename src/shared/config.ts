@@ -68,7 +68,7 @@ export interface StillConfig {
   size: number;
 }
 
-/** How a publisher encodes. Square, like everything else a camera sends. */
+/** How a nominated scorer camera encodes its continuous online-match feed. */
 export interface VideoConfig {
   /** Side of the encoded picture, in pixels. Becomes both the width and the height. */
   size: number;

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, type ReactNode } from 'react';
 import {
   RADII, CENTER, SVG_SIZE, WIRE,
   SECTOR_ORDER,
@@ -15,6 +15,8 @@ interface DartboardProps {
   maxDarts: number;
   onDartClick: (dart: DartThrow) => void;
   disabled?: boolean;
+  /** An optional live picture layered over the virtual board without unmounting the fallback. */
+  children?: ReactNode;
 }
 
 /**
@@ -61,7 +63,7 @@ function sectorPath(
   ].join(' ');
 }
 
-export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardProps) {
+export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: DartboardProps) {
   const svgRef = useRef<SVGSVGElement>(null);
 
   const handleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -202,6 +204,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled }: DartboardP
           <DartMarker key={i} dart={dart} index={i} />
         ))}
       </svg>
+      {children}
     </div>
   );
 }

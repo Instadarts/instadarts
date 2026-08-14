@@ -93,8 +93,8 @@ test.describe('dart evidence', () => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
-    // The third role. Evidence addresses all of them, which is what makes it the opposite case to
-    // the owner-only feed in media-video.spec.ts — the two halves of the same mechanism.
+    // The third role. Evidence addresses all three roles, unlike live video, which deliberately
+    // excludes the owner while still reaching opponents and spectators.
     const lobbyId = host.url().split('/lobby/')[1].split('?')[0].split('#')[0];
     const watching = await browser.newContext();
     const watcher = await watching.newPage();

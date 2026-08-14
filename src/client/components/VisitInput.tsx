@@ -3,6 +3,12 @@ import { textOf } from '../../shared/types';
 import { Dartboard } from './Dartboard';
 import { DartEvidence } from './DartEvidence';
 import { modeTextClasses, slotClasses } from './modeText';
+import { LiveBoardFeed } from './LiveBoardFeed';
+
+export interface LiveBoardView {
+  canvas: HTMLCanvasElement;
+  label?: string;
+}
 
 interface VisitInputProps {
   darts: DartThrow[];
@@ -27,6 +33,8 @@ interface VisitInputProps {
    * feature and one whose first still has not arrived yet.
    */
   evidence: (string | undefined)[] | null;
+  /** A fresh remote board feed. Null leaves the always-mounted virtual board visible. */
+  liveBoard?: LiveBoardView | null;
 }
 
 /** One dart's slot: an equal share of the row, within limits that keep a label readable. */
@@ -45,6 +53,7 @@ export function VisitInput({
   readOnly,
   hideActions,
   evidence,
+  liveBoard,
 }: VisitInputProps) {
   const boardDisabled = disabled || darts.length >= dartsPerVisit || (locked ?? false) || (readOnly ?? false);
   // A mode that says nothing about its slots gets each dart's own label, untoned.
@@ -57,7 +66,11 @@ export function VisitInput({
           how much that is: `container-type: size` is what makes `cqh` inside mean this box, which
           is how the board can be the largest square that fits without measuring anything in JS. */}
       <div className="w-full flex justify-center lg:flex-1 lg:min-h-0 lg:[container-type:size]">
-        <Dartboard darts={darts} maxDarts={dartsPerVisit} onDartClick={onAddDart} disabled={boardDisabled} />
+        <Dartboard darts={darts} maxDarts={dartsPerVisit} onDartClick={onAddDart} disabled={boardDisabled}>
+          {liveBoard && (
+            <LiveBoardFeed source={liveBoard.canvas} label={liveBoard.label} />
+          )}
+        </Dartboard>
       </div>
 
       {/* Dart slots. They share the row the way the board shares its column, so the two stay in

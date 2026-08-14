@@ -170,6 +170,14 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
     if (last.current) announce(last.current.on, last.current.reason);
   }, [reachable, announce]);
 
+  // A nomination or frontend opt-out removes the ownership edge from this device's roster. There is
+  // then nobody left who is authorised to renew the request, and encoding to an empty audience would
+  // only burn the scorer's battery. A later nomination establishes a new edge and sends a new start.
+  const hasOwner = links.some((link) => link.peer.own);
+  useEffect(() => {
+    if (!hasOwner) setWanted(false);
+  }, [hasOwner]);
+
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     // The one command anyone may send. Answered before the ownership check rather than after, so the
     // exception is visible rather than implied by a fall-through.

@@ -72,11 +72,17 @@ checked on hardware — nothing in this repository will tell you that you broke 
 ### The device self-test answers part of this, on the device
 
 A phone that has just been paired opens on **onboarding**
-([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), in two steps.
+([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), in three steps.
 
-**Step one is the camera** ([`useOnboardingCamera.ts`](../src/client/hooks/useOnboardingCamera.ts)):
-access is requested if it has not already been granted, a camera is chosen where there is more than
-one, and the zoom is offered. Nothing here asks anybody to aim at a board — that is done on the mount,
+**Step one is the name.** First because it is the only step answerable before the phone is anywhere
+near a board, and because it is the name the *other* screen uses — an owner picks their board camera
+by it. Prefilled from whatever this device already had, including after *Set up again*, which keeps
+the name precisely so nobody has to type it twice.
+
+**Step two is the camera** ([`useOnboardingCamera.ts`](../src/client/hooks/useOnboardingCamera.ts)):
+access is requested if it has not already been granted — and not before this step, so nobody answers
+a permission dialog while they are still typing — a camera is chosen where there is more than one,
+and the zoom is offered. Nothing here asks anybody to aim at a board; that is done on the mount,
 later. A phone with no camera, or whose owner refuses one, cannot finish setup; it is told which of
 those happened and can still leave.
 
@@ -85,7 +91,7 @@ runs inferences through the same model singleton step two loads and unloads. So 
 [`camera.ts`](../src/client/vision/camera.ts) directly against a preview of its own, while
 `ScorerPage` keeps the runtime's camera shut.
 
-**Step two is the self-test**, and it runs *through that camera* — which is the point: it does on
+**Step three is the self-test**, and it runs *through that camera* — which is the point: it does on
 real hardware what CI cannot. It times both motion analyzers, times each model on all four pairings
 of preprocessing and inference, and then reads two photographs whose answers are known — 8 board
 points and no tips on the empty one, 8 and 3 on the other. It sets the model and the three CPU

@@ -263,7 +263,14 @@ export function ScorerPage({
       {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
 
       {view === 'onboarding' && (
-        <OnboardingView settings={settings} onSettingsChange={setSettings} onDone={leaveOnboarding} />
+        <OnboardingView
+          settings={settings}
+          onSettingsChange={setSettings}
+          name={name}
+          onRename={onRename}
+          onNameSettled={onNameSettled}
+          onDone={leaveOnboarding}
+        />
       )}
 
       <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} />

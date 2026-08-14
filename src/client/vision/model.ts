@@ -9,6 +9,7 @@
 // preferences. Do not "clean up" this file without a benchmark on a real phone.
 
 import { getWebGpuDevice, setWebGpuDevice, isWebGPUSupported, loadLiteRt, loadAndCompile, Tensor } from '@litertjs/core';
+import { e2eEnabled } from '../lib/e2e';
 
 
 /** A source the pipeline can read a frame from. */
@@ -160,6 +161,21 @@ async function loadLiteRtWithBestCpuBackend() {
 
 let currentRunner: ModelRunner | null = null;
 let currentModelUrl: string | null = null;
+
+/**
+ * How many times a model has actually been compiled, published for the e2e that pins it.
+ *
+ * A compile is by far the most expensive thing in this file, and the caching above means it should
+ * happen once per model per page. Nothing in the app announces when that stops being true: a screen
+ * that recompiles every frame still shows the right answer, just late — which is precisely how the
+ * setup preview came to stutter while looking correct. This is the seam that makes "once" testable.
+ */
+let compileCount = 0;
+
+function countCompile(): void {
+  compileCount += 1;
+  if (e2eEnabled()) (window as unknown as { __modelCompiles?: number }).__modelCompiles = compileCount;
+}
 let preprocessingCanvas: AnyCanvas | null = null;
 let preprocessingCtx: AnyCanvas2D | null = null;
 let preprocessingCanvasType: string | null = null;
@@ -173,6 +189,7 @@ export async function loadModel(modelUrl: string, preferredAccelerator = "webgpu
   }
 
   if (currentRunner) return currentRunner;
+  countCompile();
 
   await ensureLiteRtReady();
 

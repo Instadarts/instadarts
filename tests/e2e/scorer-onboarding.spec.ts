@@ -47,7 +47,7 @@ async function pairedScorer(browser: Browser, { camera = true } = {}) {
   const phone = await browser.newContext(camera ? { permissions: ['camera'] } : {});
   const scorer = await phone.newPage();
   if (camera) await installFakeCamera(scorer, SCENES);
-  await scorer.goto('/scorer');
+  await scorer.goto('/scorer?e2e=1');
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
 
@@ -152,6 +152,17 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-quality', 'full');
     await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-points', '8');
     await expect(scorer.getByTestId('aim-tips').locator('> g')).toHaveCount(3);
+
+    // **The model is compiled once, and stays compiled.** This preview used to unload and recompile
+    // it on every render — forty-one compiles in five seconds — because the camera handle it depends
+    // on was a fresh object each time. The overlay looked perfect throughout; the only symptom was a
+    // stuttering picture, which no assertion about the drawing would ever have caught.
+    const compilesAfterFirstDraw = await scorer.evaluate(() => (window as { __modelCompiles?: number }).__modelCompiles);
+    await scorer.waitForTimeout(4000);
+    expect(
+      await scorer.evaluate(() => (window as { __modelCompiles?: number }).__modelCompiles),
+      'the aim preview recompiled the model while it was running',
+    ).toBe(compilesAfterFirstDraw);
 
     // Leaving, and staying left, are asserted here rather than in a test of their own **because a
     // second full run is the single most expensive thing this suite can ask for** — two model loads

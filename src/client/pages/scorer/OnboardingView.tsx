@@ -88,7 +88,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
 
   // The last step's live inference. Loads a model of its own — the self-test disposed its harness on
   // the way to the results — and only while that step is open.
-  const reading = useAimPreview(camera.handle(), settings, step === 'aim');
+  const reading = useAimPreview(camera.handle, settings, step === 'aim');
 
   // The `settings` prop changes underneath this as decisions are applied, but nothing here reads it
   // again after the run starts — the starting configuration is taken once, at the top.
@@ -106,7 +106,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
 
     let harness: Awaited<ReturnType<typeof createOnboardingHarness>> | null = null;
     try {
-      const handle = camera.handle();
+      const handle = camera.handle;
       if (!handle) throw new Error('The camera stopped before the checks could start.');
       harness = await createOnboardingHarness(apply, handle);
       // `ScorerSettings` is a superset of the four the self-test decides, so it *is* a starting

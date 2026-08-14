@@ -9,7 +9,7 @@
 // It lives in a hook rather than in the step that shows it because the camera outlives that step:
 // the benchmark that follows runs through the very stream chosen here.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { createCamera, listCameras, preferredCamera, type Camera, type CameraChoice, type ZoomRange } from '../vision/camera';
 import { MODELS } from '../vision/visionRuntime';
 import { loadSettings } from '../lib/scorerStorage';
@@ -124,9 +124,17 @@ export function useOnboardingCamera() {
     if (clamped != null) setZoom(clamped);
   }, []);
 
-  const handle = useCallback((): OnboardingCamera | null => {
+  /**
+   * What the self-test and the live preview run against.
+   *
+   * **Stable by identity, and that is load bearing.** It is an effect dependency on the other side,
+   * so a fresh object per render is a model unloaded and recompiled per render — which is exactly
+   * what it was, and what made the preview stutter: forty-one compiles in five seconds where one
+   * was wanted. It is rebuilt only when a different camera actually opens.
+   */
+  const handle = useMemo<OnboardingCamera | null>(() => {
     const video = videoRef.current;
-    if (!video || !cameraRef.current?.active) return null;
+    if (phase !== 'ready' || !video) return null;
     return {
       video,
       ensureInputSize: async (inputSize: number) => {
@@ -134,7 +142,7 @@ export function useOnboardingCamera() {
         await open(deviceId.current, inputSize);
       },
     };
-  }, [open]);
+  }, [phase, open]);
 
   const dispose = useCallback(() => {
     cameraRef.current?.stop();

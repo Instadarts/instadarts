@@ -53,15 +53,17 @@ export function AimStep({ reading, camera }: AimStepProps) {
         </p>
       </div>
 
-      {/* Where to stand it. Deliberately without numbers where there is no measurement to give: a
-          tolerance invented to sound precise is worse than a sentence somebody can judge for
-          themselves. */}
+      {/* Where to stand it. The first two lines are requirements rather than preferences — a camera
+          square-on to the board is the one view this reads badly — so they are written as what to do
+          and not as what is allowed. The rest are without numbers on purpose: a tolerance invented to
+          sound precise is worse than a sentence somebody can judge for themselves. */}
+      <p className="text-sm text-gray-400">It needs to see the board from an angle — across and from above or below.</p>
       <ul className="flex flex-col gap-1 text-sm text-gray-400 list-disc pl-5">
-        <li>Off to either side is fine — it does not have to be straight in front of the board.</li>
-        <li>Level with the bull, give or take a board's height.</li>
+        <li>Off to one side, not straight in front of the board.</li>
+        <li>Above or below the bull, not level with it.</li>
         <li>Out of the way of the throw.</li>
         <li>Somewhere a bounced dart cannot reach it.</li>
-        <li>Zoom in until the top and bottom of the board just touch the edges of the frame.</li>
+        <li>Zoom in until the top and bottom of the board touch the edges of the frame, rather more than less.</li>
       </ul>
 
       {/* Here as well as on the camera step, because one of those lines is about zoom and there is

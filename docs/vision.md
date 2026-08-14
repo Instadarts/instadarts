@@ -72,7 +72,8 @@ checked on hardware — nothing in this repository will tell you that you broke 
 ### The device self-test answers part of this, on the device
 
 A phone that has just been paired opens on **onboarding**
-([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), in three steps.
+([`OnboardingView.tsx`](../src/client/pages/scorer/OnboardingView.tsx)), in four steps — the last of
+them optional.
 
 **Step one is the name.** First because it is the only step answerable before the phone is anywhere
 near a board, and because it is the name the *other* screen uses — an owner picks their board camera
@@ -219,6 +220,11 @@ the knob if it does not.
   The per-lens zoom memory can only be exercised with a lens.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is
   the case the `detail` content hint is there for.
+- **Where the camera stands is a model requirement, not a preference.** It wants the board **from an
+  angle on both axes** — off to one side rather than square on, and above or below the bull rather
+  than level with it. Straight in front is the view it reads worst, and nothing in the pipeline says
+  so: the keypoints simply come back weaker, so the symptom is a board that will not hold 8 of 8
+  rather than an error. Setup's last step is where somebody finds this out — see the bar there.
 
 *To check:* on the phone, zoom until the board fills the frame, then calibrate: the projected
 spider is slid onto the board's real wires, so how well it can be made to sit on them is the test.

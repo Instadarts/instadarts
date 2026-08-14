@@ -76,7 +76,7 @@ function bestCombo(matrix: ModelMatrix): ComboKey | null {
  * refuses, which holds as long as each `good` stays at or under its gate.
  */
 export const TRY_LARGE_BELOW_MS = 250;
-export const KEEP_LARGE_BELOW_MS = 300;
+export const KEEP_LARGE_BELOW_MS = 350;
 
 export const BRACKETS = {
   motion: { good: 15, okay: 35 },

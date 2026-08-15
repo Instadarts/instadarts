@@ -70,6 +70,14 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
    * which point the row honestly says "offline" again.
    */
   const [poweredOff, setPoweredOff] = useState<Record<string, boolean>>({});
+  /**
+   * The current socket has restored this tab's device claims.
+   *
+   * A match media declaration may nominate one of those devices, so it must not overtake
+   * `activate_devices` on a replacement socket. The server's `devices_state` is the acknowledgment
+   * that ownership checks will now see the restored claim.
+   */
+  const [claimsReady, setClaimsReady] = useState(false);
   /** What each device's `online` was in the previous report, so a return can be told from a departure. */
   const wasOnline = useRef<Record<string, boolean>>({});
 
@@ -78,7 +86,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
   const claimsRef = useRef<{ paired: PairedDevice[]; grabs: ReturnType<typeof loadActiveGrabs> }>({ paired, grabs });
   claimsRef.current = { paired, grabs };
 
-  const activate = useCallback(() => {
+  const activate = useCallback((): boolean => {
     const { paired: devices, grabs: active } = claimsRef.current;
     const claims = active
       .map((grab) => {
@@ -87,11 +95,15 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
       })
       .filter((c): c is { deviceId: string; tokenHash: string; grabbedAt: number } => c !== null);
     if (claims.length > 0) send({ type: 'activate_devices', devices: claims });
+    return claims.length === 0;
   }, [send]);
 
   useEffect(() => {
-    if (connected) activate();
-    else setStatus({});
+    if (connected) setClaimsReady(activate());
+    else {
+      setClaimsReady(false);
+      setStatus({});
+    }
   }, [connected, activate]);
 
   const handleMessage = useCallback((msg: ServerMessage): void => {
@@ -121,6 +133,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
         break;
       }
       case 'devices_state': {
+        setClaimsReady(true);
         const next: Record<string, DeviceStatus> = {};
         for (const d of msg.devices) {
           next[d.deviceId] = { online: d.online, cameraActive: d.cameraActive, cameraError: d.cameraError, media: d.media };
@@ -283,6 +296,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
 
   return {
     devices,
+    claimsReady,
     pairing,
     pairingCode,
     handleMessage,

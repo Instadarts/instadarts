@@ -47,6 +47,8 @@ interface Options {
   matchId?: string | null;
   /** Ordering token used by spectators after issuing `spectate` on a replacement socket. */
   declarationVersion?: number;
+  /** Frontend device claims must be acknowledged before a declaration may nominate one. */
+  declarationReady?: boolean;
   /**
    * The device this frontend is showing as its board, or null for none. Ignored by a scoring
    * device, which has no cameras of its own to nominate.
@@ -72,6 +74,8 @@ interface Options {
 export interface Inbox {
   control: { from: string; data: unknown }[];
   media: { from: string; bytes: Uint8Array }[];
+  /** Retained server source directives, for recovery-boundary assertions. */
+  source: MediaSourceStateMessage[];
 }
 
 const INBOX_LIMIT = 200;
@@ -79,7 +83,16 @@ const INBOX_LIMIT = 200;
 export function useMediaMesh(
   send: (msg: object) => void,
   connected: boolean,
-  { tier, matchId, declarationVersion = 0, boardCamera = null, onControl, onMedia, onSourceState }: Options,
+  {
+    tier,
+    matchId,
+    declarationVersion = 0,
+    declarationReady = true,
+    boardCamera = null,
+    onControl,
+    onMedia,
+    onSourceState,
+  }: Options,
 ): MediaMesh {
   // Held in the shared store rather than here, because the readers are not all React — see
   // lib/appConfig.ts. This hook is only the one that receives it.
@@ -99,7 +112,20 @@ export function useMediaMesh(
   // Read once. `e2eEnabled()` reads the query string, and react-router drops it the moment the app
   // navigates, so asking later would answer no.
   const tapping = useRef(e2eEnabled()).current;
-  const inbox = useRef<Inbox>({ control: [], media: [] });
+  const inbox = useRef<Inbox>({ control: [], media: [], source: [] });
+  const [declarationRelease, setDeclarationRelease] = useState(0);
+
+  // A deterministic setup-timeout seam: keep one connected participant from declaring without
+  // manufacturing a gameplay disconnect. Releasing it exercises a genuinely late peer arrival.
+  useEffect(() => {
+    if (!tapping) return;
+    const release = () => {
+      sessionStorage.removeItem('instadarts_e2e_hold_media_join');
+      setDeclarationRelease((value) => value + 1);
+    };
+    window.addEventListener('instadarts:e2e-release-media-join', release);
+    return () => window.removeEventListener('instadarts:e2e-release-media-join', release);
+  }, [tapping]);
 
   const frontend = matchId !== undefined;
   const active = Boolean(config?.enabled) && tier !== 'disabled' && connected
@@ -152,6 +178,7 @@ export function useMediaMesh(
         meshRef.current?.deliver(msg.from, msg.description);
         break;
       case 'media_source_state':
+        if (tapping) inbox.current.source = [...inbox.current.source, msg].slice(-INBOX_LIMIT);
         handlersRef.current.onSourceState?.(msg);
         break;
     }
@@ -180,6 +207,11 @@ export function useMediaMesh(
         sessionRef.current = null;
         return;
       }
+      if (tapping && sessionStorage.getItem('instadarts_e2e_hold_media_join') === '1') return;
+      // A disabled declaration nominates nothing and can complete setup immediately. Any enabled
+      // one must stay behind activate_devices, or a replacement socket can accidentally withdraw a
+      // still-valid source merely because the server has not restored its claim yet.
+      if (tier !== 'disabled' && !declarationReady) return;
       if (tier === 'disabled') {
         mesh?.closeAll();
         setSelfId(null);
@@ -196,7 +228,19 @@ export function useMediaMesh(
       }
       sendRef.current({ type: 'media_ready', tier });
     }
-  }, [config?.enabled, connected, frontend, matchId, declarationVersion, tier, boardCamera, mesh]);
+  }, [
+    config?.enabled,
+    connected,
+    frontend,
+    matchId,
+    declarationVersion,
+    declarationReady,
+    declarationRelease,
+    tier,
+    boardCamera,
+    mesh,
+    tapping,
+  ]);
 
   useEffect(() => () => { meshRef.current?.closeAll(); }, []);
 

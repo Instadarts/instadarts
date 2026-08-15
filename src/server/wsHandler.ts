@@ -404,8 +404,9 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     if (match && match.status === 'in_progress') touch(match);
   }
 
-  // Somebody may have moved. Cheap to ask needlessly: an unchanged roster sends nothing, which is
-  // exactly what a re-match produces — a new match id, the same people, and a link that keeps going.
+  // Somebody may have moved. Cheap to ask needlessly: an unchanged roster sends nothing. A
+  // re-match is deliberately different — startMediaForMatch gives it a fresh mesh and every client
+  // declaration below rebuilds its links from scratch.
   if (ROOM_CHANGING_TYPES.has(msg.type)) publishMediaFor(ws, previousRoom);
 }
 

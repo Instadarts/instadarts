@@ -480,7 +480,15 @@ export function handleMediaJoin(ws: WebSocket, msg: any): void {
   if (slotId) {
     const source = session.sources.get(slotId)!;
     const requested = tier === 'disabled' ? null : msg.boardCamera;
-    const valid = typeof requested === 'string' && ownerOf(requested) === client.sessionId ? requested : null;
+    // The current source was already validated for this immutable participant slot. A replacement
+    // frontend may re-declare that exact choice before activate_devices has moved the transient
+    // claim to its new session id; clearing it in that window would stop an otherwise healthy
+    // scorer and lose every unaffected recipient's feed. Only the existing choice gets this
+    // treatment — a new or different camera still has to be owned right now.
+    const valid = typeof requested === 'string'
+      && (source.deviceId === requested || ownerOf(requested) === client.sessionId)
+      ? requested
+      : null;
     if (source.deviceId !== valid) {
       deactivateSource(session, source);
       source.deviceId = valid;

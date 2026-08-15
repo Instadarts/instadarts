@@ -141,6 +141,7 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
         wsRef.current?.close();
       },
       reconnect: connect,
+      send,
       pendingMessages: () => pendingMessages.current.length,
       generation: () => generationRef.current,
       sessionId: () => sessionIdRef.current,
@@ -148,7 +149,7 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
     target.__scorerLink = seam;
     target.__ws = seam;
     return () => { delete target.__scorerLink; delete target.__ws; };
-  }, [connect]);
+  }, [connect, send]);
 
   return { send, connected, generation, sessionId };
 }
@@ -158,6 +159,8 @@ interface SocketE2E {
   /** Abrupt replacement: unlike disconnect, this allows the normal backoff to reconnect. */
   drop: () => void;
   reconnect: () => void;
+  /** Send through the production queue, for idempotency and ordering tests. */
+  send: (message: object) => void;
   pendingMessages: () => number;
   generation: () => number;
   sessionId: () => string | null;

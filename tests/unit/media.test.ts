@@ -9,6 +9,7 @@ import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
+import { sweepLifecycle } from '../../src/server/lifecycle';
 import type { ServerMessage } from '../../src/shared/protocol';
 import type { MediaPeer, MediaTier } from '../../src/shared/media';
 
@@ -88,9 +89,15 @@ function onlineLobby() {
   return { host, guest, lobbyId };
 }
 
-function startOnline(options: { camera?: boolean; hostTier?: MediaTier; guestTier?: MediaTier } = {}) {
+function startOnline(options: {
+  camera?: boolean;
+  hostTier?: MediaTier;
+  guestTier?: MediaTier;
+  settings?: object;
+} = {}) {
   const { host, guest, lobbyId } = onlineLobby();
   const camera = options.camera === false ? null : pairDevice(host, 'Alice board');
+  if (options.settings) host.send({ type: 'update_settings', lobbyId, settings: options.settings });
   host.send({ type: 'start_match', lobbyId });
   const match = host.last('match_started')!.match;
   host.send({
@@ -156,6 +163,45 @@ describe('match-scoped lifetime and setup', () => {
     expect(host.last('media_peers')).toMatchObject({ meshId, peers: [] });
     expect(camera!.last('media_source_state')).toMatchObject({ active: false, meshId });
   });
+
+  it('tears media down when gameplay reaches victory', () => {
+    const { host, camera, match } = startOnline({
+      settings: { mode: 'x01', modeSettings: { startScore: 180, doubleIn: false, doubleOut: false } },
+    });
+    const dart = { x: 500_000, y: 726_000 };
+    host.send({ type: 'add_dart', matchId: match.id, dart });
+    host.send({ type: 'add_dart', matchId: match.id, dart });
+    host.send({ type: 'add_dart', matchId: match.id, dart });
+    host.send({ type: 'submit_visit', matchId: match.id });
+
+    expect(host.last('match_state')!.match.status).toBe('finished');
+    expect(camera!.last('media_source_state')).toMatchObject({ active: false, matchId: match.id });
+    expect(host.last('media_peers')!.peers).toEqual([]);
+  });
+
+  it('tears media down when an in-progress match expires idle', () => {
+    const { host, camera, match } = startOnline();
+    sweepLifecycle(match.expiresAt + 1);
+
+    expect(host.last('match_finished')!.match.status).toBe('finished');
+    expect(camera!.last('media_source_state')).toMatchObject({ active: false, matchId: match.id });
+    expect(host.last('media_peers')!.peers).toEqual([]);
+  });
+
+  it('tears media down when a local owner cancels the match', () => {
+    const user = connect();
+    user.send({ type: 'create_lobby', isLocal: true });
+    const lobbyId = user.last('lobby_state')!.lobby.id;
+    user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    const camera = pairDevice(user, 'Local board');
+    user.send({ type: 'start_match', lobbyId });
+    const matchId = user.last('match_started')!.match.id;
+    user.send({ type: 'media_join', matchId, tier: 'video', boardCamera: camera.deviceId });
+    user.send({ type: 'leave_match', matchId });
+
+    expect(camera.last('media_source_state')).toMatchObject({ active: false, matchId });
+    expect(user.last('media_peers')!.peers).toEqual([]);
+  });
 });
 
 describe('topology and source intent', () => {
@@ -203,17 +249,40 @@ describe('topology and source intent', () => {
     expect(replacement.last('media_source_state')).toMatchObject({ active: false });
   });
 
+  it('replaces the source epoch for a new nomination and for tier reactivation', () => {
+    const { host, camera, match } = startOnline();
+    const first = camera!.last('media_source_state');
+    expect(first?.active).toBe(true);
+
+    const secondCamera = pairDevice(host, 'Replacement board');
+    host.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: secondCamera.deviceId });
+    expect(camera!.last('media_source_state')).toMatchObject({ active: false });
+    const second = secondCamera.last('media_source_state');
+    expect(second?.active).toBe(true);
+    if (first?.active && second?.active) expect(second.sourceEpoch).not.toBe(first.sourceEpoch);
+
+    secondCamera.send({ type: 'media_ready', tier: 'disabled' });
+    expect(secondCamera.last('media_source_state')).toMatchObject({ active: false });
+    secondCamera.send({ type: 'media_ready', tier: 'video' });
+    const reactivated = secondCamera.last('media_source_state');
+    expect(reactivated?.active).toBe(true);
+    if (second?.active && reactivated?.active) expect(reactivated.sourceEpoch).not.toBe(second.sourceEpoch);
+  });
+
   it('keeps the source epoch when only the participant frontend is replaced', () => {
     const { host, camera, match } = startOnline();
     const active = camera!.last('media_source_state');
     const oldPeer = host.peerId();
     const replacement = connect();
     replacement.send({ type: 'reconnect', matchId: match.id, token: host.resumeToken() });
+    // The media declaration is allowed to beat transient device-claim restoration. This exact
+    // camera was already validated for the immutable player slot, so that ordering must not turn a
+    // page reload into an explicit source withdrawal.
+    replacement.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: camera!.deviceId });
     replacement.send({
       type: 'activate_devices',
       devices: [{ deviceId: camera!.deviceId, tokenHash: camera!.tokenHash, grabbedAt: 2 }],
     });
-    replacement.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: camera!.deviceId });
 
     expect(replacement.peerId()).not.toBe(oldPeer);
     const repeated = camera!.last('media_source_state');

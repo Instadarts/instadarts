@@ -41,6 +41,78 @@ export function shouldRestartIce(polite: boolean, state: LinkState): boolean {
 
 export type LinkState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
+export interface IceRestartController {
+  /** Follow the peer connection's observable state. */
+  stateChanged(state: LinkState): void;
+  /** One restart negotiation has either produced a description or stopped trying to do so. */
+  negotiationFinished(): void;
+  /** Cancel every pending attempt permanently. */
+  close(): void;
+  /** Number of calls made to RTCPeerConnection.restartIce(). */
+  readonly restarts: number;
+}
+
+/**
+ * The retry clock, separated from RTCPeerConnection so every cancellation edge can be proved with
+ * fake time. Only one restart may be negotiating at once; a still-failed link schedules the next
+ * delay after that negotiation settles.
+ */
+export function createIceRestartController(
+  polite: boolean,
+  restartIce: () => void,
+): IceRestartController {
+  let state: LinkState = 'new';
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let attempt = 0;
+  let inFlight = false;
+  let closed = false;
+  let restarts = 0;
+
+  const cancel = (reset = false) => {
+    clearTimeout(timer);
+    timer = undefined;
+    if (reset) attempt = 0;
+  };
+
+  const schedule = () => {
+    if (closed || !shouldRestartIce(polite, state) || timer || inFlight) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (closed || state !== 'failed') return;
+      attempt += 1;
+      inFlight = true;
+      restarts += 1;
+      try {
+        restartIce();
+      } catch {
+        inFlight = false;
+        schedule();
+      }
+    }, iceRestartDelay(attempt));
+  };
+
+  return {
+    stateChanged(next) {
+      if (closed) return;
+      state = next;
+      if (next === 'connected') cancel(true);
+      else if (next === 'connecting' || next === 'disconnected' || next === 'closed') cancel();
+      else if (next === 'failed') schedule();
+    },
+    negotiationFinished() {
+      if (closed || !inFlight) return;
+      inFlight = false;
+      schedule();
+    },
+    close() {
+      closed = true;
+      inFlight = false;
+      cancel();
+    },
+    get restarts() { return restarts; },
+  };
+}
+
 export interface PeerLinkOptions {
   peerId: string;
   /**
@@ -145,43 +217,14 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
   // gathering means we sit in that window for a while, which is exactly when a collision happens.
   let makingOffer = false;
   let ignoreOffer = false;
-  let restartTimer: ReturnType<typeof setTimeout> | undefined;
-  let restartAttempt = 0;
-  let restartInFlight = false;
-  let iceRestarts = 0;
-
-  function cancelRestart(reset = false): void {
-    clearTimeout(restartTimer);
-    restartTimer = undefined;
-    if (reset) restartAttempt = 0;
-  }
-
-  function scheduleRestart(): void {
-    // The impolite side created the channels and made the original offer, so exactly that side is
-    // responsible for restarting. The polite side waits for its offer.
-    if (!shouldRestartIce(polite, state) || restartTimer || restartInFlight) return;
-    const delay = iceRestartDelay(restartAttempt);
-    restartTimer = setTimeout(() => {
-      restartTimer = undefined;
-      if (state !== 'failed') return;
-      restartAttempt += 1;
-      restartInFlight = true;
-      iceRestarts += 1;
-      try {
-        pc.restartIce();
-      } catch {
-        restartInFlight = false;
-        scheduleRestart();
-      }
-    }, delay);
-  }
+  // The impolite side created the channels and made the original offer, so exactly that side owns
+  // this controller. The polite side observes the same states but never schedules a restart.
+  const iceRestart = createIceRestartController(polite, () => pc.restartIce());
 
   function setState(next: LinkState): void {
     if (state === next || state === 'closed') return;
     state = next;
-    if (next === 'connected') cancelRestart(true);
-    else if (next === 'connecting' || next === 'disconnected' || next === 'closed') cancelRestart();
-    else if (next === 'failed') scheduleRestart();
+    iceRestart.stateChanged(next);
     onChange(next);
   }
 
@@ -231,10 +274,7 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       // nothing here that retrying would fix.
     } finally {
       makingOffer = false;
-      if (restartInFlight) {
-        restartInFlight = false;
-        scheduleRestart();
-      }
+      iceRestart.negotiationFinished();
     }
   };
 
@@ -328,7 +368,7 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
   }
 
   function close(): void {
-    cancelRestart();
+    iceRestart.close();
     setState('closed');
     control?.close();
     media?.close();
@@ -377,7 +417,7 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       // the one whose ICE errors are worth reading.
       const ice = {
         ...(iceErrors ? { iceErrors, lastIceError } : {}),
-        ...(iceRestarts ? { iceRestarts } : {}),
+        ...(iceRestart.restarts ? { iceRestarts: iceRestart.restarts } : {}),
       };
 
       const report = await pc.getStats();

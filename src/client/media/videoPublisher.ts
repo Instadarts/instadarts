@@ -60,6 +60,32 @@ export interface VideoPublisher {
   stop(): void;
 }
 
+/**
+ * Packet identity and media time belong to a feed/source epoch, not to one encoder incarnation.
+ *
+ * The encoder is deliberately stopped while every accepted recipient is temporarily unwritable.
+ * Recreating it must continue both values: an existing receiver rejects repeated sequence numbers,
+ * and a decoder should not see the same feed's timeline jump back to zero after link recovery.
+ */
+export interface VideoFeedClock {
+  nextSequence(): number;
+  timestampUs(nowMs: number): number;
+  reset(nowMs?: number): void;
+}
+
+export function createVideoFeedClock(nowMs = performance.now()): VideoFeedClock {
+  let sequence = 0;
+  let startedAt = nowMs;
+  return {
+    nextSequence(): number { return sequence++; },
+    timestampUs(now: number): number { return Math.round((now - startedAt) * 1000); },
+    reset(now = performance.now()): void {
+      sequence = 0;
+      startedAt = now;
+    },
+  };
+}
+
 export interface PublisherOptions {
   mesh: Mesh;
   profile: VideoProfile;
@@ -74,6 +100,8 @@ export interface PublisherOptions {
   audience: () => readonly MediaRole[];
   /** Exact peers that accepted; intersected with the current authorized audience on every frame. */
   accepted: () => ReadonlySet<string>;
+  /** Persistent clock for this feed UUID; shared across temporary encoder incarnations. */
+  clock: VideoFeedClock;
 }
 
 /** Whether this browser can publish at all. Safari gained `VideoEncoder` in 16.4; older ones cannot. */
@@ -81,7 +109,7 @@ export function canPublish(): boolean {
   return typeof VideoEncoder === 'function' && typeof VideoFrame === 'function';
 }
 
-export function createVideoPublisher({ mesh, profile, source, feedId, audience, accepted }: PublisherOptions): VideoPublisher {
+export function createVideoPublisher({ mesh, profile, source, feedId, audience, accepted, clock }: PublisherOptions): VideoPublisher {
   const frameDurationUs = 1e6 / profile.frameRate;
   const minFrameGapMs = 1000 / profile.frameRate;
   /** A quarter-second of *this* profile, not of the one it was tuned against. */
@@ -89,11 +117,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
 
   let encoder: VideoEncoder | null = null;
   let stopped = false;
-  let seq = 0;
   let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0 };
-
-  /** The feed's own clock, so a timestamp means "since this feed started" and starts at zero. */
-  const startedAt = performance.now();
   let lastFrameAt = 0;
   /**
    * The last keyframe that actually reached a link, and the last one asked of the encoder.
@@ -127,7 +151,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     chunk.copyTo(body);
 
     const key = chunk.type === 'key';
-    const packet = packVideo({ feedId, key, seq: seq++, timestamp: chunk.timestamp }, body);
+    const packet = packVideo({ feedId, key, seq: clock.nextSequence(), timestamp: chunk.timestamp }, body);
 
     const allowed = accepted();
     const addressed = mesh.viewers(audience()).filter((link) => allowed.has(link.peerId));
@@ -232,7 +256,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     // not smoothness.
     if (codec.encodeQueueSize > 2) return;
 
-    const timestampUs = Math.round((now - startedAt) * 1000);
+    const timestampUs = clock.timestampUs(now);
     const frame = source.grab(profile.width, timestampUs, frameDurationUs);
     if (!frame) {
       stats = { ...stats, missed: stats.missed + 1 };

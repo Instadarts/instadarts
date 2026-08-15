@@ -74,6 +74,16 @@ async function decodedFrames(page: Page): Promise<number> {
   return feeds.reduce((total: number, feed: any) => total + (feed.stats?.decoded ?? 0), 0);
 }
 
+/** Ordered control-channel barrier: every message sent before this ping has reached the peer. */
+async function controlRoundTrip(page: Page, peerId: string, seq: number): Promise<void> {
+  const sent = await page.evaluate(({ id, value }) =>
+    (window as any).__media.ping(id, value), { id: peerId, value: seq });
+  expect(sent, `control channel to ${peerId} was not writable`).toBe(true);
+  await expect.poll(() => page.evaluate((value) =>
+    (window as any).__media.inbox().control.some((message: any) =>
+      message.data?.kind === 'pong' && message.data.seq === value), seq)).toBe(true);
+}
+
 /** The board camera, as this page's roster sees it. */
 function cameraPeer(page: Page) {
   return page.evaluate(() => (window as any).__media.links().find((l: any) => l.kind === 'device'));
@@ -198,8 +208,8 @@ test.describe('board video', () => {
     // A nominated, running camera in an online lobby must still publish nothing.
     expect(await cameraPeer(host)).toBeFalsy();
     await startCamera(scorer.page);
-    await host.waitForTimeout(1500);
     expect(await published(scorer.page)).toBeNull();
+    expect(await sourceOffer(scorer.page)).toBeNull();
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
@@ -339,6 +349,79 @@ test.describe('board video', () => {
     await scorer.context.close();
   });
 
+  test('a same-peer outage pauses the encoder and resumes the exact feed without new consent', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    const feedId = (await sourceOffer(scorer.page)).feedId;
+    const guestId = await guest.evaluate(() => (window as any).__media.self());
+    const cameraAtGuest = await cameraPeer(guest);
+    const guestAtCamera = await scorer.page.evaluate((peerId) =>
+      (window as any).__media.links().find((link: any) => link.peerId === peerId), guestId);
+    expect(cameraAtGuest.ready).toBe(true);
+    expect(guestAtCamera.ready).toBe(true);
+    const decodedBefore = await decodedFrames(guest);
+
+    // Mark both views of the same physical link unwritable. The scorer stops spending CPU, but the
+    // feed UUID and the exact guest peer remain accepted.
+    await guest.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'disconnected'), cameraAtGuest.peerId);
+    await scorer.page.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'disconnected'), guestId);
+    await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(feedId);
+    expect((await sourceOffer(scorer.page)).accepted).toEqual([guestId]);
+    await expect.poll(() => guest.evaluate(() => (window as any).__media.video().watching[0]?.choice))
+      .toBe('accepted');
+    await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
+    await expect(guest.getByTestId('dartboard')).toBeVisible();
+    await expect(guest.getByTestId('media-setup-overlay')).toHaveCount(0);
+
+    await scorer.page.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'connected'), guestId);
+    await guest.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'connected'), cameraAtGuest.peerId);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(decodedBefore);
+    const decodedAfterDisconnected = await decodedFrames(guest);
+    expect((await sourceOffer(scorer.page)).feedId).toBe(feedId);
+    await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
+    await expect(guest.getByTestId('live-board-feed')).toBeVisible();
+
+    // Terminal failure restarts only the original offerer. It has the same pause/resume semantics
+    // and still does not widen or replace consent.
+    const restartPage = cameraAtGuest.polite ? scorer.page : guest;
+    const restartPeer = cameraAtGuest.polite ? guestId : cameraAtGuest.peerId;
+    const beforeRestarts = (await restartPage.evaluate((peerId) => (window as any).__media.stats(peerId), restartPeer)).iceRestarts ?? 0;
+    await guest.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'failed'), cameraAtGuest.peerId);
+    await scorer.page.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'failed'), guestId);
+    await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
+    await expect.poll(async () => {
+      const stats = await restartPage.evaluate((peerId) => (window as any).__media.stats(peerId), restartPeer);
+      return stats.iceRestarts ?? 0;
+    }, { timeout: 5000 }).toBe(beforeRestarts + 1);
+    expect((await sourceOffer(scorer.page)).feedId).toBe(feedId);
+    expect((await sourceOffer(scorer.page)).accepted).toEqual([guestId]);
+
+    await scorer.page.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'connected'), guestId);
+    await guest.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'connected'), cameraAtGuest.peerId);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(decodedAfterDisconnected);
+    expect((await sourceOffer(scorer.page)).feedId).toBe(feedId);
+    await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
+    await expect(guest.getByTestId('live-board-feed')).toBeVisible();
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
   test('a spectator switches between two independently accepted player feeds', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const aliceScorer = await openScorer(browser);
@@ -418,12 +501,16 @@ test.describe('board video', () => {
     // about the director: a baseline taken before the scene changed would move when the scene did,
     // and the test would pass whether or not a single command was honoured.
     await showScene(scorer.page, 'darts');
-    await guest.waitForTimeout(2000);
+    const decodedAtSceneChange = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 20_000 })
+      .toBeGreaterThan(decodedAtSceneChange + 2);
 
     // The floor: two shots of one static, board-framed scene a moment apart. Whatever they differ by
     // is codec noise, and a real camera move has to clear it by a distance.
     const wide = (await fingerprint(guest))!;
-    await guest.waitForTimeout(700);
+    const decodedAtBaseline = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 10_000 })
+      .toBeGreaterThan(decodedAtBaseline + 3);
     const drift = distance(wide, (await fingerprint(guest))!);
 
     // Now the darts are *scored*. Alice's frontend asks for each one's photograph and, at the same
@@ -477,6 +564,7 @@ test.describe('board video', () => {
     const endsBefore = await videoEndMessages(guest);
     const shotBefore = (await fingerprint(guest))!;
     const activeOffer = await sourceOffer(scorer.page);
+    const decodedBeforeCommand = await decodedFrames(guest);
 
     // Even knowing the UUID does not widen the audience: the owner is linked to its camera but is
     // outside the owner-declared opponent/spectator roles.
@@ -491,21 +579,27 @@ test.describe('board video', () => {
       (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
       (window as any).__media.sendControl(peerId, { kind: 'video_region', region: { cx: 0.1, cy: 0.1, size: 0.05 }, transitionMs: 0 });
     }, camera.peerId);
-    await guest.waitForTimeout(2000);
+    await controlRoundTrip(guest, camera.peerId, 701);
+    await expect.poll(async () => (await published(scorer.page)).frames, { timeout: 10_000 })
+      .toBeGreaterThan(beforeStop);
+    await expect.poll(() => decodedFrames(guest), { timeout: 10_000 })
+      .toBeGreaterThan(decodedBeforeCommand);
 
     // Nothing happens. An opponent cannot switch off somebody else's camera and cannot decide what it
     // looks at — and gets silence rather than a refusal, because a peer with no business commanding
     // learns nothing from an answer.
-    expect((await published(scorer.page)).frames, 'the opponent stopped the feed').toBeGreaterThan(beforeStop);
     expect(await videoEndMessages(guest), 'the opponent ended the feed').toBe(endsBefore);
     expect(distance(shotBefore, (await fingerprint(guest))!), 'the opponent moved the shot').toBeLessThan(8);
 
     // Source lifetime is server-coordinated. The superseded owner control is ignored even on the
     // exact ownership edge; only opt-out/source change/match finish may end this epoch.
+    const beforeOwnerStop = (await published(scorer.page)).frames;
     await host.evaluate((peerId) => {
       (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
     }, ownerCamera.peerId);
-    await guest.waitForTimeout(500);
+    await controlRoundTrip(host, ownerCamera.peerId, 702);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 10_000 })
+      .toBeGreaterThan(beforeOwnerStop);
     expect((await sourceOffer(scorer.page)).feedId).toBe(activeOffer.feedId);
     expect(await published(scorer.page)).not.toBeNull();
 
@@ -544,7 +638,7 @@ test.describe('board video', () => {
     expect(camera.tier).toBe('stills');
     await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, { kind: 'video_start' }), camera.peerId);
 
-    await host.waitForTimeout(1500);
+    await controlRoundTrip(host, camera.peerId, 703);
     expect(await sourceOffer(scorer.page)).toBeNull();
     await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
     expect(await published(scorer.page)).toBeNull();

@@ -79,6 +79,7 @@ export function App() {
     tier: wantsMedia ? 'video' : 'disabled',
     matchId: match?.status === 'in_progress' ? match.id : null,
     declarationVersion: roomGeneration,
+    declarationReady: devices.claimsReady,
     boardCamera,
     onControl: (from, message, payload) => {
       evidenceHandler.current?.(from, message, payload);
@@ -133,8 +134,17 @@ export function App() {
     media.session,
     media.links,
   );
+  const mediaSetupWasVisible = useRef(false);
   useEffect(() => {
-    if (mediaSettingUp && match?.id) performance.mark(`media-setup:${match.id}`);
+    if (!match?.id) return;
+    if (mediaSettingUp && !mediaSetupWasVisible.current) {
+      mediaSetupWasVisible.current = true;
+      performance.mark(`media-setup:${match.id}`);
+      performance.mark(`media-setup-start:${match.id}`);
+    } else if (!mediaSettingUp && mediaSetupWasVisible.current) {
+      mediaSetupWasVisible.current = false;
+      performance.mark(`media-setup-end:${match.id}`);
+    }
   }, [mediaSettingUp, match?.id]);
 
   const navigate = useNavigate();

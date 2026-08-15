@@ -30,41 +30,73 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
     // fake fixed at one size would let a benchmark of the 1280 px model quietly run on 960 px
     // frames. Real hardware may of course answer with something else entirely; this honours the
     // common case, which is what makes the change observable at all.
-    const canvases = new Map<number, CanvasRenderingContext2D>();
+    interface FakeCanvas {
+      ctx: CanvasRenderingContext2D;
+      tracks: Set<CanvasCaptureMediaStreamTrack>;
+    }
+    const canvases = new Map<number, FakeCanvas>();
+    const fakeTrackIds = new Set<string>();
 
-    function contextFor(size: number): CanvasRenderingContext2D {
-      let ctx = canvases.get(size);
-      if (!ctx) {
+    function canvasFor(size: number): FakeCanvas {
+      let state = canvases.get(size);
+      if (!state) {
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
-        ctx = canvas.getContext('2d')!;
+        const ctx = canvas.getContext('2d')!;
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, size, size);
-        canvases.set(size, ctx);
+        state = { ctx, tracks: new Set() };
+        canvases.set(size, state);
       }
-      return ctx;
+      return state;
     }
 
-    const loaded = new Map<string, HTMLImageElement>();
+    const loaded = new Map<string, Promise<HTMLImageElement>>();
 
-    async function draw(name: string): Promise<void> {
-      let image = loaded.get(name);
-      if (!image) {
-        image = new Image();
-        image.src = images[name];
-        await image.decode();
-        loaded.set(name, image);
+    function imageFor(name: string): Promise<HTMLImageElement> {
+      let pending = loaded.get(name);
+      if (!pending) {
+        pending = (async () => {
+          const image = new Image();
+          image.src = images[name];
+          await image.decode();
+          return image;
+        })();
+        loaded.set(name, pending);
       }
-      for (const ctx of canvases.values()) {
-        ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
-      }
+      return pending;
     }
 
-    // captureStream only emits a frame when the canvas is painted, so keep painting: the video
-    // element needs a steady stream to report dimensions and to keep playing.
     let current = Object.keys(images)[0];
-    setInterval(() => void draw(current), 100);
+    let revision = 0;
+    let painting: Promise<void> = Promise.resolve();
+    let changingScene = false;
+
+    async function paint(name: string, expectedRevision: number): Promise<void> {
+      const image = await imageFor(name);
+      // An older decode must never land after a newer scene was selected. This was the source of
+      // intermittent "darts disappeared back into an empty board" failures under load.
+      if (revision !== expectedRevision || current !== name) return;
+      for (const { ctx, tracks } of canvases.values()) {
+        ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        for (const track of tracks) track.requestFrame();
+      }
+    }
+
+    function queuePaint(): Promise<void> {
+      const name = current;
+      const expectedRevision = revision;
+      painting = painting.then(() => paint(name, expectedRevision));
+      return painting;
+    }
+
+    // A zero-rate canvas stream emits exactly when requestFrame() is called. Keeping that clock here
+    // makes the fake independent of scheduler load and lets a scene change await the actual video
+    // frame instead of sleeping for an assumed number of capture intervals.
+    setInterval(() => {
+      if (!changingScene) void queuePaint();
+    }, 100);
 
     const fakeDevice = { deviceId: 'fake-camera', kind: 'videoinput', label: 'Fake board camera', groupId: 'fake' };
 
@@ -83,17 +115,22 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
         // A fresh stream per call, exactly as the real one gives. Handing out a shared stream would
         // mean the permission probe in listCameras() stops the track the camera then tries to use.
         getUserMedia: async (constraints?: MediaStreamConstraints) => {
-          const ctx = contextFor(requestedSize(constraints));
+          const state = canvasFor(requestedSize(constraints));
           // Painted before it is captured, so the first frame off a newly sized canvas is the scene
           // rather than the black it was cleared to.
-          await draw(current);
-          const stream = (ctx.canvas as HTMLCanvasElement & { captureStream(fps: number): MediaStream }).captureStream(15);
+          await queuePaint();
+          const stream = state.ctx.canvas.captureStream(0);
           // A canvas track calls itself a random string; a real camera track calls itself what
           // `enumerateDevices` calls the device. That agreement is load-bearing — every per-camera
           // setting, and the remembered choice itself, is keyed by the track's label and matched
           // against the enumerated one — so the double has to imitate it or nothing round-trips.
           for (const track of stream.getVideoTracks()) {
             Object.defineProperty(track, 'label', { value: fakeDevice.label, configurable: true });
+            const canvasTrack = track as CanvasCaptureMediaStreamTrack;
+            state.tracks.add(canvasTrack);
+            fakeTrackIds.add(track.id);
+            track.addEventListener('ended', () => state.tracks.delete(canvasTrack), { once: true });
+            canvasTrack.requestFrame();
           }
           return stream;
         },
@@ -105,13 +142,39 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
     });
 
     (window as unknown as { __scene: (name: string) => Promise<void> }).__scene = async (name: string) => {
-      current = name;
-      await draw(name);
-      // Let a few frames of the new scene reach the video element before anyone looks at it.
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (!(name in images)) throw new Error(`unknown fake-camera scene: ${name}`);
+      changingScene = true;
+      try {
+        current = name;
+        revision += 1;
+        await imageFor(name);
+        await painting; // every older paint now observes the new revision and becomes a no-op
+
+        const videos = [...document.querySelectorAll('video')].filter((video) => {
+          const stream = video.srcObject;
+          return stream instanceof MediaStream && stream.getVideoTracks().some((track) => fakeTrackIds.has(track.id));
+        });
+        const present = async () => {
+          const nextFrames = videos.map((video) => new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('fake camera frame did not reach its video element')), 5000);
+            video.requestVideoFrameCallback(() => {
+              clearTimeout(timeout);
+              resolve();
+            });
+          }));
+          await queuePaint();
+          await Promise.all(nextFrames);
+        };
+        // The second presented frame is ordered after the first callback, so even a frame queued
+        // just before the scene switch cannot satisfy the wait with the old picture.
+        await present();
+        await present();
+      } finally {
+        changingScene = false;
+      }
     };
 
-    void draw(current);
+    void queuePaint();
   }, encoded);
 }
 

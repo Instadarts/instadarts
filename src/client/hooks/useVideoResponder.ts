@@ -7,7 +7,13 @@ import { clampAudience, createVideoFeedId, directorTiming, isVideoFeedId } from 
 import type { MediaSourceStateMessage } from '../../shared/protocol';
 import { virtualCamera } from '../lib/appConfig';
 import type { Mesh, MeshLink } from '../media/mesh';
-import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
+import {
+  canPublish,
+  createVideoFeedClock,
+  createVideoPublisher,
+  type PublisherStats,
+  type VideoFrameSource,
+} from '../media/videoPublisher';
 
 interface Options {
   meshRef: React.MutableRefObject<Mesh | null>;
@@ -54,12 +60,30 @@ export function pruneIneligibleAcceptances(accepted: Set<string>, eligiblePeerId
   for (const peerId of accepted) if (!eligible.has(peerId)) accepted.delete(peerId);
 }
 
+/** Encoder lifetime follows writability; the feed UUID and exact-peer consent do not. */
+export function shouldRunVideoPublisher(
+  feedId: VideoFeedId | null,
+  wanted: boolean,
+  tier: MediaTier,
+  hasProfile: boolean,
+  cameraActive: boolean,
+  acceptedPeerIds: Iterable<string>,
+  writablePeerIds: Iterable<string>,
+): boolean {
+  if (!feedId || !wanted || tier !== 'video' || !hasProfile || !cameraActive) return false;
+  const writable = new Set(writablePeerIds);
+  for (const peerId of acceptedPeerIds) if (writable.has(peerId)) return true;
+  return false;
+}
+
 export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
   const [wanted, setWanted] = useState(false);
   const wantedRef = useRef(false);
   const audience = useRef<MediaRole[]>([]);
   const sourceEpoch = useRef<string | null>(null);
   const feedId = useRef<VideoFeedId | null>(null);
+  /** Survives encoder pauses; reset only when this source epoch gets a new feed UUID. */
+  const feedClock = useRef(createVideoFeedClock());
   /** Peers successfully told about this UUID, whether they accepted or declined it. */
   const offered = useRef(new Set<string>());
   const accepted = useRef(new Set<string>());
@@ -123,14 +147,14 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
     const writable = new Set(eligibleLinks.filter((link) => link.ready).map((link) => link.peerId));
     pruneIneligibleAcceptances(accepted.current, allowed);
 
-    const shouldRun = Boolean(
-      id
-      && wantedRef.current
-      && tierRef.current === 'video'
-      && profileRef.current
-      && mesh
-      && cameraActiveRef.current
-      && [...accepted.current].some((peerId) => writable.has(peerId)),
+    const shouldRun = Boolean(mesh) && shouldRunVideoPublisher(
+      id,
+      wantedRef.current,
+      tierRef.current,
+      Boolean(profileRef.current),
+      cameraActiveRef.current,
+      accepted.current,
+      writable,
     );
     if (!shouldRun) {
       stopPublisher();
@@ -148,6 +172,7 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
       },
       audience: () => audience.current,
       accepted: () => accepted.current,
+      clock: feedClock.current,
     });
     setPublishing(true);
   }, [eligible, meshRef, sourceRef, stopPublisher]);
@@ -197,7 +222,10 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
       if (feedId.current) endOffer();
       return;
     }
-    if (!feedId.current) feedId.current = createVideoFeedId();
+    if (!feedId.current) {
+      feedId.current = createVideoFeedId();
+      feedClock.current.reset();
+    }
     reconcileOffer();
     syncPublisher();
   }, [endOffer, meshRef, reconcileOffer, syncPublisher]);

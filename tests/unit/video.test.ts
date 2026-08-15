@@ -6,7 +6,7 @@
 // tests/e2e/media-video.spec.ts's. These are the parts that can be wrong arithmetically — which is
 // the kind of wrong that looks, on a screen, like a mysteriously bad picture.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, clampAudience, createVideoFeedId, directorTiming, isVideoFeedId, maxBufferedBytes, videoProfile } from '../../src/shared/media';
@@ -18,8 +18,9 @@ import {
   type VideoFeedStatus,
   type VideoFeedView,
 } from '../../src/client/hooks/useVideoFeed';
-import { canChooseVideoFeed, pruneIneligibleAcceptances } from '../../src/client/hooks/useVideoResponder';
-import { iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
+import { canChooseVideoFeed, pruneIneligibleAcceptances, shouldRunVideoPublisher } from '../../src/client/hooks/useVideoResponder';
+import { createIceRestartController, iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
+import { createVideoFeedClock } from '../../src/client/media/videoPublisher';
 import { setupSnapshotSettled } from '../../src/client/hooks/useMatchMediaSetup';
 import type { CropRect } from '../../src/client/vision/stillCapture';
 
@@ -88,6 +89,108 @@ describe('media recovery policy', () => {
     const accepted = new Set(['eligible-offline', 'removed']);
     pruneIneligibleAcceptances(accepted, ['eligible-offline']);
     expect([...accepted]).toEqual(['eligible-offline']);
+  });
+
+  it('pauses the encoder without ending the feed or consent, then permits the same feed to resume', () => {
+    const accepted = new Set(['peer-a']);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', true, true, accepted, ['peer-a'])).toBe(true);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', true, true, accepted, [])).toBe(false);
+    expect([...accepted]).toEqual(['peer-a']);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', true, true, accepted, ['peer-a'])).toBe(true);
+  });
+
+  it('keeps packet sequence and timestamps continuous across encoder incarnations of one feed', () => {
+    const clock = createVideoFeedClock(1_000);
+    expect([clock.nextSequence(), clock.nextSequence()]).toEqual([0, 1]);
+    expect(clock.timestampUs(1_250)).toBe(250_000);
+
+    // A temporarily stopped encoder shares this clock when it is recreated.
+    expect(clock.nextSequence()).toBe(2);
+    expect(clock.timestampUs(2_000)).toBe(1_000_000);
+
+    // Only a genuinely new feed/source epoch starts over.
+    clock.reset(3_000);
+    expect(clock.nextSequence()).toBe(0);
+    expect(clock.timestampUs(3_025)).toBe(25_000);
+  });
+
+  it('requires every publisher gate in addition to a writable accepted peer', () => {
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', true, true, ['peer-a'], ['peer-a'])).toBe(true);
+    expect(shouldRunVideoPublisher(null, true, 'video', true, true, ['peer-a'], ['peer-a'])).toBe(false);
+    expect(shouldRunVideoPublisher(FEED_ID, false, 'video', true, true, ['peer-a'], ['peer-a'])).toBe(false);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'stills', true, true, ['peer-a'], ['peer-a'])).toBe(false);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', false, true, ['peer-a'], ['peer-a'])).toBe(false);
+    expect(shouldRunVideoPublisher(FEED_ID, true, 'video', true, false, ['peer-a'], ['peer-a'])).toBe(false);
+  });
+
+  it('runs one ICE restart at a time after 1, 2, 4, then capped 8 second delays', () => {
+    vi.useFakeTimers();
+    try {
+      const restartIce = vi.fn();
+      const controller = createIceRestartController(false, restartIce);
+      controller.stateChanged('failed');
+
+      for (const [delay, calls] of [[1000, 1], [2000, 2], [4000, 3], [8000, 4], [8000, 5]] as const) {
+        vi.advanceTimersByTime(delay - 1);
+        expect(restartIce).toHaveBeenCalledTimes(calls - 1);
+        vi.advanceTimersByTime(1);
+        expect(restartIce).toHaveBeenCalledTimes(calls);
+        vi.advanceTimersByTime(60_000);
+        expect(restartIce).toHaveBeenCalledTimes(calls); // still one negotiation in flight
+        controller.negotiationFinished();
+      }
+      controller.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels ICE retries on recovery, disconnect, negotiation, and close', () => {
+    vi.useFakeTimers();
+    try {
+      const restartIce = vi.fn();
+      const controller = createIceRestartController(false, restartIce);
+
+      controller.stateChanged('failed');
+      controller.stateChanged('disconnected');
+      vi.advanceTimersByTime(10_000);
+      expect(restartIce).not.toHaveBeenCalled();
+
+      controller.stateChanged('failed');
+      controller.stateChanged('connecting');
+      vi.advanceTimersByTime(10_000);
+      expect(restartIce).not.toHaveBeenCalled();
+
+      controller.stateChanged('failed');
+      controller.stateChanged('connected');
+      vi.advanceTimersByTime(10_000);
+      expect(restartIce).not.toHaveBeenCalled();
+
+      // Connected reset the sequence: the next failure waits one second again.
+      controller.stateChanged('failed');
+      vi.advanceTimersByTime(1000);
+      expect(restartIce).toHaveBeenCalledTimes(1);
+      controller.close();
+      controller.negotiationFinished();
+      vi.advanceTimersByTime(60_000);
+      expect(restartIce).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never schedules ICE restarts on the polite side', () => {
+    vi.useFakeTimers();
+    try {
+      const restartIce = vi.fn();
+      const controller = createIceRestartController(true, restartIce);
+      controller.stateChanged('failed');
+      vi.advanceTimersByTime(60_000);
+      expect(restartIce).not.toHaveBeenCalled();
+      controller.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('settles a setup snapshot on ready, failed, closed, or roster-removed links', () => {

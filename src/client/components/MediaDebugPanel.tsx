@@ -94,6 +94,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       inbox: () => ({
         control: latest.current.media.inbox.control,
         media: latest.current.media.inbox.media.map((m) => ({ from: m.from, bytes: [...m.bytes] })),
+        source: latest.current.media.inbox.source,
       }),
       stats: async (peerId: string) => latest.current.mesh?.link(peerId)?.stats(),
       /** What stills have cost. The device's split, and the frontend's round trip. */
@@ -113,7 +114,14 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
         published: latest.current.publisherStats?.() ?? null,
         offer: latest.current.publisherOffer?.() ?? null,
         audience: latest.current.publisherOffer?.()?.audience ?? null,
-        watching: latest.current.feed?.feeds.map(({ canvas: _canvas, ...entry }) => entry) ?? [],
+        // Decoder counters change for every packet without forcing React to render every frame.
+        // Read their live ref here; returning the stats captured by the last render made recovery
+        // tests depend on whether a frame happened to beat the link-state render.
+        watching: latest.current.feed?.feeds.map(({ canvas: _canvas, ...entry }) => ({
+          ...entry,
+          stats: latest.current.feed?.stats.current.find((current) =>
+            current.peerId === entry.peerId && current.feedId === entry.feedId)?.stats ?? entry.stats,
+        })) ?? [],
       }),
       /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
       frame: (peerId?: string) => {

@@ -68,6 +68,22 @@ async function slotRowTop(page: Page): Promise<number> {
   });
 }
 
+/** Ordered control-channel barrier: every message sent before this ping has reached the peer. */
+async function controlRoundTrip(page: Page, peerId: string, seq: number): Promise<void> {
+  const sent = await page.evaluate(({ id, value }) =>
+    (window as any).__media.ping(id, value), { id: peerId, value: seq });
+  expect(sent, `control channel to ${peerId} was not writable`).toBe(true);
+  await expect.poll(() => page.evaluate((value) =>
+    (window as any).__media.inbox().control.some((message: any) =>
+      message.data?.kind === 'pong' && message.data.seq === value), seq)).toBe(true);
+}
+
+async function linkedToCamera(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => (window as any).__media.links()
+    .filter((link: any) => link.kind === 'device' && link.ready).length), { timeout: 30_000 })
+    .toBeGreaterThan(0);
+}
+
 /** An online match with Alice hosting, both taking part in media. */
 async function onlineMatch(browser: Browser) {
   const alice = await browser.newContext();
@@ -111,10 +127,7 @@ test.describe('dart evidence', () => {
     // Every viewer linked before a dart lands. A still is sent once, at the moment it is taken, and
     // there is no retry for a peer whose link was still being negotiated — so a spectator who joins
     // late misses that dart, which is honest behaviour and a race this test must not run into.
-    await expect
-      .poll(() => watcher.evaluate(() => (window as any).__media.links()
-        .filter((l: any) => l.kind === 'device' && l.ready).length), { timeout: 30_000 })
-      .toBeGreaterThan(0);
+    await Promise.all([linkedToCamera(host), linkedToCamera(guest), linkedToCamera(watcher)]);
 
     // The strip is there before any picture is — that is the whole point of it having a fixed
     // height, and it is asserted before a dart is thrown rather than after.
@@ -218,6 +231,7 @@ test.describe('dart evidence', () => {
 
     // Bob can see Alice's camera — that link is the whole reason he sees her board — and asks it
     // directly, straight down the link, bypassing anything the interface would or would not offer.
+    await linkedToCamera(guest);
     const cameraPeer = await guest.evaluate(() =>
       (window as any).__media.links().find((l: any) => l.kind === 'device'));
     expect(cameraPeer, 'the opponent should be linked to the board camera').toBeTruthy();
@@ -226,9 +240,23 @@ test.describe('dart evidence', () => {
     await guest.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
       kind: 'still_request', id: 'from-the-opponent', tag: { dart: 0 },
     }), cameraPeer.peerId);
+    await controlRoundTrip(guest, cameraPeer.peerId, 801);
+
+    // An authorized request is a deterministic queue barrier. If the opponent's request had been
+    // accepted by mistake, the single serialized capture queue would finish and answer it before
+    // this later owner request can be answered.
+    await linkedToCamera(host);
+    const ownerCamera = await host.evaluate(() =>
+      (window as any).__media.links().find((link: any) => link.kind === 'device'));
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'still_request', id: 'owner-barrier', tag: { dart: 1 },
+      region: { cx: 0.5, cy: 0.5, size: 0.25 },
+      to: ['owner', 'opponent'],
+    }), ownerCamera.peerId);
+    await expect.poll(() => guest.evaluate(() => (window as any).__media.inbox().control
+      .some((message: any) => message.data?.id === 'owner-barrier')), { timeout: 20_000 }).toBe(true);
 
     // Silence. Not a refusal — a peer with no business asking learns nothing from an answer.
-    await guest.waitForTimeout(3000);
     const answers = await guest.evaluate(() => (window as any).__media.inbox().control
       .filter((m: any) => m.data?.id === 'from-the-opponent'));
     expect(answers).toEqual([]);

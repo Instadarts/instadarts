@@ -18,7 +18,9 @@ import {
   type VideoFeedStatus,
   type VideoFeedView,
 } from '../../src/client/hooks/useVideoFeed';
-import { canChooseVideoFeed } from '../../src/client/hooks/useVideoResponder';
+import { canChooseVideoFeed, pruneIneligibleAcceptances } from '../../src/client/hooks/useVideoResponder';
+import { iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
+import { setupSnapshotSettled } from '../../src/client/hooks/useMatchMediaSetup';
 import type { CropRect } from '../../src/client/vision/stillCapture';
 
 /** The profile a deployment that changed nothing publishes with. */
@@ -71,6 +73,32 @@ describe('video feed ids', () => {
     expect(canChooseVideoFeed(FEED_ID, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ['peer-b'], 'peer-b')).toBe(false);
     expect(canChooseVideoFeed(FEED_ID, 'not-a-uuid', ['peer-b'], 'peer-b')).toBe(false);
     expect(canChooseVideoFeed(null, FEED_ID, ['peer-b'], 'peer-b')).toBe(false);
+  });
+});
+
+describe('media recovery policy', () => {
+  it('restarts ICE only on the deterministic original-offerer side, with capped backoff', () => {
+    expect(shouldRestartIce(false, 'failed')).toBe(true);
+    expect(shouldRestartIce(true, 'failed')).toBe(false);
+    expect(shouldRestartIce(false, 'disconnected')).toBe(false);
+    expect([0, 1, 2, 3, 4, 20].map(iceRestartDelay)).toEqual([1000, 2000, 4000, 8000, 8000, 8000]);
+  });
+
+  it('retains consent while an exact peer is eligible but temporarily unwritable', () => {
+    const accepted = new Set(['eligible-offline', 'removed']);
+    pruneIneligibleAcceptances(accepted, ['eligible-offline']);
+    expect([...accepted]).toEqual(['eligible-offline']);
+  });
+
+  it('settles a setup snapshot on ready, failed, closed, or roster-removed links', () => {
+    const peer = (peerId: string, state: any, ready = false) => ({
+      peer: { peerId }, state, ready,
+    }) as any;
+    expect(setupSnapshotSettled(['ready', 'failed', 'closed', 'removed'], [
+      peer('ready', 'connected', true), peer('failed', 'failed'), peer('closed', 'closed'),
+    ])).toBe(true);
+    expect(setupSnapshotSettled(['waiting'], [peer('waiting', 'connecting')])).toBe(false);
+    expect(setupSnapshotSettled(['disconnected'], [peer('disconnected', 'disconnected')])).toBe(false);
   });
 });
 

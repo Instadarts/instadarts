@@ -26,6 +26,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
    * opposed to `error`, which answers a request this tab made.
    */
   const [notice, setNotice] = useState<string | null>(null);
+  /** Advances after a spectator request so media_join is ordered behind it on that socket. */
+  const [roomGeneration, setRoomGeneration] = useState(0);
 
   const extraHandlerRef = useRef(onServerMessage);
   extraHandlerRef.current = onServerMessage;
@@ -108,7 +110,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     }
   }, []);
 
-  const { send, connected } = useWebSocket(handleMessage);
+  const { send, connected, generation: connectionGeneration, sessionId } = useWebSocket(handleMessage);
 
   const createLobby = useCallback((isLocal = true) => {
     send({ type: 'create_lobby', isLocal });
@@ -172,6 +174,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     // Watching is not a place in the room, so whatever this tab was holding is not what it is now.
     clearReconnectInfo();
     send({ type: 'spectate', id });
+    setRoomGeneration((value) => value + 1);
     setIsSpectator(true);
   }, [send]);
 
@@ -192,6 +195,9 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     error,
     notice,
     connected,
+    connectionGeneration,
+    connectionSessionId: sessionId,
+    roomGeneration,
     send,
     ownPlayerId,
     isSpectator,

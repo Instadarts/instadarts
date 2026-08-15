@@ -10,7 +10,7 @@
 // peers' rosters; there is no other way in, and no other way out.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ServerMessage } from '../../shared/protocol';
+import type { MediaSourceStateMessage, ServerMessage } from '../../shared/protocol';
 import type { ControlMessage, MediaPeer, MediaTier } from '../../shared/media';
 import type { MediaClientConfig } from '../../shared/config';
 import { createMesh, type Mesh, type MeshLink } from '../media/mesh';
@@ -26,6 +26,8 @@ export interface MediaMesh {
   active: boolean;
   /** This connection's own peer id, once the server has minted one. */
   selfId: string | null;
+  /** Current server-owned match/mesh incarnation and setup declaration state. */
+  session: { matchId: string; meshId: string; setupComplete: boolean } | null;
   links: MeshLink[];
   /** The mesh itself, for the parts of the app that talk over a link. */
   mesh: Mesh | null;
@@ -41,6 +43,10 @@ interface Options {
    * frontend that is the "no video" switch, for a phone it is its own settings answer.
    */
   tier: MediaTier;
+  /** Present only in the gaming frontend. Null means lobby/summary: no mesh exists. */
+  matchId?: string | null;
+  /** Ordering token used by spectators after issuing `spectate` on a replacement socket. */
+  declarationVersion?: number;
   /**
    * The device this frontend is showing as its board, or null for none. Ignored by a scoring
    * device, which has no cameras of its own to nominate.
@@ -52,6 +58,8 @@ interface Options {
   onControl?: (from: string, message: ControlMessage, payload?: Uint8Array) => void;
   /** One encoded chunk from a peer. */
   onMedia?: (from: string, data: ArrayBuffer) => void;
+  /** Retained desired source state, delivered only to a selected scoring device. */
+  onSourceState?: (message: MediaSourceStateMessage) => void;
 }
 
 /**
@@ -71,26 +79,31 @@ const INBOX_LIMIT = 200;
 export function useMediaMesh(
   send: (msg: object) => void,
   connected: boolean,
-  { tier, boardCamera = null, onControl, onMedia }: Options,
+  { tier, matchId, declarationVersion = 0, boardCamera = null, onControl, onMedia, onSourceState }: Options,
 ): MediaMesh {
   // Held in the shared store rather than here, because the readers are not all React — see
   // lib/appConfig.ts. This hook is only the one that receives it.
   const config = useMediaConfig();
   const [selfId, setSelfId] = useState<string | null>(null);
+  const [session, setSession] = useState<MediaMesh['session']>(null);
   const [links, setLinks] = useState<MeshLink[]>([]);
+  const sessionRef = useRef<MediaMesh['session']>(null);
+  const selfRef = useRef<string | null>(null);
 
   const meshRef = useRef<Mesh | null>(null);
   const sendRef = useRef(send);
   sendRef.current = send;
-  const handlersRef = useRef({ onControl, onMedia });
-  handlersRef.current = { onControl, onMedia };
+  const handlersRef = useRef({ onControl, onMedia, onSourceState });
+  handlersRef.current = { onControl, onMedia, onSourceState };
 
   // Read once. `e2eEnabled()` reads the query string, and react-router drops it the moment the app
   // navigates, so asking later would answer no.
   const tapping = useRef(e2eEnabled()).current;
   const inbox = useRef<Inbox>({ control: [], media: [] });
 
-  const active = Boolean(config?.enabled) && tier !== 'disabled' && connected;
+  const frontend = matchId !== undefined;
+  const active = Boolean(config?.enabled) && tier !== 'disabled' && connected
+    && (!frontend || Boolean(matchId));
 
   // Rebuilt only when the ICE configuration itself changes, which in practice means once. A mesh
   // that was recreated on every render would drop every link it held.
@@ -126,11 +139,20 @@ export function useMediaMesh(
         setAppConfig({ frontend: msg.frontend, scorer: msg.scorer, media: msg.media });
         break;
       case 'media_peers':
+        if (sessionRef.current?.meshId !== msg.meshId || selfRef.current !== msg.self) {
+          meshRef.current?.closeAll();
+        }
+        sessionRef.current = { matchId: msg.matchId, meshId: msg.meshId, setupComplete: msg.setupComplete };
+        selfRef.current = msg.self;
+        setSession(sessionRef.current);
         setSelfId(msg.self);
         meshRef.current?.setRoster(msg.peers as MediaPeer[]);
         break;
       case 'media_signal':
         meshRef.current?.deliver(msg.from, msg.description);
+        break;
+      case 'media_source_state':
+        handlersRef.current.onSourceState?.(msg);
         break;
     }
   }, []);
@@ -141,43 +163,44 @@ export function useMediaMesh(
    * this matters. It also mints a new peer id, which is why the links from the old one go.
    */
   useEffect(() => {
-    if (!active) {
+    if (!config?.enabled || !connected) {
       mesh?.closeAll();
       setSelfId(null);
+      selfRef.current = null;
+      setSession(null);
+      sessionRef.current = null;
       return;
     }
-    // Carries the tier, so a phone switched from stills to video says so without reconnecting. The
-    // server keeps the peer id it already had — a new one would tear down a live link.
-    sendRef.current({ type: 'media_ready', tier });
-  }, [active, mesh, tier]);
-
-  /**
-   * Which board this frontend is showing, restated on every connect and whenever it changes.
-   *
-   * Sent even when it is null: "nobody" is an answer the server has to hear, because it is what
-   * takes the opponent's view away.
-   */
-  useEffect(() => {
-    if (!active) return;
-    sendRef.current({ type: 'media_select_camera', deviceId: boardCamera });
-  }, [active, boardCamera]);
-
-  /**
-   * Say so when the preference is switched off while connected — a peer that merely goes quiet stays
-   * in everyone's roster, and they would sit waiting on a link it is never going to answer.
-   */
-  const wasEnabled = useRef(tier !== 'disabled');
-  useEffect(() => {
-    const enabled = tier !== 'disabled';
-    if (wasEnabled.current && !enabled && connected && config?.enabled) {
-      sendRef.current({ type: 'media_leave' });
+    if (frontend) {
+      if (!matchId) {
+        mesh?.closeAll();
+        setSelfId(null);
+        selfRef.current = null;
+        setSession(null);
+        sessionRef.current = null;
+        return;
+      }
+      if (tier === 'disabled') {
+        mesh?.closeAll();
+        setSelfId(null);
+        selfRef.current = null;
+        setSession(null);
+        sessionRef.current = null;
+      }
+      sendRef.current({ type: 'media_join', matchId, tier, boardCamera: tier === 'disabled' ? null : boardCamera });
+    } else {
+      if (tier === 'disabled') {
+        mesh?.closeAll();
+        setSelfId(null);
+        selfRef.current = null;
+      }
+      sendRef.current({ type: 'media_ready', tier });
     }
-    wasEnabled.current = enabled;
-  }, [tier, connected, config?.enabled]);
+  }, [config?.enabled, connected, frontend, matchId, declarationVersion, tier, boardCamera, mesh]);
 
   useEffect(() => () => { meshRef.current?.closeAll(); }, []);
 
   const refresh = useCallback(() => setLinks(meshRef.current?.links() ?? []), []);
 
-  return { handleMessage, config, active, selfId, links, mesh, refresh, inbox: inbox.current };
+  return { handleMessage, config, active, selfId, session, links, mesh, refresh, inbox: inbox.current };
 }

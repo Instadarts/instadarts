@@ -32,7 +32,7 @@ test.describe('encoded video over a link', () => {
     const alice = await (await browser.newContext()).newPage();
     const bob = await (await browser.newContext()).newPage();
 
-    // Nothing to do with darts: two frontends in one lobby is simply the shortest route to a link.
+    // Nothing to do with darts: two frontends in one running match are the shortest route to a link.
     await alice.goto('/?e2e=1');
     await alice.click('text=Create Online Match');
     await alice.fill('input[placeholder="New player name"]', 'Alice');
@@ -43,6 +43,8 @@ test.describe('encoded video over a link', () => {
     await bob.fill('input[placeholder="New player name"]', 'Bob');
     await bob.click('button:has-text("Add")');
     await expect(alice.locator('text=Bob')).toBeVisible({ timeout: 5000 });
+    await alice.getByRole('button', { name: /Start Match/i }).click();
+    await alice.waitForURL('**/match/**');
 
     const bobId = await alice.evaluate(() =>
       (window as any).__media.links().find((l: any) => l.kind === 'user')?.peerId);

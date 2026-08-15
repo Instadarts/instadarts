@@ -49,12 +49,12 @@ for the places where that has already gone wrong.
 | [Standby](#scoring-and-the-two-power-stages) | Device asleep: wake lock released, socket closed | `PowerStage`, `useScorerPower` |
 | [Scoring context](#scoring-context-started-and-resumed) | The match and board a device feeds; a reconnect is not a new one | `scoringContextId`, `classifyScoringActivation` |
 | [Media](#media) | The optional feature: p2p video between the devices in a match | `media.enabled`, `media_*` messages |
-| [Peer](#peer--peer-id) | One connection taking part in media | `peerId`, `MediaPeer` |
+| [Peer](#peer--peer-id) | One live socket in one match media incarnation | `peerId`, `MediaPeer` |
 | [Roster](#roster) | The peers a peer may connect to. **The authorization** | `media_peers`, `planFor` |
 | [Link](#link--mesh) | One RTCPeerConnection between two peers | `PeerLink`, `peerLink.ts` |
 | [Mesh](#link--mesh) | The links one client holds, and its one encoder | `Mesh`, `useMediaMesh` |
 | [Media tier](#media-tier) | How much a device is willing to send | `MediaTier`, `media_ready` |
-| [Board camera](#board-camera) | The one device a user is showing, if any | `media_select_camera` |
+| [Board camera](#board-camera) | The source selected for one immutable match slot | `media_join` |
 | [Region of interest](#region-of-interest) | A square of a board, asked for by name | `Region`, `clampRegion` |
 | [Still](#still) | One photograph of a region, on request | `still_request`, `StillConfig` |
 | [Dart evidence](#dart-evidence) | The still under a dart slot | `useDartEvidence` |
@@ -709,16 +709,16 @@ thing a viewer watches) and never "call" — nobody rings anybody.
 
 ### Peer / peer id
 
-One connection taking part in media: a frontend or a scoring device, addressed by an opaque **peer
-id** the server mints per socket.
+One live connection taking part in one match media session: a frontend or scoring device, addressed
+by an opaque **peer id** the server mints per match/socket incarnation.
 
 Deliberately not a session id and not a device id. Neither of those should be handed to the person
 you are playing against, and a peer id says nothing about what it names. A new socket means a new
-peer id, so a reconnect rebuilds every link that connection held.
+peer id; a new match also means a new `meshId`, peer ID, and every link rebuilt. Lobbies have none.
 
-A connection becomes a peer by sending `media_ready` and stops by sending `media_leave`. A client
-that has opted out simply never sends it — which is why there is no "media disabled" state on the
-server to keep in step with anything.
+A frontend becomes a peer through `media_join` for a running match. A disabled declaration completes
+setup without becoming a peer. `media_ready` is a scoring device's capability announcement, not a
+request for lobby topology.
 
 For a scoring device, being a peer takes **two** answers rather than one: see
 [media tier](#media-tier) and [board camera](#board-camera).
@@ -737,9 +737,9 @@ a viewer should expect and ask for — the server allows both the same link with
 The one scoring device a user is sharing, chosen from those their tab has
 [claimed](#pairing-claiming-grabbing-and-the-camera). At most one, and **none** is a real answer.
 
-The second of the two gates: a device is offered to nobody until its owner nominates it, however
-willing the phone is. It identifies the owner's board for opponents and spectators; nominating
-nothing takes the view away from all of them.
+The second of the two gates: the running match's stable source slot selects the device only after its
+frontend declares it. The choice survives replacement of that frontend endpoint, but explicit
+opt-out, source change, device withdrawal, or match finish ends it.
 
 Distinct from the browser's own media switch: that decides whether this user takes part at all
 (including watching the opponent), while this decides only whether anybody sees *their* board.
@@ -761,14 +761,11 @@ missing from a list — so none of them has a message of its own.
 Both endpoints of a pair come out of one computation (`planFor`), so the two sides can never disagree
 about whether they are paired, which is **polite**, or who may send to whom.
 
-### Room
+### Media session
 
-A lobby before the match and the match after — one space, because they are one thing at two moments.
-A scoring device has no room of its own and inherits its owner's.
-
-Nothing about a room is stored; it is derived from the client registry on demand. That is what makes
-a [re-match](#re-match) free: a new match id holding the same people yields an identical roster, so
-nothing is sent and no link is disturbed.
+One server-private coordinator object for one running match, identified by a fresh `meshId`. A lobby
+has no media session. A rematch destroys the old mesh and creates a new one; no peer connection,
+source epoch, feed UUID, or consent crosses that boundary.
 
 ### Link / mesh
 
@@ -825,14 +822,14 @@ clears the row along with the slots above it.
 
 ### Board video
 
-A live picture of a [board camera](#board-camera)'s view. The [tier](#media-tier) has to be `video`,
-and the [owner](#board-camera) starts a standing offer with `video_start`, which carries the audience
-but no region. The camera gives that offer a UUID and announces it to each eligible peer. Frames are
-encoded once and written only to the exact eligible peers that accepted that UUID.
+A live picture of a [board camera](#board-camera)'s view. The [tier](#media-tier) has to be `video`.
+The server sends the selected scorer a retained `media_source_state` with a source epoch and audience;
+the camera creates one feed UUID for that epoch and announces it to each eligible peer. Frames are
+encoded once and written only to exact eligible recipients that accepted that UUID.
 
-**One camera, one offer.** A second `video_start` re-addresses the same UUID rather than opening
-another; `video_stop` sends `video_end` and withdraws it. A temporary camera shutdown pauses encoding
-without ending the UUID or its choices.
+A participant frontend reload keeps the source epoch and feed. A scorer replacement, source change,
+tier reactivation, match finish, or rematch ends it. Temporary link/camera failure pauses encoding
+without discarding consent for the same eligible peer and feed.
 
 During an in-progress online match, each owner addresses their nominated camera's offer to `opponent`
 and `spectator`, never `owner`. Each recipient accepts or declines independently and can change that
@@ -843,8 +840,8 @@ three-seconds-stale video uncovers the virtual board. See [docs/media.md](./medi
 
 ### Audience
 
-Which kinds of viewer a command's result is for: `owner`, `opponent`, `spectator`. Carried by
-`still_request` and `video_start`, and read off the roster's `role`, which is the one thing in a
+Which kinds of viewer a result is for: `owner`, `opponent`, `spectator`. Carried by `still_request`
+or the retained server source directive, and read off the roster's `role`, which is the one thing in a
 roster a client could not work out for itself — nothing else in it says who is only watching.
 
 For live video the audience is permission to receive an offer, not automatic delivery. A peer must

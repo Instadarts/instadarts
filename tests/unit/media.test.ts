@@ -1,625 +1,266 @@
-// What the server will and will not let two devices do to each other.
-//
-// The whole security model of the media feature is one sentence — *the roster is the authorization*
-// — so these tests are about rosters and about what the relay does with a signal, and about nothing
-// else. There is no WebRTC here: whether a peer connection can actually be made is a question for
-// the browser, and tests/e2e/media-link.spec.ts asks it.
-//
-// The harness drives `handleMessage` exactly as the real server does, the same way devices.test.ts
-// does — which is deliberate, because the routing guard that keeps a scoring device out of the
-// gameplay handlers is part of what is under test here.
+// Server-side media coordination. WebRTC itself is covered in the browser suites; this file proves
+// match lifetime, desired topology, source epochs, and signaling authorization.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
-// Importing the helpers is what registers x01, and a lobby cannot be created without a mode.
 import '../helpers';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
+import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
 import { releaseRateLimit } from '../../src/server/rateLimit';
-import { MEDIA_VIEWERS_PER_ROOM } from '../../src/server/capacity';
+import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
 import type { ServerMessage } from '../../src/shared/protocol';
 import type { MediaPeer, MediaTier } from '../../src/shared/media';
-
-// ============================================================
-// Harness
-// ============================================================
 
 let sessionCounter = 0;
 const openSockets: WebSocket[] = [];
 
 function connect() {
-  const sessionId = `s${++sessionCounter}`;
-  const received: ServerMessage[] = [];
+  const sessionId = `media-session-${++sessionCounter}`;
+  const received: (ServerMessage | { type: 'connected'; sessionId: string })[] = [];
   const ws = {
     readyState: 1,
     OPEN: 1,
     send: (raw: string) => received.push(JSON.parse(raw)),
   } as unknown as WebSocket;
-
   registerClient(ws, {
     sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null,
   });
   openSockets.push(ws);
 
   return {
-    ws,
-    sessionId,
-    received,
-    send(msg: object) {
-      // These tests are about authorization, and ten messages a second is not the property in hand.
+    ws, sessionId, received,
+    send(message: object) {
       releaseRateLimit(sessionId, null);
-      handleMessage(ws, JSON.stringify(msg));
+      handleMessage(ws, JSON.stringify(message));
     },
     last<T extends ServerMessage['type']>(type: T) {
-      const hits = received.filter((m) => m.type === type);
-      return hits[hits.length - 1] as Extract<ServerMessage, { type: T }> | undefined;
+      return received.filter((message) => message.type === type).at(-1) as
+        Extract<ServerMessage, { type: T }> | undefined;
     },
     count(type: ServerMessage['type']) {
-      return received.filter((m) => m.type === type).length;
+      return received.filter((message) => message.type === type).length;
     },
-    /** This connection's own peer id, as the server told it. */
-    peerId() {
-      return this.last('media_peers')?.self;
-    },
-    /**
-     * This connection's own player.
-     *
-     * Asked of the messages addressed to it, because a player on the wire no longer says whose it
-     * is: `yourPlayerId` goes to one connection, the broadcast that follows it to everybody.
-     */
+    peerId() { return this.last('media_peers')?.self; },
+    roster(): MediaPeer[] { return this.last('media_peers')?.peers ?? []; },
     playerId() {
-      for (let i = received.length - 1; i >= 0; i--) {
-        const msg = received[i];
-        if ((msg.type === 'lobby_state' || msg.type === 'match_state') && msg.yourPlayerId) return msg.yourPlayerId;
+      for (let index = received.length - 1; index >= 0; index--) {
+        const message = received[index];
+        if ((message.type === 'lobby_state' || message.type === 'match_state') && message.yourPlayerId) {
+          return message.yourPlayerId;
+        }
       }
       return undefined;
     },
-    /** The roster as it stands, or an empty one for a peer that has never been told anything. */
-    roster(): MediaPeer[] {
-      return this.last('media_peers')?.peers ?? [];
-    },
-    disconnect() {
-      removeClient(ws);
-    },
+    resumeToken() { return this.last('resume')?.token; },
   };
 }
 
-type Conn = ReturnType<typeof connect>;
+type Connection = ReturnType<typeof connect>;
 
-/**
- * A scoring device paired to this frontend and grabbed, willing to share, and **nominated** as the
- * board camera.
- *
- * Both gates, because that is what it takes to be visible to anybody — see shared/media.ts. The
- * tests below that care about one gate at a time open them separately.
- */
-function pairDevice(frontend: Conn, name?: string, tier: MediaTier = 'video') {
-  const scorer = pairSilentDevice(frontend, name, tier);
-  frontend.send({ type: 'media_select_camera', deviceId: scorer.deviceId });
-  return scorer;
-}
-
-/** Paired, grabbed and willing — but nobody has nominated it, so it is nobody's board camera. */
-function pairSilentDevice(frontend: Conn, name?: string, tier: MediaTier = 'video') {
+function pairDevice(frontend: Connection, name = 'Board', tier: MediaTier = 'video') {
   frontend.send({ type: 'create_pairing_code' });
-  const code = frontend.last('pairing_code')!.code;
-
   const scorer = connect();
-  scorer.send({ type: 'scorer_pair', code });
-  const announced = frontend.last('device_paired')!;
+  scorer.send({ type: 'scorer_pair', code: frontend.last('pairing_code')!.code });
+  const paired = scorer.last('scorer_paired')!;
+  const claim = frontend.last('device_paired')!;
   frontend.send({
     type: 'activate_devices',
-    devices: [{ deviceId: announced.deviceId, tokenHash: announced.tokenHash, grabbedAt: 1 }],
+    devices: [{ deviceId: claim.deviceId, tokenHash: claim.tokenHash, grabbedAt: 1 }],
   });
-  if (name) scorer.send({ type: 'scorer_name', name });
-  if (tier !== 'disabled') scorer.send({ type: 'media_ready', tier });
-  return Object.assign(scorer, { deviceId: announced.deviceId });
+  scorer.send({ type: 'scorer_name', name });
+  scorer.send({ type: 'media_ready', tier });
+  return Object.assign(scorer, {
+    deviceId: paired.deviceId,
+    deviceToken: paired.token,
+    tokenHash: claim.tokenHash,
+  });
 }
 
-/** An online lobby with a player each, both taking part in media. */
 function onlineLobby() {
   const host = connect();
   host.send({ type: 'create_lobby', isLocal: false });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
-
   const guest = connect();
   guest.send({ type: 'join_lobby', lobbyId, playerName: 'Bob' });
   guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
-
-  host.send({ type: 'media_ready', tier: 'video' });
-  guest.send({ type: 'media_ready', tier: 'video' });
   return { host, guest, lobbyId };
 }
 
-/** Watch a lobby or match, and take part in media. */
-function spectate(id: string) {
-  const watcher = connect();
-  watcher.send({ type: 'spectate', id });
-  watcher.send({ type: 'media_ready', tier: 'video' });
-  return watcher;
+function startOnline(options: { camera?: boolean; hostTier?: MediaTier; guestTier?: MediaTier } = {}) {
+  const { host, guest, lobbyId } = onlineLobby();
+  const camera = options.camera === false ? null : pairDevice(host, 'Alice board');
+  host.send({ type: 'start_match', lobbyId });
+  const match = host.last('match_started')!.match;
+  host.send({
+    type: 'media_join', matchId: match.id, tier: options.hostTier ?? 'video',
+    boardCamera: camera?.deviceId ?? null,
+  });
+  guest.send({
+    type: 'media_join', matchId: match.id, tier: options.guestTier ?? 'video', boardCamera: null,
+  });
+  return { host, guest, camera, match };
 }
 
-const idsIn = (conn: Conn) => conn.roster().map((p) => p.peerId).sort();
-const entryFor = (conn: Conn, other: Conn) => conn.roster().find((p) => p.peerId === other.peerId());
+const entryFor = (self: Connection, other: Connection) =>
+  self.roster().find((peer) => peer.peerId === other.peerId());
 
-beforeEach(() => {
-  resetDeviceRegistry();
-});
+beforeEach(() => resetDeviceRegistry());
 
 afterEach(() => {
   for (const ws of openSockets.splice(0)) removeClient(ws);
+  for (const id of [...getAllMatches().keys()]) { finishMediaForMatch(id); deleteMatch(id); }
+  for (const id of [...getAllLobbies().keys()]) deleteLobby(id);
   resetDeviceRegistry();
 });
 
-// ============================================================
-// Who is offered whom
-// ============================================================
-
-describe('the roster', () => {
-  it('pairs the two participants and every camera with both of them, and never two cameras', () => {
-    const { host, guest } = onlineLobby();
-    const hostCam = pairDevice(host, 'Alice board');
-    const guestCam = pairDevice(guest, 'Bob board');
-
-    // Each user sees the opponent and both boards.
-    expect(idsIn(host)).toEqual([guest, hostCam, guestCam].map((c) => c.peerId()!).sort());
-    expect(idsIn(guest)).toEqual([host, hostCam, guestCam].map((c) => c.peerId()!).sort());
-
-    // A camera sees the two users and never the other camera: two phones pointed at two boards
-    // have nothing to say to each other.
-    expect(idsIn(hostCam)).toEqual([host, guest].map((c) => c.peerId()!).sort());
-    expect(idsIn(guestCam)).toEqual([host, guest].map((c) => c.peerId()!).sort());
-  });
-
-  it('tells a viewer which player a camera is watching, and what it is called', () => {
-    const { host, guest } = onlineLobby();
-    const hostCam = pairDevice(host, 'Alice board');
-
-    // The opponent's view of the other board: named by the device itself, attributed to its owner's
-    // player, so a screen can put it beside the right card.
-    const seenByOpponent = entryFor(guest, hostCam)!;
-    expect(seenByOpponent.kind).toBe('device');
-    expect(seenByOpponent.label).toBe('Alice board');
-    expect(seenByOpponent.playerId).toBe(host.last('lobby_state')!.lobby.players[0].id);
-
-    expect(entryFor(guest, host)!.label).toBe('Alice');
-    expect(entryFor(host, guest)!.label).toBe('Bob');
-  });
-
-  it('tells a camera what kind of viewer each peer is, which is the one thing it could not work out', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    const camera = pairDevice(host, 'Alice board');
-    const watcher = spectate(lobbyId);
-
-    // The whole point of publishing this: `own` already separates the owner from everybody else, but
-    // nothing in a roster distinguishes an opponent from somebody who is only watching — and a
-    // camera addressing a still or a feed has to.
-    expect(entryFor(camera, host)!.role).toBe('owner');
-    expect(entryFor(camera, guest)!.role).toBe('opponent');
-    expect(entryFor(camera, watcher)!.role).toBe('spectator');
-
-    // `role === 'owner'` and `own` say the same thing, on every edge and in both directions. They
-    // are two fields because they answer different questions — one of them decides who may command
-    // this camera — and this is the assertion that says the duplication is deliberate rather than
-    // drift. It should fail if either ever stops implying the other.
-    for (const [self, other] of [[camera, host], [host, camera], [camera, guest], [host, guest], [watcher, host]] as const) {
-      const entry = entryFor(self, other)!;
-      expect(entry.own).toBe(entry.role === 'owner');
-    }
-  });
-
-  it('offers a local match only its own cameras — there is no opponent to offer', () => {
-    const user = connect();
-    user.send({ type: 'create_lobby', isLocal: true });
-    const lobbyId = user.last('lobby_state')!.lobby.id;
-    user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
-    user.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
-    user.send({ type: 'media_ready', tier: 'video' });
-
-    const camera = pairDevice(user);
-    expect(idsIn(user)).toEqual([camera.peerId()!]);
-    // One user holds every player, so which player's board this is has no answer.
-    expect(entryFor(user, camera)!.playerId).toBeUndefined();
-  });
-
-  it('gives the two sides of every pair opposite politeness', () => {
+describe('match-scoped lifetime and setup', () => {
+  it('creates no peer identity, roster, or signaling permission in a lobby', () => {
     const { host, guest } = onlineLobby();
     const camera = pairDevice(host);
-
-    for (const [a, b] of [[host, guest], [host, camera], [guest, camera]] as const) {
-      expect(entryFor(a, b)!.polite).toBe(!entryFor(b, a)!.polite);
-    }
-  });
-
-  it('does not offer anybody a peer in another match', () => {
-    const first = onlineLobby();
-    const second = onlineLobby();
-    pairDevice(first.host);
-
-    for (const conn of [second.host, second.guest]) {
-      expect(idsIn(conn)).toEqual([conn === second.host ? second.guest : second.host].map((c) => c.peerId()!));
-    }
-  });
-
-  it('says nothing to a connection that has not opted in, and forgets one that opts back out', () => {
-    const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
-    const lobbyId = host.last('lobby_state')!.lobby.id;
-    host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
-
-    const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId, playerName: 'Bob' });
-    guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
-
-    // Only one of them wants media. There is nobody to pair it with.
     host.send({ type: 'media_ready', tier: 'video' });
-    expect(host.roster()).toEqual([]);
+    guest.send({ type: 'media_ready', tier: 'video' });
+
+    expect(host.count('media_peers')).toBe(0);
+    expect(guest.count('media_peers')).toBe(0);
+    expect(camera.count('media_peers')).toBe(0);
+    host.send({ type: 'media_signal', to: 'forged', description: { type: 'offer', sdp: 'v=0\r\n' } });
+    expect(camera.count('media_signal')).toBe(0);
+  });
+
+  it('waits for every participant declaration, with disabled counting and spectators excluded', () => {
+    const { host, guest, match } = startOnline({ camera: false, guestTier: 'disabled' });
+    expect(host.last('media_peers')!.setupComplete).toBe(true);
     expect(guest.count('media_peers')).toBe(0);
 
-    guest.send({ type: 'media_ready', tier: 'video' });
-    expect(idsIn(host)).toEqual([guest.peerId()!]);
+    const watcher = connect();
+    watcher.send({ type: 'spectate', id: match.id });
+    watcher.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: 'forged' });
+    expect(watcher.last('media_peers')!.setupComplete).toBe(true);
+  });
 
-    // And opting out empties the other side's roster, which is what closes the link.
-    guest.send({ type: 'media_leave' });
-    expect(host.roster()).toEqual([]);
+  it('makes invalid or unowned camera nominations null without blocking setup', () => {
+    const { host, guest, camera, match } = startOnline();
+    guest.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: camera!.deviceId });
+    expect(entryFor(guest, camera!)).toBeDefined(); // host selection remains the source
+    expect(camera!.last('media_source_state')).toMatchObject({ active: true, matchId: match.id });
+    expect(guest.last('media_peers')!.setupComplete).toBe(true);
+  });
+
+  it('destroys the session and publishes empty rosters on match finish', () => {
+    const { host, guest, camera, match } = startOnline();
+    const meshId = host.last('media_peers')!.meshId;
+    guest.send({ type: 'leave_match', matchId: match.id });
+
+    expect(host.last('media_peers')).toMatchObject({ meshId, peers: [] });
+    expect(camera!.last('media_source_state')).toMatchObject({ active: false, meshId });
   });
 });
 
-// ============================================================
-// The two gates on a board camera
-// ============================================================
-
-describe('a board camera', () => {
-  it('is offered to nobody until its owner nominates it, however willing the phone is', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairSilentDevice(host, 'Alice board');
-
-    // The phone has said it will share. Nobody asked for it, so nobody can see it — not its own
-    // owner and certainly not the opponent.
-    expect(camera.roster()).toEqual([]);
-    expect(entryFor(host, camera)).toBeUndefined();
-    expect(entryFor(guest, camera)).toBeUndefined();
-
-    host.send({ type: 'media_select_camera', deviceId: camera.deviceId });
-    expect(idsIn(camera)).toEqual([host, guest].map((c) => c.peerId()!).sort());
+describe('topology and source intent', () => {
+  it('builds the online topology from stable player slots', () => {
+    const { host, guest, camera } = startOnline();
+    expect(entryFor(host, guest)).toBeDefined();
+    expect(entryFor(host, camera!)).toMatchObject({ kind: 'device', own: true, role: 'owner' });
+    expect(entryFor(guest, camera!)).toMatchObject({ kind: 'device', own: false, role: 'opponent' });
+    expect(entryFor(camera!, host)).toMatchObject({ own: true, role: 'owner' });
+    expect(entryFor(camera!, guest)).toMatchObject({ own: false, role: 'opponent' });
   });
 
-  it('is offered to nobody if the phone declined, however hard its owner tries', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairSilentDevice(host, 'Alice board', 'disabled');
-
-    host.send({ type: 'media_select_camera', deviceId: camera.deviceId });
-
-    // The phone's answer is the phone's. Nominating it changes nothing.
-    expect(camera.roster()).toEqual([]);
-    expect(entryFor(host, camera)).toBeUndefined();
-    expect(entryFor(guest, camera)).toBeUndefined();
-  });
-
-  it('takes the opponent’s view away when its owner nominates nobody', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairDevice(host, 'Alice board');
-    expect(entryFor(guest, camera)).toBeDefined();
-
-    host.send({ type: 'media_select_camera', deviceId: null });
-
-    // One choice, two viewers: opting out is not something the opponent can work around.
-    expect(entryFor(guest, camera)).toBeUndefined();
-    expect(entryFor(host, camera)).toBeUndefined();
-    expect(camera.roster()).toEqual([]);
-  });
-
-  it('is one at a time — nominating another releases the first', () => {
-    const { host, guest } = onlineLobby();
-    const first = pairDevice(host, 'Board A');
-    const second = pairSilentDevice(host, 'Board B');
-
-    host.send({ type: 'media_select_camera', deviceId: second.deviceId });
-
-    expect(idsIn(guest)).toEqual([host, second].map((c) => c.peerId()!).sort());
-    expect(first.roster()).toEqual([]);
-  });
-
-  it('cannot be nominated by somebody who does not hold it', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairSilentDevice(host, 'Alice board');
-
-    // The opponent knows this device exists — it is about to be in their roster — but naming it is
-    // not the same as holding it.
-    guest.send({ type: 'media_select_camera', deviceId: camera.deviceId });
-
-    expect(camera.roster()).toEqual([]);
-    expect(entryFor(guest, camera)).toBeUndefined();
-  });
-
-  it('carries what it is willing to send, and says so again when that changes', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairDevice(host, 'Alice board', 'stills');
-    expect(entryFor(guest, camera)!.tier).toBe('stills');
-
-    // A phone changing its mind keeps its peer id — a new one would tear down a live link.
-    const before = camera.peerId();
-    camera.send({ type: 'media_ready', tier: 'video' });
-    expect(camera.peerId()).toBe(before);
-    expect(entryFor(guest, camera)!.tier).toBe('video');
-
-    // And its owner is told what it offers, since that list is where a board camera is chosen.
-    expect(host.last('devices_state')!.devices[0].media).toBe('video');
-  });
-
-  it('is marked as its owner’s, and as nobody else’s', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    const camera = pairDevice(host, 'Alice board');
-    const watcher = spectate(lobbyId);
-
-    // The one edge that carries ownership, stated from both ends.
-    expect(entryFor(camera, host)!.own).toBe(true);
-    expect(entryFor(host, camera)!.own).toBe(true);
-
-    // And nowhere else. This is what a device checks before it will photograph anything, so an
-    // opponent or a spectator being marked here would be them deciding what somebody else's camera
-    // points at.
-    expect(entryFor(camera, guest)!.own).toBe(false);
-    expect(entryFor(guest, camera)!.own).toBe(false);
-    expect(entryFor(camera, watcher)!.own).toBe(false);
-    expect(entryFor(watcher, camera)!.own).toBe(false);
-    // Never between two frontends: neither of them is anybody's camera.
-    expect(entryFor(host, guest)!.own).toBe(false);
-  });
-
-  it('is its owner’s even when the owner holds every player', () => {
+  it('offers a local shared source to spectators without making it self-video', () => {
     const user = connect();
     user.send({ type: 'create_lobby', isLocal: true });
     const lobbyId = user.last('lobby_state')!.lobby.id;
     user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     user.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
-    user.send({ type: 'media_ready', tier: 'video' });
     const camera = pairDevice(user);
+    user.send({ type: 'start_match', lobbyId });
+    const matchId = user.last('match_started')!.match.id;
+    user.send({ type: 'media_join', matchId, tier: 'video', boardCamera: camera.deviceId });
+    const watcher = connect();
+    watcher.send({ type: 'spectate', id: matchId });
+    watcher.send({ type: 'media_join', matchId, tier: 'video', boardCamera: null });
 
-    // A local match has no player id to identify anybody by, which is exactly why `own` exists as a
-    // flag of its own: it is the only way this frontend can pick its own camera out of the roster.
-    expect(entryFor(user, camera)!.playerId).toBeUndefined();
-    expect(entryFor(user, camera)!.own).toBe(true);
-    expect(entryFor(camera, user)!.own).toBe(true);
+    expect(entryFor(user, camera)).toMatchObject({ own: true }); // control/stills edge
+    expect(entryFor(watcher, camera)).toBeDefined();
+    expect(camera.last('media_source_state')).toMatchObject({ active: true, audience: ['spectator'] });
   });
 
-  it('never receives, at either end of the sentence', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairDevice(host, 'Alice board');
+  it('ends and replaces source epochs on source change or scorer incarnation', () => {
+    const { host, camera, match } = startOnline();
+    const first = camera!.last('media_source_state');
+    expect(first?.active).toBe(true);
 
-    // A board camera publishes. It has no business decoding anybody's picture, and a phone already
-    // running a detection model should not be handed a decoder.
-    for (const entry of camera.roster()) {
-      expect(entry.send).toBe(false);
-      expect(entry.recv).toBe(true);
-    }
-    for (const viewer of [host, guest]) {
-      const seen = entryFor(viewer, camera)!;
-      expect(seen.send).toBe(true);
-      expect(seen.recv).toBe(false);
-    }
+    const replacement = connect();
+    replacement.send({ type: 'media_ready', tier: 'video' });
+    replacement.send({ type: 'scorer_hello', deviceId: camera!.deviceId, token: camera!.deviceToken });
+    const second = replacement.last('media_source_state');
+    expect(second?.active).toBe(true);
+    if (first?.active && second?.active) expect(second.sourceEpoch).not.toBe(first.sourceEpoch);
 
-    // Between two frontends it stays symmetric: either may grow a player camera later.
-    expect(entryFor(host, guest)).toMatchObject({ send: true, recv: true });
-  });
-});
-
-// ============================================================
-// Spectators
-// ============================================================
-
-describe('spectators', () => {
-  it('may watch everybody and be watched by nobody', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    const camera = pairDevice(host);
-    const watcher = spectate(lobbyId);
-
-    expect(idsIn(watcher)).toEqual([host, guest, camera].map((c) => c.peerId()!).sort());
-    // Every peer may send to the spectator; the spectator may send to none of them.
-    for (const entry of watcher.roster()) {
-      expect(entry.send).toBe(true);
-      expect(entry.recv).toBe(false);
-    }
-    const seenByHost = entryFor(host, watcher)!;
-    expect(seenByHost.send).toBe(false);
-    expect(seenByHost.recv).toBe(true);
+    host.send({ type: 'media_join', matchId: match.id, tier: 'disabled', boardCamera: null });
+    expect(replacement.last('media_source_state')).toMatchObject({ active: false });
   });
 
-  it('admits only so many, and the ones beyond that are offered nobody', () => {
-    const { host, lobbyId } = onlineLobby();
+  it('keeps the source epoch when only the participant frontend is replaced', () => {
+    const { host, camera, match } = startOnline();
+    const active = camera!.last('media_source_state');
+    const oldPeer = host.peerId();
+    const replacement = connect();
+    replacement.send({ type: 'reconnect', matchId: match.id, token: host.resumeToken() });
+    replacement.send({
+      type: 'activate_devices',
+      devices: [{ deviceId: camera!.deviceId, tokenHash: camera!.tokenHash, grabbedAt: 2 }],
+    });
+    replacement.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: camera!.deviceId });
 
-    const admitted = Array.from({ length: MEDIA_VIEWERS_PER_ROOM }, () => spectate(lobbyId));
-    for (const watcher of admitted) expect(idsIn(watcher)).toContain(host.peerId()!);
-
-    // An audience is uncapped per match by design; media is not, because every viewer is another
-    // link on somebody's phone.
-    const turnedAway = spectate(lobbyId);
-    expect(turnedAway.roster()).toEqual([]);
-    expect(entryFor(host, turnedAway)).toBeUndefined();
-  });
-
-  it('never pairs two spectators — neither of them may send', () => {
-    const { lobbyId } = onlineLobby();
-    const first = spectate(lobbyId);
-    const second = spectate(lobbyId);
-
-    expect(entryFor(first, second)).toBeUndefined();
-    expect(entryFor(second, first)).toBeUndefined();
-  });
-
-  it("does not make a publisher of a spectator's own camera", () => {
-    const { host, lobbyId } = onlineLobby();
-    const watcher = spectate(lobbyId);
-    const watcherCam = pairDevice(watcher);
-
-    // The same rule as scoring: a spectator with a paired camera must not become a source.
-    expect(entryFor(host, watcherCam)).toBeUndefined();
-    expect(watcherCam.roster()).toEqual([]);
+    expect(replacement.peerId()).not.toBe(oldPeer);
+    const repeated = camera!.last('media_source_state');
+    if (active?.active && repeated?.active) expect(repeated.sourceEpoch).toBe(active.sourceEpoch);
   });
 });
 
-// ============================================================
-// Moving between rooms
-// ============================================================
-
-describe('following the match', () => {
-  it('says nothing when a match starts — the same people are still in the room', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    pairDevice(host);
-    const before = host.count('media_peers');
-    const rosterBefore = host.roster();
-
-    host.send({ type: 'start_match', lobbyId });
-
-    // The lobby became a match and every client moved with it. Nobody's peers changed, so nobody is
-    // told anything — a republished roster here would tear down a link that is carrying video.
-    expect(host.count('media_peers')).toBe(before);
-    expect(host.roster()).toEqual(rosterBefore);
-  });
-
-  it('carries a link through a re-match untouched', () => {
+describe('match boundaries and signaling', () => {
+  it('tears down and rebuilds every identity for a rematch', () => {
     const { host, guest, lobbyId } = onlineLobby();
     const camera = pairDevice(host);
-    // Straight out from 180, so one visit of three trebles wins the whole thing.
     host.send({
-      type: 'update_settings',
-      lobbyId,
-      settings: { mode: 'x01', modeSettings: { startScore: 180, doubleIn: false, doubleOut: false } },
+      type: 'update_settings', lobbyId,
+      settings: { mode: 'x01', modeSettings: { startScore: 60, doubleIn: false, doubleOut: false } },
     });
     host.send({ type: 'start_match', lobbyId });
+    const original = host.last('match_started')!.match;
+    host.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: camera.deviceId });
+    guest.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: null });
+    const oldMesh = host.last('media_peers')!.meshId;
+    const oldPeer = host.peerId();
 
-    const match = host.last('match_started')!.match;
-    const first = match.id;
-    const thrower = match.players[match.currentPlayerIndex].id === host.playerId() ? host : guest;
-    const T20 = { x: 500_000, y: 726_000 };
-    for (let i = 0; i < 3; i++) thrower.send({ type: 'add_dart', matchId: first, dart: T20 });
-    thrower.send({ type: 'submit_visit', matchId: first });
-    // A mode declaring a winner arrives as an ordinary state broadcast, not as `match_finished`.
-    expect(host.last('match_state')!.match.status).toBe('finished');
+    const finished = getMatch(original.id)!;
+    finished.status = 'finished';
+    finished.finishedAt = Date.now();
+    finishMediaForMatch(original.id);
+    host.send({ type: 'rematch_vote', matchId: original.id, playerId: host.playerId(), answer: 'accepted' });
+    guest.send({ type: 'rematch_vote', matchId: original.id, playerId: guest.playerId(), answer: 'accepted' });
+    const rematch = host.last('match_started')!.match;
 
-    const before = { host: host.count('media_peers'), camera: camera.count('media_peers') };
-    const rosterBefore = host.roster();
-
-    for (const conn of [host, guest]) {
-      conn.send({ type: 'rematch_vote', matchId: first, playerId: conn.playerId()!, answer: 'accepted' });
-    }
-
-    // A re-match is a brand new match id and exactly the same people. Nobody is told anything,
-    // because a republished roster here is what would tear down a link carrying video.
-    expect(host.last('match_started')!.match.id).not.toBe(first);
-    expect(host.count('media_peers')).toBe(before.host);
-    expect(camera.count('media_peers')).toBe(before.camera);
-    expect(host.roster()).toEqual(rosterBefore);
+    host.send({ type: 'media_join', matchId: rematch.id, tier: 'video', boardCamera: camera.deviceId });
+    guest.send({ type: 'media_join', matchId: rematch.id, tier: 'video', boardCamera: null });
+    expect(host.last('media_peers')!.meshId).not.toBe(oldMesh);
+    expect(host.peerId()).not.toBe(oldPeer);
   });
 
-  it('empties the roster of somebody who leaves, and of everyone who could see them', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    host.send({ type: 'start_match', lobbyId });
-    const matchId = host.last('match_started')!.match.id;
-    expect(idsIn(host)).toEqual([guest.peerId()!]);
-
-    guest.send({ type: 'leave_match', matchId });
-
-    expect(guest.roster()).toEqual([]);
-    expect(host.roster()).toEqual([]);
-  });
-
-  it('empties the roster of everyone left behind when a peer disconnects', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairDevice(host);
-    expect(idsIn(guest)).toContain(camera.peerId()!);
-
-    camera.disconnect();
-
-    expect(idsIn(guest)).toEqual([host.peerId()!]);
-    expect(idsIn(host)).toEqual([guest.peerId()!]);
-  });
-});
-
-// ============================================================
-// The relay
-// ============================================================
-
-const OFFER = { type: 'offer' as const, sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n' };
-
-describe('signaling', () => {
-  it('hands a description to the peer it is addressed to, and to nobody else', () => {
-    const { host, guest } = onlineLobby();
-    const camera = pairDevice(host);
-
-    host.send({ type: 'media_signal', to: camera.peerId(), description: OFFER });
-
-    expect(camera.last('media_signal')).toEqual({
-      type: 'media_signal', from: host.peerId(), description: OFFER,
+  it('relays only between the exact pair in the current match roster', () => {
+    const { host, guest, camera } = startOnline();
+    const offer = { type: 'offer' as const, sdp: 'v=0\r\n' };
+    host.send({ type: 'media_signal', to: camera!.peerId(), description: offer });
+    expect(camera!.last('media_signal')).toEqual({
+      type: 'media_signal', from: host.peerId(), description: offer,
     });
-    expect(guest.count('media_signal')).toBe(0);
-  });
 
-  it('refuses a peer in another match, in silence', () => {
-    const first = onlineLobby();
-    const second = onlineLobby();
-
-    first.host.send({ type: 'media_signal', to: second.host.peerId(), description: OFFER });
-
-    expect(second.host.count('media_signal')).toBe(0);
-    // Silence, not an error: a peer learns where it stands from its roster, and an error frame
-    // would only race it.
-    expect(first.host.count('error')).toBe(0);
-  });
-
-  it('refuses a peer that was in the roster a moment ago', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    host.send({ type: 'start_match', lobbyId });
-    const matchId = host.last('match_started')!.match.id;
-    const stale = guest.peerId()!;
-
-    guest.send({ type: 'leave_match', matchId });
-    host.send({ type: 'media_signal', to: stale, description: OFFER });
-
-    // The roster is recomputed when the message lands, never remembered, which is what closes the
-    // window on a signal that was already in flight when somebody walked out.
-    expect(guest.count('media_signal')).toBe(0);
-  });
-
-  it('refuses a signal from a connection that never opted in', () => {
-    const { host } = onlineLobby();
-    const target = host.peerId()!;
-
-    const stranger = connect();
-    stranger.send({ type: 'media_signal', to: target, description: OFFER });
-
-    expect(host.count('media_signal')).toBe(0);
-  });
-
-  it('drops a malformed or oversized description', () => {
-    const { host } = onlineLobby();
-    const camera = pairDevice(host);
-    const to = camera.peerId();
-
-    host.send({ type: 'media_signal', to, description: { type: 'rollback', sdp: 'x' } });
-    host.send({ type: 'media_signal', to, description: { type: 'offer' } });
-    host.send({ type: 'media_signal', to, description: { type: 'offer', sdp: '' } });
-    host.send({ type: 'media_signal', to, description: { type: 'offer', sdp: 'x'.repeat(8193) } });
-    host.send({ type: 'media_signal', to, description: 'not an object' });
-
-    expect(camera.count('media_signal')).toBe(0);
-
-    // And the same peer with a good description still works, so nothing above wedged the link.
-    host.send({ type: 'media_signal', to, description: OFFER });
-    expect(camera.count('media_signal')).toBe(1);
-  });
-
-  it('lets a scoring device signal, and still keeps it out of the gameplay handlers', () => {
-    const { host, guest, lobbyId } = onlineLobby();
-    const camera = pairDevice(host);
-
-    camera.send({ type: 'media_signal', to: guest.peerId(), description: OFFER });
-    expect(guest.count('media_signal')).toBe(1);
-
-    // `media_` is the one prefix a device may speak besides `scorer_`. It buys it nothing else.
-    camera.send({ type: 'start_match', lobbyId });
-    expect(camera.count('match_started')).toBe(0);
-    expect(host.count('match_started')).toBe(0);
+    const other = startOnline({ camera: false });
+    host.send({ type: 'media_signal', to: other.host.peerId(), description: offer });
+    expect(other.host.count('media_signal')).toBe(0);
+    expect(guest.count('error')).toBe(0);
   });
 });

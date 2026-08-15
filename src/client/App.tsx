@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
+import { useMatchMediaSetup } from './hooks/useMatchMediaSetup';
 import { useDartEvidence } from './hooks/useDartEvidence';
 import { selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
@@ -21,6 +22,7 @@ import type { ControlMessage, VideoFeedId } from '../shared/media';
 import type { VideoFeedView } from './hooks/useVideoFeed';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
+import { CONFIG_DEFAULTS } from '../shared/config';
 
 export function App() {
   // Scoring devices and media both share the match socket, but the socket is created inside
@@ -37,6 +39,8 @@ export function App() {
     error,
     notice,
     connected,
+    connectionGeneration,
+    roomGeneration,
     ownPlayerId,
     isSpectator,
     isHost,
@@ -73,6 +77,8 @@ export function App() {
   const feedMedia = useRef<((from: string, data: ArrayBuffer) => void) | null>(null);
   const media = useMediaMesh(send, connected, {
     tier: wantsMedia ? 'video' : 'disabled',
+    matchId: match?.status === 'in_progress' ? match.id : null,
+    declarationVersion: roomGeneration,
     boardCamera,
     onControl: (from, message, payload) => {
       evidenceHandler.current?.(from, message, payload);
@@ -90,10 +96,8 @@ export function App() {
     mesh: media.mesh,
     config: media.config,
     links: media.links,
-    publish: liveVideoActive && !isSpectator,
-    audience: localVideo ? ['spectator'] : ['opponent', 'spectator'],
     receive: liveVideoActive && (!localVideo || isSpectator),
-    anticipate: Boolean(lobby),
+    anticipate: false,
   });
   feedHandler.current = feed.handleControl;
   feedMedia.current = feed.handleMedia;
@@ -122,6 +126,16 @@ export function App() {
   const pendingVideoOffer = liveVideoActive
     ? feed.feeds.find((candidate) => candidate.choice === 'pending') ?? null
     : null;
+  const mediaSettingUp = useMatchMediaSetup(
+    liveVideoActive ? match!.id : null,
+    wantsMedia ? (media.config?.enabled ?? null) : false,
+    media.config?.setupTimeoutMs ?? CONFIG_DEFAULTS.media.setupTimeoutMs,
+    media.session,
+    media.links,
+  );
+  useEffect(() => {
+    if (mediaSettingUp && match?.id) performance.mark(`media-setup:${match.id}`);
+  }, [mediaSettingUp, match?.id]);
 
   const navigate = useNavigate();
 
@@ -143,7 +157,10 @@ export function App() {
 
   // Navigate to home when lobby/match is abandoned (skip if page reload with reconnect info)
   useEffect(() => {
-    if (!lobby && !match && window.location.pathname !== '/' && !window.location.pathname.startsWith('/lobby/join/')) {
+    if (!lobby && !match
+      && window.location.pathname !== '/'
+      && !window.location.pathname.startsWith('/lobby/join/')
+      && !window.location.pathname.startsWith('/spectate/')) {
       // Don't navigate away if we're about to reconnect after a page reload
       if (loadReconnectInfo()) return;
       navigate('/', { replace: true });
@@ -246,7 +263,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={feed.feeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={feed.feeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -254,7 +271,15 @@ export function App() {
       </main>
       <SourceFooter />
       <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
-      {pendingVideoOffer && (
+      {mediaSettingUp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 text-white" data-testid="media-setup-overlay">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-600 border-t-white" />
+            <p className="text-lg font-medium">Setting up match…</p>
+          </div>
+        </div>
+      )}
+      {!mediaSettingUp && pendingVideoOffer && (
         <VideoOfferDialog
           feedId={pendingVideoOffer.feedId}
           label={pendingVideoOffer.label}
@@ -352,6 +377,8 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, 
 
 interface SpectateWrapperProps {
   spectate: (id: string) => void;
+  connected: boolean;
+  connectionGeneration: number;
   lobby: Lobby | null;
   match: MatchState | null;
   view: ModeView | null;
@@ -366,12 +393,17 @@ interface SpectateWrapperProps {
   onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
+  const lastSpectateRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (id) spectate(id);
-  }, [id]);
+    if (!id || !connected) return;
+    const requestKey = `${connectionGeneration}:${id}`;
+    if (lastSpectateRef.current === requestKey) return;
+    lastSpectateRef.current = requestKey;
+    spectate(id);
+  }, [id, connected, connectionGeneration, spectate]);
 
   const handleLeave = () => {
     leaveMatch(lobby?.id ?? match?.id ?? '');

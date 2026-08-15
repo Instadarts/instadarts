@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ControlMessage, MediaRole, MediaTier, Region, VideoFeedId, VideoProfile } from '../../shared/media';
 import { clampAudience, createVideoFeedId, directorTiming, isVideoFeedId } from '../../shared/media';
+import type { MediaSourceStateMessage } from '../../shared/protocol';
 import { virtualCamera } from '../lib/appConfig';
 import type { Mesh, MeshLink } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
@@ -27,6 +28,7 @@ export interface VideoOfferStats {
 
 export interface VideoResponder {
   handleControl: (from: string, message: ControlMessage) => void;
+  handleSourceState: (message: MediaSourceStateMessage) => void;
   /** Whether an encoder is running, as opposed to a standing offer merely existing. */
   publishing: boolean;
   stats: () => PublisherStats | null;
@@ -46,10 +48,17 @@ export function canChooseVideoFeed(
   return false;
 }
 
+/** Roster eligibility owns consent; temporary writability must never prune it. */
+export function pruneIneligibleAcceptances(accepted: Set<string>, eligiblePeerIds: Iterable<string>): void {
+  const eligible = new Set(eligiblePeerIds);
+  for (const peerId of accepted) if (!eligible.has(peerId)) accepted.delete(peerId);
+}
+
 export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
   const [wanted, setWanted] = useState(false);
   const wantedRef = useRef(false);
   const audience = useRef<MediaRole[]>([]);
+  const sourceEpoch = useRef<string | null>(null);
   const feedId = useRef<VideoFeedId | null>(null);
   /** Peers successfully told about this UUID, whether they accepted or declined it. */
   const offered = useRef(new Set<string>());
@@ -109,10 +118,10 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
   const syncPublisher = useCallback(() => {
     const id = feedId.current;
     const mesh = meshRef.current;
-    const allowed = new Set(eligible().filter((link) => link.ready).map((link) => link.peerId));
-    for (const peerId of accepted.current) {
-      if (!allowed.has(peerId)) accepted.current.delete(peerId);
-    }
+    const eligibleLinks = eligible();
+    const allowed = new Set(eligibleLinks.map((link) => link.peerId));
+    const writable = new Set(eligibleLinks.filter((link) => link.ready).map((link) => link.peerId));
+    pruneIneligibleAcceptances(accepted.current, allowed);
 
     const shouldRun = Boolean(
       id
@@ -121,7 +130,7 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
       && profileRef.current
       && mesh
       && cameraActiveRef.current
-      && accepted.current.size > 0,
+      && [...accepted.current].some((peerId) => writable.has(peerId)),
     );
     if (!shouldRun) {
       stopPublisher();
@@ -206,15 +215,28 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
     if (feedId.current) reconcileOffer(true);
   }, [reachable, flushEnds, reconcileOffer]);
 
-  const hasOwner = links.some((link) => link.peer.own);
-  useEffect(() => {
-    if (hasOwner || !wantedRef.current) return;
-    wantedRef.current = false;
-    setWanted(false);
-    endOffer();
-  }, [hasOwner, endOffer]);
-
   useEffect(() => () => endOffer(), [endOffer]);
+
+  const handleSourceState = useCallback((message: MediaSourceStateMessage) => {
+    if (!message.active) {
+      sourceEpoch.current = null;
+      wantedRef.current = false;
+      setWanted(false);
+      endOffer();
+      return;
+    }
+    if (sourceEpoch.current === message.sourceEpoch) {
+      audience.current = clampAudience(message.audience);
+      reconcileOffer(true);
+      return;
+    }
+    endOffer();
+    sourceEpoch.current = message.sourceEpoch;
+    audience.current = clampAudience(message.audience);
+    wantedRef.current = true;
+    setWanted(true);
+    ensureOffer();
+  }, [endOffer, ensureOffer, reconcileOffer]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     if (message.kind === 'video_accept') {
@@ -240,29 +262,18 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
       return;
     }
 
-    // Start, stop and direction remain the owner's authority. Everyone else gets silence.
+    // Direction remains the owner's authority. Source lifetime comes from the retained server
+    // directive above, so a transient owner link cannot end it.
     if (!meshRef.current?.isOwn(from)) return;
 
     switch (message.kind) {
-      case 'video_start':
-        audience.current = clampAudience(message.to);
-        wantedRef.current = true;
-        setWanted(true);
-        ensureOffer();
-        reconcileOffer();
-        break;
-      case 'video_stop':
-        wantedRef.current = false;
-        setWanted(false);
-        endOffer();
-        break;
       case 'video_region': {
         const { transitionMs, resetMs } = directorTiming(message, virtualCamera());
         directRef.current?.(message.region, transitionMs, resetMs);
         break;
       }
     }
-  }, [directRef, eligible, endOffer, ensureOffer, meshRef, reconcileOffer, syncPublisher]);
+  }, [directRef, eligible, meshRef, syncPublisher]);
 
   const stats = useCallback(() => publisher.current?.stats() ?? null, []);
   const offer = useCallback((): VideoOfferStats | null => {
@@ -274,5 +285,5 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
     };
   }, []);
 
-  return { handleControl, publishing, stats, offer };
+  return { handleControl, handleSourceState, publishing, stats, offer };
 }

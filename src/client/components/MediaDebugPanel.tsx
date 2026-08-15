@@ -10,7 +10,7 @@
 // it. It also exposes `window.__media`, which is what the e2e spec drives — the states
 // below are readable, but a test should not have to scrape a screen for them.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
 import type { ControlMessage } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
@@ -56,17 +56,20 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
   const [stats, setStats] = useState<Record<string, LinkStats>>({});
   const [open, setOpen] = useState(false);
 
-  const { mesh, links, selfId, config, active, refresh } = media;
+  const { mesh, links, selfId, session, config, active, refresh } = media;
+  const latest = useRef({ mesh, links, selfId, session, config, active, media, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed });
+  latest.current = { mesh, links, selfId, session, config, active, media, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed };
 
   // The seam the e2e spec drives. Installed whenever the build allows it, panel open or not: a test
   // asserting that a link came up should not depend on anybody having clicked anything.
   useEffect(() => {
     if (!visible) return;
     const handle = {
-      self: () => selfId,
-      config: () => config,
-      active: () => active,
-      links: () => links.map((l) => ({
+      self: () => latest.current.selfId,
+      session: () => latest.current.session,
+      config: () => latest.current.config,
+      active: () => latest.current.active,
+      links: () => latest.current.links.map((l) => ({
         peerId: l.peer.peerId,
         kind: l.peer.kind,
         label: l.peer.label,
@@ -79,21 +82,24 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
         state: l.state,
         ready: l.ready,
       })),
-      sendControl: (peerId: string, message: ControlMessage) => mesh?.link(peerId)?.sendControl(message),
+      sendControl: (peerId: string, message: ControlMessage) => latest.current.mesh?.link(peerId)?.sendControl(message),
       /** A round trip over the control channel — the mesh answers a ping without being asked to. */
-      ping: (peerId: string, seq: number) => mesh?.link(peerId)?.sendControl({ kind: 'ping', seq }),
+      ping: (peerId: string, seq: number) => latest.current.mesh?.link(peerId)?.sendControl({ kind: 'ping', seq }),
       sendMedia: (peerId: string, bytes: number[]) =>
-        mesh?.link(peerId)?.sendMedia(new Uint8Array(bytes)),
+        latest.current.mesh?.link(peerId)?.sendMedia(new Uint8Array(bytes)),
+      /** Same-peer ICE fault injection. This seam is absent unless `?e2e=1` installed it. */
+      setLinkState: (peerId: string, state: 'connected' | 'disconnected' | 'failed') =>
+        latest.current.mesh?.link(peerId)?.debugState(state),
       /** What has arrived. Media comes back as plain arrays so it survives the bridge to the test. */
       inbox: () => ({
-        control: media.inbox.control,
-        media: media.inbox.media.map((m) => ({ from: m.from, bytes: [...m.bytes] })),
+        control: latest.current.media.inbox.control,
+        media: latest.current.media.inbox.media.map((m) => ({ from: m.from, bytes: [...m.bytes] })),
       }),
-      stats: async (peerId: string) => mesh?.link(peerId)?.stats(),
+      stats: async (peerId: string) => latest.current.mesh?.link(peerId)?.stats(),
       /** What stills have cost. The device's split, and the frontend's round trip. */
       stills: () => ({
-        captured: stillTimings?.current ?? [],
-        received: evidenceTimings?.current ?? [],
+        captured: latest.current.stillTimings?.current ?? [],
+        received: latest.current.evidenceTimings?.current ?? [],
       }),
       /**
        * What the live feed is doing, from whichever end this is.
@@ -104,19 +110,19 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
        * holding a real phone.
        */
       video: () => ({
-        published: publisherStats?.() ?? null,
-        offer: publisherOffer?.() ?? null,
-        audience: publisherOffer?.()?.audience ?? null,
-        watching: feed?.feeds.map(({ canvas: _canvas, ...entry }) => entry) ?? [],
+        published: latest.current.publisherStats?.() ?? null,
+        offer: latest.current.publisherOffer?.() ?? null,
+        audience: latest.current.publisherOffer?.()?.audience ?? null,
+        watching: latest.current.feed?.feeds.map(({ canvas: _canvas, ...entry }) => entry) ?? [],
       }),
       /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
       frame: (peerId?: string) => {
-        const entry = feed?.feeds.find((candidate) => candidate.canvas && (!peerId || candidate.peerId === peerId));
+        const entry = latest.current.feed?.feeds.find((candidate) => candidate.canvas && (!peerId || candidate.peerId === peerId));
         return entry?.canvas?.toDataURL('image/png') ?? null;
       },
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
-  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed]);
+  }, [visible]);
 
   // Stats have to be pulled rather than pushed, so the panel polls while it is open and not
   // otherwise — getStats on every link once a second is not free.

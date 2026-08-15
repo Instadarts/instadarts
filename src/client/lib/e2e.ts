@@ -6,10 +6,19 @@
 // them would test a stub. So the durations are overridable, and the override is bolted to a build
 // flag: `?e2e=1` does nothing at all in a production bundle.
 
-/** True only in a build that was made for tests, and only when the URL asks. Never both by accident. */
+const E2E_SESSION_KEY = 'instadarts_e2e';
+
+/**
+ * True only in a build that was made for tests. Once a URL asks, retain that answer for this tab so
+ * navigation and a page reload do not remove the very recovery controls the suite is exercising.
+ */
 export function e2eEnabled(): boolean {
   if (!import.meta.env.DEV && !import.meta.env.VITE_E2E) return false;
-  return new URLSearchParams(window.location.search).get('e2e') === '1';
+  if (new URLSearchParams(window.location.search).get('e2e') === '1') {
+    sessionStorage.setItem(E2E_SESSION_KEY, '1');
+    return true;
+  }
+  return sessionStorage.getItem(E2E_SESSION_KEY) === '1';
 }
 
 /**

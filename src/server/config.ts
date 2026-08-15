@@ -307,7 +307,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(rawScorer, 'scorer', ['cameraFrameRate']);
 
   const rawMedia = section(raw, 'media');
-  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'stunPort', 'still', 'video', 'virtualCamera', 'dartEvidence']);
+  reportUnknown(rawMedia, 'media', ['enabled', 'iceUrls', 'stunPort', 'setupTimeoutMs', 'still', 'video', 'virtualCamera', 'dartEvidence']);
 
   const rawStill = section(rawMedia, 'still');
   reportUnknown(rawStill, 'media.still', ['size']);
@@ -336,6 +336,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
         enabled: bool(rawMedia, 'media', 'enabled', defaults.media.enabled),
         iceUrls: iceUrls(rawMedia, 'media', 'iceUrls', defaults.media.iceUrls),
         stunPort: positiveInt(rawMedia, 'media', 'stunPort', defaults.media.stunPort),
+        setupTimeoutMs: nonNegativeInt(rawMedia, 'media', 'setupTimeoutMs', defaults.media.setupTimeoutMs),
         still: {
           size: positiveInt(rawStill, 'media.still', 'size', defaults.media.still.size),
         },

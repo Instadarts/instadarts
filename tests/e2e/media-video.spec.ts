@@ -94,10 +94,10 @@ async function linkedToCamera(page: Page) {
     .toBeGreaterThan(0);
 }
 
-/** Offer/end lifecycle messages received by this page. */
-function videoLifecycleMessages(page: Page): Promise<number> {
+/** Feed-end messages received by this page. Repeated standing offers are intentionally idempotent. */
+function videoEndMessages(page: Page): Promise<number> {
   return page.evaluate(() => (window as any).__media.inbox().control
-    .filter((m: any) => m.data?.kind === 'video_offer' || m.data?.kind === 'video_end').length);
+    .filter((m: any) => m.data?.kind === 'video_end').length);
 }
 
 /** The standing source offer, which exists before and after its encoder. */
@@ -128,11 +128,8 @@ async function spectator(browser: Browser, host: Page) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(`/spectate/${id}?e2e=1`);
-  // In the room before the caller does anything else. The id in that URL is a *lobby's*, and a
-  // `spectate` that arrives after the lobby has become a match is asking for something that no
-  // longer exists — a race that has nothing to do with media and would look exactly like one.
-  await expect.poll(() => page.evaluate(() => (window as any).__media.self()), { timeout: 20_000 })
-    .toBeTruthy();
+  // In the room before the caller starts it. A lobby deliberately has no media peer identity.
+  await expect(page.getByText('Online Match').first()).toBeVisible();
   return { context, page };
 }
 
@@ -199,7 +196,7 @@ test.describe('board video', () => {
     const watching = await spectator(browser, host);
 
     // A nominated, running camera in an online lobby must still publish nothing.
-    await expect.poll(() => cameraPeer(host), { timeout: 20_000 }).toBeTruthy();
+    expect(await cameraPeer(host)).toBeFalsy();
     await startCamera(scorer.page);
     await host.waitForTimeout(1500);
     expect(await published(scorer.page)).toBeNull();
@@ -477,9 +474,7 @@ test.describe('board video', () => {
     expect(camera.own, 'the camera is not the opponent\'s').toBe(false);
 
     const beforeStop = (await published(scorer.page)).frames;
-    // Counted rather than required to be empty: Bob has legitimately heard an offer already.
-    // What must not happen is a *new* one caused by him.
-    const lifecycleBefore = await videoLifecycleMessages(guest);
+    const endsBefore = await videoEndMessages(guest);
     const shotBefore = (await fingerprint(guest))!;
     const activeOffer = await sourceOffer(scorer.page);
 
@@ -502,26 +497,17 @@ test.describe('board video', () => {
     // looks at — and gets silence rather than a refusal, because a peer with no business commanding
     // learns nothing from an answer.
     expect((await published(scorer.page)).frames, 'the opponent stopped the feed').toBeGreaterThan(beforeStop);
-    expect(await videoLifecycleMessages(guest), 'the camera answered a peer it should have ignored').toBe(lifecycleBefore);
+    expect(await videoEndMessages(guest), 'the opponent ended the feed').toBe(endsBefore);
     expect(distance(shotBefore, (await fingerprint(guest))!), 'the opponent moved the shot').toBeLessThan(8);
 
-    // The owner ends this exact UUID. One end clears the UI, and a late accept for that UUID is
-    // deliberately ignored without recreating either the offer or the encoder.
-    const endsBefore = await guest.evaluate(() => (window as any).__media.inbox().control
-      .filter((m: any) => m.data?.kind === 'video_end').length);
+    // Source lifetime is server-coordinated. The superseded owner control is ignored even on the
+    // exact ownership edge; only opt-out/source change/match finish may end this epoch.
     await host.evaluate((peerId) => {
       (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
     }, ownerCamera.peerId);
-    await expect.poll(() => sourceOffer(scorer.page), { timeout: 10_000 }).toBeNull();
-    await expect.poll(() => guest.evaluate(() => (window as any).__media.inbox().control
-      .filter((m: any) => m.data?.kind === 'video_end').length)).toBe(endsBefore + 1);
-    await expect(guest.getByRole('button', { name: /live video from Alice board/ })).toHaveCount(0);
-    await guest.evaluate(({ peerId, feedId }) => {
-      (window as any).__media.sendControl(peerId, { kind: 'video_accept', feedId });
-    }, { peerId: camera.peerId, feedId: activeOffer.feedId });
     await guest.waitForTimeout(500);
-    expect(await sourceOffer(scorer.page)).toBeNull();
-    expect(await published(scorer.page)).toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(activeOffer.feedId);
+    expect(await published(scorer.page)).not.toBeNull();
 
     await alice.close();
     await bob.close();

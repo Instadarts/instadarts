@@ -24,15 +24,17 @@ import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLi
 import { CONFIG } from './config';
 import {
   handleMediaLeave,
+  handleMediaJoin,
   handleMediaReady,
   handleMediaSignal,
-  handleSelectCamera,
   syncDeviceTier,
   mediaRoomOf,
   publishMediaFor,
   publishMediaForRoom,
   releaseMediaState,
   sendAppConfig,
+  startMediaForMatch,
+  finishMediaForMatch,
 } from './media';
 import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
@@ -384,8 +386,8 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'media_leave':
       handleMediaLeave(ws);
       break;
-    case 'media_select_camera':
-      handleSelectCamera(ws, msg);
+    case 'media_join':
+      handleMediaJoin(ws, msg);
       break;
     case 'media_signal':
       handleMediaSignal(ws, msg);
@@ -444,7 +446,7 @@ setLifecycleHandlers({
     publishScorerStateFor(devices);
     // The room is gone, so everyone who was in it is told they are alone, which is what closes
     // whatever peer connections they were holding.
-    publishMediaForRoom(match.id);
+    finishMediaForMatch(match.id);
   },
 
   /** A lobby nobody has touched for the idle period. */
@@ -483,7 +485,7 @@ const ROOM_CHANGING_TYPES = new Set([
   'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'swap_players',
   'start_match', 'rematch_vote', 'leave_match', 'spectate', 'reconnect',
   'activate_devices', 'deactivate_device', 'scorer_pair', 'scorer_hello', 'scorer_unpair', 'scorer_name',
-  'media_ready', 'media_leave', 'media_select_camera',
+  'media_ready', 'media_leave', 'media_join',
 ]);
 
 // ============================================================
@@ -694,6 +696,7 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
   }
 
   const match = createMatch(lobby);
+  startMediaForMatch(match);
 
   // Update all lobby clients to match
   for (const [w, c] of allClients()) {
@@ -858,6 +861,7 @@ function endMatch(match: MatchState, winnerId: string | null): void {
   match.finishedAt = Date.now();
   touch(match, SUMMARY_TTL_MS);
   dropScoringSessions(match.id);
+  finishMediaForMatch(match.id);
 }
 
 function leaveLobby(ws: WebSocket, client: Client): void {
@@ -1082,6 +1086,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
   // Everyone is in. The re-match is an ordinary new match; the only thing carried across is who is
   // watching — spectators included, so an audience is not left behind on the finished one.
   const rematch = createRematch(match);
+  startMediaForMatch(rematch);
   for (const [otherWs, other] of allClients()) {
     if (other.matchId !== match.id) continue;
     other.matchId = rematch.id;

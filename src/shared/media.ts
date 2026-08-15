@@ -4,7 +4,7 @@
 // Three words, kept apart deliberately:
 //
 //   · **peer**  — one connection taking part in media, addressed by an opaque `peerId` the server
-//     mints per socket. Not a session id and not a device id: neither of those should be handed to
+//     mints per match/socket incarnation. Not a session id and not a device id: neither should reach
 //     the person you are playing against.
 //   · **roster** — the peers the server offers a given peer. *The roster is the authorization.* A
 //     signal is relayed only between two peers the server itself paired, and a peer that vanishes
@@ -322,21 +322,6 @@ export type ControlMessage =
   /** The header of a still frame; the JPEG bytes travel in the same message. */
   | { kind: 'still'; id: string; tag?: unknown; width: number; height: number; mime: string }
   | { kind: 'still_refused'; id: string; reason: StillRefusal }
-  /**
-   * Start publishing live video to these kinds of viewer, and stop.
-   *
-   * Deliberately without a region: starting a feed and framing it are different decisions, and only
-   * the second is a `video_region`. Both remain owner-only; recipient choice messages below do not
-   * command the camera.
-   *
-   * **A camera holds one offer.** A second `video_start` therefore keeps its UUID and re-addresses
-   * it. The encoder exists only while at least one exact eligible peer has accepted.
-   *
-   * `video_stop` takes no roles because there is nothing to say: it ends the feed for everybody.
-   * "Stop sending to spectators" is a `video_start` with a shorter list.
-   */
-  | { kind: 'video_start'; to: MediaRole[] }
-  | { kind: 'video_stop' }
   /** A standing source offer, the recipient's choice, and the end of that exact offer. */
   | { kind: 'video_offer'; feedId: VideoFeedId }
   | { kind: 'video_accept'; feedId: VideoFeedId }

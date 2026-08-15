@@ -3,6 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "outDir": "dist/client",
     "rootDir": "src",
     "types": ["vite/client", "@webgpu/types"],

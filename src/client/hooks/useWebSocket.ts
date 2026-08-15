@@ -26,6 +26,10 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
   standbyRef.current = standby;
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
+  const [generation, setGeneration] = useState(0);
+  const generationRef = useRef(0);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reconnectAttempt = useRef(0);
   const intentionalClose = useRef(false);
@@ -52,6 +56,8 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
 
     ws.onopen = () => {
       setConnected(true);
+      generationRef.current += 1;
+      setGeneration(generationRef.current);
       reconnectAttempt.current = 0;
       flushPending();
 
@@ -70,6 +76,10 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'connected' && typeof msg.sessionId === 'string') {
+          sessionIdRef.current = msg.sessionId;
+          setSessionId(msg.sessionId);
+        }
         handlerRef.current(msg);
       } catch {
         // ignore parse errors
@@ -116,19 +126,39 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
   useEffect(() => {
     if (!e2eEnabled()) return;
     const target = window as unknown as {
-      __scorerLink?: { disconnect: () => void; reconnect: () => void; pendingMessages: () => number };
+      __scorerLink?: SocketE2E;
+      __ws?: SocketE2E;
     };
-    target.__scorerLink = {
+    const seam: SocketE2E = {
       disconnect: () => {
         intentionalClose.current = true;
         clearTimeout(reconnectTimer.current);
         wsRef.current?.close();
       },
+      drop: () => {
+        intentionalClose.current = false;
+        clearTimeout(reconnectTimer.current);
+        wsRef.current?.close();
+      },
       reconnect: connect,
       pendingMessages: () => pendingMessages.current.length,
+      generation: () => generationRef.current,
+      sessionId: () => sessionIdRef.current,
     };
-    return () => { delete target.__scorerLink; };
+    target.__scorerLink = seam;
+    target.__ws = seam;
+    return () => { delete target.__scorerLink; delete target.__ws; };
   }, [connect]);
 
-  return { send, connected };
+  return { send, connected, generation, sessionId };
+}
+
+interface SocketE2E {
+  disconnect: () => void;
+  /** Abrupt replacement: unlike disconnect, this allows the normal backoff to reconnect. */
+  drop: () => void;
+  reconnect: () => void;
+  pendingMessages: () => number;
+  generation: () => number;
+  sessionId: () => string | null;
 }

@@ -91,7 +91,7 @@ async function pairScorer(browser: Browser, frontend: Page, name: string) {
   return { context, page };
 }
 
-/** An online lobby with a player each — the state in which links are meant to come up. */
+/** An online lobby with a player each. Media remains absent until the caller starts the match. */
 async function onlineLobby(browser: Browser) {
   const alice = await browser.newContext();
   const host = await alice.newPage();
@@ -123,6 +123,7 @@ test.describe('media links', () => {
   test('every pair a match needs connects, and carries a round trip', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineLobby(browser);
     const cam = await pairScorer(browser, host, 'Alice board');
+    await host.getByRole('button', { name: /Start Match/i }).click();
 
     // Each frontend faces the opponent and the board; the board faces both frontends.
     const hostLinks = await connectedLinks(host, 2);
@@ -159,6 +160,8 @@ test.describe('media links', () => {
     const watching = await browser.newContext();
     const watcher = await watching.newPage();
     await watcher.goto(`/spectate/${lobbyId}?e2e=1`);
+    await expect(watcher.getByText('Online Match').first()).toBeVisible();
+    await host.getByRole('button', { name: /Start Match/i }).click();
 
     // Both players and the board: three links, and not one of them may receive from the spectator.
     const seen = await connectedLinks(watcher, 3);
@@ -171,7 +174,7 @@ test.describe('media links', () => {
     expect(asSeenByHost!.send).toBe(false);
     expect(asSeenByHost!.recv).toBe(true);
 
-    expect(guest.url()).toContain('/lobby/');
+    expect(guest.url()).toContain('/match/');
     await alice.close();
     await bob.close();
     await watching.close();
@@ -180,6 +183,7 @@ test.describe('media links', () => {
 
   test('a link closes when the peer behind it leaves', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineLobby(browser);
+    await host.getByRole('button', { name: /Start Match/i }).click();
     await connectedLinks(host, 1);
 
     await guest.click('button:has-text("Leave")');

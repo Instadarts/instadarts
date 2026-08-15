@@ -79,6 +79,9 @@
     // nothing useful, which is why it is safe to leave on.
     "stunPort": 3478,
 
+    // Presentation-only wait at match entry. Gameplay continues when it expires.
+    "setupTimeoutMs": 4000,
+
     // One photograph of part of the board: the close-up under a dart, and what a viewer is sent
     // when they ask what the board looks like.
     "still": {

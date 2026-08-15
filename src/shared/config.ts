@@ -169,6 +169,8 @@ export interface MediaConfig {
    * reverse proxy will not arrange: proxies forward TCP.
    */
   stunPort: number;
+  /** Maximum time the match-entry presentation waits for the optional mesh to settle. */
+  setupTimeoutMs: number;
   still: StillConfig;
   video: VideoConfig;
   virtualCamera: VirtualCameraConfig;
@@ -196,6 +198,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
     enabled: true,
     iceUrls: [INTERNAL_ICE],
     stunPort: 3478,
+    setupTimeoutMs: 4000,
     still: {
       size: 320,
     },
@@ -232,6 +235,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
  */
 export interface MediaClientConfig {
   enabled: boolean;
+  setupTimeoutMs: number;
   iceServers: IceServerConfig[];
   /**
    * The port the internal STUN server is answering on, or null if there is none to answer.

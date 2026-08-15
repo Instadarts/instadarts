@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "concurrently -k \"tsx watch src/server/index.ts\" \"vite\"",
-    "build": "vite build && tsc -p tsconfig.server.json --noEmit",
+    "build": "vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "start": "NODE_ENV=production node --import tsx src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -3,9 +3,8 @@
 // Distinct from the deployment's own flag, and deliberately so: the server decides whether the
 // feature exists, and this decides whether *this* browser wants it. Both have to say yes.
 //
-// Opting out is not a state the server holds — a client that has opted out simply never announces
-// itself, so it appears in nobody's roster. That is why there is no "disabled" flag anywhere on the
-// wire to keep in step with this one.
+// A running match declares the opt-out as tier `disabled`. That lets every participant complete
+// setup without creating a peer identity for this browser.
 //
 // localStorage rather than sessionStorage: this is a preference about the person, not about the tab,
 // and somebody who turned video off does not want it back in the next window they open. The scoring

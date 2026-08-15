@@ -1,7 +1,7 @@
 import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
 import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
-import type { MediaPeer, MediaTier, SignalDescription } from './media';
+import type { MediaPeer, MediaRole, MediaTier, SignalDescription } from './media';
 import type { ClientConfig } from './config';
 
 // ============================================================
@@ -234,19 +234,15 @@ export interface ScorerTipsMessage {
 // Client → Server: media
 //
 // The second prefix both kinds of client speak, and the server's whole involvement is deciding who
-// may reach whom — see shared/media.ts. A scoring device sends `media_ready` and `media_signal`;
-// only a frontend has a board camera to nominate.
+// may reach whom — see shared/media.ts. A scoring device announces capability with `media_ready`;
+// a frontend declares participation only for a running match with `media_join`.
 // ============================================================
 
 /**
  * Take part in media, and say how much this peer is willing to send.
  *
- * A client that never sends this is invisible to the feature, which is how a per-browser or
- * per-phone opt-out works — there is no separate "disabled" state to keep in step with anything.
- *
- * For a **scoring device** this is only the first of two gates. Announcing a tier says the phone is
- * willing; it does not put the device in anybody's roster on its own, because whether a board is
- * watched is its owner's decision and arrives separately as `media_select_camera`.
+ * This is a scoring-device capability announcement. It creates no peer identity in a lobby and
+ * puts the device in no roster; a running match must select it through `media_join`.
  *
  * Sent again whenever the tier changes, so a phone switched from stills to video is not stuck at
  * whatever it happened to be when it connected.
@@ -257,19 +253,14 @@ export interface MediaReadyMessage {
 }
 
 /**
- * A frontend nominating one of its claimed scoring devices as **the** board camera, or `null` for
- * none.
- *
- * At most one, deliberately. It is the owner's board offered to opponents and spectators, so
- * "which board am I sharing" has exactly one answer rather than one per viewer — and nominating
- * nothing is a complete opt-out remote viewers cannot work around.
- *
- * Only ever honoured for a device this connection actually holds; naming somebody else's gets
- * silence. Re-sent on every connect, like `activate_devices`, since the server keeps nothing.
+ * A frontend's complete, idempotent declaration for one running match. It is invalid in a lobby.
+ * Disabled still counts as setup completion, and a spectator's camera nomination is ignored.
  */
-export interface MediaSelectCameraMessage {
-  type: 'media_select_camera';
-  deviceId: string | null;
+export interface MediaJoinMessage {
+  type: 'media_join';
+  matchId: string;
+  tier: MediaTier;
+  boardCamera: string | null;
 }
 
 /** Stop taking part. Every peer holding a link to this one is told by the roster it gets next. */
@@ -319,7 +310,7 @@ export type ClientMessage =
   | ScorerTipsMessage
   | MediaReadyMessage
   | MediaLeaveMessage
-  | MediaSelectCameraMessage
+  | MediaJoinMessage
   | MediaSignalMessage;
 
 // ============================================================
@@ -564,10 +555,32 @@ export interface AppConfigMessage extends ClientConfig {
  */
 export interface MediaPeersMessage {
   type: 'media_peers';
+  /** Match incarnation. Neither peer links nor consent may cross either identifier. */
+  matchId: string;
+  meshId: string;
+  /** Every participant seat has declared, including participants that explicitly disabled media. */
+  setupComplete: boolean;
   /** This connection's own peer id, so it can tell itself apart in anything it is shown. */
   self: string;
   peers: MediaPeer[];
 }
+
+/** Retained desired source state, sent only to the selected scoring device. */
+export type MediaSourceStateMessage =
+  | {
+      type: 'media_source_state';
+      matchId: string;
+      meshId: string;
+      active: true;
+      sourceEpoch: string;
+      audience: MediaRole[];
+    }
+  | {
+      type: 'media_source_state';
+      matchId: string;
+      meshId: string;
+      active: false;
+    };
 
 /** One end of a negotiation, from a peer the server has paired with this one. */
 export interface MediaSignalRelayMessage {
@@ -597,6 +610,7 @@ export type ServerMessage =
   | ScorerRefusedMessage
   | AppConfigMessage
   | MediaPeersMessage
+  | MediaSourceStateMessage
   | MediaSignalRelayMessage;
 
 // ============================================================

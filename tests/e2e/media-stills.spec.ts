@@ -99,11 +99,9 @@ test.describe('dart evidence', () => {
     const watching = await browser.newContext();
     const watcher = await watching.newPage();
     await watcher.goto(`/spectate/${lobbyId}?e2e=1`);
-    // In the room *before* the match starts, or the race is not the one this test is about: the URL
-    // holds a lobby id, and a `spectate` that arrives after the lobby has become a match is asking
-    // for something that no longer exists. A peer id is the server saying it got there in time.
-    await expect.poll(() => watcher.evaluate(() => (window as any).__media.self()), { timeout: 20_000 })
-      .toBeTruthy();
+    // In the room before the match starts. Lobby membership is visible, but deliberately creates no
+    // peer id; the identity arrives only after the match-scoped session exists.
+    await expect(watcher.getByText('Online Match').first()).toBeVisible();
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');

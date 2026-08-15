@@ -29,8 +29,17 @@ import { packFrame, unpackFrame } from './frames';
  * candidates we already had is worth far more than a complete one that never arrives.
  */
 const GATHER_TIMEOUT_MS = 2000;
+const ICE_RESTART_DELAYS_MS = [1000, 2000, 4000, 8000] as const;
 
-export type LinkState = 'new' | 'connecting' | 'connected' | 'failed' | 'closed';
+export function iceRestartDelay(attempt: number): number {
+  return ICE_RESTART_DELAYS_MS[Math.min(Math.max(0, attempt), ICE_RESTART_DELAYS_MS.length - 1)];
+}
+
+export function shouldRestartIce(polite: boolean, state: LinkState): boolean {
+  return !polite && state === 'failed';
+}
+
+export type LinkState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
 export interface PeerLinkOptions {
   peerId: string;
@@ -92,12 +101,16 @@ export interface PeerLink {
    * throws, and losing the channel costs far more than losing the frame.
    */
   sendMedia(chunk: ArrayBufferView | ArrayBuffer): boolean;
+  /** E2E-only fault injection; exposed only behind the diagnostics seam. */
+  debugState(next: 'connected' | 'disconnected' | 'failed'): void;
   close(): void;
   /** What the connection actually settled on, for the diagnostics panel. */
   stats(): Promise<LinkStats>;
 }
 
 export interface LinkStats {
+  /** ICE restarts requested by the deterministic original-offerer side. */
+  iceRestarts?: number;
   /** How the two ends found each other: `host` on a LAN, `srflx` through a NAT. */
   localCandidateType?: string;
   remoteCandidateType?: string;
@@ -132,10 +145,43 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
   // gathering means we sit in that window for a while, which is exactly when a collision happens.
   let makingOffer = false;
   let ignoreOffer = false;
+  let restartTimer: ReturnType<typeof setTimeout> | undefined;
+  let restartAttempt = 0;
+  let restartInFlight = false;
+  let iceRestarts = 0;
+
+  function cancelRestart(reset = false): void {
+    clearTimeout(restartTimer);
+    restartTimer = undefined;
+    if (reset) restartAttempt = 0;
+  }
+
+  function scheduleRestart(): void {
+    // The impolite side created the channels and made the original offer, so exactly that side is
+    // responsible for restarting. The polite side waits for its offer.
+    if (!shouldRestartIce(polite, state) || restartTimer || restartInFlight) return;
+    const delay = iceRestartDelay(restartAttempt);
+    restartTimer = setTimeout(() => {
+      restartTimer = undefined;
+      if (state !== 'failed') return;
+      restartAttempt += 1;
+      restartInFlight = true;
+      iceRestarts += 1;
+      try {
+        pc.restartIce();
+      } catch {
+        restartInFlight = false;
+        scheduleRestart();
+      }
+    }, delay);
+  }
 
   function setState(next: LinkState): void {
     if (state === next || state === 'closed') return;
     state = next;
+    if (next === 'connected') cancelRestart(true);
+    else if (next === 'connecting' || next === 'disconnected' || next === 'closed') cancelRestart();
+    else if (next === 'failed') scheduleRestart();
     onChange(next);
   }
 
@@ -185,6 +231,10 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       // nothing here that retrying would fix.
     } finally {
       makingOffer = false;
+      if (restartInFlight) {
+        restartInFlight = false;
+        scheduleRestart();
+      }
     }
   };
 
@@ -204,7 +254,8 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       case 'connecting': setState('connecting'); break;
       case 'connected': setState('connected'); break;
       // `disconnected` is not failure — it is ICE saying it has lost sight of the other end, and it
-      // recovers on its own more often than not. Only `failed` is final.
+      // recovers on its own more often than not. It is observable but does not restart ICE.
+      case 'disconnected': setState('disconnected'); break;
       case 'failed': setState('failed'); break;
       case 'closed': setState('closed'); break;
     }
@@ -277,6 +328,7 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
   }
 
   function close(): void {
+    cancelRestart();
     setState('closed');
     control?.close();
     media?.close();
@@ -291,13 +343,13 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
     peerId,
     get state() { return state; },
     get ready() {
-      return control?.readyState === 'open' && media?.readyState === 'open';
+      return state === 'connected' && control?.readyState === 'open' && media?.readyState === 'open';
     },
     get bufferedAmount() { return media?.bufferedAmount ?? 0; },
     get maxMessageBytes() { return maxMessageBytes(); },
     accept,
     sendControl(message: ControlMessage, payload?: Uint8Array): boolean {
-      if (control?.readyState !== 'open') return false;
+      if (state !== 'connected' || control?.readyState !== 'open') return false;
       if (!payload) {
         // Every one of these is a short line of JSON. Nothing here approaches a message limit, and
         // measuring the UTF-8 length of one to prove it would cost more than it could ever save.
@@ -313,16 +365,20 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       return true;
     },
     sendMedia(chunk: ArrayBufferView | ArrayBuffer): boolean {
-      if (media?.readyState !== 'open') return false;
+      if (state !== 'connected' || media?.readyState !== 'open') return false;
       if (chunk.byteLength > maxMessageBytes()) return false;
       media.send(chunk as ArrayBuffer);
       return true;
     },
+    debugState(next): void { setState(next); },
     close,
     async stats(): Promise<LinkStats> {
       // Reported whether or not a pair was ever nominated. A link that never connected is exactly
       // the one whose ICE errors are worth reading.
-      const ice = iceErrors ? { iceErrors, lastIceError } : {};
+      const ice = {
+        ...(iceErrors ? { iceErrors, lastIceError } : {}),
+        ...(iceRestarts ? { iceRestarts } : {}),
+      };
 
       const report = await pc.getStats();
       let pair: RTCIceCandidatePairStats | undefined;

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { ServerMessage } from '../shared/protocol';
+import type { MediaSourceStateMessage, ServerMessage } from '../shared/protocol';
 import type { Mesh } from './media/mesh';
 import type { ControlMessage, Region } from '../shared/media';
 import { useStillResponder, type StillSource } from './hooks/useStillResponder';
@@ -30,6 +30,7 @@ export function ScorerApp() {
   // two be introduced without either owning the other — the same arrangement App.tsx uses.
   const mediaHandler = useRef<((msg: ServerMessage) => void) | null>(null);
   const videoControl = useRef<((from: string, message: ControlMessage) => void) | null>(null);
+  const sourceControl = useRef<((message: MediaSourceStateMessage) => void) | null>(null);
 
   // The camera lives inside ScorerPage and the mesh lives here, so the two are introduced through
   // refs rather than one owning the other — the same arrangement as the message handler above.
@@ -62,6 +63,7 @@ export function ScorerApp() {
       videoControl.current?.(from, message);
       if (message.kind === 'still_request') latencyMeterRef.current?.onStillRequest();
     },
+    onSourceState: (message) => sourceControl.current?.(message),
   });
 
   const video = useVideoResponder({
@@ -74,6 +76,7 @@ export function ScorerApp() {
     cameraActive,
   });
   videoControl.current = video.handleControl;
+  sourceControl.current = video.handleSourceState;
   mediaHandler.current = mesh.handleMessage;
   meshRef.current = mesh.mesh;
 

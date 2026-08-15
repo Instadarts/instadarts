@@ -15,6 +15,7 @@ import { getMatch, updateMatch } from './store';
 import { sanitizeCameraError, sanitizeName, validateDeviceClaims, validateTips } from './validation';
 import { getScoringSession, dropScoringSessions, scoringContextId } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
+import { finishMediaForMatch, revalidateMediaDeviceOwner, withdrawMediaDevice } from './media';
 import { canAcceptDevice } from './capacity';
 import {
   allClients,
@@ -157,6 +158,7 @@ export function commitScoredMatch(match: MatchState): void {
   } else {
     touch(match, SUMMARY_TTL_MS);
     dropScoringSessions(match.id);
+    finishMediaForMatch(match.id);
   }
   updateMatch(match.id, match);
   broadcastToMatch(match.id, matchMessage('match_state', match));
@@ -205,6 +207,9 @@ export function handleActivateDevices(ws: WebSocket, msg: any): void {
     }
     if (result === 'mismatch') continue;
     if (previousOwner && previousOwner !== client.sessionId) {
+      revalidateMediaDeviceOwner(claim.deviceId, client.sessionId);
+    }
+    if (previousOwner && previousOwner !== client.sessionId) {
       const loser = findSessionSocket(previousOwner);
       if (loser) send(loser, { type: 'device_lost', deviceId: claim.deviceId });
       publishDevicesState(previousOwner);
@@ -219,6 +224,7 @@ export function handleDeactivateDevice(ws: WebSocket, msg: any): void {
   const client = getClient(ws);
   if (!client || typeof msg.deviceId !== 'string') return;
   if (!unclaimDevice(msg.deviceId, client.sessionId)) return;
+  withdrawMediaDevice(msg.deviceId);
   publishScorerState(msg.deviceId);
   publishDevicesState(client.sessionId);
 }
@@ -308,6 +314,7 @@ export function handleScorerUnpair(ws: WebSocket): void {
 
   const owner = ownerOf(client.deviceId);
   deviceSockets.delete(client.deviceId);
+  withdrawMediaDevice(client.deviceId);
   releaseDevice(client.deviceId);
   client.deviceId = null;
 

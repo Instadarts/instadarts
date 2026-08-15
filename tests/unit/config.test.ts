@@ -318,6 +318,20 @@ describe('the internal stun server', () => {
   });
 });
 
+describe('match media setup timeout', () => {
+  it('defaults to four seconds and accepts an explicit non-negative duration', async () => {
+    expect((await load('{}')).CONFIG.media.setupTimeoutMs).toBe(4000);
+    expect((await load('{ "media": { "setupTimeoutMs": 0 } }')).CONFIG.media.setupTimeoutMs).toBe(0);
+    expect((await load('{ "media": { "setupTimeoutMs": 7500 } }')).CONFIG.media.setupTimeoutMs).toBe(7500);
+  });
+
+  it('keeps the default for invalid values', async () => {
+    const { CONFIG, CONFIG_COMPLAINTS } = await load('{ "media": { "setupTimeoutMs": -1 } }');
+    expect(CONFIG.media.setupTimeoutMs).toBe(CONFIG_DEFAULTS.media.setupTimeoutMs);
+    expect(CONFIG_COMPLAINTS.join('\n')).toContain('media.setupTimeoutMs');
+  });
+});
+
 describe('what the file gets wrong', () => {
   it('keeps the default and complains, rather than taking a number that would disable a limit', async () => {
     // A zero, a fraction or a word in maxMatches would divide through every derived limit.

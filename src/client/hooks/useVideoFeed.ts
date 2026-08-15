@@ -2,7 +2,7 @@
 // and decode only the exact feed UUIDs this viewer accepted.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaRole, Region, VideoFeedId } from '../../shared/media';
+import type { ControlMessage, Region, VideoFeedId } from '../../shared/media';
 import { isVideoFeedId, videoProfile } from '../../shared/media';
 import type { MediaClientConfig } from '../../shared/config';
 import { CONFIG_DEFAULTS } from '../../shared/config';
@@ -75,10 +75,6 @@ interface Options {
   mesh: Mesh | null;
   config: MediaClientConfig | null;
   links: MeshLink[];
-  /** Whether this frontend should ask its own scorer to hold an offer right now. */
-  publish: boolean;
-  /** Roles allowed to receive the offer from this frontend's scorer. */
-  audience: readonly MediaRole[];
   /** Whether remote offers belong to the current screen. False clears every in-memory choice. */
   receive: boolean;
   /** A match state may arrive just after its source's offer; retain that short pre-match race. */
@@ -102,7 +98,7 @@ export interface VideoFeed {
   stats: React.RefObject<VideoFeedStats[]>;
 }
 
-export function useVideoFeed({ mesh, config, links, publish, audience, receive, anticipate }: Options): VideoFeed {
+export function useVideoFeed({ mesh, config, links, receive, anticipate }: Options): VideoFeed {
   const offers = useRef(new Map<string, OfferState>());
   const receivers = useRef(new Map<string, ReceiverState>());
   const lastFrames = useRef(new Map<string, number>());
@@ -166,33 +162,6 @@ export function useVideoFeed({ mesh, config, links, publish, audience, receive, 
     refreshStats();
     changed();
   }, [changed, closeReceiver, findOffer, refreshStats]);
-
-  /** The camera we have actually asked, so a re-render is not a second request. */
-  const askedCamera = useRef<string | null>(null);
-  const askedAudience = useRef('');
-  const audienceKey = audience.join(' ');
-  useEffect(() => {
-    const wanted = publish && mesh
-      ? mesh.ownPeers().find((peer) => peer.kind === 'device' && peer.tier === 'video')?.peerId ?? null
-      : null;
-    if (wanted === askedCamera.current && audienceKey === askedAudience.current) return;
-
-    if (askedCamera.current && askedCamera.current !== wanted) {
-      mesh?.link(askedCamera.current)?.sendControl({ kind: 'video_stop' });
-      askedCamera.current = null;
-      askedAudience.current = '';
-    }
-    if (!wanted) {
-      if (askedCamera.current) mesh?.link(askedCamera.current)?.sendControl({ kind: 'video_stop' });
-      askedCamera.current = null;
-      askedAudience.current = '';
-      return;
-    }
-    if (mesh?.link(wanted)?.sendControl({ kind: 'video_start', to: [...audience] })) {
-      askedCamera.current = wanted;
-      askedAudience.current = audienceKey;
-    }
-  }, [publish, audienceKey, mesh, links]);
 
   const handleMedia = useCallback((from: string, data: ArrayBuffer) => {
     const offer = offers.current.get(from);
@@ -262,7 +231,8 @@ export function useVideoFeed({ mesh, config, links, publish, audience, receive, 
   }, [changed, closeReceiver, refreshStats]);
 
   const direct = useCallback((region: Region, transitionMs: number, resetMs?: number) => {
-    const camera = askedCamera.current;
+    const camera = meshRef.current?.ownPeers()
+      .find((peer) => peer.kind === 'device' && peer.tier === 'video')?.peerId;
     if (!camera) return;
     meshRef.current?.link(camera)?.sendControl({ kind: 'video_region', region, transitionMs, resetMs });
   }, []);

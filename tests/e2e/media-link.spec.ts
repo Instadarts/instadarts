@@ -44,12 +44,13 @@ async function connectedLinks(page: Page, count: number): Promise<LinkView[]> {
       message: `expected ${count} connected links`,
     })
     .toBe(count);
-  return (await links(page)).filter((l) => l.state === 'connected');
+  return (await links(page)).filter((l) => l.state === 'connected' && l.ready);
 }
 
 /** Ping a peer and wait for the pong the far mesh sends back without being asked. */
 async function roundTrip(page: Page, peerId: string, seq: number): Promise<void> {
-  await page.evaluate(([id, n]) => (window as any).__media.ping(id, n), [peerId, seq] as const);
+  const sent = await page.evaluate(([id, n]) => (window as any).__media.ping(id, n), [peerId, seq] as const);
+  expect(sent, `control channel to ${peerId} was not writable`).toBe(true);
   await expect
     .poll(async () => page.evaluate(([id, n]) => {
       const inbox = (window as any).__media.inbox();

@@ -129,15 +129,21 @@ describe('media recovery policy', () => {
       const restartIce = vi.fn();
       const controller = createIceRestartController(false, restartIce);
       controller.stateChanged('failed');
+      expect(controller.retryPending).toBe(true);
+      expect(controller.negotiationInFlight).toBe(false);
 
       for (const [delay, calls] of [[1000, 1], [2000, 2], [4000, 3], [8000, 4], [8000, 5]] as const) {
         vi.advanceTimersByTime(delay - 1);
         expect(restartIce).toHaveBeenCalledTimes(calls - 1);
         vi.advanceTimersByTime(1);
         expect(restartIce).toHaveBeenCalledTimes(calls);
+        expect(controller.retryPending).toBe(false);
+        expect(controller.negotiationInFlight).toBe(true);
         vi.advanceTimersByTime(60_000);
         expect(restartIce).toHaveBeenCalledTimes(calls); // still one negotiation in flight
         controller.negotiationFinished();
+        expect(controller.retryPending).toBe(true);
+        expect(controller.negotiationInFlight).toBe(false);
       }
       controller.close();
     } finally {
@@ -153,16 +159,19 @@ describe('media recovery policy', () => {
 
       controller.stateChanged('failed');
       controller.stateChanged('disconnected');
+      expect(controller.retryPending).toBe(false);
       vi.advanceTimersByTime(10_000);
       expect(restartIce).not.toHaveBeenCalled();
 
       controller.stateChanged('failed');
       controller.stateChanged('connecting');
+      expect(controller.retryPending).toBe(false);
       vi.advanceTimersByTime(10_000);
       expect(restartIce).not.toHaveBeenCalled();
 
       controller.stateChanged('failed');
       controller.stateChanged('connected');
+      expect(controller.retryPending).toBe(false);
       vi.advanceTimersByTime(10_000);
       expect(restartIce).not.toHaveBeenCalled();
 
@@ -170,7 +179,10 @@ describe('media recovery policy', () => {
       controller.stateChanged('failed');
       vi.advanceTimersByTime(1000);
       expect(restartIce).toHaveBeenCalledTimes(1);
+      expect(controller.negotiationInFlight).toBe(true);
       controller.close();
+      expect(controller.retryPending).toBe(false);
+      expect(controller.negotiationInFlight).toBe(false);
       controller.negotiationFinished();
       vi.advanceTimersByTime(60_000);
       expect(restartIce).toHaveBeenCalledTimes(1);

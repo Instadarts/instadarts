@@ -50,6 +50,10 @@ export interface IceRestartController {
   close(): void;
   /** Number of calls made to RTCPeerConnection.restartIce(). */
   readonly restarts: number;
+  /** Whether a backoff timer is waiting to request another restart. */
+  readonly retryPending: boolean;
+  /** Whether one restart negotiation has not settled yet. */
+  readonly negotiationInFlight: boolean;
 }
 
 /**
@@ -110,6 +114,8 @@ export function createIceRestartController(
       cancel();
     },
     get restarts() { return restarts; },
+    get retryPending() { return timer !== undefined; },
+    get negotiationInFlight() { return inFlight; },
   };
 }
 
@@ -183,6 +189,9 @@ export interface PeerLink {
 export interface LinkStats {
   /** ICE restarts requested by the deterministic original-offerer side. */
   iceRestarts?: number;
+  /** E2E/diagnostic visibility into retry cancellation; these do not affect negotiation. */
+  iceRestartPending?: boolean;
+  iceRestartInFlight?: boolean;
   /** How the two ends found each other: `host` on a LAN, `srflx` through a NAT. */
   localCandidateType?: string;
   remoteCandidateType?: string;
@@ -418,6 +427,8 @@ export function createPeerLink(options: PeerLinkOptions): PeerLink {
       const ice = {
         ...(iceErrors ? { iceErrors, lastIceError } : {}),
         ...(iceRestart.restarts ? { iceRestarts: iceRestart.restarts } : {}),
+        iceRestartPending: iceRestart.retryPending,
+        iceRestartInFlight: iceRestart.negotiationInFlight,
       };
 
       const report = await pc.getStats();

@@ -45,14 +45,24 @@ test.describe('encoded video over a link', () => {
     await expect(alice.locator('text=Bob')).toBeVisible({ timeout: 5000 });
     await alice.getByRole('button', { name: /Start Match/i }).click();
     await alice.waitForURL('**/match/**');
+    await bob.waitForURL('**/match/**');
 
-    const bobId = await alice.evaluate(() =>
-      (window as any).__media.links().find((l: any) => l.kind === 'user')?.peerId);
     await expect
       .poll(async () => alice.evaluate(() =>
-        (window as any).__media.links().filter((l: any) => l.state === 'connected' && l.ready).length),
+        (window as any).__media.links().filter((l: any) =>
+          l.kind === 'user' && l.state === 'connected' && l.ready).length),
         { timeout: 20_000 })
       .toBe(1);
+    await expect
+      .poll(async () => bob.evaluate(() =>
+        (window as any).__media.links().filter((l: any) =>
+          l.kind === 'user' && l.state === 'connected' && l.ready).length),
+        { timeout: 20_000 })
+      .toBe(1);
+    const bobId = (await alice.evaluate(() =>
+      (window as any).__media.links().find((l: any) =>
+        l.kind === 'user' && l.state === 'connected' && l.ready)?.peerId))!;
+    expect(bobId, 'Bob had no ready link after link setup completed').toBeTruthy();
 
     // Is the codec even available for encoding on this machine? A `false` here is a finding, not a
     // flake — it would mean the fixed profile has to change.
@@ -64,11 +74,12 @@ test.describe('encoded video over a link', () => {
 
     // Encode a moving picture — a still one would compress to almost nothing and prove less — and
     // write each chunk to the media channel as it comes out.
-    const sent = await alice.evaluate(async ({ profile, frames, peerId }) => {
+    const result = await alice.evaluate(async ({ profile, frames, peerId }) => {
       const canvas = new OffscreenCanvas(profile.width, profile.height);
       const ctx = canvas.getContext('2d')!;
 
-      const chunks: number[] = [];
+      let encoded = 0;
+      let sent = 0;
       const encoder = new (window as any).VideoEncoder({
         output: (chunk: any) => {
           // One frame, one message: SCTP drops a whole message rather than half of one, so this is
@@ -79,8 +90,8 @@ test.describe('encoded video over a link', () => {
           const packet = new Uint8Array(header.length + body.length);
           packet.set(header);
           packet.set(body, header.length);
-          (window as any).__media.sendMedia(peerId, [...packet]);
-          chunks.push(body.length);
+          if ((window as any).__media.sendMedia(peerId, [...packet])) sent += 1;
+          encoded += 1;
         },
         error: (e: unknown) => { (window as any).__encodeError = String(e); },
       });
@@ -111,17 +122,18 @@ test.describe('encoded video over a link', () => {
       }
       await encoder.flush();
       encoder.close();
-      return chunks.length;
+      return { encoded, sent };
     }, { profile: PROFILE, frames: FRAMES, peerId: bobId });
 
     expect(await alice.evaluate(() => (window as any).__encodeError)).toBeUndefined();
-    expect(sent).toBeGreaterThan(0);
+    expect(result.encoded).toBeGreaterThan(0);
+    expect(result.sent, 'an encoded chunk found the media channel unwritable').toBe(result.encoded);
 
     // The channel is unreliable by design, so "most of them" is the honest bar. Losing everything
     // would be the finding.
     await expect
       .poll(async () => bob.evaluate(() => (window as any).__media.inbox().media.length), { timeout: 15_000 })
-      .toBeGreaterThanOrEqual(Math.floor(sent * 0.8));
+      .toBeGreaterThanOrEqual(Math.floor(result.sent * 0.8));
 
     // And out the other side: the bytes that arrived are a decodable H.264 stream.
     const decoded = await bob.evaluate(async (profile) => {

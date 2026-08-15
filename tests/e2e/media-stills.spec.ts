@@ -73,9 +73,10 @@ async function controlRoundTrip(page: Page, peerId: string, seq: number): Promis
   const sent = await page.evaluate(({ id, value }) =>
     (window as any).__media.ping(id, value), { id: peerId, value: seq });
   expect(sent, `control channel to ${peerId} was not writable`).toBe(true);
-  await expect.poll(() => page.evaluate((value) =>
+  await expect.poll(() => page.evaluate(({ id, value }) =>
     (window as any).__media.inbox().control.some((message: any) =>
-      message.data?.kind === 'pong' && message.data.seq === value), seq)).toBe(true);
+      message.from === id && message.data?.kind === 'pong' && message.data.seq === value),
+  { id: peerId, value: seq })).toBe(true);
 }
 
 async function linkedToCamera(page: Page): Promise<void> {
@@ -144,9 +145,9 @@ test.describe('dart evidence', () => {
     // Alice threw, so Alice's frontend asked — and addressed the answer to all three roles. Bob and
     // the spectator asked nobody and get the same pictures anyway, which is the point: an observer's
     // copy of what a dart did cannot drift from the thrower's.
-    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBeGreaterThan(0);
-    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBeGreaterThan(0);
-    await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBeGreaterThan(0);
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBe(3);
 
     // A real JPEG at the configured size, decoded by the browser rather than merely delivered.
     // Asked of the defaults rather than of a literal: this run has no settings file, so they are
@@ -199,6 +200,7 @@ test.describe('dart evidence', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await startCamera(scorer.page);
+    await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
 
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);
@@ -226,33 +228,34 @@ test.describe('dart evidence', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
+    await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);
 
     // Bob can see Alice's camera — that link is the whole reason he sees her board — and asks it
     // directly, straight down the link, bypassing anything the interface would or would not offer.
-    await linkedToCamera(guest);
     const cameraPeer = await guest.evaluate(() =>
       (window as any).__media.links().find((l: any) => l.kind === 'device'));
     expect(cameraPeer, 'the opponent should be linked to the board camera').toBeTruthy();
     expect(cameraPeer.own, 'and it is not his').toBe(false);
 
-    await guest.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+    const opponentRequestSent = await guest.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
       kind: 'still_request', id: 'from-the-opponent', tag: { dart: 0 },
     }), cameraPeer.peerId);
+    expect(opponentRequestSent, 'the opponent camera control channel was not writable').toBe(true);
     await controlRoundTrip(guest, cameraPeer.peerId, 801);
 
     // An authorized request is a deterministic queue barrier. If the opponent's request had been
     // accepted by mistake, the single serialized capture queue would finish and answer it before
     // this later owner request can be answered.
-    await linkedToCamera(host);
     const ownerCamera = await host.evaluate(() =>
       (window as any).__media.links().find((link: any) => link.kind === 'device'));
-    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+    const ownerRequestSent = await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
       kind: 'still_request', id: 'owner-barrier', tag: { dart: 1 },
       region: { cx: 0.5, cy: 0.5, size: 0.25 },
       to: ['owner', 'opponent'],
     }), ownerCamera.peerId);
+    expect(ownerRequestSent, 'the owner camera control channel was not writable').toBe(true);
     await expect.poll(() => guest.evaluate(() => (window as any).__media.inbox().control
       .some((message: any) => message.data?.id === 'owner-barrier')), { timeout: 20_000 }).toBe(true);
 

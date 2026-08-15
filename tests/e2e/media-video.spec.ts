@@ -79,9 +79,10 @@ async function controlRoundTrip(page: Page, peerId: string, seq: number): Promis
   const sent = await page.evaluate(({ id, value }) =>
     (window as any).__media.ping(id, value), { id: peerId, value: seq });
   expect(sent, `control channel to ${peerId} was not writable`).toBe(true);
-  await expect.poll(() => page.evaluate((value) =>
+  await expect.poll(() => page.evaluate(({ id, value }) =>
     (window as any).__media.inbox().control.some((message: any) =>
-      message.data?.kind === 'pong' && message.data.seq === value), seq)).toBe(true);
+      message.from === id && message.data?.kind === 'pong' && message.data.seq === value),
+  { id: peerId, value: seq })).toBe(true);
 }
 
 /** The board camera, as this page's roster sees it. */
@@ -115,10 +116,26 @@ function sourceOffer(page: Page) {
   return page.evaluate(() => (window as any).__media.video().offer);
 }
 
-async function acceptOffer(page: Page) {
-  const dialog = page.getByRole('dialog', { name: 'Live board video' });
+async function acceptOffer(page: Page, source?: string) {
+  let dialog = page.getByRole('dialog', { name: 'Live board video' });
+  if (source) dialog = dialog.filter({ hasText: `${source} is offering a live video feed.` });
   await expect(dialog).toBeVisible({ timeout: 20_000 });
   await dialog.getByRole('button', { name: 'Show video' }).click();
+}
+
+/** Consent offers are serialized by arrival order, which is deliberately not a topology contract. */
+async function acceptOffersInAnyOrder(page: Page, sources: string[]) {
+  const remaining = new Set(sources);
+  while (remaining.size > 0) {
+    const dialog = page.getByRole('dialog', { name: 'Live board video' });
+    await expect(dialog).toBeVisible({ timeout: 20_000 });
+    const description = await dialog.locator('#video-offer-description').textContent();
+    const source = [...remaining].find((candidate) =>
+      description?.includes(`${candidate} is offering a live video feed.`));
+    expect(source, `unexpected or duplicate video offer: ${description}`).toBeDefined();
+    remaining.delete(source!);
+    await dialog.getByRole('button', { name: 'Show video' }).click();
+  }
 }
 
 async function declineOffer(page: Page) {
@@ -438,10 +455,9 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await acceptOffer(guest);
-    await acceptOffer(host);
-    await acceptOffer(watching.page);
-    await acceptOffer(watching.page);
+    await acceptOffer(guest, 'Alice board');
+    await acceptOffer(host, 'Bob board');
+    await acceptOffersInAnyOrder(watching.page, ['Alice board', 'Bob board']);
     await expect.poll(async () => (await published(aliceScorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
     await expect.poll(async () => (await published(bobScorer.page))?.frames ?? 0, { timeout: 30_000 })
@@ -564,26 +580,33 @@ test.describe('board video', () => {
     const endsBefore = await videoEndMessages(guest);
     const shotBefore = (await fingerprint(guest))!;
     const activeOffer = await sourceOffer(scorer.page);
+    const guestId = await guest.evaluate(() => (window as any).__media.self());
     const decodedBeforeCommand = await decodedFrames(guest);
 
     // Even knowing the UUID does not widen the audience: the owner is linked to its camera but is
     // outside the owner-declared opponent/spectator roles.
+    await linkedToCamera(host);
     const ownerCamera = await cameraPeer(host);
-    await host.evaluate(({ peerId, feedId }) => {
-      (window as any).__media.sendControl(peerId, { kind: 'video_accept', feedId });
+    const ownerAcceptSent = await host.evaluate(({ peerId, feedId }) => {
+      return (window as any).__media.sendControl(peerId, { kind: 'video_accept', feedId });
     }, { peerId: ownerCamera.peerId, feedId: activeOffer.feedId });
-    await expect.poll(async () => (await sourceOffer(scorer.page)).accepted.length).toBe(1);
-    expect(await decodedFrames(host)).toBe(0);
+    expect(ownerAcceptSent, 'the owner camera control channel was not writable').toBe(true);
+    await controlRoundTrip(host, ownerCamera.peerId, 700);
 
-    await guest.evaluate((peerId) => {
-      (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
-      (window as any).__media.sendControl(peerId, { kind: 'video_region', region: { cx: 0.1, cy: 0.1, size: 0.05 }, transitionMs: 0 });
+    const opponentCommandsSent = await guest.evaluate((peerId) => {
+      return [
+        (window as any).__media.sendControl(peerId, { kind: 'video_stop' }),
+        (window as any).__media.sendControl(peerId, { kind: 'video_region', region: { cx: 0.1, cy: 0.1, size: 0.05 }, transitionMs: 0 }),
+      ];
     }, camera.peerId);
+    expect(opponentCommandsSent, 'the opponent camera control channel was not writable').toEqual([true, true]);
     await controlRoundTrip(guest, camera.peerId, 701);
     await expect.poll(async () => (await published(scorer.page)).frames, { timeout: 10_000 })
       .toBeGreaterThan(beforeStop);
     await expect.poll(() => decodedFrames(guest), { timeout: 10_000 })
       .toBeGreaterThan(decodedBeforeCommand);
+    expect((await sourceOffer(scorer.page)).accepted).toEqual([guestId]);
+    expect(await decodedFrames(host), 'the owner received their own video').toBe(0);
 
     // Nothing happens. An opponent cannot switch off somebody else's camera and cannot decide what it
     // looks at — and gets silence rather than a refusal, because a peer with no business commanding
@@ -594,9 +617,10 @@ test.describe('board video', () => {
     // Source lifetime is server-coordinated. The superseded owner control is ignored even on the
     // exact ownership edge; only opt-out/source change/match finish may end this epoch.
     const beforeOwnerStop = (await published(scorer.page)).frames;
-    await host.evaluate((peerId) => {
-      (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
+    const ownerStopSent = await host.evaluate((peerId) => {
+      return (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
     }, ownerCamera.peerId);
+    expect(ownerStopSent, 'the owner camera control channel was not writable').toBe(true);
     await controlRoundTrip(host, ownerCamera.peerId, 702);
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 10_000 })
       .toBeGreaterThan(beforeOwnerStop);
@@ -636,7 +660,9 @@ test.describe('board video', () => {
     await linkedToCamera(host);
     const camera = await cameraPeer(host);
     expect(camera.tier).toBe('stills');
-    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, { kind: 'video_start' }), camera.peerId);
+    const videoStartSent = await host.evaluate((peerId) =>
+      (window as any).__media.sendControl(peerId, { kind: 'video_start' }), camera.peerId);
+    expect(videoStartSent, 'the stills-only camera control channel was not writable').toBe(true);
 
     await controlRoundTrip(host, camera.peerId, 703);
     expect(await sourceOffer(scorer.page)).toBeNull();

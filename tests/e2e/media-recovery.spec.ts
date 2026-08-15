@@ -82,6 +82,39 @@ async function mediaIdentity(page: Page) {
   }));
 }
 
+type MediaIdentity = Awaited<ReturnType<typeof mediaIdentity>>;
+
+async function expectMediaSession(page: Page, matchId: string): Promise<void> {
+  await expect.poll(async () => {
+    const identity = await mediaIdentity(page);
+    return { matchId: identity.session?.matchId ?? null, hasPeer: Boolean(identity.self) };
+  }, { timeout: 15_000 }).toEqual({ matchId, hasPeer: true });
+}
+
+async function replacementIdentity(
+  page: Page,
+  before: MediaIdentity,
+  generation: number,
+): Promise<MediaIdentity> {
+  await expect.poll(async () => {
+    const current = await mediaIdentity(page);
+    return {
+      generation: current.socket.generation,
+      socketReplaced: Boolean(current.socket.sessionId && current.socket.sessionId !== before.socket.sessionId),
+      peerReplaced: Boolean(current.self && current.self !== before.self),
+      matchId: current.session?.matchId ?? null,
+      meshId: current.session?.meshId ?? null,
+    };
+  }, { timeout: 15_000 }).toEqual({
+    generation,
+    socketReplaced: true,
+    peerReplaced: true,
+    matchId: before.session.matchId,
+    meshId: before.session.meshId,
+  });
+  return mediaIdentity(page);
+}
+
 async function sourceOffer(page: Page): Promise<{ feedId: string; accepted: string[] } | null> {
   return page.evaluate(() => (window as any).__media.video().offer);
 }
@@ -122,20 +155,14 @@ async function expectSetupCompleted(page: Page, matchId: string): Promise<void> 
 async function replaceSocket(page: Page) {
   const before = await mediaIdentity(page);
   await page.evaluate(() => (window as any).__ws.drop());
-  await expect.poll(() => mediaIdentity(page), { timeout: 15_000 })
-    .toMatchObject({ socket: { generation: before.socket.generation + 1 } });
-  const after = await mediaIdentity(page);
-  expect(after.self).not.toBe(before.self);
+  const after = await replacementIdentity(page, before, before.socket.generation + 1);
   return { before, after };
 }
 
 async function reloadPeer(page: Page) {
   const before = await mediaIdentity(page);
   await page.reload();
-  await expect.poll(() => mediaIdentity(page), { timeout: 15_000 })
-    .toMatchObject({ socket: { generation: 1 } });
-  const after = await mediaIdentity(page);
-  expect(after.self).not.toBe(before.self);
+  const after = await replacementIdentity(page, before, 1);
   return { before, after };
 }
 
@@ -329,7 +356,13 @@ test('same-peer disconnected and failed states preserve identities and cancel fu
     return stats.iceRestarts ?? 0;
   }, { timeout: 5000 }).toBe(beforeRestarts + 1);
   await faultPage.evaluate((peerId) => (window as any).__media.setLinkState(peerId, 'connected'), faultLink.peerId);
-  await faultPage.waitForTimeout(2200); // longer than the next retry; connection must have cancelled it
+  await expect.poll(async () => {
+    const stats = await faultPage.evaluate((peerId) => (window as any).__media.stats(peerId), faultLink.peerId);
+    return {
+      pending: stats.iceRestartPending ?? false,
+      inFlight: stats.iceRestartInFlight ?? false,
+    };
+  }, { timeout: 10_000 }).toEqual({ pending: false, inFlight: false });
   const afterRecovery = await faultPage.evaluate((peerId) => (window as any).__media.stats(peerId), faultLink.peerId);
   expect(afterRecovery.iceRestarts).toBe(beforeRestarts + 1);
   expect(await sourceFeed(room.scorer.page)).toBe(originalFeed);
@@ -365,6 +398,12 @@ test('a rematch destroys every media identity and requires fresh exact-feed cons
   await watcher.page.waitForURL((url) => url.pathname.includes('/spectate/') && !url.pathname.endsWith(firstMatchId));
   const secondMatchId = room.host.url().split('/match/')[1].split('?')[0];
 
+  await Promise.all([
+    expectMediaSession(room.host, secondMatchId),
+    expectMediaSession(room.guest, secondMatchId),
+    expectMediaSession(watcher.page, secondMatchId),
+    expectMediaSession(room.scorer.page, secondMatchId),
+  ]);
   await expect.poll(() => sourceOffer(room.scorer.page)).toBeTruthy();
   const second = {
     host: await mediaIdentity(room.host),
@@ -445,8 +484,7 @@ test('local shared-board recovery preserves same-peer consent and rebuilds on re
   await watcher.page.waitForURL((url) => url.pathname.includes('/spectate/') && url.pathname.endsWith(secondMatchId));
   await expect.poll(() => sourceOffer(scorer.page)).toBeTruthy();
   for (const page of [player, watcher.page, scorer.page]) {
-    await expect.poll(() => mediaIdentity(page), { timeout: 15_000 })
-      .toMatchObject({ session: { matchId: secondMatchId } });
+    await expectMediaSession(page, secondMatchId);
   }
 
   const secondPlayer = await mediaIdentity(player);

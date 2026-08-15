@@ -17,6 +17,10 @@ import { CONFIG_DEFAULTS } from '../../src/shared/config';
 import { skipOnboarding } from './appHelpers';
 
 const SCENES = {
+  // Camera startup now performs a real cold inference. Begin where the test's prose always said it
+  // began — a mounted, empty board — so the later switch to darts is the throw being photographed,
+  // not three darts that were already present when the camera came online.
+  empty: fileURLToPath(new URL('../media/board-empty.jpg', import.meta.url)),
   darts: fileURLToPath(new URL('../media/board-three-darts.jpg', import.meta.url)),
 };
 

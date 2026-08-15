@@ -116,7 +116,7 @@ test.describe('camera scoring, end to end', () => {
     await scorer.context.close();
   });
 
-  test('a real inference on a real board photo puts real darts in the visit', async ({ browser }) => {
+  test('starting the camera primes inference and puts visible darts in the visit', async ({ browser }) => {
     const frontend = await browser.newContext();
     const player = await frontend.newPage();
     const scorer = await openScorer(browser);
@@ -129,12 +129,13 @@ test.describe('camera scoring, end to end', () => {
     await pairCamera(player, scorer.page);
     await startCamera(scorer.page);
 
-    // --- three darts in the 20 bed ---
-    await showScene(scorer.page, 'darts');
-    await scan(scorer.page);
-
+    // The fake camera opens on the three-dart photograph. Nothing below asks for an inference: a
+    // successful camera start includes exactly one forced cold pass after model, frame, motion gate,
+    // zoom and per-camera lens calibration are ready.
     await expect(scorer.page.getByTestId('frame-info')).toContainText('8 board points');
     await expect(scorer.page.getByTestId('frame-info')).toContainText('3 tips');
+    expect(await scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located)).toBe(true);
 
     // The darts reach the player's visit, scored by the server after fusion.
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });

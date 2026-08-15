@@ -54,7 +54,6 @@ export function useOnboardingCamera() {
   const open = useCallback(async (id: string, inputSize: number) => {
     const handle = camera();
     await handle.start(id, inputSize);
-    await firstFrame(videoRef.current!);
     deviceId.current = id;
     openedAt.current = inputSize;
 
@@ -162,34 +161,4 @@ function describe(error: unknown): string {
     return 'No camera was found on this device. A scoring device needs one to watch the board.';
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * Wait until the element actually has a picture in it.
- *
- * `play()` resolving is not the same thing: it says the element started, not that a frame arrived.
- * That matters twice — the motion gate refuses a preview with no dimensions, and an inference timed
- * against a blank frame is not a measurement. The timeout turns a stream that never produces
- * anything into a message rather than a screen that sits there.
- */
-function firstFrame(video: HTMLVideoElement): Promise<void> {
-  if (video.videoWidth > 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error('The camera opened but sent no picture.'));
-    }, 5000);
-    const done = () => {
-      if (video.videoWidth === 0) return;
-      cleanup();
-      resolve();
-    };
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      video.removeEventListener('loadedmetadata', done);
-      video.removeEventListener('timeupdate', done);
-    };
-    video.addEventListener('loadedmetadata', done);
-    video.addEventListener('timeupdate', done);
-  });
 }

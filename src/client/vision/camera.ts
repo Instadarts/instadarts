@@ -37,6 +37,36 @@ export interface Camera {
 }
 
 /**
+ * Wait until an opened stream has produced a real picture.
+ *
+ * `play()` resolving only says playback started. Motion analysis and inference both need non-zero
+ * frame dimensions, so letting camera startup finish before this point turns the first automatic
+ * pass into a race against the device. The timeout makes a camera that opened but never delivers a
+ * frame an actionable error instead of an indefinitely unprimed scorer.
+ */
+export function waitForCameraFrame(video: HTMLVideoElement): Promise<void> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('The camera opened but sent no picture.'));
+    }, 5000);
+    const done = () => {
+      if (video.videoWidth === 0 || video.videoHeight === 0) return;
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener('loadedmetadata', done);
+      video.removeEventListener('timeupdate', done);
+    };
+    video.addEventListener('loadedmetadata', done);
+    video.addEventListener('timeupdate', done);
+  });
+}
+
+/**
  * Constraints the browser does not agree on.
  *
  * `resizeMode`, `focusMode` and `zoom` are all real and all useful — sharp, square, centre-cropped
@@ -129,6 +159,12 @@ export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
     saveSettings({ camera: label });
     video.srcObject = stream;
     await video.play().catch(() => { /* autoplay policies; the preview still fills in */ });
+    try {
+      await waitForCameraFrame(video);
+    } catch (error) {
+      stop();
+      throw error;
+    }
     return { label, settings: track?.getSettings?.() ?? {} };
   }
 

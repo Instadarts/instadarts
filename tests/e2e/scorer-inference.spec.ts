@@ -238,12 +238,20 @@ test.describe('camera scoring, end to end', () => {
     await startLocalMatch(player);
     await pairCamera(player, scorer.page);
 
+    // Put the empty board in the camera before arming it. `showScene` guarantees presentation, but
+    // the motion loop has its own clock; switching empty -> darts after the camera starts can outrun
+    // its first sample and compare darts with darts. Starting on empty gives the detector the same
+    // stable baseline a mounted real camera has before a throw.
+    await showScene(scorer.page, 'empty');
+
     // Deliberately NOT disarmed: this is the path a real throw takes. Starting the camera arms the
     // detector, so nothing below asks for an inference — the darts appearing is the assertion.
     await scorer.page.getByRole('button', { name: 'Start camera' }).click();
     await expect(scorer.page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { motion: { completedAnalyses: number } } })
+        .__scorer.motion.completedAnalyses)).toBeGreaterThan(0);
 
-    await showScene(scorer.page, 'empty');
     await showScene(scorer.page, 'darts');
 
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 30_000 });

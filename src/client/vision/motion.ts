@@ -59,6 +59,8 @@ export interface MotionDetector {
   arm: () => void;
   disarm: () => void;
   isArmed: () => boolean;
+  /** Completed automatic analyzer passes in the current armed session. */
+  readonly completedAnalyses: number;
   /** Disarms as well; this is how a caller puts the state back as it found it. */
   reset: () => void;
   /** Remember that a trigger was wanted while an inference was already running. */
@@ -288,6 +290,7 @@ export function createMotionDetector({
   let motionArmed = false;
   let motionBusy = false;
   let motionLoopToken = 0;
+  let completedAnalyses = 0;
   let motionLastTriggerAt = 0;
   let motionPendingTrigger = false;
   // Quiet-time/frames multiplier for the current pending trigger: 1 for a
@@ -328,6 +331,7 @@ export function createMotionDetector({
   function arm() {
     if (!canArm()) return;
     motionArmed = true;
+    completedAnalyses = 0;
     motionQuietFrames = 0;
     motionPendingTrigger = false;
     pendingQuietScale = 1;
@@ -418,6 +422,7 @@ export function createMotionDetector({
       }
       result = await cpuAnalyzer.analyze(preview);
     }
+    completedAnalyses += 1;
     detectorMode = result.mode;
     if (!result.hasPrevious) {
       requestDetectorBadgeUpdate();
@@ -627,6 +632,7 @@ export function createMotionDetector({
     disarm,
     reset,
     isArmed,
+    get completedAnalyses() { return completedAnalyses; },
     queueTriggerIfArmed,
     flushQueuedTrigger,
     setForceCpu,

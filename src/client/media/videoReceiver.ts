@@ -15,7 +15,7 @@
 // The picture lands in a canvas this owns. Handing a `VideoFrame` out to React would make its
 // lifetime somebody else's problem, and a leaked one is a held GPU texture.
 
-import type { VideoProfile } from '../../shared/media';
+import type { VideoFeedId, VideoProfile } from '../../shared/media';
 import { unpackVideo } from './frames';
 
 export interface ReceiverStats {
@@ -42,13 +42,14 @@ export interface VideoReceiver {
 
 export interface ReceiverOptions {
   profile: VideoProfile;
+  feedId: VideoFeedId;
   /** Ask the publisher for a keyframe. Called when there is no way forward without one. */
   requestKeyframe: () => void;
   /** A decoded frame was actually painted and is safe to put on screen. */
   onFrame?: () => void;
 }
 
-export function createVideoReceiver({ profile, requestKeyframe, onFrame }: ReceiverOptions): VideoReceiver {
+export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame }: ReceiverOptions): VideoReceiver {
   const canvas = document.createElement('canvas');
   canvas.width = profile.width;
   canvas.height = profile.height;
@@ -106,6 +107,7 @@ export function createVideoReceiver({ profile, requestKeyframe, onFrame }: Recei
       if (!frame) { drop(); return; }
 
       const { header, payload } = frame;
+      if (header.feedId !== feedId) { drop(); return; }
 
       // Behind what we have already shown. Unordered delivery, not corruption.
       if (header.seq <= lastSeq) { drop(); return; }

@@ -12,12 +12,13 @@
 
 import { useEffect, useState } from 'react';
 import type { MediaMesh } from '../hooks/useMediaMesh';
-import type { ControlMessage, MediaRole } from '../../shared/media';
+import type { ControlMessage } from '../../shared/media';
 import type { LinkStats } from '../media/peerLink';
 import type { StillTiming } from '../hooks/useStillResponder';
 import type { EvidenceTiming } from '../hooks/useDartEvidence';
 import type { PublisherStats } from '../media/videoPublisher';
 import type { VideoFeed } from '../hooks/useVideoFeed';
+import type { VideoOfferStats } from '../hooks/useVideoResponder';
 import { e2eEnabled } from '../lib/e2e';
 import { getCameraCanvas } from '../vision/videoCamera';
 
@@ -35,8 +36,8 @@ interface Props {
    * device's view. See `VideoResponder.stats` for why this is a function and not a snapshot.
    */
   publisherStats?: () => PublisherStats | null;
-  /** Who that feed is currently addressed to. Null when nothing is publishing. */
-  publisherAudience?: () => readonly MediaRole[] | null;
+  /** The source's standing offer, including roles and exact accepted peers. */
+  publisherOffer?: () => VideoOfferStats | null;
   /** The feeds this frontend is watching. */
   feed?: VideoFeed;
 }
@@ -48,7 +49,7 @@ function summarise(values: number[]): string {
   return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
 }
 
-export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed }: Props) {
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -104,8 +105,9 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
        */
       video: () => ({
         published: publisherStats?.() ?? null,
-        audience: publisherAudience?.() ?? null,
-        watching: feed?.stats.current ?? [],
+        offer: publisherOffer?.() ?? null,
+        audience: publisherOffer?.()?.audience ?? null,
+        watching: feed?.feeds.map(({ canvas: _canvas, ...entry }) => entry) ?? [],
       }),
       /** The picture itself, as a data URL — the only way a test can assert it is not a black square. */
       frame: (peerId?: string) => {
@@ -114,7 +116,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       },
     };
     (window as unknown as { __media: typeof handle }).__media = handle;
-  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, publisherAudience, feed]);
+  }, [visible, mesh, links, selfId, config, active, media.inbox, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed]);
 
   // Stats have to be pulled rather than pushed, so the panel polls while it is open and not
   // otherwise — getStats on every link once a second is not free.
@@ -176,14 +178,15 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
           )}
 
           {/* Video statistics only. The production match surface owns the picture. */}
-          <PublisherRow stats={publisherStats} audience={publisherAudience} open={open} />
-          {feed?.feeds.map(({ peerId, label, status, reason }) => (
+          <PublisherRow stats={publisherStats} offer={publisherOffer} open={open} />
+          {feed?.feeds.map(({ peerId, feedId, label, status, choice }) => (
             <ReceiverRow
-              key={peerId}
+              key={feedId}
               peerId={peerId}
+              feedId={feedId}
               label={label}
               status={status}
-              reason={reason}
+              choice={choice}
               feed={feed}
               open={open}
             />
@@ -239,47 +242,51 @@ function stateColor(state: string): string {
  * the one to be alarmed by: those are frames no link would take at all, nearly always keyframes, and
  * a picture whose keyframes are not arriving is a picture that comes apart on its own.
  */
-function PublisherRow({ stats, audience, open }: { stats?: () => PublisherStats | null; audience?: () => readonly MediaRole[] | null; open: boolean }) {
-  const [shown, setShown] = useState<PublisherStats | null>(null);
+function PublisherRow({ stats, offer, open }: { stats?: () => PublisherStats | null; offer?: () => VideoOfferStats | null; open: boolean }) {
+  const [shown, setShown] = useState<{ stats: PublisherStats | null; offer: VideoOfferStats | null } | null>(null);
   useEffect(() => {
-    if (!open || !stats) return;
-    const tick = () => setShown(stats());
+    if (!open || (!stats && !offer)) return;
+    const tick = () => setShown({ stats: stats?.() ?? null, offer: offer?.() ?? null });
     tick();
     const handle = setInterval(tick, 500);
     return () => clearInterval(handle);
-  }, [open, stats]);
+  }, [open, stats, offer]);
 
-  if (!shown) return null;
+  if (!shown?.offer) return null;
+  const counters = shown.stats;
   const camCanvas = getCameraCanvas();
   const canvasLabel = camCanvas instanceof HTMLCanvasElement ? 'html' : camCanvas ? 'offscreen' : null;
   return (
     <p className="mt-1 text-gray-500">
-      publishing · {(audience?.() ?? []).join(' ') || '—'} · {shown.frames}f {shown.keyframes}k · {Math.round(shown.bytes / 1024)}kB
+      offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
+      {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
       {canvasLabel && <span className="text-gray-600"> · {canvasLabel}</span>}
-      {shown.dropped > 0 && <span className="text-yellow-500"> · {shown.dropped} dropped</span>}
-      {shown.oversize > 0 && <span className="text-red-400"> · {shown.oversize} oversize</span>}
-      {shown.missed > 0 && <span className="text-gray-600"> · {shown.missed} missed</span>}
-      {shown.error && <span className="text-red-400"> · {shown.error}</span>}
+      {counters && counters.dropped > 0 && <span className="text-yellow-500"> · {counters.dropped} dropped</span>}
+      {counters && counters.oversize > 0 && <span className="text-red-400"> · {counters.oversize} oversize</span>}
+      {counters && counters.missed > 0 && <span className="text-gray-600"> · {counters.missed} missed</span>}
+      {counters?.error && <span className="text-red-400"> · {counters.error}</span>}
     </p>
   );
 }
 
 /** One receiver's counters, polled only while the diagnostics panel is open. */
-function ReceiverRow({ peerId, label, status, reason, feed, open }: {
+function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
   peerId: string;
+  feedId: string;
   label?: string;
   status: string;
-  reason?: string;
+  choice: string;
   feed: VideoFeed;
   open: boolean;
 }) {
-  const [shown, setShown] = useState<{ on: boolean; reason?: string; decoded: number; dropped: number; gaps: number } | null>(null);
+  const [shown, setShown] = useState<{ decoded: number; dropped: number; gaps: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const tick = () => {
       const entry = feed.stats.current.find((s) => s.peerId === peerId);
-      setShown(entry ? { on: entry.on, reason: entry.reason, ...entry.stats } : null);
+      const counters = entry?.stats;
+      setShown(counters ? { decoded: counters.decoded, dropped: counters.dropped, gaps: counters.gaps } : null);
     };
     tick();
     const handle = setInterval(tick, 500);
@@ -288,7 +295,7 @@ function ReceiverRow({ peerId, label, status, reason, feed, open }: {
 
   return (
     <p className="mt-1 text-gray-500">
-      watching {label ?? peerId.slice(0, 8)} · {status}{reason ? ` (${reason})` : ''}
+      offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
       {shown && ` · ${shown.decoded}f`}
       {shown && shown.gaps > 0 && <span className="text-yellow-500"> · {shown.gaps} gaps</span>}
       {shown && shown.dropped > 0 && <span className="text-gray-600"> · {shown.dropped} dropped</span>}

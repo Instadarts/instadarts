@@ -1,227 +1,278 @@
-// The scoring device's side of the live feed: start when the owner says, point where the owner
-// points, and send the same picture to everybody watching.
-//
-// The rules are the ones stills already established, with one deliberate exception:
-//
-//   · **Only the owner commands.** `video_start`, `video_stop` and `video_region` from any other peer
-//     are dropped in silence. The roster says who the owner is; this file only reads it.
-//   · **`keyframe` is answered for anyone.** A viewer asking for a keyframe is saying "I cannot
-//     decode what you are sending", which is a statement about them and changes nothing about what is
-//     shown. Refusing it would leave an opponent staring at a broken picture with no way to say so.
-//     The rate limit lives in the publisher, so several viewers asking at once costs one keyframe.
-//   · **The answer goes to everyone.** One encode, written to every link the roster marks as a
-//     viewer — the whole reason the encoder is owned here rather than by a link.
-//
-// The owner's wish outlives the camera. A phone whose camera is switched off and on again resumes
-// publishing without being asked, because the owner never withdrew the request and cannot see that
-// anything happened.
+// The scoring device's side of a live feed: hold one standing offer, accept choices only from the
+// peers the owner addressed, and encode once for the exact peers that opted in.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaRole, MediaTier, Region, VideoProfile, VideoRefusal } from '../../shared/media';
-import { clampAudience, directorTiming, excluded } from '../../shared/media';
+import type { ControlMessage, MediaRole, MediaTier, Region, VideoFeedId, VideoProfile } from '../../shared/media';
+import { clampAudience, createVideoFeedId, directorTiming, isVideoFeedId } from '../../shared/media';
 import { virtualCamera } from '../lib/appConfig';
 import type { Mesh, MeshLink } from '../media/mesh';
 import { canPublish, createVideoPublisher, type PublisherStats, type VideoFrameSource } from '../media/videoPublisher';
 
 interface Options {
   meshRef: React.MutableRefObject<Mesh | null>;
-  /**
-   * The links as they stand — reactive, where `meshRef` deliberately is not.
-   *
-   * Wanted for one thing only: noticing that somebody new can now be told something. See the effect
-   * that repeats the announcement.
-   */
+  /** Reactive roster/link state; the mesh itself deliberately keeps one identity. */
   links: MeshLink[];
   sourceRef: React.MutableRefObject<VideoFrameSource | null>;
-  /** Where the director's commands land. Held apart from the frame source: this one survives a
-   *  camera restart, and the source does not. */
   directRef: React.MutableRefObject<((region: Region | null, transitionMs: number, resetMs: number) => void) | null>;
-  /** How much this phone is willing to send. Only `video` may publish a feed. */
   tier: MediaTier;
-  /** What to encode at, as the deployment ships it. Null until the server has said. */
   profile: VideoProfile | null;
-  /** Whether a camera is running. A feed cannot start without one, and stops when it goes. */
   cameraActive: boolean;
 }
 
+export interface VideoOfferStats {
+  feedId: VideoFeedId;
+  audience: readonly MediaRole[];
+  accepted: readonly string[];
+}
+
 export interface VideoResponder {
-  /** Feed every control message here. */
   handleControl: (from: string, message: ControlMessage) => void;
-  /** Whether a feed is publishing right now. */
+  /** Whether an encoder is running, as opposed to a standing offer merely existing. */
   publishing: boolean;
-  /**
-   * What it has cost, read at the moment of asking. Null when nothing is publishing.
-   *
-   * A function rather than a ref that something refreshes on a timer. The publisher counts fifteen
-   * times a second, so a snapshot is stale the instant it is taken — and a stale count read beside a
-   * live one from the other end of the link makes a camera look as though it delivered frames it
-   * never sent. Whoever wants a number can ask for one.
-   */
   stats: () => PublisherStats | null;
-  /** Who the feed is currently addressed to, or null when nothing is publishing. */
-  audience: () => readonly MediaRole[] | null;
+  /** The standing offer and its exact recipients. Null when the owner has no active offer. */
+  offer: () => VideoOfferStats | null;
+}
+
+/** Pure authorization check shared by accept and feed-scoped keyframe commands. */
+export function canChooseVideoFeed(
+  activeFeedId: VideoFeedId | null,
+  requestedFeedId: unknown,
+  eligiblePeerIds: Iterable<string>,
+  from: string,
+): requestedFeedId is VideoFeedId {
+  if (!isVideoFeedId(requestedFeedId) || requestedFeedId !== activeFeedId) return false;
+  for (const peerId of eligiblePeerIds) if (peerId === from) return true;
+  return false;
 }
 
 export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, profile, cameraActive }: Options): VideoResponder {
-  /** What the owner asked for, which is not the same as what is happening. */
   const [wanted, setWanted] = useState(false);
-  /**
-   * Who the feed is for, held in a ref rather than in state on purpose.
-   *
-   * Re-addressing a running feed must not re-run the effect below, because that would stop the
-   * encoder and start another one — costing every viewer, including the ones whose membership never
-   * changed, a gap and a keyframe. The recipient list is not part of how a frame is made.
-   */
+  const wantedRef = useRef(false);
   const audience = useRef<MediaRole[]>([]);
+  const feedId = useRef<VideoFeedId | null>(null);
+  /** Peers successfully told about this UUID, whether they accepted or declined it. */
+  const offered = useRef(new Set<string>());
+  const accepted = useRef(new Set<string>());
+  /** End notices waiting for a temporarily unwritable, but still rostered, peer. */
+  const pendingEnds = useRef(new Map<string, Set<VideoFeedId>>());
   const publisher = useRef<ReturnType<typeof createVideoPublisher> | null>(null);
   const [publishing, setPublishing] = useState(false);
-  /** The last thing this camera said about itself, or null if it has never said anything. */
-  const last = useRef<{ on: boolean; reason?: VideoRefusal } | null>(null);
 
-  /**
-   * Tell every viewer where the feed stands — including, and especially, the ones it is not for.
-   *
-   * A spectator never sent `video_start` and has no other way to tell a feed that is off from a link
-   * that is broken. Once a feed can be addressed, there is a third thing to be unable to tell apart:
-   * a feed that is running for somebody else. Saying `on` to a peer that will receive nothing would
-   * be worse than saying nothing at all, so the announcement is split — the complement of an
-   * audience is just another audience.
-   */
-  const announce = useCallback((on: boolean, reason?: VideoRefusal) => {
+  const tierRef = useRef(tier);
+  tierRef.current = tier;
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const cameraActiveRef = useRef(cameraActive);
+  cameraActiveRef.current = cameraActive;
+
+  const stopPublisher = useCallback(() => {
+    if (!publisher.current) return;
+    publisher.current.stop();
+    publisher.current = null;
+    setPublishing(false);
+  }, []);
+
+  /** Current authorization, re-read for every choice and every encoded frame. */
+  const eligible = useCallback(() => meshRef.current?.viewers(audience.current) ?? [], [meshRef]);
+
+  const queueEnd = useCallback((peerId: string, id: VideoFeedId) => {
+    const link = meshRef.current?.link(peerId);
+    // A missing roster peer cleans up the offer locally, so there is nobody left to notify.
+    if (!link) {
+      pendingEnds.current.delete(peerId);
+      return;
+    }
+    if (link.sendControl({ kind: 'video_end', feedId: id })) return;
+    const ids = pendingEnds.current.get(peerId) ?? new Set<VideoFeedId>();
+    ids.add(id);
+    pendingEnds.current.set(peerId, ids);
+  }, [meshRef]);
+
+  const flushEnds = useCallback(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
-    // Kept so it can be said again to somebody who could not hear it the first time — see below.
-    last.current = { on, reason };
-
-    const addressed: ControlMessage = reason ? { kind: 'video_state', on, reason } : { kind: 'video_state', on };
-    for (const link of mesh.viewers(on ? audience.current : undefined)) link.sendControl(addressed);
-    if (!on) return;
-
-    for (const link of mesh.viewers(excluded(audience.current))) {
-      link.sendControl({ kind: 'video_state', on: false, reason: 'not_addressed' });
+    for (const [peerId, ids] of pendingEnds.current) {
+      const link = mesh.link(peerId);
+      if (!link) {
+        pendingEnds.current.delete(peerId);
+        continue;
+      }
+      for (const id of ids) {
+        if (!link.sendControl({ kind: 'video_end', feedId: id })) break;
+        ids.delete(id);
+      }
+      if (ids.size === 0) pendingEnds.current.delete(peerId);
     }
   }, [meshRef]);
 
-  // Whether a feed should be running, and the three independent reasons it might not be. Kept as one
-  // effect because "start it" and "stop it" are the same decision read two ways, and splitting them
-  // is how a publisher gets left running after the thing that justified it went away.
-  useEffect(() => {
+  const syncPublisher = useCallback(() => {
+    const id = feedId.current;
     const mesh = meshRef.current;
-    const refusal: VideoRefusal | null =
-      tier !== 'video' ? 'not_offered'
-      : !canPublish() ? 'no_encoder'
-      : !cameraActive ? 'no_camera'
-      : null;
-
-    if (!wanted || refusal || !mesh || !profile) {
-      if (publisher.current) {
-        publisher.current.stop();
-        publisher.current = null;
-        setPublishing(false);
-        announce(false, refusal ?? undefined);
-      } else if (wanted && refusal) {
-        // Never started, and the owner is owed the reason — they asked and nothing happened.
-        announce(false, refusal);
-      }
-      return;
+    const allowed = new Set(eligible().filter((link) => link.ready).map((link) => link.peerId));
+    for (const peerId of accepted.current) {
+      if (!allowed.has(peerId)) accepted.current.delete(peerId);
     }
 
+    const shouldRun = Boolean(
+      id
+      && wantedRef.current
+      && tierRef.current === 'video'
+      && profileRef.current
+      && mesh
+      && cameraActiveRef.current
+      && accepted.current.size > 0,
+    );
+    if (!shouldRun) {
+      stopPublisher();
+      return;
+    }
     if (publisher.current) return;
+
     publisher.current = createVideoPublisher({
-      mesh,
-      profile,
+      mesh: mesh!,
+      profile: profileRef.current!,
+      feedId: id!,
       source: {
         grab: (size, timestampUs, durationUs) => sourceRef.current?.grab(size, timestampUs, durationUs) ?? null,
         element: () => sourceRef.current?.element() ?? null,
       },
-      // Read on every frame rather than captured, which is what lets the list change underneath a
-      // running encoder.
       audience: () => audience.current,
+      accepted: () => accepted.current,
     });
     setPublishing(true);
-    announce(true);
+  }, [eligible, meshRef, sourceRef, stopPublisher]);
 
-    return () => {
-      publisher.current?.stop();
-      publisher.current = null;
-      setPublishing(false);
-    };
-  }, [wanted, tier, cameraActive, profile, meshRef, sourceRef, announce]);
+  /** End the UUID once for every peer that was actually offered it, then forget every choice. */
+  const endOffer = useCallback(() => {
+    const id = feedId.current;
+    if (id) {
+      for (const peerId of offered.current) queueEnd(peerId, id);
+    }
+    stopPublisher();
+    feedId.current = null;
+    offered.current.clear();
+    accepted.current.clear();
+  }, [queueEnd, stopPublisher]);
 
-  /**
-   * Say it again whenever somebody new could hear it.
-   *
-   * Every `announce` above fires at a moment that matters to the *camera*: a feed starting, stopping,
-   * being refused, being re-addressed. A viewer arriving is a moment that matters to somebody else —
-   * a spectator opening a match where a feed is already running, or any peer whose channels finish
-   * opening a fraction after the announcement went out. `sendControl` drops a message on a channel
-   * that is not open yet, and from the other end a dropped message and a camera that never spoke are
-   * the same silence.
-   *
-   * There is nothing the viewer can do about it: `video_state` is a camera telling, and the protocol
-   * has no matching question. So the camera repeats its last word instead — whatever that was, a
-   * running feed or a refusal — whenever the set of peers that could hear it changes. One control
-   * message per viewer per roster change, and idempotent at the other end.
-   *
-   * Keyed on *which* peers are reachable rather than on the array, which is rebuilt on every change.
-   */
-  const reachable = links.filter((link) => link.ready).map((link) => link.peer.peerId).sort().join(' ');
+  /** Reconcile the standing offer with the current roster and owner audience. */
+  const reconcileOffer = useCallback((repeat = false) => {
+    const id = feedId.current;
+    const mesh = meshRef.current;
+    if (!id || !mesh) return;
+    // Deliver queued ends first so ordered control channels cannot expose a replacement offer early.
+    flushEnds();
+
+    const allowed = new Map(eligible().map((link) => [link.peerId, link]));
+    for (const peerId of [...offered.current]) {
+      if (allowed.has(peerId)) continue;
+      queueEnd(peerId, id);
+      offered.current.delete(peerId);
+      accepted.current.delete(peerId);
+    }
+
+    for (const link of allowed.values()) {
+      if (!link.ready || (!repeat && offered.current.has(link.peerId))) continue;
+      if (link.sendControl({ kind: 'video_offer', feedId: id })) offered.current.add(link.peerId);
+    }
+    syncPublisher();
+  }, [eligible, flushEnds, meshRef, queueEnd, syncPublisher]);
+
+  const ensureOffer = useCallback(() => {
+    const canOffer = wantedRef.current
+      && tierRef.current === 'video'
+      && canPublish()
+      && Boolean(meshRef.current)
+      && Boolean(profileRef.current);
+    if (!canOffer) {
+      if (feedId.current) endOffer();
+      return;
+    }
+    if (!feedId.current) feedId.current = createVideoFeedId();
+    reconcileOffer();
+    syncPublisher();
+  }, [endOffer, meshRef, reconcileOffer, syncPublisher]);
+
+  // Camera pauses stop only the encoder. Tier/capability withdrawal ends the UUID and its consent.
   useEffect(() => {
-    if (last.current) announce(last.current.on, last.current.reason);
-  }, [reachable, announce]);
+    if (wanted) ensureOffer();
+    else endOffer();
+  }, [wanted, tier, profile, cameraActive, ensureOffer, endOffer]);
 
-  // A nomination or frontend opt-out removes the ownership edge from this device's roster. There is
-  // then nobody left who is authorised to renew the request, and encoding to an empty audience would
-  // only burn the scorer's battery. A later nomination establishes a new edge and sends a new start.
+  // Repeating an offer is safe and makes a newly writable control channel self-healing.
+  const reachable = links.filter((link) => link.ready).map((link) => `${link.peer.peerId}:${link.peer.role}`).sort().join(' ');
+  useEffect(() => {
+    flushEnds();
+    if (feedId.current) reconcileOffer(true);
+  }, [reachable, flushEnds, reconcileOffer]);
+
   const hasOwner = links.some((link) => link.peer.own);
   useEffect(() => {
-    if (!hasOwner) setWanted(false);
-  }, [hasOwner]);
+    if (hasOwner || !wantedRef.current) return;
+    wantedRef.current = false;
+    setWanted(false);
+    endOffer();
+  }, [hasOwner, endOffer]);
+
+  useEffect(() => () => endOffer(), [endOffer]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
-    // The one command anyone may send. Answered before the ownership check rather than after, so the
-    // exception is visible rather than implied by a fall-through.
+    if (message.kind === 'video_accept') {
+      if (!canChooseVideoFeed(feedId.current, message.feedId, eligible().map((link) => link.peerId), from)) return;
+      const added = !accepted.current.has(from);
+      accepted.current.add(from);
+      syncPublisher();
+      if (added && publisher.current) publisher.current.requestKeyframe();
+      return;
+    }
+
+    if (message.kind === 'video_decline') {
+      if (!canChooseVideoFeed(feedId.current, message.feedId, eligible().map((link) => link.peerId), from)) return;
+      if (!accepted.current.delete(from)) return;
+      syncPublisher();
+      return;
+    }
+
     if (message.kind === 'keyframe') {
+      if (!accepted.current.has(from)
+        || !canChooseVideoFeed(feedId.current, message.feedId, eligible().map((link) => link.peerId), from)) return;
       publisher.current?.requestKeyframe();
       return;
     }
 
-    // Silence, not a refusal — the same rule as a still request, and for the same reason: a peer with
-    // no business commanding learns nothing from an answer.
+    // Start, stop and direction remain the owner's authority. Everyone else gets silence.
     if (!meshRef.current?.isOwn(from)) return;
 
     switch (message.kind) {
-      case 'video_start': {
-        // A camera publishes one feed, so a second start is not a second feed — it re-addresses the
-        // one that is running. Nothing here restarts anything.
+      case 'video_start':
         audience.current = clampAudience(message.to);
+        wantedRef.current = true;
         setWanted(true);
-        // Only if it is already running: otherwise the effect below announces it on the way up, and
-        // a peer that has just been added has never seen a keyframe and would sit on a grey square
-        // until the next scheduled one.
-        if (publisher.current) {
-          publisher.current.requestKeyframe();
-          announce(true);
-        }
+        ensureOffer();
+        reconcileOffer();
         break;
-      }
       case 'video_stop':
-        // No roles to read: a stop is for everybody. Narrowing an audience is a shorter `video_start`.
+        wantedRef.current = false;
         setWanted(false);
+        endOffer();
         break;
       case 'video_region': {
-        // Read here rather than trusted as sent: the numbers came from another machine, and the
-        // camera is the authority on its own framing. `directorTiming` is what both ends agree they
-        // mean.
         const { transitionMs, resetMs } = directorTiming(message, virtualCamera());
         directRef.current?.(message.region, transitionMs, resetMs);
         break;
       }
     }
-  }, [meshRef, directRef, announce]);
+  }, [directRef, eligible, endOffer, ensureOffer, meshRef, reconcileOffer, syncPublisher]);
 
   const stats = useCallback(() => publisher.current?.stats() ?? null, []);
-  const currentAudience = useCallback(() => publisher.current?.audience ?? null, []);
+  const offer = useCallback((): VideoOfferStats | null => {
+    if (!feedId.current) return null;
+    return {
+      feedId: feedId.current,
+      audience: [...audience.current],
+      accepted: [...accepted.current],
+    };
+  }, []);
 
-  return { handleControl, publishing, stats, audience: currentAudience };
+  return { handleControl, publishing, stats, offer };
 }

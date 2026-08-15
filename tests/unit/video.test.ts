@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
-import { MEDIA_ROLES, clampAudience, directorTiming, excluded, maxBufferedBytes, videoProfile } from '../../src/shared/media';
+import { MEDIA_ROLES, clampAudience, createVideoFeedId, directorTiming, isVideoFeedId, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
 import {
   VIDEO_STALL_MS,
@@ -18,10 +18,12 @@ import {
   type VideoFeedStatus,
   type VideoFeedView,
 } from '../../src/client/hooks/useVideoFeed';
+import { canChooseVideoFeed } from '../../src/client/hooks/useVideoResponder';
 import type { CropRect } from '../../src/client/vision/stillCapture';
 
 /** The profile a deployment that changed nothing publishes with. */
 const DEFAULT_PROFILE = videoProfile(CONFIG_DEFAULTS.media.video);
+const FEED_ID = '12345678-1234-4123-8123-123456789abc';
 
 // ============================================================
 // Who a command's result is for
@@ -52,11 +54,23 @@ describe('clampAudience', () => {
   });
 });
 
-describe('excluded', () => {
-  it('is the rest of the room', () => {
-    expect(excluded(['owner'])).toEqual(['opponent', 'spectator']);
-    expect(excluded([...MEDIA_ROLES])).toEqual([]);
-    expect(excluded([])).toEqual([...MEDIA_ROLES]);
+describe('video feed ids', () => {
+  it('generates RFC 4122 v4 ids', () => {
+    expect(isVideoFeedId(createVideoFeedId())).toBe(true);
+  });
+
+  it('rejects malformed and non-v4 ids', () => {
+    for (const value of [null, '', '123', '12345678-1234-1123-8123-123456789abc']) {
+      expect(isVideoFeedId(value)).toBe(false);
+    }
+  });
+
+  it('authorizes only an eligible peer naming the active feed', () => {
+    expect(canChooseVideoFeed(FEED_ID, FEED_ID, ['peer-a', 'peer-b'], 'peer-b')).toBe(true);
+    expect(canChooseVideoFeed(FEED_ID, FEED_ID, ['peer-a'], 'peer-b')).toBe(false);
+    expect(canChooseVideoFeed(FEED_ID, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ['peer-b'], 'peer-b')).toBe(false);
+    expect(canChooseVideoFeed(FEED_ID, 'not-a-uuid', ['peer-b'], 'peer-b')).toBe(false);
+    expect(canChooseVideoFeed(null, FEED_ID, ['peer-b'], 'peer-b')).toBe(false);
   });
 });
 
@@ -68,12 +82,18 @@ const fakeCanvas = {} as HTMLCanvasElement;
 
 function feed(playerId: string, status: VideoFeedStatus = 'live'): VideoFeedView {
   return {
+    feedId: FEED_ID,
     peerId: `camera-${playerId}`,
     playerId,
+    choice: 'accepted',
     canvas: fakeCanvas,
     status,
     lastFrameAt: status === 'live' ? 1000 : null,
     stats: null,
+    linkState: 'connected',
+    linkReady: true,
+    decoderSupported: true,
+    order: 0,
   };
 }
 
@@ -97,14 +117,18 @@ describe('live board selection', () => {
   });
 
   it('falls through to the virtual board for every unusable state', () => {
-    for (const status of ['waiting', 'stalled', 'off', 'unavailable'] as const) {
+    for (const status of ['offered', 'waiting', 'stalled', 'unavailable'] as const) {
       expect(selectVideoFeed([feed('p2', status)], 'p2', 'p1', false, false)).toBeNull();
     }
+    expect(selectVideoFeed([{ ...feed('p2'), choice: 'declined' }], 'p2', 'p1', false, false)).toBeNull();
     expect(selectVideoFeed([], 'p2', 'p1', false, false)).toBeNull();
   });
 
-  it('never selects video in a local match', () => {
-    expect(selectVideoFeed([feed('p2')], 'p2', null, true, true)).toBeNull();
+  it('uses one shared local-board feed for every spectator turn, but never on the local screen', () => {
+    const shared = { ...feed('p1'), playerId: undefined };
+    expect(selectVideoFeed([shared], 'p1', null, true, true)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed([shared], 'p2', null, true, true)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed([shared], 'p1', null, false, true)).toBeNull();
   });
 });
 
@@ -357,46 +381,56 @@ describe('the video frame header', () => {
   const payload = new Uint8Array([0, 1, 2, 250, 251, 255]);
 
   it('round-trips', () => {
-    const packed = packVideo({ key: true, seq: 41, timestamp: 2_733_333 }, payload);
+    const packed = packVideo({ feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333 }, payload);
     const read = unpackVideo(packed);
     expect(read).not.toBeNull();
-    expect(read!.header).toEqual({ key: true, seq: 41, timestamp: 2_733_333 });
+    expect(read!.header).toEqual({ feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333 });
     expect([...read!.payload]).toEqual([...payload]);
   });
 
   it('distinguishes a delta frame from a keyframe', () => {
-    expect(unpackVideo(packVideo({ key: false, seq: 1, timestamp: 0 }, payload))!.header.key).toBe(false);
+    expect(unpackVideo(packVideo({ feedId: FEED_ID, key: false, seq: 1, timestamp: 0 }, payload))!.header.key).toBe(false);
   });
 
   it('carries a timestamp a u32 of microseconds could not', () => {
     // Seventy-one minutes is where microseconds overflow a u32, and a match can outlast that. Two
     // hours in, exactly.
     const timestamp = 2 * 60 * 60 * 1e6;
-    expect(unpackVideo(packVideo({ key: true, seq: 7, timestamp }, payload))!.header.timestamp).toBe(timestamp);
+    expect(unpackVideo(packVideo({ feedId: FEED_ID, key: true, seq: 7, timestamp }, payload))!.header.timestamp).toBe(timestamp);
   });
 
   it('carries a sequence number to the top of its range', () => {
     const seq = 4_294_967_295;
-    expect(unpackVideo(packVideo({ key: false, seq, timestamp: 1 }, payload))!.header.seq).toBe(seq);
+    expect(unpackVideo(packVideo({ feedId: FEED_ID, key: false, seq, timestamp: 1 }, payload))!.header.seq).toBe(seq);
   });
 
-  it('is exactly thirteen bytes of overhead', () => {
-    expect(packVideo({ key: true, seq: 0, timestamp: 0 }, payload).byteLength).toBe(payload.length + 13);
+  it('is exactly twenty-nine bytes of overhead', () => {
+    expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0 }, payload).byteLength).toBe(payload.length + 29);
   });
 
   it('returns null rather than throwing on anything too short to be one', () => {
     // Data from another machine on a channel where corruption is expected. One bad message must not
     // take down the feed behind it.
-    for (const length of [0, 1, 12, 13]) {
+    for (const length of [0, 1, 28, 29]) {
       expect(unpackVideo(new ArrayBuffer(length))).toBeNull();
     }
   });
 
   it('copies the payload rather than viewing the message it arrived in', () => {
-    const packed = packVideo({ key: true, seq: 1, timestamp: 0 }, payload);
+    const packed = packVideo({ feedId: FEED_ID, key: true, seq: 1, timestamp: 0 }, payload);
     const read = unpackVideo(packed)!;
     // Scribble over the original: a decoder handed this later must not see the change.
     new Uint8Array(packed).fill(0);
     expect([...read.payload]).toEqual([...payload]);
+  });
+
+  it('rejects a malformed feed id before writing a frame', () => {
+    expect(() => packVideo({ feedId: 'not-a-uuid', key: true, seq: 1, timestamp: 0 }, payload)).toThrow();
+  });
+
+  it('rejects malformed UUID bytes before receiver state can see them', () => {
+    // Thirty zero bytes have a finite timestamp and a payload, but UUID version/variant bits that
+    // can never identify a feed created by this protocol.
+    expect(unpackVideo(new ArrayBuffer(30))).toBeNull();
   });
 });

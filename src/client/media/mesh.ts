@@ -53,10 +53,8 @@ export interface Mesh {
    * The peers a still or a frame should go to: those that may receive from us at all, narrowed to
    * the roles a command addressed.
    *
-   * With no audience, everyone who may receive — which is what `video_state` and any other
-   * announcement wants. With one, exactly the addressed roles; and because the complement of an
-   * audience is just another audience, telling the unaddressed peers *why* they are seeing nothing
-   * needs no second primitive. See `excluded`.
+   * With no audience, everyone who may receive. With one, exactly the addressed roles. A live-video
+   * source intersects that answer with the exact peers that accepted its current offer.
    */
   viewers(audience?: readonly MediaRole[]): PeerLink[];
   /** Whether a peer is the one that claimed us, or the one we claimed. See MediaPeer.own. */

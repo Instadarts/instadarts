@@ -15,7 +15,7 @@
 // It also does not decide *what* is in the picture. The framing is the virtual camera's, upstream of
 // here; this owns the codec, the clock and the fan-out.
 
-import type { MediaRole, VideoProfile } from '../../shared/media';
+import type { MediaRole, VideoFeedId, VideoProfile } from '../../shared/media';
 import { VIDEO, maxBufferedBytes } from '../../shared/media';
 import type { Mesh } from './mesh';
 import { packVideo } from './frames';
@@ -52,7 +52,7 @@ export interface PublisherStats {
 export interface VideoPublisher {
   /** Whether the encoder is configured and the loop is running. */
   readonly running: boolean;
-  /** Who this feed is currently for. The publisher's own reading of it, for the diagnostics panel. */
+  /** Which roles may contain the exact accepted peers this publisher is serving. */
   readonly audience: readonly MediaRole[];
   /** Send the next frame as a keyframe. Rate-limited, so several viewers asking costs one. */
   requestKeyframe(): void;
@@ -64,6 +64,7 @@ export interface PublisherOptions {
   mesh: Mesh;
   profile: VideoProfile;
   source: VideoFrameSource;
+  feedId: VideoFeedId;
   /**
    * Which kinds of viewer this feed is for, asked on every frame.
    *
@@ -71,6 +72,8 @@ export interface PublisherOptions {
    * not disturb the encoder — the recipient list is not part of how a frame is made.
    */
   audience: () => readonly MediaRole[];
+  /** Exact peers that accepted; intersected with the current authorized audience on every frame. */
+  accepted: () => ReadonlySet<string>;
 }
 
 /** Whether this browser can publish at all. Safari gained `VideoEncoder` in 16.4; older ones cannot. */
@@ -78,7 +81,7 @@ export function canPublish(): boolean {
   return typeof VideoEncoder === 'function' && typeof VideoFrame === 'function';
 }
 
-export function createVideoPublisher({ mesh, profile, source, audience }: PublisherOptions): VideoPublisher {
+export function createVideoPublisher({ mesh, profile, source, feedId, audience, accepted }: PublisherOptions): VideoPublisher {
   const frameDurationUs = 1e6 / profile.frameRate;
   const minFrameGapMs = 1000 / profile.frameRate;
   /** A quarter-second of *this* profile, not of the one it was tuned against. */
@@ -124,9 +127,10 @@ export function createVideoPublisher({ mesh, profile, source, audience }: Publis
     chunk.copyTo(body);
 
     const key = chunk.type === 'key';
-    const packet = packVideo({ key, seq: seq++, timestamp: chunk.timestamp }, body);
+    const packet = packVideo({ feedId, key, seq: seq++, timestamp: chunk.timestamp }, body);
 
-    const addressed = mesh.viewers(audience());
+    const allowed = accepted();
+    const addressed = mesh.viewers(audience()).filter((link) => allowed.has(link.peerId));
     let sent = 0;
     let refused = false;
     for (const link of addressed) {

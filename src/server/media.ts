@@ -392,7 +392,7 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
       // what keeps a decoder off a phone that is already running a detection model.
       //
       // Both are about *media*. The control channel is open in both directions regardless, or a
-      // viewer could not ask a camera for a keyframe.
+      // accepted viewer could not ask a camera for a keyframe.
       send: !other.spectator && self.kind !== 'device',
       recv: other.kind !== 'device' && !self.spectator,
     });

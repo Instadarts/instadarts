@@ -22,7 +22,7 @@
 // Big-endian throughout, because that is what `DataView` does by default and a wire format should
 // not depend on remembering to pass `true`.
 
-import type { ControlMessage } from '../../shared/media';
+import { isVideoFeedId, type ControlMessage, type VideoFeedId } from '../../shared/media';
 
 /** A control message with bytes attached. Only `still` uses it today. */
 export interface BinaryFrame {
@@ -82,6 +82,7 @@ export function unpackFrame(data: ArrayBuffer): BinaryFrame | null {
  * what tells it to ask for a keyframe.
  */
 export interface VideoFrameHeader {
+  feedId: VideoFeedId;
   key: boolean;
   seq: number;
   /** Microseconds, on the publisher's own timeline — the same value that went into the encoder. */
@@ -93,9 +94,10 @@ export interface VideoFrameHeader {
  * byte 0      u8   flags — bit 0 set for a keyframe
  * bytes 1–4   u32  seq
  * bytes 5–12  f64  timestamp, microseconds
+ * bytes 13–28  the feed UUID
  * ```
  *
- * Thirteen fixed bytes rather than the JSON above. At fifteen frames a second the difference is
+ * Twenty-nine fixed bytes rather than the JSON above. At fifteen frames a second the difference is
  * small in absolute terms, but this is the channel with a bitrate budget and the header is the one
  * part of it we are not being paid for.
  *
@@ -103,8 +105,20 @@ export interface VideoFrameHeader {
  * minutes — a length of time a match can exceed. Every integer we will ever put in it is exact in a
  * double, and `DataView` reads one without the `BigInt` awkwardness a `u64` would bring.
  */
-const VIDEO_HEADER_BYTES = 13;
+const VIDEO_HEADER_BYTES = 29;
 const KEY_FLAG = 1;
+
+function uuidBytes(feedId: VideoFeedId): Uint8Array {
+  if (!isVideoFeedId(feedId)) throw new TypeError('Invalid video feed UUID');
+  const compact = feedId.replaceAll('-', '');
+  return Uint8Array.from({ length: 16 }, (_, i) => Number.parseInt(compact.slice(i * 2, i * 2 + 2), 16));
+}
+
+function uuidString(bytes: Uint8Array): VideoFeedId | null {
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  const value = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return isVideoFeedId(value) ? value : null;
+}
 
 export function packVideo(header: VideoFrameHeader, payload: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(VIDEO_HEADER_BYTES + payload.length);
@@ -112,6 +126,7 @@ export function packVideo(header: VideoFrameHeader, payload: Uint8Array): ArrayB
   view.setUint8(0, header.key ? KEY_FLAG : 0);
   view.setUint32(1, header.seq);
   view.setFloat64(5, header.timestamp);
+  new Uint8Array(buffer).set(uuidBytes(header.feedId), 13);
   new Uint8Array(buffer).set(payload, VIDEO_HEADER_BYTES);
   return buffer;
 }
@@ -128,13 +143,15 @@ export function unpackVideo(data: ArrayBuffer): { header: VideoFrameHeader; payl
 
   const view = new DataView(data);
   const timestamp = view.getFloat64(5);
-  if (!Number.isFinite(timestamp)) return null;
+  const feedId = uuidString(new Uint8Array(data, 13, 16));
+  if (!Number.isFinite(timestamp) || !feedId) return null;
 
   return {
     header: {
       key: (view.getUint8(0) & KEY_FLAG) !== 0,
       seq: view.getUint32(1),
       timestamp,
+      feedId,
     },
     // Copied for the same reason a still's payload is: the decoder is handed this after the message
     // that carried it is gone.

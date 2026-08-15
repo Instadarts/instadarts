@@ -4,16 +4,19 @@ The optional feature that lets the people in a match see something: a board, and
 other. It is off in one place and on in one place, and where a peer connection cannot be made it is
 simply unavailable rather than degraded.
 
-**The media system carries stills and live board video in online matches.**
+**The media system carries stills and live board video to remote viewers of a match.**
 Links come up between every pair that needs one, each with two datachannels; a camera photographs a
-square of its board on request — which puts a picture of each dart under the dart slots — and
-publishes one live feed from one encoder to however many remote viewers are addressed.
+square of its board on request — which puts a picture of each dart under the dart slots — and holds
+one standing live-video offer for the remote viewers its owner addressed. It encodes once, and only
+while at least one of those viewers has accepted.
 
 The player at that board is never sent their own video: they are already looking at the real thing.
-An opponent sees the feed in place of the read-only virtual board during that player's turn, and a
-spectator receives both players' feeds and follows whoever is throwing. A missing, refused or frozen
-feed simply uncovers the virtual board underneath. Local matches do not start live video. Dart
-evidence uses stills addressed to every role.
+In an online match, an opponent may accept the feed and see it in place of the read-only virtual
+board during that player's turn. A spectator is offered both online players' feeds independently and
+follows whoever is throwing among the feeds they accepted. A local match instead offers its one
+shared board camera only to spectators, who keep that same picture across both players' turns. A
+declined, missing or frozen feed simply uncovers the virtual board underneath. Dart evidence uses
+stills addressed to every role.
 
 ---
 
@@ -214,58 +217,70 @@ less, which is recoverable, rather than one that quietly does more, which is not
 
 Because failing closed must not mean failing *quietly*, a camera records the audience of every still
 it takes ([`StillTiming`](../src/client/hooks/useStillResponder.ts)), and the diagnostics panel shows
-the audience its feed is currently addressed to.
+the roles offered live video and the exact peers that accepted.
 
 ### What each caller asks for
 
 | Caller | Audience | |
 | --- | --- | --- |
 | Dart evidence | all three | An observer's copy must not drift from the thrower's. |
-| Live match video | `['opponent', 'spectator']` | The owner is at the physical board and receives no copy. |
+| Online match video | `['opponent', 'spectator']` | The owner is at the physical board and receives no copy. |
+| Local match video | `['spectator']` | Both local players share the owner's physical board; only remote spectators need its picture. |
 
 ## Live board video
 
-An owner frontend sends `video_start` when an online match begins and `video_stop` when it finishes or
-is left. The audience is always `opponent` and `spectator`; turn changes only decide which decoded
-canvas covers a viewer's virtual board and never restart the encoder. Links may be negotiated in the
-lobby, but no video is published there or on the finished-match summary.
+An owner frontend sends `video_start` when a match begins and `video_stop` when it finishes or is
+left. Online matches address `opponent` and `spectator`; local matches address only `spectator`. The
+camera creates a UUID for that standing offer and sends `video_offer` only to roster peers whose
+server-assigned role is in that audience. Each recipient accepts or declines that UUID independently.
+No frame is encoded until the first acceptance, and the final decline or disconnect stops the encoder
+without ending the offer.
 
-The receiver waits for an actually decoded frame before showing anything. A refusal, a missing or
-failed link, a tier below `video`, an unsupported decoder, or three seconds without a decoded frame
-keeps or restores the virtual board. The next decoded frame restores the live picture immediately.
-This failure path is ordinary because STUN without TURN cannot connect every pair of home networks.
+Choices live only for that UUID. A recipient is prompted once, may change the choice later with the
+board controls, and is prompted again for a replacement feed. Participants keep an accepted
+opponent feed decoding across turns but display it only on the opponent's turn. Online spectators
+keep both accepted feeds decoding and display the current player's; local spectators keep the one
+shared feed displayed across every turn. Links may be negotiated in the lobby, but no offer exists
+there or on the finished-match summary.
 
-Local matches never issue a start or director command. [Dart evidence](#asking-a-camera-for-a-picture)
+The receiver waits for an actually decoded frame from the accepted UUID before showing anything. A
+decline, a missing or failed link, a tier below `video`, an unsupported decoder, or three seconds
+without a decoded frame keeps or restores the virtual board. The next matching decoded frame restores
+the live picture immediately. This failure path is ordinary because STUN without TURN cannot connect
+every pair of home networks.
+
+The local match frontend starts and directs its one shared camera but addresses the offer only to
+`spectator`; its own board remains the ordinary input UI. Because a local camera has no single
+`playerId`, a spectator displays that accepted feed for either player's turn. [Dart evidence](#asking-a-camera-for-a-picture)
 independently requests one still photograph per dart.
 
-Three commands, and the split between the first two and the third is the point:
+The owner commands the camera; offer recipients command only their own delivery:
 
 | Message | |
 | --- | --- |
 | `video_start` | `{ to }` — publish, to these roles. **No region** — starting a feed and framing it are different decisions. |
 | `video_stop` | Ends the feed, for everybody. No roles: "stop sending to spectators" is a shorter `video_start`. |
 | `video_region` | `{ region, transitionMs?, resetMs? }` — the **director**: the same square vocabulary a still uses, plus how long to take getting there and how long to stay. |
-| `video_state` | `{ on, reason? }` — told to every viewer, not only to whoever asked. |
+| `video_offer` | `{ feedId }` — this source is offering this UUID to this eligible peer. Idempotent when repeated. |
+| `video_accept` / `video_decline` | `{ feedId }` — this exact peer changes its choice for this exact offer. No acknowledgement. |
+| `video_end` | `{ feedId }` — the standing offer is gone for this peer. Sent once. |
+| `keyframe` | `{ feedId }` — an accepted viewer cannot decode forward. |
 
-Owner-only, enforced exactly where a still request is: [`useVideoResponder`](../src/client/hooks/useVideoResponder.ts)
-drops anything from a peer the roster does not mark `own`, in silence.
+`video_start`, `video_stop`, and `video_region` are owner-only, enforced exactly where a still request
+is. [`useVideoResponder`](../src/client/hooks/useVideoResponder.ts) accepts a viewer choice only when
+the UUID is active and that exact `peerId` is currently in `mesh.viewers(ownerAudience)`. Every frame
+intersects the accepted peer IDs with the same current roster answer. A guessed UUID or a command
+from an unaddressed role is ignored in silence.
 
-**A camera publishes one feed.** So a second `video_start` does not open another one — it
-re-addresses the one that is running, which is the only way an audience is widened or narrowed. The
-encoder is untouched by it: the audience is read on every frame rather than captured when the
-publisher is built, because tearing down an encoder to change a recipient list would cost every
-viewer a gap and a keyframe, including the ones whose membership never changed.
+**A camera holds one offer.** A second `video_start` re-addresses the same UUID rather than opening
+another. Peers removed from the audience receive `video_end`; newly eligible peers receive the offer;
+unchanged acceptances survive. Adding an accepted viewer asks the running encoder for a keyframe but
+does not restart it.
 
-`video_state` exists because a spectator never sent a command and would otherwise have no way to tell
-a feed that is off from a link that is broken — both are a black rectangle. Addressing adds a third
-thing to be unable to tell apart: a feed that is running *for somebody else*. So the announcement is
-split, and an unaddressed viewer is told so rather than told `on` and shown nothing. Its `reason` is
-one of `not_offered` (the phone's tier is not `video`), `no_camera`, `no_encoder` (a browser without
-`VideoEncoder`; Safari before 16.4), or `not_addressed`.
-
-**The match request outlives a camera restart.** While the online match remains in progress, switching
-the scorer camera off and on resumes the requested feed. Finishing or leaving the match, opting the
-frontend out, or removing the board nomination ends it.
+**The offer outlives a camera restart.** Switching the scorer camera off stops the encoder and lets
+accepted viewers fall back after three seconds. Switching it on resumes the same UUID and choices.
+Finishing or leaving the match, changing the media tier, opting the frontend out, removing the board
+nomination, or losing ownership ends it.
 
 ### A shot expires; a move does not happen unless asked for
 
@@ -350,8 +365,9 @@ the pixels where the encoder is.
 ### One encoder, however many viewers
 
 [`videoPublisher.ts`](../src/client/media/videoPublisher.ts) owns the single `VideoEncoder` and writes
-its output to `mesh.viewers()` — the same call a still's fan-out makes. This is what
-[Why a link carries no video track](#why-a-link-carries-no-video-track) enables.
+its output to the accepted peer IDs inside `mesh.viewers(ownerAudience)`. The encoder does not exist
+until the first acceptance and is stopped after the last one leaves. This is what [Why a link carries
+no video track](#why-a-link-carries-no-video-track) enables.
 
 - `latencyMode: 'realtime'` and `avc: { format: 'annexb' }`. Annex B puts SPS/PPS in front of every
   keyframe, so a keyframe is everything a decoder needs to start — which is what lets a viewer who
@@ -380,19 +396,21 @@ Chrome negotiates 256KB, and the difference is precisely where those keyframes l
 
 ### A frame on the media channel
 
-Thirteen fixed bytes rather than the JSON a still carries, because this is the channel with a bitrate
+Twenty-nine fixed bytes rather than the JSON a still carries, because this is the channel with a bitrate
 budget:
 
 ```
 byte 0      u8   flags — bit 0 set for a keyframe
 bytes 1–4   u32  seq
 bytes 5–12  f64  timestamp, microseconds
+bytes 13–28 feed UUID
 ```
 
 The timestamp is a float64 rather than a `u32` of microseconds, which would wrap after seventy-one
 minutes — a length of time a match can exceed.
 
-`seq` is what makes an unreliable, unordered channel usable. A decoder handed a delta frame whose
+The UUID prevents an in-flight frame from an ended feed being decoded as part of a later offer from
+the same peer. `seq` is what makes an unreliable, unordered channel usable. A decoder handed a delta frame whose
 predecessor never arrived does not produce a late picture; it produces a wrong one, and keeps
 producing wrong ones until the next keyframe. So [`videoReceiver.ts`](../src/client/media/videoReceiver.ts)
 drops rather than hopes: nothing until a keyframe, nothing at or behind what it has already decoded,
@@ -599,8 +617,8 @@ src/client/vision/stillCapture.ts   a board region → a crop of this camera's f
 src/client/vision/videoCamera.ts    the same crop, animated: the virtual camera
 src/client/hooks/useMediaMesh.ts     mounted by App and ScorerApp alike
 src/client/hooks/useStillResponder.ts  the camera's side: who may ask, and who gets the answer
-src/client/hooks/useVideoResponder.ts  the camera's side of the feed, and the keyframe exception
-src/client/hooks/useVideoFeed.ts       the frontend's: ask, watch, direct
+src/client/hooks/useVideoResponder.ts  offers, authorization, choices and encoder lifecycle
+src/client/hooks/useVideoFeed.ts       consent, receivers, fallback, selection and direction
 src/client/hooks/useDartEvidence.ts    the only place that knows what a still is *for*
 ```
 
@@ -627,10 +645,10 @@ that took two seconds to negotiate, and nothing else.
 > each other and the failure looks exactly like a bug in this code.
 > `playwright.config.ts` passes `--disable-features=WebRtcHideLocalIpsWithMdns` for that reason.
 
-The panel reports link/ICE data, publisher audience and counters, receiver counters, and still
-timings. It deliberately does not duplicate the production picture. `window.__media.frame()` still
-reads the raw receiver canvas for automated diagnostics. The match screen mounts the selected
-current-player canvas directly in the board area.
+The panel reports link/ICE data, the source offer UUID, roles and accepted peers, encoder counters,
+recipient choices, receiver counters, and still timings. It deliberately does not duplicate the
+production picture. `window.__media.frame()` reads the raw receiver canvas for automated diagnostics.
+The match screen mounts the selected current-player canvas directly in the board area.
 
 ## What is not built
 

@@ -2,10 +2,10 @@
 // real decoder painting the production match board on two frontends at once.
 //
 // `media-codec.spec.ts` already proves the primitive — canvas in, encoded chunks over a datachannel,
-// pictures out. What is unproven until here is everything around it: that a lobby publishes nothing,
-// that a match publishes continuously to opponents and spectators but not the owner, that turns only
-// change which received feed is displayed, that only the owner can command it, and that a director's
-// region actually moves the shot.
+// pictures out. What is unproven until here is everything around it: that a lobby offers nothing,
+// that a match offers eligible opponents and spectators a choice, that only accepted peers receive
+// frames, that turns only change which received feed is displayed, that only the owner can command
+// it, and that a director's region actually moves the shot.
 //
 // Lives in the `heavy` project (see playwright.config.ts) because it drives a model and a software
 // encoder at once, which is the load that provokes the scorer-power flake documented in
@@ -15,7 +15,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { skipOnboarding } from './appHelpers';
+import { clickT20, skipOnboarding, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
 // feed that starts by showing a board nobody has thrown at is the honest starting state.
@@ -71,7 +71,7 @@ function watching(page: Page) {
 
 async function decodedFrames(page: Page): Promise<number> {
   const feeds = await watching(page);
-  return feeds.reduce((total: number, feed: any) => total + feed.stats.decoded, 0);
+  return feeds.reduce((total: number, feed: any) => total + (feed.stats?.decoded ?? 0), 0);
 }
 
 /** The board camera, as this page's roster sees it. */
@@ -94,21 +94,27 @@ async function linkedToCamera(page: Page) {
     .toBeGreaterThan(0);
 }
 
-/** How many times a camera has told this page whether it is publishing. */
-function videoStates(page: Page): Promise<number> {
+/** Offer/end lifecycle messages received by this page. */
+function videoLifecycleMessages(page: Page): Promise<number> {
   return page.evaluate(() => (window as any).__media.inbox().control
-    .filter((m: any) => m.data?.kind === 'video_state').length);
+    .filter((m: any) => m.data?.kind === 'video_offer' || m.data?.kind === 'video_end').length);
 }
 
-/** How many times a camera has told this page that a feed is running but not for them. */
-function notAddressed(page: Page): Promise<number> {
-  return page.evaluate(() => (window as any).__media.inbox().control
-    .filter((m: any) => m.data?.kind === 'video_state' && m.data.reason === 'not_addressed').length);
+/** The standing source offer, which exists before and after its encoder. */
+function sourceOffer(page: Page) {
+  return page.evaluate(() => (window as any).__media.video().offer);
 }
 
-/** Who this device's feed is currently for. Null when nothing is publishing. */
-function audienceOf(page: Page) {
-  return page.evaluate(() => (window as any).__media.video().audience);
+async function acceptOffer(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Live board video' });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await dialog.getByRole('button', { name: 'Show video' }).click();
+}
+
+async function declineOffer(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Live board video' });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await dialog.getByRole('button', { name: 'Use virtual board' }).click();
 }
 
 /**
@@ -202,9 +208,20 @@ test.describe('board video', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
 
+    // Offers do not cost an encoder. Each recipient makes an independent choice; Bob declines first
+    // and can change that choice from the persistent board control.
+    await expect.poll(() => sourceOffer(scorer.page), { timeout: 20_000 }).toBeTruthy();
+    const firstFeedId = (await sourceOffer(scorer.page)).feedId;
+    expect(await published(scorer.page)).toBeNull();
+    await expect(host.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
+    await declineOffer(guest);
+    await acceptOffer(watching.page);
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
-    expect(await audienceOf(scorer.page)).toEqual(['opponent', 'spectator']);
+    expect((await sourceOffer(scorer.page)).audience).toEqual(['opponent', 'spectator']);
+    expect((await sourceOffer(scorer.page)).accepted).toHaveLength(1);
+    await expect(guest.getByRole('button', { name: 'Play live video from Alice board' })).toBeVisible();
+    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
 
     // Alice is current. Bob and the spectator receive and display her board; Alice is deliberately
     // outside the audience and keeps the ordinary virtual board.
@@ -216,7 +233,6 @@ test.describe('board video', () => {
     await expect(host.getByTestId('dartboard')).toBeVisible();
     expect(await decodedFrames(host), 'the owner received their own video').toBe(0);
     expect(await guest.evaluate(() => '__media' in window), 'the product frontend accidentally enabled diagnostics').toBe(false);
-    await expect.poll(() => notAddressed(host), { timeout: 10_000 }).toBeGreaterThan(0);
 
     // One encode, two remote viewers: nobody can have decoded a frame the camera never published.
     //
@@ -252,8 +268,33 @@ test.describe('board video', () => {
       await expect(panel).not.toContainText(/record|save clip/i);
       await expect(panel.locator('canvas, video')).toHaveCount(0);
     }
-    await expect(scorer.page.getByTestId('media-debug')).toContainText('publishing · opponent spectator');
-    await expect(watching.page.getByTestId('media-debug')).toContainText('watching Alice board');
+    await expect(scorer.page.getByTestId('media-debug')).toContainText('opponent spectator · 2 accepted');
+    await expect(watching.page.getByTestId('media-debug')).toContainText('Alice board · accepted');
+
+    // Closing both copies stops the encoder but not the standing offer. Reaccepting resumes the
+    // same UUID and does not open another consent dialog.
+    await guest.getByRole('button', { name: 'Stop live video from Alice board' }).click();
+    await watching.page.getByRole('button', { name: 'Stop live video from Alice board' }).click();
+    await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
+    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
+    await watching.page.getByRole('button', { name: 'Play live video from Alice board' }).click();
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
+
+    // Camera shutdown pauses the encoder, not the offer or the recipient's choice. The virtual board
+    // takes over and the same UUID resumes without another prompt.
+    await scorer.page.getByRole('button', { name: 'Off' }).click();
+    await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
+    await expect(guest.getByTestId('live-board-feed')).toHaveCount(0, { timeout: 5000 });
+    await expect(guest.getByRole('button', { name: 'Stop live video from Alice board' })).toBeVisible();
+    await startCamera(scorer.page);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
+    await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
 
     // Hand the turn to Bob. Alice's feed remains encoded and decoded but is hidden on both remote
     // screens because no Bob camera exists; the virtual board is immediately visible underneath.
@@ -283,8 +324,12 @@ test.describe('board video', () => {
     await expect(watching.page.getByTestId('live-board-feed')).toHaveCount(0);
 
     await host.getByRole('radio', { name: 'Board camera: Alice board' }).check();
+    await declineOffer(guest);
+    await acceptOffer(watching.page);
+    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
       .toBeGreaterThan(0);
+    expect((await sourceOffer(scorer.page)).feedId).not.toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toBeVisible();
     await host.getByRole('checkbox', { name: 'Share and watch live video during a match' }).uncheck();
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
@@ -297,7 +342,7 @@ test.describe('board video', () => {
     await scorer.context.close();
   });
 
-  test('a spectator switches between two continuously received player feeds', async ({ browser }) => {
+  test('a spectator switches between two independently accepted player feeds', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const aliceScorer = await openScorer(browser);
     const bobScorer = await openScorer(browser);
@@ -313,10 +358,16 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
+    await acceptOffer(guest);
+    await acceptOffer(host);
+    await acceptOffer(watching.page);
+    await acceptOffer(watching.page);
     await expect.poll(async () => (await published(aliceScorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
     await expect.poll(async () => (await published(bobScorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
+    await expect(watching.page.getByRole('button', { name: 'Stop live video from Alice board' })).toBeVisible();
+    await expect(watching.page.getByRole('button', { name: 'Stop live video from Bob board' })).toBeVisible();
 
     // Alice starts. Bob and the spectator see Alice; Alice does not receive her own feed.
     await expect(guest.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Alice board');
@@ -353,7 +404,8 @@ test.describe('board video', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
-    // Watched through the opponent, who receives the production audience without issuing commands.
+    await acceptOffer(guest);
+    // Watched through the opponent after its explicit consent.
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
 
     // Locate the board on an empty one *first*, and this is the whole reason the empty scene is here.
@@ -409,7 +461,8 @@ test.describe('board video', () => {
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
     await startCamera(scorer.page);
-    // Watched through Bob, who receives Alice's board but has no authority over her camera.
+    await acceptOffer(guest);
+    // Watched through Bob, who accepted Alice's board but has no authority over her camera.
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
 
     // Bob is linked to Alice's camera — that link is the only reason he could ever see her board —
@@ -424,10 +477,20 @@ test.describe('board video', () => {
     expect(camera.own, 'the camera is not the opponent\'s').toBe(false);
 
     const beforeStop = (await published(scorer.page)).frames;
-    // Counted rather than required to be empty: Bob has legitimately heard `video_state` already.
+    // Counted rather than required to be empty: Bob has legitimately heard an offer already.
     // What must not happen is a *new* one caused by him.
-    const statesBefore = await videoStates(guest);
+    const lifecycleBefore = await videoLifecycleMessages(guest);
     const shotBefore = (await fingerprint(guest))!;
+    const activeOffer = await sourceOffer(scorer.page);
+
+    // Even knowing the UUID does not widen the audience: the owner is linked to its camera but is
+    // outside the owner-declared opponent/spectator roles.
+    const ownerCamera = await cameraPeer(host);
+    await host.evaluate(({ peerId, feedId }) => {
+      (window as any).__media.sendControl(peerId, { kind: 'video_accept', feedId });
+    }, { peerId: ownerCamera.peerId, feedId: activeOffer.feedId });
+    await expect.poll(async () => (await sourceOffer(scorer.page)).accepted.length).toBe(1);
+    expect(await decodedFrames(host)).toBe(0);
 
     await guest.evaluate((peerId) => {
       (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
@@ -439,15 +502,33 @@ test.describe('board video', () => {
     // looks at — and gets silence rather than a refusal, because a peer with no business commanding
     // learns nothing from an answer.
     expect((await published(scorer.page)).frames, 'the opponent stopped the feed').toBeGreaterThan(beforeStop);
-    expect(await videoStates(guest), 'the camera answered a peer it should have ignored').toBe(statesBefore);
+    expect(await videoLifecycleMessages(guest), 'the camera answered a peer it should have ignored').toBe(lifecycleBefore);
     expect(distance(shotBefore, (await fingerprint(guest))!), 'the opponent moved the shot').toBeLessThan(8);
+
+    // The owner ends this exact UUID. One end clears the UI, and a late accept for that UUID is
+    // deliberately ignored without recreating either the offer or the encoder.
+    const endsBefore = await guest.evaluate(() => (window as any).__media.inbox().control
+      .filter((m: any) => m.data?.kind === 'video_end').length);
+    await host.evaluate((peerId) => {
+      (window as any).__media.sendControl(peerId, { kind: 'video_stop' });
+    }, ownerCamera.peerId);
+    await expect.poll(() => sourceOffer(scorer.page), { timeout: 10_000 }).toBeNull();
+    await expect.poll(() => guest.evaluate(() => (window as any).__media.inbox().control
+      .filter((m: any) => m.data?.kind === 'video_end').length)).toBe(endsBefore + 1);
+    await expect(guest.getByRole('button', { name: /live video from Alice board/ })).toHaveCount(0);
+    await guest.evaluate(({ peerId, feedId }) => {
+      (window as any).__media.sendControl(peerId, { kind: 'video_accept', feedId });
+    }, { peerId: camera.peerId, feedId: activeOffer.feedId });
+    await guest.waitForTimeout(500);
+    expect(await sourceOffer(scorer.page)).toBeNull();
+    expect(await published(scorer.page)).toBeNull();
 
     await alice.close();
     await bob.close();
     await scorer.context.close();
   });
 
-  test('a stills-only camera says so rather than publishing', async ({ browser }) => {
+  test('a stills-only camera offers and publishes no video', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
@@ -477,10 +558,9 @@ test.describe('board video', () => {
     expect(camera.tier).toBe('stills');
     await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, { kind: 'video_start' }), camera.peerId);
 
-    await expect
-      .poll(() => host.evaluate(() => (window as any).__media.inbox().control
-        .filter((m: any) => m.data?.kind === 'video_state' && m.data.reason === 'not_offered').length), { timeout: 10_000 })
-      .toBeGreaterThan(0);
+    await host.waitForTimeout(1500);
+    expect(await sourceOffer(scorer.page)).toBeNull();
+    await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
     expect(await published(scorer.page)).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(guest.getByTestId('dartboard')).toBeVisible();
@@ -490,12 +570,14 @@ test.describe('board video', () => {
     await scorer.context.close();
   });
 
-  test('a local match never asks a nominated camera to publish video', async ({ browser }) => {
+  test('a local match offers one shared board feed only to spectators', async ({ browser }) => {
     const local = await browser.newContext();
     const player = await local.newPage();
     await player.goto('/?e2e=1');
     await player.click('text=Local Match');
     await player.fill('input[placeholder="New player name"]', 'Alice');
+    await player.click('button:has-text("Add")');
+    await player.fill('input[placeholder="New player name"]', 'Bob');
     await player.click('button:has-text("Add")');
 
     const scorer = await openScorer(browser);
@@ -505,11 +587,36 @@ test.describe('board video', () => {
 
     await player.click('text=Start Match');
     await player.waitForURL('**/match/**');
-    await player.waitForTimeout(1500);
+    const matchId = player.url().split('/match/')[1].split('?')[0];
+
+    await expect.poll(() => sourceOffer(scorer.page), { timeout: 10_000 }).toMatchObject({
+      audience: ['spectator'],
+      accepted: [],
+    });
     expect(await published(scorer.page)).toBeNull();
+    await expect(player.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
     await expect(player.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(player.getByTestId('dartboard')).toBeVisible();
 
+    const watchingContext = await browser.newContext();
+    const watcher = await watchingContext.newPage();
+    await watcher.goto(`/spectate/${matchId}?e2e=1`);
+    await acceptOffer(watcher);
+    await expect.poll(() => published(scorer.page), { timeout: 20_000 }).not.toBeNull();
+    await expect(watcher.getByTestId('live-board-feed')).toBeVisible({ timeout: 20_000 });
+
+    const [shared] = await watching(watcher);
+    expect(shared.playerId).toBeUndefined();
+    const sharedFeedId = shared.feedId;
+
+    // Alice hands the shared physical board to Bob. The spectator keeps the same unassigned feed;
+    // local player IDs do not select between cameras because there is only this one camera.
+    await clickT20(player);
+    await submitVisit(player);
+    await expect(watcher.getByTestId('live-board-feed')).toBeVisible();
+    expect((await watching(watcher))[0].feedId).toBe(sharedFeedId);
+
+    await watchingContext.close();
     await local.close();
     await scorer.context.close();
   });

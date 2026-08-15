@@ -7,6 +7,7 @@ import { MatchHistory } from '../components/MatchHistory';
 import { modeTextClasses } from '../components/modeText';
 import { standingsOf } from '../../shared/matchFormat';
 import { ModePanelBlock } from '../components/ModePanelBlock';
+import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
 
 interface MatchScreenProps {
@@ -25,6 +26,9 @@ interface MatchScreenProps {
   evidence: (string | undefined)[] | null;
   /** The fresh current player's remote board feed, or null for the virtual-board fallback. */
   liveFeed: VideoFeedView | null;
+  videoOffers: readonly VideoFeedView[];
+  onAcceptVideo: (feedId: VideoFeedId) => void;
+  onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
 /**
@@ -88,7 +92,7 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence, liveFeed }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
 
@@ -156,6 +160,9 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
                 readOnly={!isMyTurn || isSpectator}
                 hideActions={isSpectator}
                 liveBoard={liveBoard}
+                videoOffers={videoOffers}
+                onAcceptVideo={onAcceptVideo}
+                onDeclineVideo={onDeclineVideo}
               />
             </section>
 

@@ -113,7 +113,7 @@ export function ScorerApp() {
         latencyMeterRef={latencyMeterRef}
       />
       <SourceFooter />
-      <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherAudience={video.audience} />
+      <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherOffer={video.offer} />
     </div>
   );
 }

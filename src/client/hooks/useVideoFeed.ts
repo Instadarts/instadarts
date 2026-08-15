@@ -1,55 +1,53 @@
-// The frontend's side of a live board: ask for it, watch it, and report on it.
-//
-// Two halves that only look related:
-//
-//   · **Asking** is the owner's alone. An opponent or spectator never sends `video_start`; they
-//     receive whatever the owner's camera is publishing, exactly as with stills.
-//   · **Watching** is anybody's. A receiver is made for whichever peer starts sending frames, because
-//     the roster has already decided that a peer sending us media is entitled to.
-//
-// Links come up in the lobby, but a feed is asked for only while an online match is in progress. It
-// then stays running across turns: hiding a decoded picture is free, stopping and restarting an
-// encoder is not.
+// The frontend's live-video state: ask its own camera to make an offer, let remote offers be chosen,
+// and decode only the exact feed UUIDs this viewer accepted.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, MediaRole, Region, VideoRefusal } from '../../shared/media';
-import { videoProfile } from '../../shared/media';
+import type { ControlMessage, MediaRole, Region, VideoFeedId } from '../../shared/media';
+import { isVideoFeedId, videoProfile } from '../../shared/media';
 import type { MediaClientConfig } from '../../shared/config';
 import { CONFIG_DEFAULTS } from '../../shared/config';
 import type { Mesh, MeshLink } from '../media/mesh';
+import type { LinkState } from '../media/peerLink';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
 
-/**
- * A player is already looking at their physical board. Only remote participants and spectators need
- * the picture; leaving `owner` out also keeps those encoded bytes off the local frontend link.
- */
-const LIVE_AUDIENCE: MediaRole[] = ['opponent', 'spectator'];
-
-/** A frozen board is worse than the exact virtual fallback sitting underneath it. */
 export const VIDEO_STALL_MS = 3000;
 
-export type VideoFeedStatus = 'waiting' | 'live' | 'stalled' | 'off' | 'unavailable';
+export type VideoOfferChoice = 'pending' | 'accepted' | 'declined';
+export type VideoFeedStatus = 'offered' | 'waiting' | 'live' | 'stalled' | 'unavailable';
 
-/** One board-camera peer as the match screen sees it. */
 export interface VideoFeedView {
+  feedId: VideoFeedId;
   peerId: string;
   playerId?: string;
   label?: string;
+  choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
   status: VideoFeedStatus;
-  reason?: VideoRefusal;
   lastFrameAt: number | null;
   stats: ReceiverStats | null;
+  linkState: LinkState;
+  linkReady: boolean;
+  decoderSupported: boolean;
+  /** Stable arrival order for the consent-dialog queue. */
+  order: number;
+}
+
+interface OfferState {
+  feedId: VideoFeedId;
+  choice: VideoOfferChoice;
+  order: number;
+}
+
+interface ReceiverState {
+  feedId: VideoFeedId;
+  receiver: VideoReceiver;
 }
 
 export function frameIsFresh(lastFrameAt: number | null, now: number): boolean {
   return lastFrameAt !== null && now - lastFrameAt < VIDEO_STALL_MS;
 }
 
-/**
- * Pick the one picture that may cover the virtual board. Selection is deliberately stricter than
- * reception: hidden feeds keep decoding, but only a fresh current-player feed reaches the screen.
- */
+/** Only an accepted, fresh feed may cover the virtual board. */
 export function selectVideoFeed(
   feeds: readonly VideoFeedView[],
   currentPlayerId: string | null,
@@ -57,97 +55,157 @@ export function selectVideoFeed(
   isSpectator: boolean,
   isLocal: boolean,
 ): VideoFeedView | null {
-  if (isLocal || !currentPlayerId) return null;
+  if (!currentPlayerId) return null;
+  if (isLocal) {
+    if (!isSpectator) return null;
+    return feeds.find((feed) =>
+      feed.choice === 'accepted'
+      && feed.status === 'live'
+      && feed.canvas !== null) ?? null;
+  }
   if (!isSpectator && currentPlayerId === ownPlayerId) return null;
   return feeds.find((feed) =>
-    feed.playerId === currentPlayerId && feed.status === 'live' && feed.canvas !== null) ?? null;
+    feed.playerId === currentPlayerId
+    && feed.choice === 'accepted'
+    && feed.status === 'live'
+    && feed.canvas !== null) ?? null;
 }
 
 interface Options {
   mesh: Mesh | null;
   config: MediaClientConfig | null;
-  /**
-   * The roster as it stands.
-   *
-   * Passed in rather than read off the mesh, and it is not redundant: a `Mesh` is memoised on the ICE
-   * configuration, so its identity survives every roster change. An effect watching only `mesh` would
-   * run once — before any camera had been offered — and never again.
-   */
   links: MeshLink[];
-  /** Whether this frontend should ask its own scorer to publish right now. */
+  /** Whether this frontend should ask its own scorer to hold an offer right now. */
   publish: boolean;
+  /** Roles allowed to receive the offer from this frontend's scorer. */
+  audience: readonly MediaRole[];
+  /** Whether remote offers belong to the current screen. False clears every in-memory choice. */
+  receive: boolean;
+  /** A match state may arrive just after its source's offer; retain that short pre-match race. */
+  anticipate: boolean;
+}
+
+export interface VideoFeedStats {
+  feedId: VideoFeedId;
+  peerId: string;
+  choice: VideoOfferChoice;
+  stats: ReceiverStats | null;
 }
 
 export interface VideoFeed {
-  /** Feed every media-channel message here. */
   handleMedia: (from: string, data: ArrayBuffer) => void;
-  /** Feed every control message here — `video_state` is how a camera says why there is no picture. */
   handleControl: (from: string, message: ControlMessage) => void;
-  /**
-   * Point our own board camera at a square of the board. Silent when there is no feed to direct.
-   *
-   * `resetMs` left out means the camera releases itself after `media.virtualCamera.resetMs` — see
-   * `directorTiming`. Pass `0` only where something else will certainly send the release.
-   */
   direct: (region: Region, transitionMs: number, resetMs?: number) => void;
-  /** Board-camera peers, including cameras that have not produced a usable frame. */
+  accept: (feedId: VideoFeedId) => void;
+  decline: (feedId: VideoFeedId) => void;
   feeds: VideoFeedView[];
-  /** What each feed says about itself, for the diagnostics panel. */
-  stats: React.RefObject<{ peerId: string; on: boolean; reason?: string; stats: ReceiverStats }[]>;
+  stats: React.RefObject<VideoFeedStats[]>;
 }
 
-export function useVideoFeed({ mesh, config, links, publish }: Options): VideoFeed {
-  const receivers = useRef(new Map<string, VideoReceiver>());
-  const states = useRef(new Map<string, { on: boolean; reason?: string }>());
+export function useVideoFeed({ mesh, config, links, publish, audience, receive, anticipate }: Options): VideoFeed {
+  const offers = useRef(new Map<string, OfferState>());
+  const receivers = useRef(new Map<string, ReceiverState>());
   const lastFrames = useRef(new Map<string, number>());
   const fresh = useRef(new Set<string>());
-  const stats = useRef<{ peerId: string; on: boolean; reason?: string; stats: ReceiverStats }[]>([]);
+  const nextOrder = useRef(0);
+  const stats = useRef<VideoFeedStats[]>([]);
   const [revision, setRevision] = useState(0);
   const changed = useCallback(() => setRevision((value) => value + 1), []);
 
   const meshRef = useRef(mesh);
   meshRef.current = mesh;
+  const linksRef = useRef(links);
+  linksRef.current = links;
+  const receiveRef = useRef(receive);
+  receiveRef.current = receive;
+  const anticipateRef = useRef(anticipate);
+  anticipateRef.current = anticipate;
   const profile = config?.video ?? videoProfile(CONFIG_DEFAULTS.media.video);
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
+  const refreshStats = useCallback(() => {
+    stats.current = [...offers.current].map(([peerId, offer]) => ({
+      peerId,
+      feedId: offer.feedId,
+      choice: offer.choice,
+      stats: receivers.current.get(peerId)?.receiver.stats() ?? null,
+    }));
+  }, []);
+
+  const closeReceiver = useCallback((peerId: string) => {
+    receivers.current.get(peerId)?.receiver.close();
+    receivers.current.delete(peerId);
+    lastFrames.current.delete(peerId);
+    fresh.current.delete(peerId);
+  }, []);
+
+  const findOffer = useCallback((feedId: VideoFeedId): [string, OfferState] | null => {
+    for (const entry of offers.current) if (entry[1].feedId === feedId) return entry;
+    return null;
+  }, []);
+
+  const accept = useCallback((id: VideoFeedId) => {
+    const found = findOffer(id);
+    if (!found) return;
+    const [peerId, offer] = found;
+    offer.choice = 'accepted';
+    fresh.current.delete(peerId);
+    meshRef.current?.link(peerId)?.sendControl({ kind: 'video_accept', feedId: id });
+    refreshStats();
+    changed();
+  }, [changed, findOffer, refreshStats]);
+
+  const decline = useCallback((id: VideoFeedId) => {
+    const found = findOffer(id);
+    if (!found) return;
+    const [peerId, offer] = found;
+    offer.choice = 'declined';
+    closeReceiver(peerId);
+    meshRef.current?.link(peerId)?.sendControl({ kind: 'video_decline', feedId: id });
+    refreshStats();
+    changed();
+  }, [changed, closeReceiver, findOffer, refreshStats]);
+
   /** The camera we have actually asked, so a re-render is not a second request. */
   const askedCamera = useRef<string | null>(null);
-
-  /**
-   * Ask our own camera to publish, once there is one and it has said it can.
-   *
-   * The tier is checked here as well as on the device — not because the device's check is in doubt,
-   * but because asking a camera that offered stills only is a question we already know the answer to.
-   *
-   * Written as a reconciliation rather than a start/cleanup pair, because this runs on every roster
-   * change: a cleanup that sent `video_stop` would tear the feed down and rebuild it every time
-   * anybody joined or left. Only a *change of camera* is an event.
-   */
+  const askedAudience = useRef('');
+  const audienceKey = audience.join(' ');
   useEffect(() => {
     const wanted = publish && mesh
       ? mesh.ownPeers().find((peer) => peer.kind === 'device' && peer.tier === 'video')?.peerId ?? null
       : null;
+    if (wanted === askedCamera.current && audienceKey === askedAudience.current) return;
 
-    if (wanted === askedCamera.current) return;
-
-    if (askedCamera.current) mesh?.link(askedCamera.current)?.sendControl({ kind: 'video_stop' });
-    askedCamera.current = null;
-    if (!wanted) return;
-
-    // Recorded as asked only once the link took it — the same lesson as the still requests next door.
-    // A channel that is not open yet drops the message, and `links` changes again when it opens, so
-    // the retry costs nothing to arrange.
-    if (mesh?.link(wanted)?.sendControl({ kind: 'video_start', to: LIVE_AUDIENCE })) askedCamera.current = wanted;
-  }, [publish, mesh, links]);
+    if (askedCamera.current && askedCamera.current !== wanted) {
+      mesh?.link(askedCamera.current)?.sendControl({ kind: 'video_stop' });
+      askedCamera.current = null;
+      askedAudience.current = '';
+    }
+    if (!wanted) {
+      if (askedCamera.current) mesh?.link(askedCamera.current)?.sendControl({ kind: 'video_stop' });
+      askedCamera.current = null;
+      askedAudience.current = '';
+      return;
+    }
+    if (mesh?.link(wanted)?.sendControl({ kind: 'video_start', to: [...audience] })) {
+      askedCamera.current = wanted;
+      askedAudience.current = audienceKey;
+    }
+  }, [publish, audienceKey, mesh, links]);
 
   const handleMedia = useCallback((from: string, data: ArrayBuffer) => {
-    if (!canReceive()) return;
-    let receiver = receivers.current.get(from);
-    if (!receiver) {
-      receiver = createVideoReceiver({
+    const offer = offers.current.get(from);
+    if (!receiveRef.current || !offer || offer.choice !== 'accepted' || !canReceive()) return;
+
+    let state = receivers.current.get(from);
+    if (!state || state.feedId !== offer.feedId) {
+      state?.receiver.close();
+      const id = offer.feedId;
+      const receiver = createVideoReceiver({
         profile: profileRef.current,
-        requestKeyframe: () => { meshRef.current?.link(from)?.sendControl({ kind: 'keyframe' }); },
+        feedId: id,
+        requestKeyframe: () => meshRef.current?.link(from)?.sendControl({ kind: 'keyframe', feedId: id }),
         onFrame: () => {
           lastFrames.current.set(from, Date.now());
           if (!fresh.current.has(from)) {
@@ -156,26 +214,52 @@ export function useVideoFeed({ mesh, config, links, publish }: Options): VideoFe
           }
         },
       });
-      receivers.current.set(from, receiver);
+      state = { feedId: id, receiver };
+      receivers.current.set(from, state);
       changed();
     }
-    receiver.accept(data);
-    stats.current = [...receivers.current].map(([peerId, r]) => ({
-      peerId,
-      on: states.current.get(peerId)?.on ?? true,
-      reason: states.current.get(peerId)?.reason,
-      stats: r.stats(),
-    }));
-  }, [changed]);
+    state.receiver.accept(data);
+    refreshStats();
+  }, [changed, refreshStats]);
 
-  const handleControl = useCallback((_from: string, message: ControlMessage) => {
-    if (message.kind !== 'video_state') return;
-    states.current.set(_from, { on: message.on, reason: message.reason });
-    // A future `on` must wait for a future decoded frame. Otherwise a restart could briefly uncover
-    // the last picture from before the camera stopped and present it as live.
-    if (!message.on) fresh.current.delete(_from);
-    changed();
-  }, [changed]);
+  const handleControl = useCallback((from: string, message: ControlMessage) => {
+    if (message.kind === 'video_offer') {
+      // A source can see the match transition a few milliseconds before this frontend does. Keep
+      // the offer now and let `receive` decide when its dialog is visible, or that race would drop
+      // the only announcement from an otherwise healthy link.
+      if (!isVideoFeedId(message.feedId)) return;
+      const link = linksRef.current.find((candidate) => candidate.peer.peerId === from);
+      if (!link || link.peer.kind !== 'device' || link.peer.tier !== 'video' || !link.peer.send) return;
+      if (!receiveRef.current && !anticipateRef.current) {
+        meshRef.current?.link(from)?.sendControl({ kind: 'video_decline', feedId: message.feedId });
+        return;
+      }
+
+      const previous = offers.current.get(from);
+      if (previous?.feedId === message.feedId) return;
+      if (previous) closeReceiver(from);
+
+      const offer: OfferState = {
+        feedId: message.feedId,
+        choice: canReceive() ? 'pending' : 'declined',
+        order: nextOrder.current++,
+      };
+      offers.current.set(from, offer);
+      if (!canReceive()) meshRef.current?.link(from)?.sendControl({ kind: 'video_decline', feedId: offer.feedId });
+      refreshStats();
+      changed();
+      return;
+    }
+
+    if (message.kind === 'video_end' && isVideoFeedId(message.feedId)) {
+      const offer = offers.current.get(from);
+      if (!offer || offer.feedId !== message.feedId) return;
+      closeReceiver(from);
+      offers.current.delete(from);
+      refreshStats();
+      changed();
+    }
+  }, [changed, closeReceiver, refreshStats]);
 
   const direct = useCallback((region: Region, transitionMs: number, resetMs?: number) => {
     const camera = askedCamera.current;
@@ -183,8 +267,15 @@ export function useVideoFeed({ mesh, config, links, publish }: Options): VideoFe
     meshRef.current?.link(camera)?.sendControl({ kind: 'video_region', region, transitionMs, resetMs });
   }, []);
 
-  // Check freshness without re-rendering the app for every one of the fifteen frames per second.
-  // Only the live → stalled transition changes React state; the next decoded frame changes it back.
+  // Retry the local choice after a ready-link transition. Both controls are idempotent at the source.
+  const reachable = links.filter((link) => link.ready).map((link) => link.peer.peerId).sort().join(' ');
+  useEffect(() => {
+    for (const [peerId, offer] of offers.current) {
+      const kind = offer.choice === 'accepted' ? 'video_accept' : offer.choice === 'declined' ? 'video_decline' : null;
+      if (kind) mesh?.link(peerId)?.sendControl({ kind, feedId: offer.feedId });
+    }
+  }, [reachable, mesh]);
+
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -199,70 +290,73 @@ export function useVideoFeed({ mesh, config, links, publish }: Options): VideoFe
     return () => clearInterval(timer);
   }, [changed]);
 
-  // A peer that has left the roster has no more frames coming, and its decoder is holding platform
-  // resources. The roster is the only teardown mechanism in this feature; this is that rule applied
-  // one level down.
+  // End local consent as soon as the match screen no longer owns remote offers.
   useEffect(() => {
-    const offered = new Set(links.map((link) => link.peer.peerId));
-    let changed = false;
-    for (const [peerId, receiver] of receivers.current) {
-      if (offered.has(peerId)) continue;
-      receiver.close();
-      receivers.current.delete(peerId);
-      states.current.delete(peerId);
-      lastFrames.current.delete(peerId);
-      fresh.current.delete(peerId);
-      changed = true;
+    if (receive || anticipate || offers.current.size === 0) return;
+    for (const [peerId, offer] of offers.current) {
+      mesh?.link(peerId)?.sendControl({ kind: 'video_decline', feedId: offer.feedId });
+      closeReceiver(peerId);
     }
-    if (changed) {
-      stats.current = [...receivers.current].map(([peerId, r]) => ({
-        peerId,
-        on: states.current.get(peerId)?.on ?? true,
-        reason: states.current.get(peerId)?.reason,
-        stats: r.stats(),
-      }));
-      setRevision((value) => value + 1);
+    offers.current.clear();
+    refreshStats();
+    changed();
+  }, [receive, anticipate, mesh, changed, closeReceiver, refreshStats]);
+
+  // Roster removal is authoritative teardown even when no `video_end` could cross the link.
+  useEffect(() => {
+    const present = new Set(links.map((link) => link.peer.peerId));
+    let removed = false;
+    for (const peerId of [...offers.current.keys()]) {
+      if (present.has(peerId)) continue;
+      closeReceiver(peerId);
+      offers.current.delete(peerId);
+      removed = true;
     }
-  }, [links]);
+    if (removed) {
+      refreshStats();
+      changed();
+    }
+  }, [links, changed, closeReceiver, refreshStats]);
 
   useEffect(() => () => {
-    for (const receiver of receivers.current.values()) receiver.close();
+    for (const state of receivers.current.values()) state.receiver.close();
     receivers.current.clear();
   }, []);
 
-  const feeds = links
-    .filter((link) => link.peer.kind === 'device')
-    .map((link): VideoFeedView => {
-      const receiver = receivers.current.get(link.peer.peerId);
-      const state = states.current.get(link.peer.peerId);
-      const lastFrameAt = lastFrames.current.get(link.peer.peerId) ?? null;
-      const reason = state?.reason as VideoRefusal | undefined;
-      const status: VideoFeedStatus = link.peer.tier !== 'video' || !canReceive()
+  const feeds = [...offers.current]
+    .map(([peerId, offer]): VideoFeedView | null => {
+      const link = links.find((candidate) => candidate.peer.peerId === peerId);
+      if (!link) return null;
+      const receiver = receivers.current.get(peerId)?.receiver ?? null;
+      const lastFrameAt = lastFrames.current.get(peerId) ?? null;
+      const status: VideoFeedStatus = !canReceive() || link.state === 'failed' || link.state === 'closed'
         ? 'unavailable'
-        : state?.on === false
-          ? 'off'
-          : link.state === 'failed' || link.state === 'closed'
-            ? 'unavailable'
-            : !link.ready || !receiver || lastFrameAt === null
-              ? 'waiting'
-              : fresh.current.has(link.peer.peerId)
-                ? 'live'
-                : 'stalled';
+        : offer.choice !== 'accepted'
+          ? 'offered'
+          : !link.ready || !receiver || lastFrameAt === null
+            ? 'waiting'
+            : fresh.current.has(peerId)
+              ? 'live'
+              : 'stalled';
       return {
-        peerId: link.peer.peerId,
+        feedId: offer.feedId,
+        peerId,
         ...(link.peer.playerId ? { playerId: link.peer.playerId } : {}),
         ...(link.peer.label ? { label: link.peer.label } : {}),
+        choice: offer.choice,
         canvas: receiver?.canvas ?? null,
         status,
-        ...(reason ? { reason } : {}),
         lastFrameAt,
         stats: receiver?.stats() ?? null,
+        linkState: link.state,
+        linkReady: link.ready,
+        decoderSupported: canReceive(),
+        order: offer.order,
       };
-    });
-  // `revision` is intentionally read: refs above hold the hot path, and this is their transition
-  // signal for React. Keeping it out would make a first frame or a stall invisible until a roster
-  // happened to change for some unrelated reason.
-  void revision;
+    })
+    .filter((entry): entry is VideoFeedView => entry !== null)
+    .sort((a, b) => a.order - b.order);
 
-  return { handleMedia, handleControl, direct, feeds, stats };
+  void revision;
+  return { handleMedia, handleControl, direct, accept, decline, feeds, stats };
 }

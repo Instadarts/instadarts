@@ -6,6 +6,7 @@ import { useMediaMesh } from './hooks/useMediaMesh';
 import { useDartEvidence } from './hooks/useDartEvidence';
 import { selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
+import { VideoOfferDialog } from './components/VideoOfferDialog';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
@@ -16,7 +17,8 @@ import { TopBar } from './components/TopBar';
 import { SourceFooter } from './components/SourceFooter';
 import { loadReconnectInfo } from './lib/ws';
 import type { ServerMessage } from '../shared/protocol';
-import type { ControlMessage } from '../shared/media';
+import type { ControlMessage, VideoFeedId } from '../shared/media';
+import type { VideoFeedView } from './hooks/useVideoFeed';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 
@@ -60,8 +62,8 @@ export function App() {
   const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
   // Which of this tab's claimed devices is shared as this player's board.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
-  // Whose visit is on screen — the thrower's, whoever that is. Only they may ask a camera for
-  // anything; everyone else receives the same picture unasked.
+  // Whose visit is on screen — the thrower's, whoever that is. Only they may ask a camera for dart
+  // evidence or direct their own feed.
   const currentPlayer = match?.players[match.currentPlayerIndex];
   const isThrower = !isSpectator && match?.status === 'in_progress'
     && (!ownPlayerId || currentPlayer?.id === ownPlayerId);
@@ -80,13 +82,18 @@ export function App() {
   });
   mediaHandler.current = media.handleMessage;
 
-  // Ask our scorer to publish only during an online match. Reception is independent of this flag:
-  // opponent feeds keep decoding across turns even while the virtual board is on top.
+  const liveVideoActive = Boolean(match?.status === 'in_progress');
+  const localVideo = match?.isLocal ?? false;
+  // Online owners offer their board to opponents and spectators. A local match has one shared
+  // physical board, so its single feed is offered only to spectators.
   const feed = useVideoFeed({
     mesh: media.mesh,
     config: media.config,
     links: media.links,
-    publish: Boolean(match?.status === 'in_progress' && !match.isLocal && !isSpectator),
+    publish: liveVideoActive && !isSpectator,
+    audience: localVideo ? ['spectator'] : ['opponent', 'spectator'],
+    receive: liveVideoActive && (!localVideo || isSpectator),
+    anticipate: Boolean(lobby),
   });
   feedHandler.current = feed.handleControl;
   feedMedia.current = feed.handleMedia;
@@ -112,6 +119,9 @@ export function App() {
     isSpectator,
     match?.isLocal ?? true,
   );
+  const pendingVideoOffer = liveVideoActive
+    ? feed.feeds.find((candidate) => candidate.choice === 'pending') ?? null
+    : null;
 
   const navigate = useNavigate();
 
@@ -227,13 +237,16 @@ export function App() {
             onVoteRematch={voteRematch}
             evidence={evidenceImages}
             liveFeed={liveFeed}
+            videoOffers={feed.feeds}
+            onAcceptVideo={feed.accept}
+            onDeclineVideo={feed.decline}
             navigate={navigate}
             error={error}
           />
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} />
+          <SpectateWrapper spectate={spectate} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={feed.feeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -241,6 +254,14 @@ export function App() {
       </main>
       <SourceFooter />
       <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
+      {pendingVideoOffer && (
+        <VideoOfferDialog
+          feedId={pendingVideoOffer.feedId}
+          label={pendingVideoOffer.label}
+          onAccept={feed.accept}
+          onDecline={feed.decline}
+        />
+      )}
     </div>
   );
 }
@@ -297,11 +318,14 @@ interface MatchWrapperProps {
   onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
+  videoOffers: readonly VideoFeedView[];
+  onAcceptVideo: (feedId: VideoFeedId) => void;
+  onDeclineVideo: (feedId: VideoFeedId) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, liveFeed, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -319,6 +343,9 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, 
       onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
       evidence={evidence}
       liveFeed={liveFeed}
+      videoOffers={videoOffers}
+      onAcceptVideo={onAcceptVideo}
+      onDeclineVideo={onDeclineVideo}
     />
   );
 }
@@ -334,9 +361,12 @@ interface SpectateWrapperProps {
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
+  videoOffers: readonly VideoFeedView[];
+  onAcceptVideo: (feedId: VideoFeedId) => void;
+  onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
@@ -382,6 +412,9 @@ function SpectateWrapper({ spectate, lobby, match, view, panel, modes, leaveMatc
         onVoteRematch={() => {}}
         evidence={evidence}
         liveFeed={liveFeed}
+        videoOffers={videoOffers}
+        onAcceptVideo={onAcceptVideo}
+        onDeclineVideo={onDeclineVideo}
       />
     );
   }

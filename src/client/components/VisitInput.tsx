@@ -4,6 +4,9 @@ import { Dartboard } from './Dartboard';
 import { DartEvidence } from './DartEvidence';
 import { modeTextClasses, slotClasses } from './modeText';
 import { LiveBoardFeed } from './LiveBoardFeed';
+import { VideoFeedControls } from './VideoFeedControls';
+import type { VideoFeedId } from '../../shared/media';
+import type { VideoFeedView } from '../hooks/useVideoFeed';
 
 export interface LiveBoardView {
   canvas: HTMLCanvasElement;
@@ -35,6 +38,10 @@ interface VisitInputProps {
   evidence: (string | undefined)[] | null;
   /** A fresh remote board feed. Null leaves the always-mounted virtual board visible. */
   liveBoard?: LiveBoardView | null;
+  /** Every standing offer, including accepted feeds hidden by turn selection. */
+  videoOffers?: readonly VideoFeedView[];
+  onAcceptVideo?: (feedId: VideoFeedId) => void;
+  onDeclineVideo?: (feedId: VideoFeedId) => void;
 }
 
 /** One dart's slot: an equal share of the row, within limits that keep a label readable. */
@@ -54,6 +61,9 @@ export function VisitInput({
   hideActions,
   evidence,
   liveBoard,
+  videoOffers = [],
+  onAcceptVideo = () => {},
+  onDeclineVideo = () => {},
 }: VisitInputProps) {
   const boardDisabled = disabled || darts.length >= dartsPerVisit || (locked ?? false) || (readOnly ?? false);
   // A mode that says nothing about its slots gets each dart's own label, untoned.
@@ -70,6 +80,7 @@ export function VisitInput({
           {liveBoard && (
             <LiveBoardFeed source={liveBoard.canvas} label={liveBoard.label} />
           )}
+          <VideoFeedControls feeds={videoOffers} onAccept={onAcceptVideo} onDecline={onDeclineVideo} />
         </Dartboard>
       </div>
 

@@ -699,9 +699,10 @@ on a wall.
 The optional feature that carries video and stills peer-to-peer between the devices already in a
 match. Full write-up in [media.md](./media.md); this section is the vocabulary.
 
-Stills provide dart evidence, and live video replaces the read-only virtual board with the current
-remote player's camera in online matches. Spectators receive both boards and follow the thrower;
-participants never receive their own board video.
+Stills provide dart evidence, and live video replaces the read-only virtual board. In online matches,
+spectators receive both boards and follow the thrower while each participant may receive only the
+opponent's board. In local matches, spectators may receive the one physical board shared by both
+players. Participants never receive their own board video.
 
 Say **media** for the feature. Never "stream" (unused, and ambiguous between a `MediaStream` and the
 thing a viewer watches) and never "call" — nobody rings anybody.
@@ -824,24 +825,31 @@ clears the row along with the slots above it.
 
 ### Board video
 
-A live picture of a [board camera](#board-camera)'s view, encoded once and written to the
-[audience](#audience) it was addressed to. The [tier](#media-tier) has to be `video`, and the
-[owner](#board-camera) has to have started it — `video_start`, which carries the audience but no
-region, because starting a feed and framing it are separate decisions.
+A live picture of a [board camera](#board-camera)'s view. The [tier](#media-tier) has to be `video`,
+and the [owner](#board-camera) starts a standing offer with `video_start`, which carries the audience
+but no region. The camera gives that offer a UUID and announces it to each eligible peer. Frames are
+encoded once and written only to the exact eligible peers that accepted that UUID.
 
-**One camera, one feed.** A second `video_start` re-addresses the running one rather than opening
-another; `video_stop` ends it for everybody.
+**One camera, one offer.** A second `video_start` re-addresses the same UUID rather than opening
+another; `video_stop` sends `video_end` and withdraws it. A temporary camera shutdown pauses encoding
+without ending the UUID or its choices.
 
-During an in-progress online match, each owner asks their nominated camera to publish to `opponent`
-and `spectator`, never `owner`. Participants display it only on the opponent's turn; spectators
-display the current player's feed. Missing, refused or three-seconds-stale video uncovers the virtual
-board, and local matches never start a feed. See [docs/media.md](./media.md#live-board-video).
+During an in-progress online match, each owner addresses their nominated camera's offer to `opponent`
+and `spectator`, never `owner`. Each recipient accepts or declines independently and can change that
+choice from the board controls. Participants display accepted video only on the opponent's turn;
+spectators display the current player's accepted feed. A local match addresses its single shared
+board camera only to spectators, who display it for both players' turns. Declined, missing or
+three-seconds-stale video uncovers the virtual board. See [docs/media.md](./media.md#live-board-video).
 
 ### Audience
 
 Which kinds of viewer a command's result is for: `owner`, `opponent`, `spectator`. Carried by
 `still_request` and `video_start`, and read off the roster's `role`, which is the one thing in a
 roster a client could not work out for itself — nothing else in it says who is only watching.
+
+For live video the audience is permission to receive an offer, not automatic delivery. A peer must
+also accept the current feed UUID, and the camera intersects that exact peer choice with the current
+audience and roster on every frame.
 
 **It fails closed.** A list that is missing, empty or unrecognisable is read as `['owner']`, never as
 everybody: a sender that gets this wrong should be able to cost a picture and never to put a live

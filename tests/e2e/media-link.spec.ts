@@ -20,7 +20,7 @@ import { skipOnboarding } from './appHelpers';
 interface LinkView {
   peerId: string;
   kind: 'user' | 'device';
-  label?: string;
+  playerId?: string;
   polite: boolean;
   send: boolean;
   recv: boolean;
@@ -131,8 +131,8 @@ test.describe('media links', () => {
     const guestLinks = await connectedLinks(guest, 2);
     const camLinks = await connectedLinks(cam.page, 2);
 
-    expect(hostLinks.filter((l) => l.kind === 'device').map((l) => l.label)).toEqual(['Alice board']);
-    expect(guestLinks.filter((l) => l.kind === 'device').map((l) => l.label)).toEqual(['Alice board']);
+    expect(hostLinks.find((l) => l.kind === 'device')?.playerId).toBeTruthy();
+    expect(guestLinks.find((l) => l.kind === 'device')?.playerId).toBeTruthy();
     expect(camLinks.every((l) => l.kind === 'user')).toBe(true);
 
     // The three pairs, each proved by a message going out and an answer coming back over the peer

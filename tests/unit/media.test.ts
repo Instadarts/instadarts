@@ -212,6 +212,10 @@ describe('topology and source intent', () => {
     expect(entryFor(guest, camera!)).toMatchObject({ kind: 'device', own: false, role: 'opponent' });
     expect(entryFor(camera!, host)).toMatchObject({ own: true, role: 'owner' });
     expect(entryFor(camera!, guest)).toMatchObject({ own: false, role: 'opponent' });
+    // Device names belong to the owner's camera panel. The roster carries only the stable player
+    // association needed for remote presentation, never that private label.
+    expect(entryFor(host, camera!)).not.toHaveProperty('label');
+    expect(entryFor(guest, camera!)).not.toHaveProperty('label');
   });
 
   it('offers a local shared source to spectators without making it self-video', () => {

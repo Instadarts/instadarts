@@ -6,6 +6,7 @@ import type { ControlMessage, Region, VideoFeedId } from '../../shared/media';
 import { isVideoFeedId, videoProfile } from '../../shared/media';
 import type { MediaClientConfig } from '../../shared/config';
 import { CONFIG_DEFAULTS } from '../../shared/config';
+import type { MatchState } from '../../shared/types';
 import type { Mesh, MeshLink } from '../media/mesh';
 import type { LinkState } from '../media/peerLink';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
@@ -19,6 +20,7 @@ export interface VideoFeedView {
   feedId: VideoFeedId;
   peerId: string;
   playerId?: string;
+  /** Match-derived display name. Peer rosters deliberately carry no device names. */
   label?: string;
   choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
@@ -69,6 +71,22 @@ export function selectVideoFeed(
     && feed.choice === 'accepted'
     && feed.status === 'live'
     && feed.canvas !== null) ?? null;
+}
+
+/**
+ * Name board feeds from match participants, never from the scorer device that happens to publish
+ * them. A local match has one shared physical board, whose presentation belongs to its first
+ * player regardless of whose turn is currently shown.
+ */
+export function labelVideoFeedsForMatch(
+  feeds: readonly VideoFeedView[],
+  match: Pick<MatchState, 'isLocal' | 'players'> | null,
+): VideoFeedView[] {
+  const localName = match?.isLocal ? match.players[0]?.name : undefined;
+  return feeds.map((feed) => {
+    const label = localName ?? match?.players.find((player) => player.id === feed.playerId)?.name;
+    return label ? { ...feed, label } : feed;
+  });
 }
 
 interface Options {
@@ -312,7 +330,6 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         feedId: offer.feedId,
         peerId,
         ...(link.peer.playerId ? { playerId: link.peer.playerId } : {}),
-        ...(link.peer.label ? { label: link.peer.label } : {}),
         choice: offer.choice,
         canvas: receiver?.canvas ?? null,
         status,

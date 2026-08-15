@@ -144,6 +144,14 @@ async function declineOffer(page: Page) {
   await dialog.getByRole('button', { name: 'Use virtual board' }).click();
 }
 
+/** The decoded canvas fills the board surface, so that surface itself must stay exactly square. */
+async function expectLiveBoardSquare(page: Page) {
+  await expect.poll(async () => {
+    const box = await page.getByTestId('live-board-feed').boundingBox();
+    return box ? Math.abs(box.width - box.height) : Number.POSITIVE_INFINITY;
+  }, { message: 'live board feed was stretched out of square' }).toBeLessThan(2);
+}
+
 /**
  * Somebody watching the match who is in it for nothing.
  *
@@ -244,8 +252,8 @@ test.describe('board video', () => {
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).audience).toEqual(['opponent', 'spectator']);
     expect((await sourceOffer(scorer.page)).accepted).toHaveLength(1);
-    await expect(guest.getByRole('button', { name: 'Play live video from Alice board' })).toBeVisible();
-    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
+    await expect(guest.getByRole('button', { name: 'Play live video from Alice' })).toBeVisible();
+    await guest.getByRole('button', { name: 'Play live video from Alice' }).click();
 
     // Alice is current. Bob and the spectator receive and display her board; Alice is deliberately
     // outside the audience and keeps the ordinary virtual board.
@@ -255,6 +263,12 @@ test.describe('board video', () => {
     await expect(watching.page.getByTestId('live-board-feed')).toBeVisible();
     await expect(host.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(host.getByTestId('dartboard')).toBeVisible();
+    // The middle board column may have spare vertical room at both breakpoints. That outer space is
+    // useful for the visit controls; it must not stretch the board/video surface that sits in it.
+    for (const width of [1100, 1400]) {
+      await watching.page.setViewportSize({ width, height: 900 });
+      await expectLiveBoardSquare(watching.page);
+    }
     expect(await decodedFrames(host), 'the owner received their own video').toBe(0);
     expect(await guest.evaluate(() => '__media' in window), 'the product frontend accidentally enabled diagnostics').toBe(false);
 
@@ -293,16 +307,16 @@ test.describe('board video', () => {
       await expect(panel.locator('canvas, video')).toHaveCount(0);
     }
     await expect(scorer.page.getByTestId('media-debug')).toContainText('opponent spectator · 2 accepted');
-    await expect(watching.page.getByTestId('media-debug')).toContainText('Alice board · accepted');
+    await expect(watching.page.getByTestId('media-debug')).toContainText('Alice · accepted');
 
     // Closing both copies stops the encoder but not the standing offer. Reaccepting resumes the
     // same UUID and does not open another consent dialog.
-    await guest.getByRole('button', { name: 'Stop live video from Alice board' }).click();
-    await watching.page.getByRole('button', { name: 'Stop live video from Alice board' }).click();
+    await guest.getByRole('button', { name: 'Stop live video from Alice' }).click();
+    await watching.page.getByRole('button', { name: 'Stop live video from Alice' }).click();
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
-    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
-    await watching.page.getByRole('button', { name: 'Play live video from Alice board' }).click();
+    await guest.getByRole('button', { name: 'Play live video from Alice' }).click();
+    await watching.page.getByRole('button', { name: 'Play live video from Alice' }).click();
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
       .toBeGreaterThan(0);
     await expect(guest.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
@@ -313,7 +327,7 @@ test.describe('board video', () => {
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0, { timeout: 5000 });
-    await expect(guest.getByRole('button', { name: 'Stop live video from Alice board' })).toBeVisible();
+    await expect(guest.getByRole('button', { name: 'Stop live video from Alice' })).toBeVisible();
     await startCamera(scorer.page);
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
@@ -350,7 +364,7 @@ test.describe('board video', () => {
     await host.getByRole('radio', { name: 'Board camera: Alice board' }).check();
     await declineOffer(guest);
     await acceptOffer(watching.page);
-    await guest.getByRole('button', { name: 'Play live video from Alice board' }).click();
+    await guest.getByRole('button', { name: 'Play live video from Alice' }).click();
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).feedId).not.toBe(firstFeedId);
@@ -455,19 +469,19 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await acceptOffer(guest, 'Alice board');
-    await acceptOffer(host, 'Bob board');
-    await acceptOffersInAnyOrder(watching.page, ['Alice board', 'Bob board']);
+    await acceptOffer(guest, 'Alice');
+    await acceptOffer(host, 'Bob');
+    await acceptOffersInAnyOrder(watching.page, ['Alice', 'Bob']);
     await expect.poll(async () => (await published(aliceScorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
     await expect.poll(async () => (await published(bobScorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
-    await expect(watching.page.getByRole('button', { name: 'Stop live video from Alice board' })).toBeVisible();
-    await expect(watching.page.getByRole('button', { name: 'Stop live video from Bob board' })).toBeVisible();
+    await expect(watching.page.getByRole('button', { name: 'Stop live video from Alice' })).toBeVisible();
+    await expect(watching.page.getByRole('button', { name: 'Stop live video from Bob' })).toBeVisible();
 
     // Alice starts. Bob and the spectator see Alice; Alice does not receive her own feed.
-    await expect(guest.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Alice board');
-    await expect(watching.page.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Alice board');
+    await expect(guest.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Alice');
+    await expect(watching.page.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Alice');
     await expect(host.getByTestId('live-board-feed')).toHaveCount(0);
 
     const aliceFrames = (await published(aliceScorer.page)).frames;
@@ -476,8 +490,8 @@ test.describe('board video', () => {
 
     // Bob's turn selects the other already-decoding feed everywhere it should. Neither publisher
     // restarts or pauses merely because its picture is currently hidden.
-    await expect(host.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Bob board');
-    await expect(watching.page.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Bob board');
+    await expect(host.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Bob');
+    await expect(watching.page.getByTestId('live-board-feed')).toHaveAttribute('aria-label', 'Live board video: Bob');
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect.poll(async () => (await published(aliceScorer.page)).frames, { timeout: 10_000 })
       .toBeGreaterThan(aliceFrames);
@@ -707,12 +721,13 @@ test.describe('board video', () => {
     const watchingContext = await browser.newContext();
     const watcher = await watchingContext.newPage();
     await watcher.goto(`/spectate/${matchId}?e2e=1`);
-    await acceptOffer(watcher);
+    await acceptOffer(watcher, 'Alice');
     await expect.poll(() => published(scorer.page), { timeout: 20_000 }).not.toBeNull();
     await expect(watcher.getByTestId('live-board-feed')).toBeVisible({ timeout: 20_000 });
 
     const [shared] = await watching(watcher);
     expect(shared.playerId).toBeUndefined();
+    expect(shared.label).toBe('Alice');
     const sharedFeedId = shared.feedId;
 
     // Alice hands the shared physical board to Bob. The spectator keeps the same unassigned feed;

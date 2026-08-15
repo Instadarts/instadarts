@@ -72,7 +72,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
       links: () => latest.current.links.map((l) => ({
         peerId: l.peer.peerId,
         kind: l.peer.kind,
-        label: l.peer.label,
+        playerId: l.peer.playerId,
         polite: l.peer.polite,
         own: l.peer.own,
         role: l.peer.role,
@@ -212,7 +212,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                 <span className={stateColor(l.state)}>{l.state}</span>
                 <span className="text-gray-400">{l.peer.kind}</span>
                 <span className="text-gray-600">{l.peer.role}</span>
-                <span className="text-gray-300">{l.peer.label ?? l.peer.peerId.slice(0, 8)}</span>
+                <span className="text-gray-300">{l.peer.peerId.slice(0, 8)}</span>
                 <span className="text-gray-600">{l.peer.polite ? 'polite' : 'impolite'}</span>
                 <span className="text-gray-600">{l.peer.send ? '↓' : ''}{l.peer.recv ? '↑' : ''}</span>
                 {s.localCandidateType && (

@@ -11,7 +11,7 @@ import { INTERNAL_ICE } from '../shared/config';
 import { CONFIG } from './config';
 import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 import { allClients, getClient, send } from './connections';
-import { devicesForSession, ownerOf, setDeviceMediaTier } from './devices';
+import { ownerOf, setDeviceMediaTier } from './devices';
 import { getMatch } from './store';
 import { publishDevicesState } from './scoringDevices';
 import { startStunServer } from './stun';
@@ -157,7 +157,6 @@ interface Participant {
   slotId: string | null;
   tier: Exclude<MediaTier, 'disabled'>;
   playerId?: string;
-  label?: string;
 }
 
 interface Pairing { a: Participant; b: Participant }
@@ -230,9 +229,7 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
     };
     if (join.slotId && join.slotId !== LOCAL_SLOT) {
       const player = match.players.find((candidate) => candidate.id === join.slotId);
-      if (player) { peer.playerId = player.id; peer.label = player.name; }
-    } else if (join.slotId === LOCAL_SLOT) {
-      peer.label = match.players.map((player) => player.name).join(' & ');
+      if (player) peer.playerId = player.id;
     }
     (join.spectator ? spectators : users).push(peer);
   }
@@ -249,10 +246,6 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
     };
     const player = slotId === LOCAL_SLOT ? null : match.players.find((candidate) => candidate.id === slotId);
     if (player) device.playerId = player.id;
-    const ownerSession = player?.sessionId ?? match.players[0]?.sessionId;
-    if (ownerSession) {
-      device.label = devicesForSession(ownerSession).find((view) => view.deviceId === source.deviceId)?.name || undefined;
-    }
     devices.push(device);
     syncSource(session, source, device);
   }
@@ -300,7 +293,6 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
       own,
       role: own ? 'owner' : other.spectator ? 'spectator' : 'opponent',
       ...(other.playerId ? { playerId: other.playerId } : {}),
-      ...(other.label ? { label: other.label } : {}),
       polite: self.peerId < other.peerId,
       send: !other.spectator && self.kind !== 'device',
       recv: other.kind !== 'device' && !self.spectator,

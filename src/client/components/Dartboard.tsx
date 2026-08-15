@@ -93,13 +93,16 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
     // resolves against the nearest size container. On the match screen that box is exactly the
     // space left over once everything else has been laid out, so the board grows until it fills
     // the window vertically and then stops. With no size container above it, `cqh` falls back to
-    // the viewport, which is the right answer anywhere else.
-    <div className="relative select-none w-full max-w-[600px] lg:max-w-[100cqh]">
+    // the viewport, which is the right answer anywhere else. `self-center` is equally important:
+    // the match's flex row is deliberately taller than the board when it reserves room for visit
+    // controls, and the default cross-axis stretch would otherwise make this wrapper rectangular.
+    // The SVG keeps its own ratio in that rectangle, but an absolutely positioned video fills it.
+    <div className="relative aspect-square self-center select-none w-full max-w-[600px] lg:max-w-[100cqh]">
       <svg
         ref={svgRef}
         data-testid="dartboard"
         viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-        className="w-full cursor-crosshair"
+        className="block h-full w-full cursor-crosshair"
         onClick={handleClick}
       >
         {/* Board background — full circle including miss area (225mm outer radius) */}

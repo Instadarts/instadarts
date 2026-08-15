@@ -5,7 +5,7 @@ import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
 import { useMatchMediaSetup } from './hooks/useMatchMediaSetup';
 import { useDartEvidence } from './hooks/useDartEvidence';
-import { selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
+import { labelVideoFeedsForMatch, selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
 import { VideoOfferDialog } from './components/VideoOfferDialog';
 import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
@@ -102,6 +102,8 @@ export function App() {
   });
   feedHandler.current = feed.handleControl;
   feedMedia.current = feed.handleMedia;
+  const videoFeeds = labelVideoFeedsForMatch(feed.feeds, match);
+  const displayFeed = { ...feed, feeds: videoFeeds };
 
   const evidence = useDartEvidence({
     mesh: media.mesh,
@@ -118,14 +120,14 @@ export function App() {
   const evidenceImages = evidence.available ? evidence.images : null;
 
   const liveFeed = selectVideoFeed(
-    feed.feeds,
+    videoFeeds,
     currentPlayer?.id ?? null,
     ownPlayerId,
     isSpectator,
     match?.isLocal ?? true,
   );
   const pendingVideoOffer = liveVideoActive
-    ? feed.feeds.find((candidate) => candidate.choice === 'pending') ?? null
+    ? videoFeeds.find((candidate) => candidate.choice === 'pending') ?? null
     : null;
   const mediaSettingUp = useMatchMediaSetup(
     liveVideoActive ? match!.id : null,
@@ -264,7 +266,7 @@ export function App() {
             onVoteRematch={voteRematch}
             evidence={evidenceImages}
             liveFeed={liveFeed}
-            videoOffers={feed.feeds}
+            videoOffers={videoFeeds}
             onAcceptVideo={feed.accept}
             onDeclineVideo={feed.decline}
             navigate={navigate}
@@ -273,14 +275,14 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={feed.feeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </main>
       <SourceFooter />
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={feed} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} />
       {mediaSettingUp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 text-white" data-testid="media-setup-overlay">
           <div className="text-center">

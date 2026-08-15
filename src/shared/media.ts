@@ -124,8 +124,6 @@ export interface MediaPeer {
    * for anyone with no player at all.
    */
   playerId?: string;
-  /** What to call it on screen: a device's own name, or a user's player name. */
-  label?: string;
   /**
    * This peer and you belong to the same user: a scoring device and the frontend that claimed it.
    *

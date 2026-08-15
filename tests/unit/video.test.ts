@@ -14,6 +14,7 @@ import { CONFIG_DEFAULTS } from '../../src/shared/config';
 import {
   VIDEO_STALL_MS,
   frameIsFresh,
+  labelVideoFeedsForMatch,
   selectVideoFeed,
   type VideoFeedStatus,
   type VideoFeedView,
@@ -272,6 +273,18 @@ describe('live board selection', () => {
     expect(selectVideoFeed([shared], 'p1', null, true, true)?.peerId).toBe('camera-p1');
     expect(selectVideoFeed([shared], 'p2', null, true, true)?.peerId).toBe('camera-p1');
     expect(selectVideoFeed([shared], 'p1', null, false, true)).toBeNull();
+  });
+
+  it('names feeds after their player and the shared local board after the first player', () => {
+    const online = {
+      isLocal: false,
+      players: [{ id: 'p1', name: 'Alice' }, { id: 'p2', name: 'Bob' }],
+    };
+    expect(labelVideoFeedsForMatch([feed('p2')], online)[0].label).toBe('Bob');
+
+    const shared = { ...feed('p2'), playerId: undefined };
+    const local = { ...online, isLocal: true };
+    expect(labelVideoFeedsForMatch([shared], local)[0].label).toBe('Alice');
   });
 });
 

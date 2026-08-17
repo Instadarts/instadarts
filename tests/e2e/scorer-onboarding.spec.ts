@@ -46,7 +46,9 @@ async function pairedScorer(browser: Browser, { camera = true } = {}) {
   // `camera: false` is a phone with none, or one whose owner refused: no permission, no fake.
   const phone = await browser.newContext(camera ? { permissions: ['camera'] } : {});
   const scorer = await phone.newPage();
-  if (camera) await installFakeCamera(scorer, SCENES);
+  // A common 720p camera shape: it accepts the scorer's preferred width but cannot provide more
+  // than 720 rows. The page and every live vision path must agree on the centred 720x720 square.
+  if (camera) await installFakeCamera(scorer, SCENES, { maxWidth: 1280, maxHeight: 720 });
   await scorer.goto('/scorer?e2e=1');
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
@@ -95,7 +97,7 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByPlaceholder('Name this device')).toHaveCount(0);
     await expect(scorer.getByRole('button', { name: 'Settings' })).toHaveCount(0);
     await expect(scorer.getByTestId('onboarding-start-checks')).toBeVisible();
-    expect(await previewSize(scorer)).toEqual({ width: 960, height: 960 });
+    expect(await previewSize(scorer)).toEqual({ width: 960, height: 720 });
     // And nothing has been measured: this holds the GPU for a while and asks first.
     await expect(scorer.getByTestId('onboarding-stages')).toHaveCount(0);
 
@@ -135,12 +137,11 @@ test.describe('setting up a scoring device', () => {
     expect(settings.deviceName, 'the name typed in step one').toBe('Board camera');
     expect(settings.camera, 'the camera it opened is the one it will open next time').toBe('Fake board camera');
 
-    // **The capture size follows the model.** The stream is square at the model's input size, so a
-    // run that chose the larger model must have re-opened the camera at 1280 to have measured it —
-    // and must have left it there, since that is what the scoring screen will use. On a machine
-    // where the small model wins, the stream is still the one it was benchmarked at.
+    // **The preferred capture width follows the model, while real hardware chooses the mode.** This
+    // fake is capped at 720 rows, so both model sizes must consume the same centred 720x720 camera
+    // square and leave the landscape stream in the configuration that was benchmarked.
     const expected = settings.model === 's_1280' ? 1280 : 960;
-    expect(await previewSize(scorer)).toEqual({ width: expected, height: expected });
+    expect(await previewSize(scorer)).toEqual({ width: expected, height: 720 });
 
     // 9. The optional last step, on the way out. The fake camera is showing a real board with three
     // darts in it, so this is the whole feature end to end against the real model: the spider is
@@ -250,7 +251,7 @@ test.describe('setting up a scoring device', () => {
     // the camera opened — and once more when the model change re-opened it.
     const box = await scorer.getByTestId('onboarding-preview').boundingBox();
     expect(box?.height, 'the preview reserves its space before there is a picture').toBeGreaterThan(100);
-    expect(Math.abs((box?.height ?? 0) - (box?.width ?? 0)), 'and it is square, like the capture').toBeLessThan(2);
+    expect(Math.abs((box?.height ?? 0) - (box?.width ?? 0)), 'and it is square, like the model input').toBeLessThan(2);
 
     // But always a way out. A phone with no camera is not a phone held hostage by setup.
     await scorer.getByTestId('onboarding-leave').click();

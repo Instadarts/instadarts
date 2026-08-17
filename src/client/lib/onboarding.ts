@@ -154,8 +154,7 @@ export interface ChosenSettings {
  * `loadRunner` is required to unload first, every time — `loadModel` caches by url and ignores the
  * requested accelerator on a cache hit, so without that a "CPU" measurement can quietly be the
  * WebGPU runner again. Unloading also clears the sticky latch that disables GPU preprocessing after
- * a single failure, so one hiccup cannot poison every later measurement. It is also where the
- * camera is re-opened at the model's capture size, which is why nothing below mentions resolution.
+ * a single failure, so one hiccup cannot poison every later measurement.
  *
  * **Two ways to run an inference, because they answer different questions.** `runCamera` is what a
  * frame really costs, measured through the stream the scoring screen will use. `runBoard` is the
@@ -166,6 +165,8 @@ export interface OnboardingHarness {
   motionPass(): Promise<{ ms: number; mode: string }>;
   /** Point the motion gate at one analyzer or the other, so both can be timed. */
   setMotionForceCpu(force: boolean): void;
+  /** Ask the live camera for this model's preferred capture size before benchmarking it. */
+  prepareCamera(model: string): Promise<void>;
   /** Unload whatever is loaded, then load this. Returns what actually came up. */
   loadRunner(model: string, forceCpuInference: boolean): Promise<{ accelerator: string }>;
   /** One inference on the live camera frame — a cell of the matrix. */
@@ -300,7 +301,9 @@ export async function runOnboarding(
         : 'The larger model is too slow here; staying on the 960 px one.',
     );
   } else {
-    log('Staying on the 960 px model; there is no headroom for the larger one.');
+    // A repeat setup may arrive with the large model stored. "Not worth testing" still means the
+    // measured 960 px model is the choice; otherwise the run would leave an unmeasured model active.
+    decide({ model: 's_960' }, 'Staying on the 960 px model; there is no headroom for the larger one.');
   }
 
   // Both switches come from one cell, so they cannot be chosen in a way no run ever measured.
@@ -311,6 +314,11 @@ export async function runOnboarding(
       `Preprocessing on the ${preprocessing.toUpperCase()}, inference on the ${inference.toUpperCase()}.`,
     );
   }
+
+  // Leave the camera in the configuration the scoring screen will use. This is deliberately
+  // separate from validation: the known photographs below never depend on the camera's raw size or
+  // framing, even when a browser ignored our square capture request.
+  await harness.prepareCamera(chosen.model);
 
   // ── 4. Validation ───────────────────────────────────────────────
   // The stage this whole exercise exists for. Everything above is a measurement; this is the only
@@ -439,6 +447,12 @@ async function validate(harness: OnboardingHarness, chosen: ChosenSettings): Pro
  */
 async function measureMatrix(harness: OnboardingHarness, model: string): Promise<ModelMatrix> {
   const cells: ModelMatrix = { 'cpu-cpu': DNF, 'cpu-gpu': DNF, 'gpu-cpu': DNF, 'gpu-gpu': DNF };
+
+  try {
+    await harness.prepareCamera(model);
+  } catch {
+    return cells;
+  }
 
   for (const inference of ['cpu', 'gpu'] as const) {
     const forceCpuInference = inference === 'cpu';

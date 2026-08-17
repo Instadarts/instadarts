@@ -152,8 +152,8 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
           **The box is always there and always square**, with the video laid inside it rather than
           sizing it. A `<video>` is sized by the stream in it, so it collapses to nothing while there
           is none — which threw everything below it up the screen when the camera opened, and again
-          every time the model change re-opened it at 1280. Capture is square at the model's input
-          size, so a square box fits every stream this will ever hold. */}
+          every time the model change re-opened it at 1280. Real cameras may return landscape; the
+          square box's centred cover crop is exactly the square every vision consumer uses. */}
       {step !== 'name' && (
         <div className="relative w-full aspect-square rounded overflow-hidden bg-gray-950 border border-gray-800">
           <video
@@ -162,7 +162,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
             muted
             autoPlay
             data-testid="onboarding-preview"
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover object-center"
           />
           {camera.phase !== 'ready' && (
             <span className="absolute inset-0 flex items-center justify-center text-sm text-gray-600">

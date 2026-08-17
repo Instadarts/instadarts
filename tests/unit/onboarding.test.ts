@@ -54,6 +54,7 @@ function fakeHarness(device: Device) {
   const applied: Partial<ChosenSettings>[] = [];
   const chosen: ChosenSettings = { ...DEFAULTS };
   const loads: { model: string; forceCpuInference: boolean }[] = [];
+  const prepared: string[] = [];
   /** Which photographs validation actually put through the model. */
   const boardsRead: string[] = [];
   let clock = 0;
@@ -74,6 +75,9 @@ function fakeHarness(device: Device) {
       return motionForcedCpu
         ? { ms: costs.cpu, mode: 'cpu' }
         : { ms: costs.gpu as number, mode: 'gpu-bitmap' };
+    },
+    async prepareCamera(model) {
+      prepared.push(model);
     },
     async loadRunner(model, forceCpuInference) {
       loads.push({ model, forceCpuInference });
@@ -110,15 +114,15 @@ function fakeHarness(device: Device) {
     now: () => clock,
   };
 
-  return { harness, applied, loads, boardsRead };
+  return { harness, applied, loads, prepared, boardsRead };
 }
 
 async function run(device: Device, start: ChosenSettings = DEFAULTS) {
-  const { harness, applied, loads, boardsRead } = fakeHarness(device);
+  const { harness, applied, loads, prepared, boardsRead } = fakeHarness(device);
   const events: OnboardingEvent[] = [];
   const result = await runOnboarding(harness, (e) => events.push(e), start);
   const stage = (name: StageOutcome['stage']) => result.stages.find((s) => s.stage === name)!;
-  return { result, applied, loads, boardsRead, events, stage };
+  return { result, applied, loads, prepared, boardsRead, events, stage };
 }
 
 /** A device with no working WebGPU at all — the headless-CI shape. */
@@ -258,6 +262,13 @@ describe('the model matrices', () => {
     const { result } = await run({ inference: { s_960: 40, s_1280: 400 } }, start);
     expect(result.settings.model).toBe('s_960');
   });
+
+  it('moves back to the measured small model when the large benchmark is skipped', async () => {
+    const start = { ...DEFAULTS, model: 's_1280' };
+    const { result } = await run({ inference: { s_960: 300 } }, start);
+    expect(result.stages.some((stage) => stage.stage === 'model1280')).toBe(false);
+    expect(result.settings.model).toBe('s_960');
+  });
 });
 
 describe('the validation ladder', () => {
@@ -307,6 +318,15 @@ describe('the validation ladder', () => {
     // are the only thing validation is allowed to read, and this is the seam that enforces it.
     const { boardsRead } = await run({});
     expect(boardsRead.length).toBe(REFERENCE_BOARDS.length);
+  });
+
+  it('does not reconfigure the camera while retrying reference-image validation', async () => {
+    // A slow small model skips the large one: one preparation precedes its matrix and one leaves the
+    // camera in the chosen configuration. All three failing validation rungs reload the runner, but
+    // none is allowed to touch the live stream that the known photographs do not use.
+    const { prepared, loads } = await run({ inference: { s_960: 300 }, reads: () => false });
+    expect(prepared).toEqual(['s_960', 's_960']);
+    expect(loads).toHaveLength(5); // two matrix columns, then three validation rungs
   });
 });
 

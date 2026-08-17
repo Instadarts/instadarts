@@ -15,39 +15,51 @@ import type { Page } from '@playwright/test';
  * Everything after the camera is the real thing — the model, the WebGPU/WASM preprocessor, the
  * postprocessor, the homography, the wire, the server's fusion and the visit logic.
  */
-export async function installFakeCamera(page: Page, scenes: Record<string, string>): Promise<void> {
+export interface FakeCameraOptions {
+  /** Cap the actual stream independently of the caller's ideal constraints, as real cameras do. */
+  maxWidth?: number;
+  maxHeight?: number;
+}
+
+export async function installFakeCamera(
+  page: Page,
+  scenes: Record<string, string>,
+  options: FakeCameraOptions = {},
+): Promise<void> {
   const encoded: Record<string, string> = {};
   for (const [name, file] of Object.entries(scenes)) {
     encoded[name] = `data:image/jpeg;base64,${readFileSync(file).toString('base64')}`;
   }
 
-  await page.addInitScript((images: Record<string, string>) => {
+  await page.addInitScript(({ images, options }: {
+    images: Record<string, string>;
+    options: FakeCameraOptions;
+  }) => {
     /** What a caller gets for asking for nothing, and the smaller model's input size. */
     const DEFAULT_SIZE = 960;
 
-    // One canvas per size asked for, because capture resolution is a thing under test: the scorer
-    // opens the camera square at the model's input size and re-opens it when the model changes, so a
-    // fake fixed at one size would let a benchmark of the 1280 px model quietly run on 960 px
-    // frames. Real hardware may of course answer with something else entirely; this honours the
-    // common case, which is what makes the change observable at all.
+    // One canvas per actual mode returned. By default the fake honours the requested square. A test
+    // can cap either axis to imitate hardware that ignores the square ideal — notably a 1280x720
+    // camera when the scorer asks for 960x960 or 1280x1280.
     interface FakeCanvas {
       ctx: CanvasRenderingContext2D;
       tracks: Set<CanvasCaptureMediaStreamTrack>;
     }
-    const canvases = new Map<number, FakeCanvas>();
+    const canvases = new Map<string, FakeCanvas>();
     const fakeTrackIds = new Set<string>();
 
-    function canvasFor(size: number): FakeCanvas {
-      let state = canvases.get(size);
+    function canvasFor(width: number, height: number): FakeCanvas {
+      const key = `${width}x${height}`;
+      let state = canvases.get(key);
       if (!state) {
         const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d')!;
         ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, size, size);
+        ctx.fillRect(0, 0, width, height);
         state = { ctx, tracks: new Set() };
-        canvases.set(size, state);
+        canvases.set(key, state);
       }
       return state;
     }
@@ -79,7 +91,15 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
       // intermittent "darts disappeared back into an empty board" failures under load.
       if (revision !== expectedRevision || current !== name) return;
       for (const { ctx, tracks } of canvases.values()) {
-        ctx.drawImage(image, 0, 0, ctx.canvas.width, ctx.canvas.height);
+        // The source scene is square. Put that whole scene in the stream's centre square and leave
+        // the excess landscape/portrait area black. A correct centre crop recovers the exact scene;
+        // stretching the source across the fake stream would conceal an aspect-ratio bug.
+        const size = Math.min(ctx.canvas.width, ctx.canvas.height);
+        const x = Math.floor((ctx.canvas.width - size) / 2);
+        const y = Math.floor((ctx.canvas.height - size) / 2);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.drawImage(image, x, y, size, size);
         for (const track of tracks) track.requestFrame();
       }
     }
@@ -100,13 +120,31 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
 
     const fakeDevice = { deviceId: 'fake-camera', kind: 'videoinput', label: 'Fake board camera', groupId: 'fake' };
 
-    /** The square the caller asked for, as `camera.ts` asks for it. */
-    function requestedSize(constraints?: MediaStreamConstraints): number {
+    function requestedValue(
+      constraint: ConstrainULong | undefined,
+      fallback: number,
+    ): number {
+      if (typeof constraint === 'number') return constraint;
+      if (constraint && typeof constraint === 'object') {
+        const wanted = constraint.ideal ?? constraint.exact;
+        if (typeof wanted === 'number') return wanted;
+      }
+      return fallback;
+    }
+
+    /** The actual mode returned after applying this fake device's hardware caps. */
+    function requestedDimensions(constraints?: MediaStreamConstraints): { width: number; height: number } {
       const video = constraints?.video;
-      if (!video || typeof video === 'boolean') return DEFAULT_SIZE;
-      const width = video.width;
-      const wanted = typeof width === 'object' ? (width.ideal ?? width.exact) : width;
-      return typeof wanted === 'number' ? wanted : DEFAULT_SIZE;
+      const requestedWidth = !video || typeof video === 'boolean'
+        ? DEFAULT_SIZE
+        : requestedValue(video.width, DEFAULT_SIZE);
+      const requestedHeight = !video || typeof video === 'boolean'
+        ? DEFAULT_SIZE
+        : requestedValue(video.height, DEFAULT_SIZE);
+      return {
+        width: Math.min(requestedWidth, options.maxWidth ?? requestedWidth),
+        height: Math.min(requestedHeight, options.maxHeight ?? requestedHeight),
+      };
     }
 
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -115,7 +153,8 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
         // A fresh stream per call, exactly as the real one gives. Handing out a shared stream would
         // mean the permission probe in listCameras() stops the track the camera then tries to use.
         getUserMedia: async (constraints?: MediaStreamConstraints) => {
-          const state = canvasFor(requestedSize(constraints));
+          const { width, height } = requestedDimensions(constraints);
+          const state = canvasFor(width, height);
           // Painted before it is captured, so the first frame off a newly sized canvas is the scene
           // rather than the black it was cleared to.
           await queuePaint();
@@ -175,7 +214,7 @@ export async function installFakeCamera(page: Page, scenes: Record<string, strin
     };
 
     void queuePaint();
-  }, encoded);
+  }, { images: encoded, options });
 }
 
 /** Run one inference on whatever the fake camera is currently showing. */

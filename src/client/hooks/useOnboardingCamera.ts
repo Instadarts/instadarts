@@ -17,13 +17,13 @@ import { loadSettings } from '../lib/scorerStorage';
 /**
  * What the self-test needs from the camera, and nothing else.
  *
- * Capture is square at the model's input size, so a bigger model needs a bigger stream — the same
- * coupling the scoring screen has. Handing the harness this much means it can honour that without
- * knowing anything about permissions, pickers or zoom.
+ * The requested capture size follows the model, although real cameras may return a smaller or
+ * landscape mode. The shared preprocessing crop handles that; this handle only lets benchmarking
+ * request the best stream the camera can provide for each model.
  */
 export interface OnboardingCamera {
   video: HTMLVideoElement;
-  /** Re-open at this capture size unless already open at it. Resolves once a frame has arrived. */
+  /** Re-open with this preferred size unless it was already requested. Resolves on a real frame. */
   ensureInputSize(inputSize: number): Promise<void>;
 }
 

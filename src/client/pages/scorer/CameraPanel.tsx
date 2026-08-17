@@ -47,7 +47,7 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
           playsInline
           muted
           autoPlay
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover object-center"
         />
         {/* Where the gate saw movement, one fading square per tile. The grid is pre-rendered once —
             CSS toggles opacity; no DOM is created or destroyed after mount. */}

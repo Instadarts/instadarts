@@ -25,9 +25,9 @@ itself is not in this repository.
 ## The path a dart takes
 
 ```
-camera.ts        a square stream at the configured rate (15fps), autofocus, zoom per lens
+camera.ts        the best stream the camera offers at 15fps, autofocus, zoom per lens
    ↓
-motion.ts        did the picture change? Only run the model if it did
+motion.ts        centre-square crop; did it change? Only run the model if it did
    ↓             (motionAnalysis.ts is the arithmetic: grey → blur → diff → per-tile counts)
 model.ts         one frame → two tensors. WebGPU preprocessing + inference, WASM CPU fallback
    ↓
@@ -53,6 +53,7 @@ so a person can slide the lens correction until the drawn lines sit on the real 
 |---|---|---|
 | Tensor decoding | `tests/unit/vision-postprocess.test.ts` | the `[C, N]` stride, the confidence floor, the 32 cap, pixel-vs-normalized coordinates |
 | Motion arithmetic | `tests/unit/vision-motion.test.ts` | luma weights, the Gaussian kernel and its edge clamping, the pixel threshold, tile counting |
+| Frame geometry | `tests/unit/frame.test.ts` | landscape/portrait centre crops and whole-image validation framing |
 | Lens geometry | `tests/unit/vision-lens.test.ts` | the homography round trip, ring order, k1 direction, bed placement |
 | Board geometry | `tests/unit/vision-geometry.test.ts` | image→board projection and scoring |
 | Fusion and tracking | `tests/unit/vision-fusion.test.ts`, `vision-session.test.ts`, `scorer-tips.test.ts` | which tips are one dart, when a visit ends |
@@ -61,7 +62,8 @@ so a person can slide the lens correction until the drawn lines sit on the real 
 The e2e run is the strongest of these: it loads the actual model and asserts the actual darts. It
 replaces exactly one thing — `getUserMedia` returns a canvas painted with a board photo
 ([`fakeCamera.ts`](../tests/e2e/fakeCamera.ts)) — and leaves the model, the preprocessing and the
-geometry alone.
+geometry alone. The fake can cap either camera axis independently; onboarding runs it as a
+1280×720-class camera so a landscape stream exercises the real centre-square path.
 
 ## What no test here can reach
 
@@ -103,7 +105,11 @@ no error at all*.
 **Timings come from the camera; correctness comes from the photographs.** The two are separate
 harness calls (`runCamera`, `runBoard`) rather than one, because they answer different questions: a
 frame's real cost can only be measured on the real source, and an answer can only be checked against
-a picture whose answer is known. Nobody knows what the camera is pointed at.
+a picture whose answer is known. Nobody knows what the camera is pointed at. Loading a runner never
+changes the camera: benchmarking explicitly asks for the model's preferred capture size first,
+while validation decodes each reference photograph independently and feeds its whole square to the
+same preprocessing. A non-square reference asset is rejected rather than silently cropped or
+squeezed, so camera resolution and framing cannot alter what validation sees.
 
 **Step four is optional, and is the only part of setup that draws anything.** Offered from the
 results rather than imposed: point the phone at a real board and it runs the chosen configuration
@@ -133,12 +139,12 @@ this is what each one covers.
 | Row | Covers | Notes |
 | --- | --- | --- |
 | Motion detector | one analyzer pass, on each analyzer | Always at `analyzeSize` **240 px** whatever the camera runs at, so this does not move with camera resolution. A single-digit CPU result is normal: it is 57,600 pixels, and the GPU cannot amortise `createImageBitmap` plus a `mapAsync` readback over that little work. |
-| 960 / 1280 px model | a **whole `run()`**, on all four pairings | Preprocessing, inference and readback together. Not split into a preprocessing figure and an inference figure: the GPU preprocessor never synchronises, so its compute lands inside the readback LiteRT's `modelMs` covers while the CPU's happens in full beforehand — subtracting would credit the GPU with work it merely hid. The whole run contains the same things on every path. **The camera is re-opened at each model's input size** before it is timed, since capture is square at that size and the scoring screen does the same — timing the large model against a small stream would measure a configuration that never runs. |
+| 960 / 1280 px model | a **whole `run()`**, on all four pairings | Preprocessing, inference and readback together. Not split into a preprocessing figure and an inference figure: the GPU preprocessor never synchronises, so its compute lands inside the readback LiteRT's `modelMs` covers while the CPU's happens in full beforehand — subtracting would credit the GPU with work it merely hid. The whole run contains the same things on every path. **The camera is re-opened with each model's input size as its preferred width and height** before timing. Hardware may return a smaller or landscape mode; the benchmark measures the actual stream and uniformly scales its centre square to the model input, exactly like the scoring screen. |
 | **The frame line** (`CameraPanel`) | all of `infer()` | Everything in a model cell, plus `ensureModel`, the calibration frame capture, `postprocess` and the geometry. |
 
 So the frame line should read **a little above the winning cell** of whichever model is in use — the
-two now read the same source at the same size, so a large gap is the rest of `infer()` and not a
-difference in what was measured.
+two read the same source with the same crop and model input size, so a large gap is the rest of
+`infer()` and not a difference in what was measured.
 
 #### The four pairings, and why it is a table
 
@@ -213,9 +219,14 @@ the knob if it does not.
 
 ### The camera
 
-- **Constraints** — `resizeMode: crop-and-scale`, `focusMode: continuous`, `contentHint: detail`.
-  None is standard; each is honoured by some browsers and ignored by others, and the fake camera in
-  tests honours none of them — only the requested square size, which onboarding depends on.
+- **Constraints** — square `width`/`height` ideals, `aspectRatio: 1`,
+  `resizeMode: crop-and-scale`, `focusMode: continuous`, `contentHint: detail`. They are preferences,
+  not requirements: browsers and cameras may return a smaller landscape mode such as 1280×720.
+- **Framing** — every live consumer uses the same centred square from whatever stream arrives:
+  inference, both motion analyzers, calibration, still capture, and outgoing video. The onboarding
+  and scoring previews are square `object-cover` boxes centred on the stream, so the person sees
+  exactly that same crop. The crop is uniformly resized to 960×960 or 1280×1280 for the model; it is
+  never squeezed from the stream's original aspect ratio.
 - **Zoom** — `getCapabilities().zoom` exists on Android Chrome and mostly does not on iOS Safari.
   The per-lens zoom memory can only be exercised with a lens.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is

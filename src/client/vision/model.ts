@@ -10,10 +10,7 @@
 
 import { getWebGpuDevice, setWebGpuDevice, isWebGPUSupported, loadLiteRt, loadAndCompile, Tensor } from '@litertjs/core';
 import { e2eEnabled } from '../lib/e2e';
-
-
-/** A source the pipeline can read a frame from. */
-type FrameSource = HTMLVideoElement | HTMLCanvasElement | OffscreenCanvas | ImageBitmap;
+import { getModelInputCrop, type FrameSource, type ModelInputFraming } from './frame';
 
 /** A canvas of either kind, since OffscreenCanvas is used where the platform has it. */
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
@@ -51,6 +48,8 @@ export interface ModelRunner {
 
 export interface RunOptions {
   forceCpuPreprocessing?: boolean;
+  /** Live cameras crop to their centre square; validation photographs must use every pixel. */
+  framing?: ModelInputFraming;
 }
 
 const LITERT_WASM_PATH = '/wasm/';
@@ -238,30 +237,6 @@ async function loadWasmRunner(modelUrl: string) {
   return createWasmRunner(model);
 }
 
-function getSourceDimensions(source: FrameSource) {
-  // Each kind of source names its own size differently, and none of them share a base type.
-  const any = source as { videoWidth?: number; displayWidth?: number; width?: number; videoHeight?: number; displayHeight?: number; height?: number };
-  const w = any.videoWidth || any.displayWidth || any.width || 0;
-  const h = any.videoHeight || any.displayHeight || any.height || 0;
-  if (!w || !h) throw new Error("Invalid source dimensions");
-  return { width: w, height: h };
-}
-
-// Exported because lens calibration freezes the exact square the model was fed, and it has to crop
-// the video the same way the inference path does or the projected spider would sit on a
-// differently-framed picture.
-export function getCenterSquareCrop(source: FrameSource) {
-  const { width: sourceWidth, height: sourceHeight } = getSourceDimensions(source);
-  const cropSize = Math.min(sourceWidth, sourceHeight);
-  return {
-    sourceWidth,
-    sourceHeight,
-    cropX: Math.max(0, Math.floor((sourceWidth - cropSize) / 2)),
-    cropY: Math.max(0, Math.floor((sourceHeight - cropSize) / 2)),
-    cropSize,
-  };
-}
-
 function ensurePreprocessingResources(inputSize: number) {
   if (!preprocessingCanvas) {
     if (typeof OffscreenCanvas === "function") {
@@ -300,14 +275,14 @@ function ensurePreprocessingResources(inputSize: number) {
   };
 }
 
-function createCpuInputTensor(sourceFrame: FrameSource, inputSize: number) {
-  const inputBuffer = fillCpuInputBuffer(sourceFrame, inputSize);
+function createCpuInputTensor(sourceFrame: FrameSource, inputSize: number, framing: ModelInputFraming) {
+  const inputBuffer = fillCpuInputBuffer(sourceFrame, inputSize, framing);
   return new Tensor(inputBuffer, [1, 3, inputSize, inputSize]);
 }
 
-function fillCpuInputBuffer(sourceFrame: FrameSource, inputSize: number) {
+function fillCpuInputBuffer(sourceFrame: FrameSource, inputSize: number, framing: ModelInputFraming) {
   // Convert the captured frame to the model's square RGB float tensor.
-  const { cropX, cropY, cropSize } = getCenterSquareCrop(sourceFrame);
+  const { cropX, cropY, cropSize } = getModelInputCrop(sourceFrame, framing);
   const { ctx, inputBuffer } = ensurePreprocessingResources(inputSize);
   ctx.drawImage(sourceFrame, cropX, cropY, cropSize, cropSize, 0, 0, inputSize, inputSize);
   const imageData = ctx.getImageData(0, 0, inputSize, inputSize);
@@ -469,11 +444,11 @@ function createWebGpuPreprocessor() {
     // browser do a high-quality resize to inputSize when it honors the resize options. The source
     // texture is sized from the *returned* bitmap, so the compute shader still scales correctly if a
     // browser ignores those options and hands back a crop-sized bitmap.
-    async preprocess(sourceFrame: FrameSource, inputSize: number): Promise<Tensor> {
+    async preprocess(sourceFrame: FrameSource, inputSize: number, framing: ModelInputFraming): Promise<Tensor> {
       if (typeof createImageBitmap !== "function") {
         throw new Error("createImageBitmap is not available");
       }
-      const { cropX, cropY, cropSize } = getCenterSquareCrop(sourceFrame);
+      const { cropX, cropY, cropSize } = getModelInputCrop(sourceFrame, framing);
       const bitmap = await createImageBitmap(sourceFrame, cropX, cropY, cropSize, cropSize, {
         resizeWidth: inputSize,
         resizeHeight: inputSize,
@@ -603,13 +578,17 @@ function createWasmRunner(model: any): ModelRunner {
     accelerator: "wasm",
     ...getModelDetails(model),
     async run(sourceFrame, inputSize, options = {}) {
+      const framing = options.framing ?? 'center-square';
+      // Validate whole-image sources before entering a GPU fallback path. A malformed validation
+      // asset is not a GPU failure and must not disable acceleration for later frames.
+      getModelInputCrop(sourceFrame, framing);
       let gpuTensor: Tensor | null = null;
       let inputTensor: Tensor | null = null;
       let preprocessMode = "cpu";
 
       if (!options.forceCpuPreprocessing && ensureGpuPreprocessor()) {
         try {
-          gpuTensor = await gpuPreprocessor!.preprocess(sourceFrame, inputSize);
+          gpuTensor = await gpuPreprocessor!.preprocess(sourceFrame, inputSize, framing);
           // The readback. `moveTo` is what makes the GPU actually finish the work as well as hand
           // it over, so the cost of the shader is inside this await rather than hidden behind it.
           inputTensor = await gpuTensor.moveTo("wasm");
@@ -619,7 +598,7 @@ function createWasmRunner(model: any): ModelRunner {
           console.warn("[ADPA] LiteRT: WebGPU preprocessing failed on the CPU runner; using CPU preprocessing", e);
         }
       }
-      if (!inputTensor) inputTensor = createCpuInputTensor(sourceFrame, inputSize);
+      if (!inputTensor) inputTensor = createCpuInputTensor(sourceFrame, inputSize, framing);
 
       let outputs = null;
       const tModel = performance.now();
@@ -657,8 +636,12 @@ function createWebGpuRunner(model: any): ModelRunner {
     }
   }
 
-  async function createMovedCpuInputTensor(sourceFrame: FrameSource, inputSize: number) {
-    const inputTensor = createCpuInputTensor(sourceFrame, inputSize);
+  async function createMovedCpuInputTensor(
+    sourceFrame: FrameSource,
+    inputSize: number,
+    framing: ModelInputFraming,
+  ) {
+    const inputTensor = createCpuInputTensor(sourceFrame, inputSize, framing);
     let inferenceInput = inputTensor;
     let gpuInput = null;
     try {
@@ -677,8 +660,12 @@ function createWebGpuRunner(model: any): ModelRunner {
     };
   }
 
-  async function createGpuPreprocessedInputTensor(sourceFrame: FrameSource, inputSize: number) {
-    const inputTensor = await gpuPreprocessor!.preprocess(sourceFrame, inputSize);
+  async function createGpuPreprocessedInputTensor(
+    sourceFrame: FrameSource,
+    inputSize: number,
+    framing: ModelInputFraming,
+  ) {
+    const inputTensor = await gpuPreprocessor!.preprocess(sourceFrame, inputSize, framing);
     return {
       inferenceInput: inputTensor,
       preprocessMode: "gpu-bitmap",
@@ -692,17 +679,19 @@ function createWebGpuRunner(model: any): ModelRunner {
     accelerator: "webgpu",
     ...getModelDetails(model),
     async run(sourceFrame, inputSize, options = {}) {
+      const framing = options.framing ?? 'center-square';
+      getModelInputCrop(sourceFrame, framing);
       let input = null;
       if (ENABLE_WEBGPU_PREPROCESSING && !options.forceCpuPreprocessing && gpuPreprocessor && !gpuPreprocessorDisabled) {
         try {
-          input = await createGpuPreprocessedInputTensor(sourceFrame, inputSize);
+          input = await createGpuPreprocessedInputTensor(sourceFrame, inputSize, framing);
         } catch (e) {
           gpuPreprocessorDisabled = true;
           console.warn("[ADPA] LiteRT: WebGPU preprocessing failed; using CPU preprocessing", e);
         }
       }
       if (!input) {
-        input = await createMovedCpuInputTensor(sourceFrame, inputSize);
+        input = await createMovedCpuInputTensor(sourceFrame, inputSize, framing);
       }
 
       let outputs = null;

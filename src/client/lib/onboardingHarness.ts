@@ -4,10 +4,10 @@
 // implementation of that interface against a real browser — and it is deliberately the dull half,
 // because it is the half no unit test can reach.
 //
-// It measures through the **camera the person just chose**, at the capture size the model in
-// question wants, because that is the pipeline the scoring screen will actually run. Only the final
-// validation departs from that: it reads two photographs whose answers are known, since a check
-// against whatever the camera happens to be pointed at proves nothing.
+// It measures through the **camera the person just chose**, after asking for the capture size the
+// model wants, because that is the pipeline the scoring screen will actually run. The browser may
+// return a landscape or lower-resolution mode; all live consumers use its centre square. The final
+// validation is independent: it reads whole square photographs whose answers are known.
 
 import { ensureLiteRtReady, loadModel, unloadModel } from '../vision/model';
 import { MODELS } from '../vision/visionRuntime';
@@ -60,15 +60,19 @@ export async function createOnboardingHarness(
   let loadedModel = '';
   let disposed = false;
 
-  /** The size the loaded model wants, which is also the size the camera is open at. */
+  /** The square input size the loaded model wants. */
   const inputSize = () => MODELS[loadedModel].inputSize;
 
-  async function timedRun(source: HTMLVideoElement | ImageBitmap, forceCpuPreprocessing: boolean) {
+  async function timedRun(
+    source: HTMLVideoElement | ImageBitmap,
+    forceCpuPreprocessing: boolean,
+    framing: 'center-square' | 'whole-square',
+  ) {
     if (!runner) throw new Error('run before loadRunner');
     // Wall clock around the whole call, which is what makes the cells comparable: LiteRT's own
     // `modelMs` starts after preprocessing, so it barely moves between the preprocessing paths.
     const startedAt = performance.now();
-    const result = await runner.run(source, inputSize(), { forceCpuPreprocessing });
+    const result = await runner.run(source, inputSize(), { forceCpuPreprocessing, framing });
     return { totalMs: performance.now() - startedAt, result };
   }
 
@@ -83,6 +87,12 @@ export async function createOnboardingHarness(
     // against does less work, and the warmup either side of this absorbs it.
     setMotionForceCpu: (force: boolean) => motion.setForceCpu(force),
 
+    async prepareCamera(model) {
+      const entry = MODELS[model];
+      if (!entry) throw new Error(`No such model: ${model}`);
+      await camera.ensureInputSize(entry.inputSize);
+    },
+
     async loadRunner(model, forceCpuInference) {
       const entry = MODELS[model];
       if (!entry) throw new Error(`No such model: ${model}`);
@@ -91,25 +101,22 @@ export async function createOnboardingHarness(
       // It also clears the latch that disables GPU preprocessing after one failure, so a single
       // hiccup cannot poison every measurement that follows it.
       await unloadModel();
-      // The camera follows the model here exactly as it does on the scoring screen: capture is
-      // square at the input size, so timing the larger model against a smaller stream would measure
-      // a configuration that never runs. `ensureInputSize` is a no-op at the size already open, so
-      // this costs one restart per model rather than one per inference path.
-      await camera.ensureInputSize(entry.inputSize);
       runner = await loadModel(entry.url, forceCpuInference ? 'wasm' : 'webgpu');
       loadedModel = model;
       return { accelerator: runner.accelerator || 'wasm' };
     },
 
     async runCamera(forceCpuPreprocessing) {
-      const { totalMs, result } = await timedRun(camera.video, forceCpuPreprocessing);
+      const { totalMs, result } = await timedRun(camera.video, forceCpuPreprocessing, 'center-square');
       return { totalMs, preprocessMode: result.preprocessMode };
     },
 
     async runBoard(board: ReferenceBoard, forceCpuPreprocessing) {
       const bitmap = boards.get(board.key);
       if (!bitmap) throw new Error(`No reference image for ${board.key}`);
-      const { result } = await timedRun(bitmap, forceCpuPreprocessing);
+      // Unlike a camera frame, a reference photograph must be consumed whole. The runner enforces
+      // that the asset is square rather than silently cropping or distorting a malformed one.
+      const { result } = await timedRun(bitmap, forceCpuPreprocessing, 'whole-square');
 
       // Thresholds are the tuned defaults rather than this device's stored ones, because the counts
       // the reference boards are expected to produce were established at those. No lens correction:

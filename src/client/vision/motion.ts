@@ -15,6 +15,7 @@
 
 import { getWebGpuDevice } from "@litertjs/core";
 import { diffMask, fillTileCounts, gaussianBlur, rgbaToGray, type MotionDefaults } from './motionAnalysis';
+import { getCenterSquareCrop } from './frame';
 
 export type { MotionDefaults };
 
@@ -954,24 +955,5 @@ function createWebGpuMotionAnalyzer({ defaults, onModeChange }: { defaults: Moti
     },
     reset,
     analyze,
-  };
-}
-
-function getSourceDimensions(source: HTMLVideoElement): { width: number; height: number } {
-  // A video names its size three different ways depending on where it came from.
-  const any = source as { videoWidth?: number; displayWidth?: number; width?: number; videoHeight?: number; displayHeight?: number; height?: number };
-  const width = any.videoWidth || any.displayWidth || any.width || 0;
-  const height = any.videoHeight || any.displayHeight || any.height || 0;
-  if (!width || !height) throw new Error("Invalid source dimensions");
-  return { width, height };
-}
-
-function getCenterSquareCrop(source: HTMLVideoElement): { cropX: number; cropY: number; cropSize: number } {
-  const { width, height } = getSourceDimensions(source);
-  const cropSize = Math.min(width, height);
-  return {
-    cropX: Math.max(0, Math.floor((width - cropSize) / 2)),
-    cropY: Math.max(0, Math.floor((height - cropSize) / 2)),
-    cropSize,
   };
 }

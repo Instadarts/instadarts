@@ -20,7 +20,7 @@ import type { Region } from '../../shared/media';
 import { BOARD_MAX } from '../../shared/scoring';
 import { invertMatrix3x3, transformPoint } from '../../shared/vision/homography';
 import { distortNormalizedPoint, sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
-import { getCenterSquareCrop } from './model';
+import { getCenterSquareCrop } from './frame';
 
 /** A square of the source frame, in its own pixels. */
 export interface CropRect {

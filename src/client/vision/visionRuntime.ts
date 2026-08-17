@@ -10,7 +10,8 @@
 // Heavily tuned for phone performance — motion gating, frame pacing, tensor reuse, the WebGPU/WASM
 // fallback chain. Do not "clean up" without a benchmark on a real device.
 
-import { getCenterSquareCrop, loadModel, unloadModel, type ModelRunner } from './model';
+import { loadModel, unloadModel, type ModelRunner } from './model';
+import { getCenterSquareCrop } from './frame';
 import { postprocess } from './postprocess';
 import { createMotionDetector, type MotionDetector, type MotionReport } from './motion';
 import { createCamera, listCameras, preferredCamera, type Camera, type CameraChoice } from './camera';

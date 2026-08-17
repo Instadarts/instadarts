@@ -5,7 +5,7 @@
 // board, and the person who set it up is not standing next to it any more.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { preferredCamera } from '../../src/client/vision/camera';
+import { buildCameraConstraints, preferredCamera } from '../../src/client/vision/camera';
 
 const SETTINGS_KEY = 'instadarts_scorer_settings';
 const store = new Map<string, string>();
@@ -65,5 +65,18 @@ describe('choosing a camera with one stored', () => {
   it('falls back rather than failing when the stored camera is not plugged in', () => {
     remember('Some camera that went away');
     expect(choose('Front Camera', 'Back Camera')).toBe('Back Camera');
+  });
+});
+
+describe('camera capture constraints', () => {
+  it('prefers a square stream without requiring unsupported hardware to provide one', () => {
+    const constraints = buildCameraConstraints(960);
+    expect(constraints.audio).toBe(false);
+    expect(constraints.video).toMatchObject({
+      width: { ideal: 960 },
+      height: { ideal: 960 },
+      aspectRatio: { ideal: 1 },
+      resizeMode: 'crop-and-scale',
+    });
   });
 });

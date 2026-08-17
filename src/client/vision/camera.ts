@@ -85,17 +85,19 @@ interface ScorerCapabilities extends MediaTrackCapabilities {
 
 /** Whether the platform knows a constraint at all — the same non-standard set as above. */
 function supports(constraint: 'focusMode'): boolean {
-  return constraint in navigator.mediaDevices.getSupportedConstraints();
+  return constraint in (navigator.mediaDevices?.getSupportedConstraints?.() ?? {});
 }
 
 /**
- * Square capture at the model's input size, at the configured frame rate, continuous autofocus
- * where supported. crop-and-scale keeps the sensor's centre square rather than letterboxing.
+ * Prefer square capture at the model's input size, at the configured frame rate, with continuous
+ * autofocus where supported. These are ideals: cameras commonly return a landscape mode instead.
+ * Every vision consumer therefore applies the same centre-square crop in software as the fallback.
  */
 export function buildCameraConstraints(inputSize: number): MediaStreamConstraints {
   const video: ScorerVideoConstraints = {
       width: { ideal: inputSize },
       height: { ideal: inputSize },
+      aspectRatio: { ideal: 1 },
       frameRate: { ideal: cameraFrameRate() },
       resizeMode: 'crop-and-scale',
       ...(supports('focusMode') ? { focusMode: { ideal: 'continuous' } } : {}),

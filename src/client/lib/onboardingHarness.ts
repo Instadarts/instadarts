@@ -87,6 +87,8 @@ export async function createOnboardingHarness(
     // against does less work, and the warmup either side of this absorbs it.
     setMotionForceCpu: (force: boolean) => motion.setForceCpu(force),
 
+    cameraMaximumShortSide: () => camera.maximumShortSide(),
+
     async prepareCamera(model) {
       const entry = MODELS[model];
       if (!entry) throw new Error(`No such model: ${model}`);

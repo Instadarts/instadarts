@@ -16,6 +16,7 @@ import {
   DNF,
   BRACKETS,
   TRY_LARGE_BELOW_MS,
+  TRY_LARGE_ABOVE_CAMERA_SHORT_SIDE,
   KEEP_LARGE_BELOW_MS,
   REFERENCE_BOARDS,
   type ChosenSettings,
@@ -48,6 +49,8 @@ interface Device {
   gpuPreprocessFallsBack?: boolean;
   /** Which configurations read the boards correctly. Default: all of them. */
   reads?: (chosen: ChosenSettings) => boolean;
+  /** Selected camera capability; null/omitted means the browser does not advertise it. */
+  cameraMaximumShortSide?: number | null;
 }
 
 function fakeHarness(device: Device) {
@@ -79,6 +82,7 @@ function fakeHarness(device: Device) {
     async prepareCamera(model) {
       prepared.push(model);
     },
+    cameraMaximumShortSide: () => device.cameraMaximumShortSide ?? null,
     async loadRunner(model, forceCpuInference) {
       loads.push({ model, forceCpuInference });
       chosen.model = model;
@@ -105,7 +109,11 @@ function fakeHarness(device: Device) {
       await harness.runCamera(forceCpuPreprocessing);
       boardsRead.push(board.key);
       const ok = device.reads ? device.reads(chosen) : true;
-      return { counts: ok ? { boardKeypoints: board.boardKeypoints, tipKeypoints: board.tipKeypoints } : null };
+      return {
+        counts: ok
+          ? { boardKeypoints: board.minimumBoardKeypoints, tipKeypoints: board.tipKeypoints }
+          : null,
+      };
     },
     apply(patch) {
       applied.push(patch);
@@ -251,6 +259,25 @@ describe('the model matrices', () => {
   it('gives the larger model a table of its own when it is worth trying', async () => {
     const { result } = await run({ inference: { s_960: 40, s_1280: 90 } });
     expect(cellsOf(result, 'model1280')['gpu-gpu'].kind).toBe('ms');
+    expect(result.settings.model).toBe('s_1280');
+  });
+
+  it('skips the larger model when the camera cannot provide more than 960 px of source detail', async () => {
+    const { result, loads } = await run({
+      cameraMaximumShortSide: TRY_LARGE_ABOVE_CAMERA_SHORT_SIDE,
+      inference: { s_960: 40, s_1280: 50 },
+    });
+    expect(result.stages.some((stage) => stage.stage === 'model1280')).toBe(false);
+    expect(loads.some((load) => load.model === 's_1280')).toBe(false);
+    expect(result.settings.model).toBe('s_960');
+  });
+
+  it('still tries the larger model just above the camera-resolution boundary', async () => {
+    const { result } = await run({
+      cameraMaximumShortSide: TRY_LARGE_ABOVE_CAMERA_SHORT_SIDE + 1,
+      inference: { s_960: 40, s_1280: 50 },
+    });
+    expect(result.stages.some((stage) => stage.stage === 'model1280')).toBe(true);
     expect(result.settings.model).toBe('s_1280');
   });
 

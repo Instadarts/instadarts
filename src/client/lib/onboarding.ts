@@ -77,6 +77,7 @@ function bestCombo(matrix: ModelMatrix): ComboKey | null {
  */
 export const TRY_LARGE_BELOW_MS = 250;
 export const KEEP_LARGE_BELOW_MS = 350;
+export const TRY_LARGE_ABOVE_CAMERA_SHORT_SIDE = 960;
 
 export const BRACKETS = {
   motion: { good: 15, okay: 35 },
@@ -129,15 +130,15 @@ const MATRIX_RUNS = 5;
 export interface ReferenceBoard {
   key: 'empty' | 'darts';
   url: string;
-  /** Class 0–7 keypoints above threshold. Structurally at most 8 — one per board class. */
-  boardKeypoints: number;
+  /** Minimum class 0–7 keypoints above threshold. Seven is enough for a stable homography. */
+  minimumBoardKeypoints: number;
   /** Class 8 keypoints, after threshold and dedup. */
   tipKeypoints: number;
 }
 
 export const REFERENCE_BOARDS: ReferenceBoard[] = [
-  { key: 'empty', url: '/reference/board-empty.jpg', boardKeypoints: 8, tipKeypoints: 0 },
-  { key: 'darts', url: '/reference/board-three-darts.jpg', boardKeypoints: 8, tipKeypoints: 3 },
+  { key: 'empty', url: '/reference/board-empty.jpg', minimumBoardKeypoints: 7, tipKeypoints: 0 },
+  { key: 'darts', url: '/reference/board-three-darts.jpg', minimumBoardKeypoints: 7, tipKeypoints: 3 },
 ];
 
 /** The four settings the self-test decides. Everything else about the device is left alone. */
@@ -167,6 +168,8 @@ export interface OnboardingHarness {
   setMotionForceCpu(force: boolean): void;
   /** Ask the live camera for this model's preferred capture size before benchmarking it. */
   prepareCamera(model: string): Promise<void>;
+  /** Maximum shorter camera dimension, or null where the browser does not expose capabilities. */
+  cameraMaximumShortSide(): number | null;
   /** Unload whatever is loaded, then load this. Returns what actually came up. */
   loadRunner(model: string, forceCpuInference: boolean): Promise<{ accelerator: string }>;
   /** One inference on the live camera frame — a cell of the matrix. */
@@ -274,9 +277,14 @@ export async function runOnboarding(
 
   let chosenCombo = smallBest;
   const bestMs = msOf(small, smallBest);
+  const maximumShortSide = harness.cameraMaximumShortSide();
+  const cameraHasUsefulLargeInput = maximumShortSide === null
+    || maximumShortSide > TRY_LARGE_ABOVE_CAMERA_SHORT_SIDE;
 
-  // The larger model is only worth its own table if the small one left headroom for it.
-  if (bestMs < TRY_LARGE_BELOW_MS) {
+  // The larger model is only worth its own table if the small one left headroom and the camera can
+  // provide more source detail than the small model already consumes. Unknown capabilities retain
+  // the old timing-only behavior rather than treating missing browser information as a low limit.
+  if (bestMs < TRY_LARGE_BELOW_MS && cameraHasUsefulLargeInput) {
     log(`The 960 px model runs in ${Math.round(bestMs)}ms — trying the larger one.`);
     const large = await measureMatrix(harness, 's_1280');
     const largeBest = bestCombo(large);
@@ -303,7 +311,12 @@ export async function runOnboarding(
   } else {
     // A repeat setup may arrive with the large model stored. "Not worth testing" still means the
     // measured 960 px model is the choice; otherwise the run would leave an unmeasured model active.
-    decide({ model: 's_960' }, 'Staying on the 960 px model; there is no headroom for the larger one.');
+    decide(
+      { model: 's_960' },
+      !cameraHasUsefulLargeInput
+        ? `The camera provides at most ${Math.round(maximumShortSide!)} px on its shorter side; staying on the 960 px model.`
+        : 'Staying on the 960 px model; there is no headroom for the larger one.',
+    );
   }
 
   // Both switches come from one cell, so they cannot be chosen in a way no run ever measured.
@@ -428,8 +441,8 @@ async function validate(harness: OnboardingHarness, chosen: ChosenSettings): Pro
     // Null counts mean `processPredictions` could not solve a homography — fewer than four board
     // keypoints. That is the exact shape of the silent failure this stage is here to catch.
     if (!counts) return `The ${board.key} board produced no usable keypoints.`;
-    if (counts.boardKeypoints !== board.boardKeypoints || counts.tipKeypoints !== board.tipKeypoints) {
-      return `The ${board.key} board read ${counts.boardKeypoints} board points and ${counts.tipKeypoints} tips, expected ${board.boardKeypoints} and ${board.tipKeypoints}.`;
+    if (counts.boardKeypoints < board.minimumBoardKeypoints || counts.tipKeypoints !== board.tipKeypoints) {
+      return `The ${board.key} board read ${counts.boardKeypoints} board points and ${counts.tipKeypoints} tips, expected at least ${board.minimumBoardKeypoints} and exactly ${board.tipKeypoints}.`;
     }
   }
   return null;

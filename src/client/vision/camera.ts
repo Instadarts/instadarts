@@ -28,6 +28,7 @@ export interface ZoomRange {
 export interface Camera {
   start(deviceId: string, inputSize: number): Promise<{ label: string; settings: MediaTrackSettings }>;
   stop(): void;
+  maximumShortSide(): number | null;
   zoomRange(): ZoomRange | null;
   applyZoom(value: number): Promise<number | null>;
   storedZoom(): number | null;
@@ -81,6 +82,18 @@ interface ScorerVideoConstraints extends MediaTrackConstraints {
 
 interface ScorerCapabilities extends MediaTrackCapabilities {
   zoom?: { min: number; max: number; step?: number };
+}
+
+/** Maximum usable square side advertised by a track, or unknown where the browser omits it. */
+export function maximumCameraShortSide(capabilities: MediaTrackCapabilities | undefined): number | null {
+  const caps = capabilities as (ScorerCapabilities & {
+    width?: { max?: number };
+    height?: { max?: number };
+  }) | undefined;
+  const width = Number(caps?.width?.max);
+  const height = Number(caps?.height?.max);
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return null;
+  return Math.min(width, height);
 }
 
 /** Whether the platform knows a constraint at all — the same non-standard set as above. */
@@ -177,6 +190,11 @@ export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
     video.srcObject = null;
   }
 
+  /** Largest square the selected track advertises, independent of the currently requested mode. */
+  function maximumShortSide(): number | null {
+    return maximumCameraShortSide(track?.getCapabilities?.());
+  }
+
   /** Zoom range if the platform exposes it (Android Chrome does; iOS Safari mostly does not). */
   function zoomRange(): ZoomRange | null {
     const caps = track?.getCapabilities?.() as ScorerCapabilities | undefined;
@@ -200,6 +218,7 @@ export function createCamera({ video }: { video: HTMLVideoElement }): Camera {
   return {
     start,
     stop,
+    maximumShortSide,
     zoomRange,
     applyZoom,
     storedZoom,

@@ -23,6 +23,8 @@ import { loadSettings } from '../lib/scorerStorage';
  */
 export interface OnboardingCamera {
   video: HTMLVideoElement;
+  /** Maximum shorter camera dimension, or null when the browser does not advertise capabilities. */
+  maximumShortSide(): number | null;
   /** Re-open with this preferred size unless it was already requested. Resolves on a real frame. */
   ensureInputSize(inputSize: number): Promise<void>;
 }
@@ -136,6 +138,7 @@ export function useOnboardingCamera() {
     if (phase !== 'ready' || !video) return null;
     return {
       video,
+      maximumShortSide: () => cameraRef.current?.maximumShortSide() ?? null,
       ensureInputSize: async (inputSize: number) => {
         if (openedAt.current === inputSize) return;
         await open(deviceId.current, inputSize);

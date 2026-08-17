@@ -110,6 +110,8 @@ changes the camera: benchmarking explicitly asks for the model's preferred captu
 while validation decodes each reference photograph independently and feeds its whole square to the
 same preprocessing. A non-square reference asset is rejected rather than silently cropped or
 squeezed, so camera resolution and framing cannot alter what validation sees.
+Validation is a pipeline health check rather than an accuracy benchmark: a usable homography with
+at least seven of the eight board landmarks passes, while the known dart-tip count must match.
 
 **Step four is optional, and is the only part of setup that draws anything.** Offered from the
 results rather than imposed: point the phone at a real board and it runs the chosen configuration
@@ -212,10 +214,13 @@ and see whether scoring gets better.
   performance consequence.
 
 *To check:* the self-test's inference figure is the quick reading, and is what the model choice is
-made from — under 250 ms on the small model is what makes the large one worth trying at all. It
-cannot see heat, though: run a full leg on the phone you intend to use, watch the ms figure, and
-confirm it behaves over the length of a session rather than only at the start. `WASM_MAX_THREADS` is
-the knob if it does not.
+made from — under 250 ms on the small model is what makes the large one worth trying at all. It also
+skips the large model when the selected track advertises a maximum shorter side of 960 px or less:
+upscaling the same source detail into a 1280 input buys nothing. Missing capability data keeps the
+timing-only behavior. This gate applies only to onboarding; both models remain available in Settings.
+The self-test cannot see heat, though: run a full leg on the phone you intend to use, watch the ms
+figure, and confirm it behaves over the length of a session rather than only at the start.
+`WASM_MAX_THREADS` is the knob if it does not.
 
 ### The camera
 

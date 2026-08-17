@@ -5,7 +5,7 @@
 // board, and the person who set it up is not standing next to it any more.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { buildCameraConstraints, preferredCamera } from '../../src/client/vision/camera';
+import { buildCameraConstraints, maximumCameraShortSide, preferredCamera } from '../../src/client/vision/camera';
 
 const SETTINGS_KEY = 'instadarts_scorer_settings';
 const store = new Map<string, string>();
@@ -78,5 +78,14 @@ describe('camera capture constraints', () => {
       aspectRatio: { ideal: 1 },
       resizeMode: 'crop-and-scale',
     });
+  });
+
+  it('uses the maximum shorter camera dimension as the useful square resolution', () => {
+    const capabilities = {
+      width: { min: 320, max: 1280 },
+      height: { min: 240, max: 720 },
+    } as MediaTrackCapabilities;
+    expect(maximumCameraShortSide(capabilities)).toBe(720);
+    expect(maximumCameraShortSide({})).toBeNull();
   });
 });

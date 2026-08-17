@@ -165,6 +165,17 @@ export async function installFakeCamera(
           // against the enumerated one — so the double has to imitate it or nothing round-trips.
           for (const track of stream.getVideoTracks()) {
             Object.defineProperty(track, 'label', { value: fakeDevice.label, configurable: true });
+            if (options.maxWidth && options.maxHeight) {
+              const getCapabilities = track.getCapabilities?.bind(track);
+              Object.defineProperty(track, 'getCapabilities', {
+                configurable: true,
+                value: () => ({
+                  ...(getCapabilities?.() ?? {}),
+                  width: { min: 1, max: options.maxWidth },
+                  height: { min: 1, max: options.maxHeight },
+                }),
+              });
+            }
             const canvasTrack = track as CanvasCaptureMediaStreamTrack;
             state.tracks.add(canvasTrack);
             fakeTrackIds.add(track.id);

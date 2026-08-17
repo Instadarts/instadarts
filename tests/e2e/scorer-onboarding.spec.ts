@@ -17,9 +17,9 @@
 //   8. a phone that cannot have a camera is told why, and can still leave
 //   9. the optional last step draws what the model sees on the live feed
 //
-// (7) is also the only thing that checks the downscaled 1280 px images that ship to the client. The
-// rest of the suite asserts against the 1920 px originals in tests/media, so if a resize ever spoils
-// detection, this is where it surfaces.
+// (7) also checks the compact validation images shipped to the client. This is a pipeline health
+// check, not an accuracy benchmark: seven of eight board landmarks is a valid homography, while the
+// expected dart-tip count must still be exact.
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
@@ -133,15 +133,14 @@ test.describe('setting up a scoring device', () => {
 
     // The decision is persisted, not just displayed — including which camera was used.
     const settings = await storedSettings(scorer);
-    expect(['s_960', 's_1280']).toContain(settings.model);
+    expect(settings.model, 'a 720p camera has no extra source detail for the 1280 model').toBe('s_960');
     expect(settings.deviceName, 'the name typed in step one').toBe('Board camera');
     expect(settings.camera, 'the camera it opened is the one it will open next time').toBe('Fake board camera');
 
-    // **The preferred capture width follows the model, while real hardware chooses the mode.** This
-    // fake is capped at 720 rows, so both model sizes must consume the same centred 720x720 camera
-    // square and leave the landscape stream in the configuration that was benchmarked.
-    const expected = settings.model === 's_1280' ? 1280 : 960;
-    expect(await previewSize(scorer)).toEqual({ width: expected, height: 720 });
+    // The fake advertises a 720 px maximum shorter side, so onboarding does not waste time testing
+    // the 1280 model and leaves the stream at the small model's preferred width.
+    await expect(scorer.getByTestId('stage-model1280')).toHaveCount(0);
+    expect(await previewSize(scorer)).toEqual({ width: 960, height: 720 });
 
     // 9. The optional last step, on the way out. The fake camera is showing a real board with three
     // darts in it, so this is the whole feature end to end against the real model: the spider is

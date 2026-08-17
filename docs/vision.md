@@ -222,11 +222,12 @@ the knob if it does not.
 - **Constraints** — square `width`/`height` ideals, `aspectRatio: 1`,
   `resizeMode: crop-and-scale`, `focusMode: continuous`, `contentHint: detail`. They are preferences,
   not requirements: browsers and cameras may return a smaller landscape mode such as 1280×720.
-- **Framing** — every live consumer uses the same centred square from whatever stream arrives:
-  inference, both motion analyzers, calibration, still capture, and outgoing video. The onboarding
-  and scoring previews are square `object-cover` boxes centred on the stream, so the person sees
-  exactly that same crop. The crop is uniformly resized to 960×960 or 1280×1280 for the model; it is
-  never squeezed from the stream's original aspect ratio.
+- **Framing** — inference, both motion analyzers, and calibration use the same centred square from
+  whatever stream arrives. Still and outgoing-video geometry use that square as their coordinate
+  basis, then may select a smaller board region. The onboarding and scoring previews are square
+  `object-cover` boxes centred on the stream, so the person sees exactly the model's base crop. It is
+  uniformly resized to 960×960 or 1280×1280 for the model, never squeezed from the stream's original
+  aspect ratio.
 - **Zoom** — `getCapabilities().zoom` exists on Android Chrome and mostly does not on iOS Safari.
   The per-lens zoom memory can only be exercised with a lens.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is

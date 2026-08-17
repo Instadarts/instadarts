@@ -822,10 +822,13 @@ clears the row along with the slots above it.
 
 ### Board video
 
-A live picture of a [board camera](#board-camera)'s view. The [tier](#media-tier) has to be `video`.
-The server sends the selected scorer a retained `media_source_state` with a source epoch and audience;
-the camera creates one feed UUID for that epoch and announces it to each eligible peer. Frames are
-encoded once and written only to exact eligible recipients that accepted that UUID.
+A square live picture from a [board camera](#board-camera). Before a
+[director command](#director-command) selects a smaller board region, it opens on the camera
+stream's centred square—the same base crop scoring, motion detection, still geometry, and the local
+preview use. The [tier](#media-tier) has to be `video`. The server sends the selected scorer a
+retained `media_source_state` with a source epoch and audience; the camera creates one feed UUID for
+that epoch and announces it to each eligible peer. Frames are encoded once and written only to
+exact eligible recipients that accepted that UUID.
 
 A participant frontend reload keeps the source epoch and feed. A scorer replacement, source change,
 tier reactivation, match finish, or rematch ends it. Temporary link/camera failure pauses encoding
@@ -876,9 +879,9 @@ How a director command is honoured without a lens that moves: the shot is the so
 `drawImage`, and a camera move is those numbers interpolated over the transition. See `videoCamera.ts`.
 
 Its destination is re-resolved every frame rather than fixed when the command lands, which is what
-lets a feed open on the camera's own square before the board has been located and slide onto the
-board the moment it is. A move that is interrupted departs from wherever the shot had reached, so a
-second command — or a reset arriving mid-swing — reads as one continuous camera.
+lets a feed open on the camera stream's centred square before the board has been located and slide
+onto the board the moment it is. A move that is interrupted departs from wherever the shot had
+reached, so a second command — or a reset arriving mid-swing — reads as one continuous camera.
 
 ---
 

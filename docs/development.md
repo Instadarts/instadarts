@@ -187,20 +187,20 @@ The e2e suite drives the delays down through `?e2e=1&graceMs=…&standbyMs=…`
 ([`lib/e2e.ts`](../src/client/lib/e2e.ts)), which does nothing in a shipped build. What it cannot
 reach is in [vision.md](vision.md#power-management).
 
-### `npm run build` does not typecheck the client
+### `npm run build` typechecks both sides
 
-It is `vite build && tsc -p tsconfig.server.json --noEmit`. Vite transpiles the client with esbuild,
-which strips types without checking them, and the `tsc` step only covers `src/server` and
-`src/shared`. **A green build says nothing about client types.** Check them explicitly:
+It is `vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit`.
+Vite itself transpiles the client with esbuild and does not typecheck it; the explicit client `tsc`
+step after the bundle is what makes a green production build cover DOM and WebGPU types too. To run
+that check without building:
 
 ```sh
 npx tsc -p tsconfig.client.json --noEmit
 ```
 
-Run that after touching anything under `src/client`. Note the `-p tsconfig.client.json`: only that
-one adds the DOM and WebGPU libs and Vite's client types, so pointing `tsc` at the root
-`tsconfig.json` instead produces a screenful of missing `GPUBufferUsage`, `import.meta.env` and
-`import.meta.glob` and tells you nothing.
+Note the `-p tsconfig.client.json`: only that one adds the DOM and WebGPU libs and Vite's client
+types, so pointing `tsc` at the root `tsconfig.json` instead produces a screenful of missing
+`GPUBufferUsage`, `import.meta.env` and `import.meta.glob` and tells you nothing.
 
 ## The e2e suite
 
@@ -222,11 +222,14 @@ nothing about whether the socket the first test opens has anyone listening on 30
 use. That is usually what you want; be aware the tests are then running against your dev server's
 state.
 
-### Why the codec spec runs on its own
+### Why the expensive specs run after the app suite
 
 `media-codec.spec.ts` encodes real H.264 in software, `media-stills.spec.ts` drives the detection
-model, and `media-video.spec.ts` does both at once, so `playwright.config.ts` puts all three in a
-`heavy` project with a `dependencies` on the rest, and none of them ever runs beside anything else.
+model, and `media-video.spec.ts` does both at once. `playwright.config.ts` puts all three in a
+`heavy` project that starts only after the ordinary `app` project finishes. They may run beside one
+another inside that project. `scorer-onboarding.spec.ts` then gets a one-file `onboarding` project
+after `heavy`, because a project containing one file is the reliable way to make that particularly
+expensive self-test run alone.
 
 **Starving the suite of CPU is how intermittent failures get made, and not hypothetically.** A page
 that misses a heartbeat under load is cut by the server, and a scoring device that reconnects then

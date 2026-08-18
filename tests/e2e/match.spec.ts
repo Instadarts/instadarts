@@ -4,6 +4,80 @@ import { test, expect, type Page } from '@playwright/test';
 import { clickT20, clickS20, clickD20, clickT19, clickD12, submitVisit, expectDartLabel, expectVisitTotal, setupLocalMatch } from './appHelpers';
 
 test.describe('Local 1-player x01 match', () => {
+  test('hold and drag uses the zoomed dart tip as the scoring position', async ({ page }) => {
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    const board = page.getByTestId('dartboard');
+    const box = await board.boundingBox();
+    if (!box) throw new Error('dartboard bounding box not found');
+    await expect(board.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+    // Start just below the inner edge of T20, in S20. There is enough physical and coordinate space
+    // here for the full preferred 48px × 82px finger-to-tip offset.
+    const x = box.x + box.width * 0.5;
+    const y = box.y + box.height * (1 - 0.704);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+
+    const dart = page.getByTestId('precision-dart');
+    await expect(dart).toBeVisible({ timeout: 1_000 });
+    await expect(dart).toHaveAttribute('data-score', 'S20');
+    await expect(dart).toHaveAttribute('data-flight-color', '#a5afbf');
+    await expect(board).not.toHaveAttribute('viewBox', '0 0 100 100');
+    const offsetView = (await board.getAttribute('viewBox'))!.split(' ').map(Number);
+    const heldX = Number(await dart.getAttribute('data-board-x')) / 10_000;
+    const heldY = 100 - Number(await dart.getAttribute('data-board-y')) / 10_000;
+    const tipClientX = box.x + ((heldX - offsetView[0]) / offsetView[2]) * box.width;
+    const tipClientY = box.y + ((heldY - offsetView[1]) / offsetView[2]) * box.height;
+    expect(tipClientX - x).toBeCloseTo(48, 5);
+    expect(tipClientY - y).toBeCloseTo(82, 5);
+
+    // Under zoom this 24px adjustment is only about 20,000 board units: enough to enter the thin
+    // triple bed without jumping through it. The UI's live label and the submitted slot must agree.
+    await page.mouse.move(x, y - 24);
+    await expect(dart).toHaveAttribute('data-score', 'T20');
+    await expect(dart).toHaveAttribute('data-flight-color', '#ff335f');
+    expect(await dart.locator('[data-flight-surface]').evaluateAll((flights) => (
+      flights.map((flight) => flight.getAttribute('fill'))
+    ))).toEqual(['#ff335f', '#ff335f']);
+    expect(await dart.locator('[data-dart-outline]').evaluateAll((parts) => (
+      parts.map((part) => part.getAttribute('stroke'))
+    ))).toEqual(['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff']);
+    await page.mouse.up();
+
+    await expect(dart).toHaveCount(0);
+    await expect(board).toHaveAttribute('viewBox', '0 0 100 100');
+    await expectDartLabel(page, 'T20');
+
+    // At D3, adding the full vertical offset would cross the visible SVG edge. Only that component
+    // contracts, keeping the tip visibly inside the zoom.
+    const doubleThreePointerY = box.y + box.height * (1 - 0.134);
+    await page.mouse.move(box.x + box.width * 0.5, doubleThreePointerY);
+    await page.mouse.down();
+    await expect(dart).toBeVisible({ timeout: 1_000 });
+    await expect(dart).toHaveAttribute('data-score', 'D3');
+    const boundaryView = (await board.getAttribute('viewBox'))!.split(' ').map(Number);
+    const doubleThreeY = 100 - Number(await dart.getAttribute('data-board-y')) / 10_000;
+    expect(doubleThreeY).toBeGreaterThanOrEqual(boundaryView[1]);
+    expect(doubleThreeY).toBeLessThanOrEqual(boundaryView[1] + boundaryView[2]);
+    const doubleThreeClientY = box.y
+      + ((doubleThreeY - boundaryView[1]) / boundaryView[2]) * box.height;
+    expect(doubleThreeClientY).toBeLessThan(box.y + box.height);
+    expect(doubleThreeClientY - doubleThreePointerY).toBeLessThan(82);
+    await page.mouse.up();
+
+    // Outside the circular board is a miss: every flight switches to orange, never scoring red.
+    await page.mouse.move(box.x + 3, box.y + 3);
+    await page.mouse.down();
+    await expect(dart).toBeVisible({ timeout: 1_000 });
+    await expect(dart).toHaveAttribute('data-score', 'miss');
+    await expect(dart).toHaveAttribute('data-flight-color', '#ff9f1c');
+    expect(await dart.locator('[data-flight-surface]').evaluateAll((flights) => (
+      flights.map((flight) => flight.getAttribute('fill'))
+    ))).toEqual(['#ff9f1c', '#ff9f1c']);
+    await page.mouse.up();
+  });
+
   test('complete 501 leg, no double-in, double-out', async ({ page }) => {
     await setupLocalMatch(page, ['Alice'], 501);
 

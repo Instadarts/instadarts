@@ -1,4 +1,11 @@
-import { useRef, useCallback, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import {
   RADII, CENTER, SVG_SIZE, WIRE,
   SECTOR_ORDER,
@@ -6,6 +13,19 @@ import {
   toBoard,
 } from './boardGeometry';
 import { DartMarker } from './DartMarker';
+import { PrecisionDart } from './PrecisionDart';
+import {
+  HOLD_TO_AIM_MS,
+  NORMAL_VIEW_BOX,
+  PRECISION_ZOOM,
+  keepOnBoard,
+  pointInView,
+  precisionTipAt,
+  precisionViewBox,
+  type BoardViewBox,
+  type PrecisionOrigin,
+  type SvgPoint,
+} from './dartboardPrecision';
 import type { DartThrow } from '../../shared/types';
 import { scoreFromBoardCoords } from '../../shared/scoring';
 
@@ -25,6 +45,26 @@ interface DartboardProps {
  * which is what keeps them clear of it at every size.
  */
 const LABEL_SIZE = 4;
+
+interface PrecisionAim {
+  tip: SvgPoint;
+  viewBox: BoardViewBox;
+}
+
+interface PointerGesture {
+  pointerId: number;
+  latestClientX: number;
+  latestClientY: number;
+  holdTimer: number | null;
+  precision: boolean;
+  viewBox?: BoardViewBox;
+  precisionOrigin?: PrecisionOrigin;
+}
+
+function throwAt(point: SvgPoint): DartThrow {
+  const { x, y } = toBoard(point);
+  return { x, y, score: scoreFromBoardCoords(x, y) };
+}
 
 /**
  * Generate SVG arc path for a sector ring segment.
@@ -65,22 +105,135 @@ function sectorPath(
 
 export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: DartboardProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const gestureRef = useRef<PointerGesture | null>(null);
+  const [precisionAim, setPrecisionAim] = useState<PrecisionAim | null>(null);
+  const canPlaceDart = !disabled && darts.length < maxDarts;
 
-  const handleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (disabled) return;
-    if (darts.length >= maxDarts) return;
+  const cancelGesture = useCallback((pointerId?: number) => {
+    const gesture = gestureRef.current;
+    if (!gesture || (pointerId !== undefined && gesture.pointerId !== pointerId)) return;
+
+    if (gesture.holdTimer !== null) window.clearTimeout(gesture.holdTimer);
+    gestureRef.current = null;
+    setPrecisionAim(null);
 
     const svg = svgRef.current;
-    if (!svg) return;
+    if (svg?.hasPointerCapture(gesture.pointerId)) svg.releasePointerCapture(gesture.pointerId);
+  }, []);
 
-    const rect = svg.getBoundingClientRect();
-    const { x, y } = toBoard({
-      x: ((e.clientX - rect.left) / rect.width) * SVG_SIZE,
-      y: ((e.clientY - rect.top) / rect.height) * SVG_SIZE,
-    });
+  useEffect(() => () => {
+    const timer = gestureRef.current?.holdTimer;
+    if (timer !== null && timer !== undefined) window.clearTimeout(timer);
+  }, []);
 
-    onDartClick({ x, y, score: scoreFromBoardCoords(x, y) });
-  }, [disabled, darts.length, onDartClick]);
+  // A turn can be locked remotely while a finger is still down. Never let that stale gesture land.
+  useEffect(() => {
+    if (!canPlaceDart) cancelGesture();
+  }, [cancelGesture, canPlaceDart]);
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!canPlaceDart || !event.isPrimary || event.button !== 0 || gestureRef.current) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const gesture: PointerGesture = {
+      pointerId: event.pointerId,
+      latestClientX: event.clientX,
+      latestClientY: event.clientY,
+      holdTimer: null,
+      precision: false,
+    };
+
+    gesture.holdTimer = window.setTimeout(() => {
+      const active = gestureRef.current;
+      const svg = svgRef.current;
+      if (!active || active !== gesture || !svg) return;
+
+      const rect = svg.getBoundingClientRect();
+      const tip = keepOnBoard(pointInView(
+        active.latestClientX,
+        active.latestClientY,
+        rect,
+        NORMAL_VIEW_BOX,
+      ));
+      const size = SVG_SIZE / PRECISION_ZOOM;
+      const viewBox = precisionViewBox(
+        tip,
+        size,
+        active.latestClientX,
+        active.latestClientY,
+        rect,
+      );
+
+      active.holdTimer = null;
+      active.precision = true;
+      active.viewBox = viewBox;
+      active.precisionOrigin = {
+        clientX: active.latestClientX,
+        clientY: active.latestClientY,
+        tip,
+      };
+      setPrecisionAim({ tip, viewBox });
+    }, HOLD_TO_AIM_MS);
+
+    gestureRef.current = gesture;
+  }, [canPlaceDart]);
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    gesture.latestClientX = event.clientX;
+    gesture.latestClientY = event.clientY;
+    if (!gesture.precision || !gesture.viewBox || !gesture.precisionOrigin) return;
+
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const tip = precisionTipAt(
+      event.clientX,
+      event.clientY,
+      rect,
+      gesture.viewBox,
+      gesture.precisionOrigin,
+    );
+    setPrecisionAim({ viewBox: gesture.viewBox, tip });
+  }, []);
+
+  const handlePointerUp = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    if (!canPlaceDart) {
+      cancelGesture(event.pointerId);
+      return;
+    }
+    if (gesture.holdTimer !== null) window.clearTimeout(gesture.holdTimer);
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = gesture.precision && gesture.viewBox && gesture.precisionOrigin
+      ? precisionTipAt(
+          event.clientX,
+          event.clientY,
+          rect,
+          gesture.viewBox,
+          gesture.precisionOrigin,
+        )
+      : keepOnBoard(pointInView(event.clientX, event.clientY, rect, NORMAL_VIEW_BOX));
+
+    // Clear first: adding the dart changes props immediately in a local match and must not leave a
+    // captured pointer or the enlarged board behind during that render.
+    gestureRef.current = null;
+    setPrecisionAim(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onDartClick(throwAt(point));
+  }, [cancelGesture, canPlaceDart, onDartClick]);
+
+  const precisionThrow = precisionAim ? throwAt(precisionAim.tip) : null;
+  const viewBox = precisionAim?.viewBox ?? NORMAL_VIEW_BOX;
 
   return (
     // The size cap lives on the wrapper rather than the svg, so the board is as wide as it is
@@ -97,13 +250,18 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
     // the match's flex row is deliberately taller than the board when it reserves room for visit
     // controls, and the default cross-axis stretch would otherwise make this wrapper rectangular.
     // The SVG keeps its own ratio in that rectangle, but an absolutely positioned video fills it.
-    <div className="relative aspect-square self-center select-none w-full max-w-[600px] lg:max-w-[100cqh]">
+    <div className="relative aspect-square self-center select-none w-full max-w-[600px] overflow-hidden lg:max-w-[100cqh]">
       <svg
         ref={svgRef}
         data-testid="dartboard"
-        viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-        className="block h-full w-full cursor-crosshair"
-        onClick={handleClick}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.size} ${viewBox.size}`}
+        className={`block h-full w-full touch-none ${precisionAim ? 'cursor-none' : canPlaceDart ? 'cursor-crosshair' : 'cursor-not-allowed'}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={(event) => cancelGesture(event.pointerId)}
+        onLostPointerCapture={(event) => cancelGesture(event.pointerId)}
+        onContextMenu={(event) => event.preventDefault()}
       >
         {/* Board background — full circle including miss area (225mm outer radius) */}
         <circle cx={CENTER} cy={CENTER} r={RADII.boardOuter} fill="#000" />
@@ -206,8 +364,27 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
         {darts.map((dart, i) => (
           <DartMarker key={i} dart={dart} index={i} />
         ))}
+
+        {/* During a hold this replaces the fingertip-obscured dot. Its needle starts at the exact
+            coordinate that will be scored, while its rear projects up-left toward the finger. */}
+        {precisionAim && precisionThrow && (
+          <PrecisionDart
+            tip={precisionAim.tip}
+            viewportSize={precisionAim.viewBox.size}
+            dart={precisionThrow}
+          />
+        )}
       </svg>
       {children}
+      {precisionThrow && (
+        <div
+          data-testid="precision-status"
+          role="status"
+          className="sr-only"
+        >
+          Precision aiming at {precisionThrow.score.label}; release to place
+        </div>
+      )}
     </div>
   );
 }

@@ -31,10 +31,11 @@ import { registerMode } from './types';
  * is what makes undo, reconnect and spectating free — three people watching the same leg draw the
  * same three moles because they compute them, not because anybody sent them.
  *
- * The seed rides in the settings bag (see `defaults`), so every match played from a fresh lobby has
- * its own colony. A **re-match copies the previous match's settings**, seed included, so it opens on
- * the same three moles — everything from the first dart onwards differs, because each committed visit
- * folds its dart coordinates back into the PRNG.
+ * One seed decides a run, and it rides in the settings bag (see `defaults`), so every match played
+ * from a fresh lobby has its own colony. Two runs on the same seed — a re-match, which copies the
+ * previous match's settings, or a second leg — open on the same three moles wearing the same faces,
+ * and part company as soon as the first dart lands: every committed visit folds its coordinates back
+ * into the PRNG.
  */
 
 // ============================================================
@@ -302,18 +303,12 @@ export interface Run {
 }
 
 function freshRun(ctx: LegContext, cfg: Config): Run {
-  // The starter is the one thing about a leg that differs between the legs of a match — the match
-  // layer alternates it — and it is derivable at any point in the leg, from the first visit once
-  // there is one and from whose turn it is before that.
-  const starterId = ctx.visits[0]?.playerId ?? ctx.currentPlayerId;
-  const seed = mix(
-    hashText(`${ctx.players.map((p) => p.id).join('|')}#${starterId}`),
-    cfg.seed,
-  );
-
   const zeroed = () => Object.fromEntries(ctx.players.map((p) => [p.id, 0]));
   return {
-    rng: seed,
+    // The whole run comes from one number, and the settings bag is how it gets here — see
+    // `defaults`. Two runs on the same seed open on the same three moles and part company as soon
+    // as the first dart lands, because every committed visit folds its coordinates back in.
+    rng: mix(0, cfg.seed),
     moles: [],
     holes: [THE_BURROW],
     score: zeroed(),
@@ -656,9 +651,8 @@ export const whacAMole: GameMode = {
   },
 
   /**
-   * The mode's own block. Everything the screen draws comes from here, because this is the one place
-   * the mode is handed the match — and therefore the only place it can see `match.id` and how many
-   * legs have been played, which is what the moles' reactions are drawn from.
+   * The mode's own block. Everything the screen draws comes from here, and it is handed the match
+   * rather than a leg because a finished one has already moved its visits out of the current leg.
    *
    * `rows` is not decoration: a deployment without the client half renders them as a plain table, and
    * the run is still perfectly playable off it.
@@ -725,9 +719,9 @@ export const whacAMole: GameMode = {
             age: start.visitIndex - mole.born,
             digTime: mole.digTime,
             enraged: mole.digTime < cfg.digTime,
-            variant: pickIndex(match, `mole:${mole.id}`, MOLE_VARIANTS),
+            variant: pickIndex(cfg.seed, `mole:${mole.id}:${mole.area}`, MOLE_VARIANTS),
             reaction: reaction
-              ? NEAR_REACTIONS[pickIndex(match, `near:${mole.id}:${reaction.dart}`, NEAR_REACTIONS.length)]
+              ? NEAR_REACTIONS[pickIndex(cfg.seed, `near:${mole.id}:${reaction.dart}`, NEAR_REACTIONS.length)]
               : undefined,
           };
         }),
@@ -740,14 +734,14 @@ export const whacAMole: GameMode = {
               ownerId: live.lost[0],
               ownerName: match.players.find((p) => p.id === live.lost[0])?.name ?? '',
               queue: live.lost.length,
-              grumble: JANITOR_GRUMBLES[pickIndex(match, `janitor:${live.lost.length}:${round}`, JANITOR_GRUMBLES.length)],
+              grumble: JANITOR_GRUMBLES[pickIndex(cfg.seed, `janitor:${live.lost.length}:${round}`, JANITOR_GRUMBLES.length)],
             }
           : null,
         lost: live.lost.length,
         events: live.events.map((event) => ({
           ...event,
           label: event.area ? labelOf(event.area) : '',
-          call: callFor(match, event),
+          call: callFor(cfg.seed, event),
         })),
         buried: live.buried,
         stats: {
@@ -787,18 +781,20 @@ const JANITOR_GRUMBLES = ['This is mine now.', 'Lost something?', 'Come and get 
 /**
  * A stable choice out of a list, for anything that is only ever drawn.
  *
- * Seeded from the match and the leg, which the rules cannot see and do not need to: everyone
- * watching computes the same reaction, and the next leg gets different ones.
+ * The same seed the rules run on, so everyone watching computes the same reaction and nothing has
+ * to be smuggled in from outside the mode. The keys carry a mole's id and the area it came up in,
+ * both of which the darts have already moved, so two runs on one seed are only ever alike for as
+ * long as their boards are.
  */
-function pickIndex(match: MatchState, key: string, length: number): number {
-  return hashText(`${match.id}:${match.legs.length}:${key}`) % length;
+function pickIndex(seed: number, key: string, length: number): number {
+  return hashText(`${seed}:${key}`) % length;
 }
 
-function callFor(match: MatchState, event: RunEvent): string {
-  if (event.kind === 'whack') return WHACK_CALLS[pickIndex(match, `whack:${event.moleId}`, WHACK_CALLS.length)];
-  if (event.kind === 'hole') return HOLE_CALLS[pickIndex(match, `hole:${event.area}:${event.dart}`, HOLE_CALLS.length)];
-  if (event.kind === 'escape') return ESCAPE_CALLS[pickIndex(match, `escape:${event.moleId}`, ESCAPE_CALLS.length)];
-  if (event.kind === 'rescue') return RESCUE_CALLS[pickIndex(match, `rescue:${event.dart}:${event.ownerId}`, RESCUE_CALLS.length)];
+function callFor(seed: number, event: RunEvent): string {
+  if (event.kind === 'whack') return WHACK_CALLS[pickIndex(seed, `whack:${event.moleId}`, WHACK_CALLS.length)];
+  if (event.kind === 'hole') return HOLE_CALLS[pickIndex(seed, `hole:${event.area}:${event.dart}`, HOLE_CALLS.length)];
+  if (event.kind === 'escape') return ESCAPE_CALLS[pickIndex(seed, `escape:${event.moleId}`, ESCAPE_CALLS.length)];
+  if (event.kind === 'rescue') return RESCUE_CALLS[pickIndex(seed, `rescue:${event.dart}:${event.ownerId}`, RESCUE_CALLS.length)];
   return '';
 }
 

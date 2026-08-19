@@ -597,6 +597,21 @@ when nobody has a dart left; either way the next visit is the **curtain call** �
 from the start, and submitting it is what ends the leg. It exists so the closing screen is seen: the
 match summary does not draw a mode's panel.
 
+### [wam] Seed
+
+The number a whole run is computed from. Every mole's area, every reaction and every taunt comes out
+of it, so two runs on one seed open identically and part company as soon as the first dart lands —
+each committed visit folds its dart coordinates back into the PRNG.
+
+It reaches the rules the only way a per-match number can: as a **setting**. A mode's rules see a
+[LegContext](./game-modes.md#what-a-mode-may-look-at-legcontext) and nothing else — no match id, no
+leg number — so `defaults` is a getter that draws a fresh seed each time it is read, and
+`validateSettings` stamps one into the lobby when the mode is chosen. `seed` is deliberately absent
+from the mode's `fields`, which is what makes it unsettable: the validator reads declared fields and
+nothing else, and the lobby never draws a box for it.
+
+A re-match copies the previous match's settings, seed included, so it opens on the same three moles.
+
 ### [wam] Enraged / frenzy
 
 Three-fifths of the way through the rounds, newly spawned moles lose a visit of dig time

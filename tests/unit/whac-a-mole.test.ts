@@ -415,6 +415,28 @@ describe('whac-a-mole: the same run for everybody', () => {
     expect(a).not.toEqual(b);
   });
 
+  it('takes the seed and nothing else — not who is playing, and not who threw first', () => {
+    const solo = makeMatch({ seed: 99 }, 1);
+    const pair = makeMatch({ seed: 99 }, 2);
+    expect(molesOn(pair)).toEqual(molesOn(solo));
+
+    // The same seed with the players the other way round is the same colony too.
+    const swapped: MatchState = { ...pair, players: [...pair.players].reverse(), currentPlayerIndex: 0 };
+    expect(molesOn(swapped)).toEqual(molesOn(pair));
+  });
+
+  it('draws the same faces and the same taunts for one seed', () => {
+    const custom = (m: MatchState) => whacAMole.panel!(m)!.custom as {
+      moles: { variant: number; label: string }[];
+    };
+    const a = custom(makeMatch({ seed: 7 }));
+    const b = custom(makeMatch({ seed: 7 }));
+    const other = custom(makeMatch({ seed: 8 }));
+
+    expect(b.moles.map((m) => [m.label, m.variant])).toEqual(a.moles.map((m) => [m.label, m.variant]));
+    expect(other.moles.map((m) => m.label)).not.toEqual(a.moles.map((m) => m.label));
+  });
+
   it('diverges from where the darts actually landed, not just from the seed', () => {
     const match = makeMatch();
     const moles = molesOn(match);

@@ -392,8 +392,19 @@ The two halves degrade into each other, which is the property to preserve when w
 | the rows | drawn however the mode likes | a plain table |
 | `custom` | drawn | ignored |
 
-**x01 is the worked example** ([`x01.tsx`](../src/client/modes/x01.tsx)). It lays the same rows out
-per player rather than per statistic, highlights whoever leads each one — knowing that *fewer* darts
+**Whac-A-Mole is the worked example of taking that further**
+([`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx)). Its panel draws a heads-up display in the
+slot it was given, and then portals two more surfaces: an overlay into the live dartboard's own
+wrapper — mirroring its viewBox, so it follows the precision-aim zoom, and `pointer-events: none`, so
+every click still reaches the board underneath — and a closing screen sized to exactly that same
+square, which is what keeps the score cards and the Submit button it asks you to press uncovered.
+Nothing in the match screen was changed to allow it; the board is found through
+`[data-testid="dartboard"]`, which is recorded as a leak in the
+[glossary's table](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). Delete the file
+and the mode is still playable off its rows.
+
+**x01 is the worked example of the ordinary case** ([`x01.tsx`](../src/client/modes/x01.tsx)). It
+lays the same rows out per player rather than per statistic, highlights whoever leads each one — knowing that *fewer* darts
 is better, which is the sort of thing only a mode can know — and draws recent visit scores as bars
 from the `custom` payload, a shape a table has no way to express. Delete the file and the panel is a
 table of the same six numbers; nothing is lost but the presentation.

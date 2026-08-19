@@ -64,12 +64,19 @@ test.describe('Game modes', () => {
     await page.goto('/');
     await page.click('text=Local Match');
 
-    // The selector, its settings block and its contents all come from the server.
+    // The selector, its settings block and its contents all come from the server. Modes are offered
+    // in id order, which is not the order they were installed in and not where the default sits.
     const selector = page.getByLabel('Game');
     await expect(selector).toHaveValue('x01');
-    await expect(selector.locator('option')).toHaveText(['x01']);
+    await expect(selector.locator('option')).toHaveText(['Whac-A-Mole', 'x01']);
     await expect(page.locator('text=x01 settings')).toBeVisible();
     await expect(page.getByLabel('Starting Score')).toBeVisible();
+
+    // Switching mode swaps the whole settings block for the one the other mode declares.
+    await selector.selectOption('whac-a-mole');
+    await expect(page.locator('text=Whac-A-Mole settings')).toBeVisible();
+    await expect(page.getByLabel('Moles at once')).toBeVisible();
+    await expect(page.getByLabel('Starting Score')).toHaveCount(0);
   });
 
   test("the mode's own panel shows statistics across the match", async ({ page }) => {

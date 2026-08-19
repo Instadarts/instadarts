@@ -449,8 +449,8 @@ mode's business. `scoreFromBoardCoords` is shared by the manual board, the camer
 
 ### Game Mode
 
-How one [leg](#leg) is played and won, plus the settings those rules need. Currently one exists:
-**x01**. Full contract in [game-modes.md](./game-modes.md).
+How one [leg](#leg) is played and won, plus the settings those rules need. Two exist: **x01** and
+**[Whac-A-Mole](#whac-a-mole-vocabulary)**. Full contract in [game-modes.md](./game-modes.md).
 
 - The rules are `GameMode` in [`server/modes/types.ts`](../src/server/modes/types.ts):
   `dartsPerVisit`, `isVisitLocked`, `finalizeVisit`, `view`. Modes register themselves at boot and
@@ -548,6 +548,61 @@ Say **bust** only about x01. The mode-agnostic word is *voided visit*.
 x01's win condition: reaching exactly 0, on a double if double-out is on. Wins the leg — today, the
 match. The mode-agnostic surface is `VisitResult.won`.
 
+---
+
+## Whac-A-Mole vocabulary
+
+**Everything below belongs to the Whac-A-Mole mode**
+([its own file](../src/server/modes/whac-a-mole.ts)), a co-op training mode for one player or two.
+As with x01's words, do not use these outside it.
+
+### [wam] Area
+
+One scoring region, and the unit this mode targets: `S20o` outer single, `S20i` inner single, `T20`,
+`D20` and `BULL` — eighty-one of them. Finer than a [ScoreResult](#score--scoreresult) in one
+direction and coarser in the other: it splits `S20` into the two singles, which takes the dart's
+[board coordinates](#board-coordinates) as well as its label, and it merges both bulls into one
+area, because the middle of the board is not a target here (see [the burrow](#wam-the-burrow)).
+
+### [wam] Mole / dig time / hole
+
+A mole occupies an area and is **whacked** by a dart landing in it, for one point. Its **dig time**
+(`digTime`) is how many visits it takes to get through; a mole nobody stops is buried and its area
+becomes a **hole** for the rest of the run. A dart in a hole costs its thrower one dart per visit,
+from their next visit onwards.
+
+Dig time is fixed when a mole spawns, not read from the round it is currently in, so crossing an
+[enrage](#wam-enraged--frenzy) threshold never buries a mole that was already halfway down.
+
+### [wam] The burrow
+
+`BULL` — both bulls as one area, and a hole before the first dart is thrown. It is where the moles
+came from, no mole ever comes up in it, and a dart that lands there costs one like any other hole.
+Every dart lost to any hole is held in the burrow, oldest first.
+
+### [wam] Janitor
+
+The one mole that is not a target but a rescue. With at least one dart in [the
+burrow](#wam-the-burrow) it is up on even odds each visit, holding the oldest of them; hitting the
+burrow while it is there hands that dart back **to whoever lost it**, which need not be the player
+who threw — the one move in the mode a player makes for their partner. It scores like any other
+mole, and one dart a visit is the limit: the janitor goes home the moment it is hit, and the middle
+is an ordinary hole again for the rest of that visit. Like a loss, a rescue changes the allowance
+from the owner's *next* visit, which is why the screen marks that dart `↺` rather than `✖`.
+
+### [wam] Run / round / curtain call
+
+A **run** is one leg. A **round** is one visit for each player. A run ends when the rounds are up or
+when nobody has a dart left; either way the next visit is the **curtain call** — no darts, locked
+from the start, and submitting it is what ends the leg. It exists so the closing screen is seen: the
+match summary does not draw a mode's panel.
+
+### [wam] Enraged / frenzy
+
+Three-fifths of the way through the rounds, newly spawned moles lose a visit of dig time
+(**enraged**); four-fifths of the way, another (**frenzy** — they have to be whacked in the visit
+they appear).
+
 ### Mode-specific vocabulary in mode-agnostic layers
 
 Kept as a standing check. Every row here was true before the mode boundary was untangled; the ones
@@ -572,7 +627,8 @@ that remain are the constraints a second game mode will meet.
 
 | Leak | Where | Why it is still there |
 | --- | --- | --- |
-| Three darts per visit is assumed by the client's fixed-width slot row, though the count itself comes from `view.dartsPerVisit` | [`VisitInput.tsx`](../src/client/components/VisitInput.tsx) | Layout, not logic: the row is sized for three and would need rethinking for a mode that wants five |
+| Three darts per visit is assumed by the client's fixed-width slot row, though the count itself comes from `view.dartsPerVisit` | [`VisitInput.tsx`](../src/client/components/VisitInput.tsx) | Layout, not logic: the row is sized for three. Whac-A-Mole is the first mode to offer more — up to five — and the row holds, because each slot is `flex-1` under a maximum rather than a fixed width |
+| A mode's own component reaches the dartboard through the DOM (`[data-testid="dartboard"]`) rather than through a slot the match screen offers it | [`client/modes/whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) | `ModePanelProps` is the panel and nothing else, so a mode that draws **on** the board — rather than beside it — has no other way in. The alternative is a board-decoration channel in `ModeView`, or a slot threaded through `MatchScreen` → `VisitInput` → `Dartboard` |
 
 ---
 

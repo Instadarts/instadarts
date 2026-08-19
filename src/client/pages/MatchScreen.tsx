@@ -121,11 +121,20 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
   return (
     // From `lg` this screen is exactly as tall as what it was given and never scrolls: the columns
     // inside divide that height up, and the board grows into whatever is left.
-    <div className="flex-1 flex flex-col items-center gap-2 p-4 lg:px-6 lg:min-h-0 lg:overflow-hidden">
-      <h2 className={modeTextClasses(view.headline, { tone: 'accent', size: '2xl', weight: 'bold' })}>
-        {textOf(view.headline)}
-        {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}
-      </h2>
+    <div className="flex-1 flex flex-col items-center gap-2 p-2 lg:min-h-0 lg:overflow-hidden">
+      <div className="w-full flex items-center justify-between gap-3 ">
+        <h2 className={`${modeTextClasses(view.headline, { tone: 'accent', size: '2xl', weight: 'bold' })} min-w-0`}>
+          {textOf(view.headline)}
+          {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}
+        </h2>
+
+        <button
+          onClick={onLeave}
+          className="shrink-0 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+        >
+          {over ? 'Exit' : 'Leave Match'}
+        </button>
+      </div>
 
       {over ? (
         <Stage>
@@ -195,12 +204,6 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
         </Stage>
       )}
 
-      <button
-        onClick={onLeave}
-        className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-      >
-        {over ? 'Exit' : 'Leave Match'}
-      </button>
     </div>
   );
 }
@@ -211,14 +214,10 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
  * A surface of its own, a shade off the page, so that the part which rearranges itself into columns
  * reads as one region however many columns it currently has — including the one-column case, where
  * there is otherwise nothing to say where it begins and ends.
- *
- * In one column it stops widening at 600px: a single stack of content reads worse the wider it
- * gets, and this is the phone-and-narrow-window layout. From `lg` there is no width limit and it
- * takes the height it is given instead, which is what the columns inside then divide up.
  */
 function Stage({ children }: { children: ReactNode }) {
   return (
-    <div className="w-full max-w-[600px] lg:max-w-none lg:flex-1 lg:min-h-0 rounded-2xl bg-gray-900/40 p-4 sm:p-6">
+    <div className="w-full lg:max-w-none lg:flex-1 lg:min-h-0 rounded-2xl bg-gray-900/40 p-4 sm:p-2">
       {children}
     </div>
   );

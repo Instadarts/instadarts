@@ -28,7 +28,7 @@ export const SOURCE_URL = 'https://github.com/Instadarts';
  */
 export function SourceFooter() {
   return (
-    <footer className="shrink-0 py-1 text-center">
+    <footer className="shrink-0 py-0 text-center text-[11px]">
       <a
         href={SOURCE_URL}
         target="_blank"

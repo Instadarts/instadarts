@@ -10,10 +10,10 @@
  * layout — is written in px and stays put.
  */
 @media (min-width: 1536px) {
-  html { font-size: 18px; }
+  html { font-size: 22px; }
 }
 @media (min-width: 2000px) {
-  html { font-size: 20px; }
+  html { font-size: 26px; }
 }
 
 /* Ensure form inputs remain selectable (Tailwind may disable by default) */

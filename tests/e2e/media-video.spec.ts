@@ -15,7 +15,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { clickT20, skipOnboarding, submitVisit } from './appHelpers';
+import { clickT20, setSwitch, skipOnboarding, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
 // feed that starts by showing a board nobody has thrown at is the honest starting state.
@@ -47,7 +47,7 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await scorer.getByPlaceholder('Name this device').fill(name);
   await scorer.getByPlaceholder('Name this device').blur();
 
-  await player.getByRole('radio', { name: `Board camera: ${name}` }).check();
+  await setSwitch(player.getByRole('switch', { name: `Board camera: ${name}` }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
 }
 
@@ -355,13 +355,15 @@ test.describe('board video', () => {
 
     // Camera nomination and the frontend media switch are both hard opt-outs. Removing either drops
     // the ownership edge, stops the scorer's otherwise orphaned encoder, and uncovers the fallback.
+    // Switching the nominated device off is how "no board camera" is said now: there is no control
+    // of its own for it, because there is nothing left to select once every switch is off.
     await host.getByRole('button', { name: /Cameras/ }).first().click();
-    await host.getByRole('radio', { name: 'Board camera: none' }).check();
+    await setSwitch(host.getByRole('switch', { name: 'Board camera: Alice board' }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(watching.page.getByTestId('live-board-feed')).toHaveCount(0);
 
-    await host.getByRole('radio', { name: 'Board camera: Alice board' }).check();
+    await setSwitch(host.getByRole('switch', { name: 'Board camera: Alice board' }), true);
     await declineOffer(guest);
     await acceptOffer(watching.page);
     await guest.getByRole('button', { name: 'Play live video from Alice' }).click();
@@ -369,7 +371,7 @@ test.describe('board video', () => {
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).feedId).not.toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toBeVisible();
-    await host.getByRole('checkbox', { name: 'Share and watch live video during a match' }).uncheck();
+    await setSwitch(host.getByRole('switch', { name: 'Share and watch live video during a match' }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(guest.getByTestId('dartboard')).toBeVisible();

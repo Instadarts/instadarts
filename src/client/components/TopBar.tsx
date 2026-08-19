@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
+import { DropdownMenu } from './DropdownMenu';
 import { FullscreenButton } from './FullscreenButton';
 import { PairDeviceDialog } from './PairDeviceDialog';
+import { Switch } from './Switch';
 
 interface TopBarProps {
   connected: boolean;
@@ -29,6 +31,9 @@ interface TopBarProps {
   onBoardCameraChange: (deviceId: string | null) => void;
 }
 
+/** Which menu is open, if any. At most one, and a second one is a second name here. */
+type Menu = 'devices';
+
 /**
  * The one part of the frontend that outlives the screen you are on. Pairing a camera and taking it
  * for this tab has nothing to do with whether you are at home, in a lobby or mid-match, so it lives
@@ -52,7 +57,7 @@ export function TopBar({
   boardCamera,
   onBoardCameraChange,
 }: TopBarProps) {
-  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState<Menu | null>(null);
 
   const scoring = devices.filter((d) => d.active && d.online).length;
   const summary = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
@@ -65,29 +70,52 @@ export function TopBar({
           title={connected ? 'Connected' : 'Connecting…'}
         />
         <FullscreenButton />
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className={`px-3 py-1 text-sm rounded transition-colors bg-gray-800 hover:bg-gray-700 ${
-            scoring > 0 ? 'text-green-400' : 'text-gray-300'
-          }`}
+        <DropdownMenu
+          label={summary}
+          open={menu === 'devices'}
+          onOpenChange={(open) => setMenu(open ? 'devices' : null)}
+          triggerClassName={scoring > 0 ? 'text-green-400' : 'text-gray-300'}
         >
-          {summary}
-        </button>
-      </div>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={onStartPairing}
+              disabled={!connected || pairing}
+              className="px-3 py-1 text-sm bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
+            >
+              Pair scoring device
+            </button>
+            {media !== null && (
+              // The full sentence is the accessible name; beside a button there is only room for
+              // what it is, not for what it does.
+              <label className="flex items-center gap-2 text-sm text-gray-400 shrink-0">
+                Live video
+                <Switch
+                  checked={media}
+                  onChange={onMediaChange}
+                  label="Share and watch live video during a match"
+                />
+              </label>
+            )}
+          </div>
 
-      {open && (
-        <div className="px-4 pb-3 flex flex-col gap-3 border-t border-gray-800 pt-3">
+          {pairing && (
+            <PairDeviceDialog code={pairingCode} onRequest={onRequestPairingCode} onCancel={onCancelPairing} />
+          )}
+
           {devices.length === 0 && !pairing && (
             <p className="text-sm text-gray-500">No scoring devices paired to this browser yet.</p>
           )}
 
           {devices.map((device) => (
-            <DeviceRow
+            <DeviceBox
               key={device.deviceId}
               device={device}
+              // Off while this browser is out of media altogether: a switch reading on for a board
+              // nobody can see would be a lie. The choice itself is remembered, and comes back when
+              // the switch above does.
               boardCamera={media ? boardCamera : null}
-              showBoardChoice={media === true}
-              onSelectBoardCamera={() => onBoardCameraChange(device.deviceId)}
+              showBoardCamera={media !== null}
+              onBoardCameraChange={(on) => onBoardCameraChange(on ? device.deviceId : null)}
               onGrab={() => onGrab(device.deviceId)}
               onRelease={() => onRelease(device.deviceId)}
               onForget={() => onForget(device.deviceId)}
@@ -95,96 +123,19 @@ export function TopBar({
               onPowerOff={() => onPowerOff(device.deviceId)}
             />
           ))}
-
-          {pairing ? (
-            <PairDeviceDialog code={pairingCode} onRequest={onRequestPairingCode} onCancel={onCancelPairing} />
-          ) : (
-            <button
-              onClick={onStartPairing}
-              disabled={!connected}
-              className="self-start px-3 py-1 text-sm bg-green-700 hover:bg-green-600 disabled:bg-gray-800 rounded transition-colors"
-            >
-              Pair scoring device
-            </button>
-          )}
-
-          {media !== null && (
-            <div className="flex flex-col gap-2 border-t border-gray-800 pt-3">
-              <label className="flex items-center gap-2 text-sm text-gray-400">
-                <input
-                  type="checkbox"
-                  checked={media}
-                  onChange={(e) => onMediaChange(e.target.checked)}
-                  className="accent-green-600"
-                />
-                Share and watch live video during a match
-              </label>
-              {media && devices.some((d) => d.active && d.online) && (
-                <label className="flex items-center gap-2 text-xs text-gray-400">
-                  <input
-                    type="radio"
-                    name="board-camera"
-                    aria-label="Board camera: none"
-                    checked={boardCamera === null}
-                    onChange={() => onBoardCameraChange(null)}
-                    className="accent-green-600"
-                  />
-                  share no board video with opponents or spectators
-                </label>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+        </DropdownMenu>
+      </div>
     </header>
   );
 }
 
-interface BoardCameraChoiceProps {
+interface DeviceBoxProps {
   device: DeviceView;
-  selected: boolean;
-  onSelect: () => void;
-}
-
-/**
- * The board-camera radio that lives in a device's own row.
- *
- * In the row rather than in a list of its own, so a device's name is written once and everything
- * about that device is in one place. The label is carried on `aria-label`: the row already says
- * which phone this is, and repeating the name would be noise on screen.
- *
- * A phone that has declined to share is shown disabled, with the reason, rather than quietly
- * omitted — otherwise its owner goes looking for a control that is not there.
- */
-function BoardCameraChoice({ device, selected, onSelect }: BoardCameraChoiceProps) {
-  const offered = device.media !== 'disabled';
-  return (
-    <label className={`flex items-center gap-2 text-xs ${offered ? 'text-gray-400' : 'text-gray-600'}`}>
-      <input
-        type="radio"
-        name="board-camera"
-        aria-label={`Board camera: ${device.name}`}
-        checked={selected}
-        disabled={!offered}
-        onChange={onSelect}
-        className="accent-green-600"
-      />
-      {!offered
-        ? 'this device is not sharing its view'
-        : device.media === 'stills'
-          ? 'share this board in the match — stills only'
-          : 'share this board with opponents and spectators'}
-    </label>
-  );
-}
-
-interface DeviceRowProps {
-  device: DeviceView;
-  /** The device currently shared as the board, so this row knows whether it is the one. */
+  /** The device currently shared as the board, so this box knows whether it is the one. */
   boardCamera: string | null;
-  /** Hidden entirely when this browser has media switched off — there is nothing to choose. */
-  showBoardChoice: boolean;
-  onSelectBoardCamera: () => void;
+  /** False where the deployment carries no media at all — there is nothing to nominate for. */
+  showBoardCamera: boolean;
+  onBoardCameraChange: (on: boolean) => void;
   onGrab: () => void;
   onRelease: () => void;
   onForget: () => void;
@@ -192,60 +143,72 @@ interface DeviceRowProps {
   onPowerOff: () => void;
 }
 
-function DeviceRow({ device, boardCamera, showBoardChoice, onSelectBoardCamera, onGrab, onRelease, onForget, onSetCamera, onPowerOff }: DeviceRowProps) {
+/** Everything about one paired device, in one box: what it is doing, and what can be done to it. */
+function DeviceBox({ device, boardCamera, showBoardCamera, onBoardCameraChange, onGrab, onRelease, onForget, onSetCamera, onPowerOff }: DeviceBoxProps) {
   const [confirmingPowerOff, setConfirmingPowerOff] = useState(false);
   // Only a device this tab holds and can reach will hear anything.
   const reachable = device.active && device.online;
+  // A phone that has declined to share is shown disabled, with the reason, rather than quietly
+  // omitted — otherwise its owner goes looking for a control that is not there.
+  const offered = device.media !== 'disabled';
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(device)}`} />
-          <span className="truncate">{device.name}</span>
-          <span className="text-gray-500 shrink-0" data-testid="device-status">{statusLabel(device)}</span>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          {reachable && (
-            <button
-              onClick={() => onSetCamera(!device.cameraActive)}
-              disabled={device.cameraPending}
-              title={device.cameraActive ? 'Turn this camera off' : 'Turn this camera on'}
-              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
-            >
-              {device.cameraPending ? '…' : device.cameraActive ? 'Camera off' : 'Camera on'}
-            </button>
-          )}
-          {device.active ? (
-            <button onClick={onRelease} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
-              Release
-            </button>
-          ) : (
-            <button onClick={onGrab} className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded transition-colors">
-              Use here
-            </button>
-          )}
-          <button onClick={onForget} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
-            Forget
+    <div className="flex flex-col gap-2 rounded border border-gray-800 bg-gray-950/50 p-2">
+      <div className="flex items-center gap-2 min-w-0 text-sm">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor(device)}`} />
+        <span className="truncate" data-testid="device-name">{device.name}</span>
+        <span className="text-gray-500 shrink-0 ml-auto" data-testid="device-status">{statusLabel(device)}</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-xs">
+        {reachable && (
+          <button
+            onClick={() => onSetCamera(!device.cameraActive)}
+            disabled={device.cameraPending}
+            title={device.cameraActive ? 'Turn this camera off' : 'Turn this camera on'}
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
+          >
+            {device.cameraPending ? '…' : device.cameraActive ? 'Camera off' : 'Camera on'}
           </button>
-        </div>
+        )}
+        {device.active ? (
+          <button onClick={onRelease} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
+            Release
+          </button>
+        ) : (
+          <button onClick={onGrab} className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded transition-colors">
+            Use here
+          </button>
+        )}
+        <button onClick={onForget} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
+          Forget
+        </button>
       </div>
 
       {/* The device's own words for why its camera is not on. Nothing here could have guessed them. */}
-      {device.cameraError && <p className="text-xs text-yellow-500 pl-4">{device.cameraError}</p>}
+      {device.cameraError && <p className="text-xs text-yellow-500">{device.cameraError}</p>}
 
-      {showBoardChoice && reachable && (
-        <div className="pl-4">
-          <BoardCameraChoice
-            device={device}
-            selected={boardCamera === device.deviceId}
-            onSelect={onSelectBoardCamera}
-          />
+      {showBoardCamera && reachable && (
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className={`text-sm ${offered ? 'text-gray-400' : 'text-gray-600'}`}>Board camera</span>
+            <Switch
+              checked={boardCamera === device.deviceId}
+              disabled={!offered}
+              onChange={onBoardCameraChange}
+              label={`Board camera: ${device.name}`}
+            />
+          </div>
+          {!offered ? (
+            <span className="text-xs text-gray-600">this device is not sharing its view</span>
+          ) : device.media === 'stills' ? (
+            <span className="text-xs text-gray-500">stills only</span>
+          ) : null}
         </div>
       )}
 
       {reachable && (
-        <div className="flex items-center justify-between gap-3 pl-4 text-xs">
+        <div className="flex items-center justify-between gap-3 border-t border-gray-800/60 pt-1.5 text-xs">
           {confirmingPowerOff ? (
             <>
               <span className="text-gray-500">

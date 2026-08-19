@@ -11,7 +11,7 @@
 // nothing at all in a shipped bundle.
 
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { skipOnboarding } from './appHelpers';
+import { setSwitch, skipOnboarding } from './appHelpers';
 
 // ============================================================
 // Reaching into a page's mesh
@@ -86,7 +86,7 @@ async function pairScorer(browser: Browser, frontend: Page, name: string) {
   await page.getByPlaceholder('Name this device').fill(name);
   await page.getByPlaceholder('Name this device').blur();
 
-  await frontend.getByRole('radio', { name: `Board camera: ${name}` }).check();
+  await setSwitch(frontend.getByRole('switch', { name: `Board camera: ${name}` }), true);
   // Close the panel again so the next pairing starts from the same place.
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   return { context, page };

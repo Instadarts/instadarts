@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { skipOnboarding, winLegAt501 } from './appHelpers';
+import { setSwitch, skipOnboarding, winLegAt501 } from './appHelpers';
 
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(120_000);
@@ -46,7 +46,7 @@ async function pairScorer(browser: Browser, frontend: Page) {
   await expect(page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
   await page.getByPlaceholder('Name this device').fill('Recovery board');
   await page.getByPlaceholder('Name this device').blur();
-  await frontend.getByRole('radio', { name: 'Board camera: Recovery board' }).check();
+  await setSwitch(frontend.getByRole('switch', { name: 'Board camera: Recovery board' }), true);
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   return { context, page };
 }
@@ -191,7 +191,7 @@ test('the setup overlay settles, bypasses local opt-out, times out, and never ga
 
   const optedOut = await onlineRoom(browser);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
-  await optedOut.host.getByRole('checkbox', { name: 'Share and watch live video during a match' }).uncheck();
+  await setSwitch(optedOut.host.getByRole('switch', { name: 'Share and watch live video during a match' }), false);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
   await optedOut.host.getByRole('button', { name: /Start Match/i }).click();
   await optedOut.host.waitForURL('**/match/**');

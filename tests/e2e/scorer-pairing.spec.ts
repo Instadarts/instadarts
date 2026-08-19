@@ -100,19 +100,18 @@ test.describe('scoring device pairing', () => {
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
     // Until it says otherwise, the browser calls it by the placeholder it assigned at pairing.
-    await expect(player.getByText('Camera 1')).toBeVisible();
+    await expect(player.getByTestId('device-name')).toHaveText('Camera 1');
 
     await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
     await scorer.page.getByPlaceholder('Name this device').blur();
 
-    await expect(player.getByText('Board camera')).toBeVisible();
-    await expect(player.getByText('Camera 1')).toHaveCount(0);
+    await expect(player.getByTestId('device-name')).toHaveText('Board camera');
 
     // And it is the device's own name, so it survives a reload of both.
     await scorer.page.reload();
     await player.reload();
     await player.getByRole('button', { name: 'Cameras' }).first().click();
-    await expect(player.getByText('Board camera')).toBeVisible();
+    await expect(player.getByTestId('device-name')).toHaveText('Board camera');
 
     await frontend.close();
     await scorer.context.close();
@@ -150,7 +149,7 @@ test.describe('scoring device pairing', () => {
     // that changed by it being handed to somebody else. The new owner is told the name at once,
     // rather than being left with the placeholder it invented.
     await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('Board camera');
-    await expect(newOwner.getByText('Board camera')).toBeVisible();
+    await expect(newOwner.getByTestId('device-name')).toHaveText('Board camera');
 
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
     await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
@@ -301,7 +300,7 @@ test.describe('pairing by scanning', () => {
 
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
     await expect(newOwner.getByText('connected')).toBeVisible();
-    await expect(newOwner.getByText('Board camera')).toBeVisible();
+    await expect(newOwner.getByTestId('device-name')).toHaveText('Board camera');
 
     // The settings are untouched: they describe this camera on this mount, and none of that changed
     // by it being handed to somebody else.

@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
@@ -66,6 +66,18 @@ export function App() {
   const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
   // Which of this tab's claimed devices is shared as this player's board.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
+  // Nominating a board is asking to be watched, and the media switch is what decides whether this
+  // browser takes part at all. Doing the first with the second off would be a control that did
+  // nothing, so it turns the switch on rather than quietly disagreeing with it.
+  //
+  // The reverse is not symmetrical: switching media off leaves the nomination in place, so that
+  // switching it back on restores the board somebody already chose. Nothing leaks in the meantime —
+  // useMediaMesh sends boardCamera: null for tier `disabled`, and the top bar reads its switches
+  // off to match.
+  const changeBoardCamera = useCallback((deviceId: string | null) => {
+    setBoardCamera(saveBoardCamera(deviceId));
+    if (deviceId !== null && !wantsMedia) setWantsMedia(saveMediaEnabled(true));
+  }, [wantsMedia]);
   // Whose visit is on screen — the thrower's, whoever that is. Only they may ask a camera for dart
   // evidence or direct their own feed.
   const currentPlayer = match?.players[match.currentPlayerIndex];
@@ -217,7 +229,7 @@ export function App() {
         media={media.config?.enabled ? wantsMedia : null}
         onMediaChange={(next) => setWantsMedia(saveMediaEnabled(next))}
         boardCamera={boardCamera}
-        onBoardCameraChange={(next) => setBoardCamera(saveBoardCamera(next))}
+        onBoardCameraChange={changeBoardCamera}
       />
       <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">
       <Routes>

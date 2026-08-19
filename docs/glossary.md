@@ -742,7 +742,15 @@ frontend declares it. The choice survives replacement of that frontend endpoint,
 opt-out, source change, device withdrawal, or match finish ends it.
 
 Distinct from the browser's own media switch: that decides whether this user takes part at all
-(including watching the opponent), while this decides only whether anybody sees *their* board.
+(including watching the opponent), while this decides only whether anybody sees *their* board. The
+two are separate answers, and the device menu keeps them consistent rather than merged — nominating
+a board turns the media switch on, because asking to be watched by a browser that takes no part in
+media is not a state worth having, and while that switch is off no board is nominated on the wire at
+all. The nomination itself is only remembered across that, not cancelled, so switching media back on
+restores the board already chosen.
+
+In the top bar, none is what every board-camera switch being off *says*, rather than a control of its
+own: one switch per device, and turning one on turns the others off.
 
 ### Publisher / viewer
 

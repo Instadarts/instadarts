@@ -239,6 +239,8 @@ test.describe('an owner reaching a device from the frontend', () => {
     await pairCamera(player, scorer.page);
     // A match is running throughout, so nothing here is the idle timer doing the work.
     await addPlayersAndStart(player);
+    // Starting the match meant clicking the page behind the device menu, which closes it. Back in.
+    await player.getByRole('button', { name: 'Cameras' }).first().click();
     await startCamera(scorer.page);
     await expect(player.getByTestId('device-status')).toHaveText('camera on', { timeout: ROUND_TRIP_MS });
 

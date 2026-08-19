@@ -14,7 +14,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { skipOnboarding } from './appHelpers';
+import { setSwitch, skipOnboarding } from './appHelpers';
 
 const SCENES = {
   // Camera startup now performs a real cold inference. Begin where the test's prose always said it
@@ -47,7 +47,7 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await scorer.getByPlaceholder('Name this device').fill(name);
   await scorer.getByPlaceholder('Name this device').blur();
 
-  await player.getByRole('radio', { name: `Board camera: ${name}` }).check();
+  await setSwitch(player.getByRole('switch', { name: `Board camera: ${name}` }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
 }
 

@@ -35,6 +35,19 @@ export async function skipOnboarding(context: BrowserContext) {
 }
 
 /**
+ * Put a `role="switch"` control into a given state.
+ *
+ * The switches in the top bar are buttons, so `click()` toggles rather than sets — asking for the
+ * state a spec wants, instead of counting on the state it is in, is what `check()`/`uncheck()` gave
+ * for the checkboxes and radios these replaced.
+ */
+export async function setSwitch(target: Locator, on: boolean): Promise<void> {
+  if ((await target.getAttribute('aria-checked')) === String(on)) return;
+  await target.click();
+  await expect(target).toHaveAttribute('aria-checked', String(on));
+}
+
+/**
  * Click a position on the dartboard SVG.
  * Board coords: [0, 1_000_000], y-up, center [500_000, 500_000].
  * SVG is y-down, so we flip: svgY = 1_000_000 - boardY.

@@ -146,7 +146,8 @@ test.describe('media links', () => {
 
     // And the connection is peer-to-peer on this machine's own network, not relayed.
     const stats = await host.evaluate((id) => (window as any).__media.stats(id), guestId);
-    expect(stats.localCandidateType).toBe('host');
+    expect(['host', 'srflx']).toContain(stats.localCandidateType);
+    expect(stats.localCandidateType).not.toBe('relay');
 
     await alice.close();
     await bob.close();

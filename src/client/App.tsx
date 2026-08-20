@@ -42,7 +42,7 @@ export function App() {
     connected,
     connectionGeneration,
     roomGeneration,
-    ownPlayerId,
+    ownPlayerIds,
     isSpectator,
     isHost,
     send,
@@ -55,7 +55,7 @@ export function App() {
     submitVisit,
     leaveMatch,
     spectate,
-    swapPlayers,
+    reorderPlayer,
     voteRematch,
     addDart,
     undoDart,
@@ -83,7 +83,7 @@ export function App() {
   // evidence or direct their own feed.
   const currentPlayer = match?.players[match.currentPlayerIndex];
   const isThrower = !isSpectator && match?.status === 'in_progress'
-    && (!ownPlayerId || currentPlayer?.id === ownPlayerId);
+    && (ownPlayerIds.length === 0 || ownPlayerIds.includes(currentPlayer?.id ?? ''));
 
   const evidenceHandler = useRef<((from: string, message: ControlMessage, payload?: Uint8Array) => void) | null>(null);
   const feedHandler = useRef<((from: string, message: ControlMessage) => void) | null>(null);
@@ -143,10 +143,12 @@ export function App() {
   // a user not using the feature versus one whose first picture has not arrived.
   const evidenceImages = evidence.available ? evidence.images : null;
 
+  const ownBoardId = match?.players.find((p) => ownPlayerIds.includes(p.id))?.boardId ?? null;
+  const currentBoardId = currentPlayer?.boardId ?? null;
   const liveFeed = selectVideoFeed(
     videoFeeds,
-    currentPlayer?.id ?? null,
-    ownPlayerId,
+    currentBoardId,
+    ownBoardId,
     isSpectator,
     match?.isLocal ?? true,
   );
@@ -262,7 +264,7 @@ export function App() {
           <LobbyWrapper
             lobby={lobby}
             modes={modes}
-            ownPlayerId={ownPlayerId}
+            ownPlayerIds={ownPlayerIds}
             isSpectator={isSpectator}
             isHost={isHost}
             startMatch={startMatch}
@@ -270,7 +272,7 @@ export function App() {
             updateSettings={updateSettings}
             addLocalPlayer={addLocalPlayer}
             removePlayer={removePlayer}
-            swapPlayers={swapPlayers}
+            reorderPlayer={reorderPlayer}
             navigate={navigate}
             error={error}
           />
@@ -281,7 +283,7 @@ export function App() {
             match={match}
             view={view}
             panel={panel}
-            ownPlayerId={ownPlayerId}
+            ownPlayerIds={ownPlayerIds}
             isSpectator={isSpectator}
             leaveMatch={leaveMatch}
             addDart={addDart}
@@ -330,7 +332,7 @@ export function App() {
 interface LobbyWrapperProps {
   lobby: Lobby | null;
   modes: ModeDescriptor[];
-  ownPlayerId: string | null;
+  ownPlayerIds: string[];
   isSpectator: boolean;
   /** Whether this user created the lobby — the server's answer, sent to this connection alone. */
   isHost: boolean;
@@ -339,12 +341,12 @@ interface LobbyWrapperProps {
   updateSettings: (lobbyId: string, settings: any) => void;
   addLocalPlayer: (lobbyId: string, name: string) => void;
   removePlayer: (lobbyId: string, playerId: string) => void;
-  swapPlayers: (lobbyId: string) => void;
+  reorderPlayer: (lobbyId: string, playerId: string, direction: 'up' | 'down') => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
 
-function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, isHost, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, swapPlayers, navigate, error }: LobbyWrapperProps) {
+function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, reorderPlayer, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
@@ -354,14 +356,14 @@ function LobbyWrapper({ lobby, modes, ownPlayerId, isSpectator, isHost, startMat
       modes={modes}
       mode={lobby.isLocal ? 'local' : 'online'}
       isCreator={isHost || lobby.isLocal}
-      ownPlayerId={ownPlayerId}
+      ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
       onStartGame={() => startMatch(lobby.id)}
       onLeave={() => { leaveMatch(lobby.id); navigate('/'); }}
       onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
       onAddLocalPlayer={(n: string) => addLocalPlayer(lobby.id, n)}
       onRemovePlayer={(p: string) => removePlayer(lobby.id, p)}
-      onSwapPlayers={() => swapPlayers(lobby.id)}
+      onReorderPlayer={(playerId, direction) => reorderPlayer(lobby.id, playerId, direction)}
     />
   );
 }
@@ -370,7 +372,7 @@ interface MatchWrapperProps {
   match: MatchState | null;
   view: ModeView | null;
   panel?: ModePanel;
-  ownPlayerId: string | null;
+  ownPlayerIds: string[];
   isSpectator: boolean;
   leaveMatch: (matchId: string) => void;
   addDart: (matchId: string, dart: any) => void;
@@ -386,7 +388,7 @@ interface MatchWrapperProps {
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
@@ -395,7 +397,7 @@ function MatchWrapper({ match, view, panel, ownPlayerId, isSpectator, evidence, 
       match={match}
       view={view}
       panel={panel}
-      ownPlayerId={ownPlayerId}
+      ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
       onLeave={() => { leaveMatch(match.id); navigate('/'); }}
       onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
@@ -453,14 +455,14 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
         modes={modes}
         mode={lobby.isLocal ? 'local' : 'online'}
         isCreator={false}
-        ownPlayerId={null}
+        ownPlayerIds={[]}
         isSpectator={true}
         onStartGame={() => {}}
         onLeave={handleLeave}
         onUpdateSettings={() => {}}
         onAddLocalPlayer={() => {}}
         onRemovePlayer={() => {}}
-        onSwapPlayers={() => {}}
+        onReorderPlayer={() => {}}
       />
     );
   }
@@ -471,7 +473,7 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
         match={match}
         view={view}
         panel={panel}
-        ownPlayerId={null}
+        ownPlayerIds={[]}
         isSpectator={true}
         onLeave={() => navigate('/')}
         onAddDart={() => {}}

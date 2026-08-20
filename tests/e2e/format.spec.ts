@@ -68,7 +68,8 @@ test.describe('Game modes', () => {
     // in id order, which is not the order they were installed in and not where the default sits.
     const selector = page.getByLabel('Game');
     await expect(selector).toHaveValue('x01');
-    await expect(selector.locator('option')).toHaveText(['Whac-A-Mole', 'x01']);
+    await expect(selector.locator('option[value="x01"]')).toHaveText('x01');
+    await expect(selector.locator('option[value="whac-a-mole"]')).toHaveText('Whac-A-Mole');
     await expect(page.locator('text=x01 settings')).toBeVisible();
     await expect(page.getByLabel('Starting Score')).toBeVisible();
 

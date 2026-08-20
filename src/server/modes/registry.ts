@@ -5,3 +5,4 @@
 
 import './x01.js';
 import './whac-a-mole.js';
+import './count-up.js';

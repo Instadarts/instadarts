@@ -10,8 +10,9 @@ peer and never receives an image, encoded frame, consent choice, or private came
 ## Ownership and lifetime
 
 At match start the server creates a private `MatchMediaSession` with a fresh `meshId`. Online source
-slots are keyed by immutable player ID. A local match has one shared-board slot. This state is not
-part of public `MatchState`.
+slots are keyed by the first player ID of each distinct user board. A local match has one shared-board slot.
+Video mesh activation is enabled for matches with $\le 2$ distinct users (whether 1v1, 2v1, 2v2 on 2 boards, or local).
+Matches with $> 2$ distinct users disable the video mesh. This state is not part of public `MatchState`.
 
 Each frontend declares its current choice after it receives a running match:
 

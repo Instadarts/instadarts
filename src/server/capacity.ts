@@ -29,16 +29,11 @@ export const MAX_MATCHES = CONFIG.server.maxMatches;
  */
 export const MAX_ROOMS = MAX_MATCHES;
 
-/** An online match has two users; a local one has a single user holding both players. */
-export const USERS_PER_MATCH = 2;
-
-/**
- * Frontend connections. Spectators count: an audience is uncapped per match by design, so it is
- * this budget they spend from, and this is the limit a busy server actually reaches.
- *
- * **Refused**, as part of MAX_CONNECTIONS.
- */
-export const MAX_USERS = USERS_PER_MATCH * MAX_MATCHES;
+/** A match can hold at most as many users as it can hold players — each brings at least one. */
+export const MAX_USERS_PER_MATCH = CONFIG.server.maxPlayersPerMatch;
+/** What a match actually has. Sizes the connection budget, like TYPICAL_DEVICES_PER_USER does. */
+const TYPICAL_USERS_PER_MATCH = 2;
+export const MAX_USERS = TYPICAL_USERS_PER_MATCH * MAX_MATCHES;
 
 /**
  * Scoring devices one user may hold at once. A sixth pairing drops that user's oldest.
@@ -129,6 +124,8 @@ export function canAcceptDevice(current: number): boolean {
 export function capacityLimits() {
   return {
     maxMatches: MAX_MATCHES,
+    maxPlayersPerMatch: CONFIG.server.maxPlayersPerMatch,
+    maxUsersPerMatch: MAX_USERS_PER_MATCH,
     maxRooms: MAX_ROOMS,
     maxUsers: MAX_USERS,
     maxConnections: MAX_CONNECTIONS,

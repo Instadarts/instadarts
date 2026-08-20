@@ -81,11 +81,29 @@ function blankSource(): SourceSlot {
   return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null };
 }
 
+export function userCountOf(match: MatchState): number {
+  return new Set(match.players.map((p) => p.sessionId)).size;
+}
+
+function boardSlotsOf(match: MatchState): string[] {
+  const seen = new Set<string>();
+  const slots: string[] = [];
+  for (const p of match.players) {
+    if (p.sessionId && !seen.has(p.sessionId)) {
+      seen.add(p.sessionId);
+      slots.push(p.id);
+    }
+  }
+  return slots;
+}
+
 /** Create the one media incarnation belonging to this match. Lobbies never call this. */
 export function startMediaForMatch(match: MatchState): void {
   if (!MEDIA_ENABLED || match.status !== 'in_progress') return;
   finishMediaForMatch(match.id);
-  const slots = new Set(match.isLocal ? [LOCAL_SLOT] : match.players.map((player) => player.id));
+  if (userCountOf(match) > 2) return;
+  const slotList = match.isLocal ? [LOCAL_SLOT] : boardSlotsOf(match);
+  const slots = new Set(slotList);
   sessions.set(match.id, {
     matchId: match.id,
     meshId: crypto.randomUUID(),
@@ -176,8 +194,7 @@ function slotForFrontend(match: MatchState, client: NonNullable<ReturnType<typeo
   if (match.isLocal) {
     return match.players.some((player) => player.sessionId === client.sessionId) ? LOCAL_SLOT : null;
   }
-  const player = match.players.find((candidate) => candidate.id === client.playerId);
-  return player && player.sessionId === client.sessionId ? player.id : null;
+  return match.players.find((candidate) => candidate.sessionId === client.sessionId)?.id ?? null;
 }
 
 function scorerSocket(deviceId: string): WebSocket | null {

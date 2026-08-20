@@ -169,9 +169,9 @@ describe('what watching a match tells you', () => {
         expect(player.sessionId).toBeUndefined();
       }
     }
-    // What replaces it: which player is your own, told to one connection and to nobody else.
-    expect(host.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(true);
-    expect(spec.received.some((m) => m.type === 'lobby_state' && m.yourPlayerId)).toBe(false);
+    // What replaces it: which players are your own, told to one connection and to nobody else.
+    expect(host.received.some((m) => m.type === 'lobby_state' && (m.yourPlayerIds?.length ?? 0) > 0)).toBe(true);
+    expect(spec.received.some((m) => m.type === 'lobby_state' && (m.yourPlayerIds?.length ?? 0) > 0)).toBe(false);
   });
 
   it('does not hand out the creator\'s session id either', () => {

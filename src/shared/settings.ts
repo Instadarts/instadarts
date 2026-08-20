@@ -73,6 +73,10 @@ export interface ModeDescriptor {
   fields: SettingsField[];
   /** Media features this mode does not want. Anything not named stays available. */
   bansMedia: readonly MediaFeature[];
+  /**
+   * The most players this mode's rules will take, or null if it imposes no limit of its own.
+   */
+  maxPlayers: number | null;
 }
 
 /**
@@ -84,4 +88,9 @@ export interface ModeDescriptor {
  */
 export function modeBans(descriptor: ModeDescriptor | undefined, feature: MediaFeature): boolean {
   return descriptor?.bansMedia?.includes(feature) ?? false;
+}
+
+/** The cap a lobby enforces: the deployment's, narrowed by the mode's. Fails open on silence. */
+export function effectiveMaxPlayers(serverMax: number, modeMax: number | null | undefined): number {
+  return modeMax == null ? serverMax : Math.min(serverMax, modeMax);
 }

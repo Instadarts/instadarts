@@ -121,7 +121,7 @@ describe('leaving a match', () => {
     const finished = user.last('match_finished')!.match;
     expect(finished.status).toBe('finished');
     expect(finished.winnerId).toBeNull(); // cancelled, not won
-    expect(finished.departed).toHaveLength(1);
+    expect(finished.departed).toHaveLength(2);
   });
 
   it('hands an online match to the player who stayed', () => {

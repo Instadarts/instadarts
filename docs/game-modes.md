@@ -68,6 +68,9 @@ interface GameMode {
   readonly defaults: ModeSettings;  // ─┐ its settings, declared here and nowhere else
   readonly fields: SettingsField[]; // ─┘
 
+  /** Maximum number of players supported (e.g. 2 for x01). Omitted or null means server max (default 5). */
+  readonly maxPlayers?: number;
+
   /** Media features this mode does not want. Omitted means none — see "Declining a media feature". */
   readonly bansMedia?: readonly MediaFeature[];
 

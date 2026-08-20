@@ -15,9 +15,9 @@ import type { WebSocket } from 'ws';
 import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, swapLobbyPlayers } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, movePlayerInLobby } from './store';
 import { generatePlayerId } from './player';
-import { addDartToMatch, undoDartFromMatch, submitVisitToMatch } from './match';
+import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
 import { generateInviteCode } from './invite';
 import { sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
@@ -38,7 +38,8 @@ import {
 } from './media';
 import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
-import { allModes, describeMode } from './modes/types';
+import { allModes, describeMode, getMode } from './modes/types';
+import { effectiveMaxPlayers } from '../shared/settings';
 import { canCreateLobby, canCreateMatch } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
@@ -83,9 +84,10 @@ const DISCONNECT_GRACE_MS = 3000;
 const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
 
 function disconnectKey(client: Client): string | null {
-  if (client.lobbyId && client.playerId) return `lobby:${client.lobbyId}:${client.playerId}`;
+  const pid = client.playerIds[0] ?? '';
+  if (client.lobbyId && pid) return `lobby:${client.lobbyId}:${pid}`;
   if (client.lobbyId) return `lobby:${client.lobbyId}:`;
-  if (client.matchId && client.playerId) return `match:${client.matchId}:${client.playerId}`;
+  if (client.matchId && pid) return `match:${client.matchId}:${pid}`;
   return null;
 }
 
@@ -182,7 +184,7 @@ function releaseTakenSeat(sessionId: string, roomId: string): void {
   const devices = client.matchId ? devicesScoringInto(client.matchId) : [];
   client.lobbyId = null;
   client.matchId = null;
-  client.playerId = null;
+  client.playerIds = [];
   client.isSpectator = false;
   send(ws, { type: 'seat_taken_over' });
   // It is out of the room, so the room's cameras and peers are no longer its business.
@@ -201,8 +203,10 @@ function claimSeat(roomId: string, client: Client, seat: Seat): string {
   const held = heldSeat(roomId, client.sessionId);
   if (!held) return grantSeat(roomId, client.sessionId, seat);
   // A room taken before there was a player to take it as — the host creating a lobby — is filled in
-  // by the first player added on that seat.
-  if (held.seat.playerId === null && seat.playerId) updateSeat(roomId, held.token, { playerId: seat.playerId });
+  // by the players added on that seat.
+  if (held.seat.playerIds.length === 0 && seat.playerIds.length > 0) {
+    updateSeat(roomId, held.token, { playerIds: [...seat.playerIds] });
+  }
   return held.token;
 }
 
@@ -337,8 +341,8 @@ export function handleMessage(ws: WebSocket, raw: string): void {
     case 'spectate':
       handleSpectate(ws, msg);
       break;
-    case 'swap_players':
-      handleSwapPlayers(ws, msg);
+    case 'reorder_player':
+      handleReorderPlayer(ws, msg);
       break;
     case 'rematch_vote':
       handleRematchVote(ws, msg);
@@ -439,7 +443,7 @@ setLifecycleHandlers({
     for (const [, client] of allClients()) {
       if (client.matchId !== match.id) continue;
       client.matchId = null;
-      client.playerId = null;
+      client.playerIds = [];
       client.isSpectator = false;
     }
     dropScoringSessions(match.id);
@@ -456,7 +460,7 @@ setLifecycleHandlers({
       if (client.lobbyId !== lobby.id) continue;
       send(ws, { type: 'lobby_abandoned' });
       client.lobbyId = null;
-      client.playerId = null;
+      client.playerIds = [];
       client.isSpectator = false;
     }
     deleteLobby(lobby.id);
@@ -467,7 +471,7 @@ setLifecycleHandlers({
 /** Message types that count as input for the idle timeout. */
 const INPUT_TYPES = new Set([
   'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name',
-  'update_settings', 'swap_players', 'start_match',
+  'update_settings', 'reorder_player', 'start_match',
   'add_dart', 'undo_dart', 'submit_visit', 'rematch_vote',
 ]);
 
@@ -483,7 +487,7 @@ const INPUT_TYPES = new Set([
  * and `set_player_name` are here because a roster carries player names and ids, not merely who is in it.
  */
 const ROOM_CHANGING_TYPES = new Set([
-  'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'swap_players',
+  'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'reorder_player',
   'start_match', 'rematch_vote', 'leave_match', 'spectate', 'reconnect',
   'activate_devices', 'deactivate_device', 'scorer_pair', 'scorer_hello', 'scorer_unpair', 'scorer_name',
   'media_ready', 'media_leave', 'media_join',
@@ -504,14 +508,15 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
   const client = getClient(ws);
   if (client) {
     client.lobbyId = lobby.id;
+    client.playerIds = [];
     lobby.hostSessionId = client.sessionId;
     // The host chair before there is a player to sit in it: a lobby is created empty, and a reload
     // in that gap must still come back as its creator.
-    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerId: null, host: true }));
+    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host: true }));
   }
 
   generateInviteCode(lobby.id);
-  send(ws, lobbyMessage(lobby, { host: true }));
+  send(ws, lobbyMessage(lobby, { playerIds: [], host: true }));
 }
 
 function handleJoinLobby(ws: WebSocket, msg: any): void {
@@ -524,25 +529,33 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
 
-  if (lobby.players.length >= 2 || lobby.remoteConnected) {
-    send(ws, { type: 'error', message: lobby.players.length >= 2 ? 'Lobby is full' : 'Another user is already in this lobby' });
+  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
+  if (lobby.players.length >= max) {
+    send(ws, { type: 'error', message: 'Lobby is full' });
     return;
   }
 
-  // Associate client with lobby — player is added manually via add_local_player
+  let distinctUsers = 0;
+  for (const [, c] of allClients()) {
+    if (c.lobbyId === lobby.id && !c.isSpectator && !c.deviceId) {
+      distinctUsers++;
+    }
+  }
+  if (distinctUsers >= max) {
+    send(ws, { type: 'error', message: 'Lobby is full' });
+    return;
+  }
+
+  // Associate client with lobby — players are added via add_local_player
   const client = getClient(ws);
   if (client) {
     client.lobbyId = lobby.id;
-    // Mark opponent as connected for the creator
-    if (client.sessionId !== lobby.hostSessionId) {
-      lobby.remoteConnected = true;
-    }
+    client.playerIds = [];
     const host = client.sessionId === lobby.hostSessionId;
-    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerId: null, host }));
+    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host }));
   }
 
-  // Send direct response to joining client (in case not yet in clients map)
-  send(ws, lobbyMessage(lobby, { host: client?.sessionId === lobby.hostSessionId }));
+  send(ws, lobbyMessage(lobby, { playerIds: [], host: client?.sessionId === lobby.hostSessionId }));
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
 
@@ -563,9 +576,9 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
-  // Online: each client can only add 1 player
-  if (!lobby.isLocal && lobby.players.some((p) => p.sessionId === client.sessionId)) {
-    send(ws, { type: 'error', message: 'You have already added a player' });
+  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
+  if (lobby.players.length >= max) {
+    send(ws, { type: 'error', message: 'Lobby is full' });
     return;
   }
 
@@ -581,23 +594,27 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
-  // Track which player this client owns
-  client.playerId = player.id;
+  client.playerIds.push(player.id);
 
   // Set host player if this is the first player in an online lobby
   if (!lobby.hostPlayerId && !lobby.isLocal) {
     lobby.hostPlayerId = player.id;
   }
 
-  // The seat this connection already holds in the lobby, now with a player on it. A local host adds
-  // two and keeps one seat: they hold every player, so any one of them proves the claim.
+  // The seat this connection already holds in the lobby, now with its players on it.
   const host = client.sessionId === lobby.hostSessionId;
-  sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerId: player.id, host }));
+  const held = heldSeat(lobby.id, client.sessionId);
+  if (held) {
+    updateSeat(lobby.id, held.token, { playerIds: [...client.playerIds], host });
+    sendResume(ws, { lobbyId: lobby.id }, held.token);
+  } else {
+    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [...client.playerIds], host }));
+  }
 
-  // Everyone sees the lobby; only this connection is told which player is its own — and in a local
+  // Everyone sees the lobby; only this connection is told which players are its own — and in a local
   // match, where one user holds them all, that question has no answer.
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
-  send(ws, lobbyMessage(lobby, { playerId: lobby.isLocal ? undefined : player.id, host }));
+  send(ws, lobbyMessage(lobby, { playerIds: lobby.isLocal ? undefined : client.playerIds, host }));
 }
 
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
@@ -609,17 +626,19 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   if (!player) return;
 
   // Only allow removing your own session's player (local lobbies: one user controls all)
-  if (!lobby.isLocal && player.sessionId !== client.sessionId) {
+  if (!lobby.isLocal && player.sessionId !== client.sessionId && client.sessionId !== lobby.hostSessionId) {
     send(ws, { type: 'error', message: 'You can only remove your own player' });
     return;
   }
 
-  client.playerId = null;
-  // The seat outlives the player on it. Left as it was, a reload would come back asking for somebody
-  // who is no longer in the lobby.
+  client.playerIds = client.playerIds.filter((id) => id !== msg.playerId);
+
   const held = heldSeat(lobby.id, client.sessionId);
-  if (held && held.seat.playerId === msg.playerId) updateSeat(lobby.id, held.token, { playerId: null });
+  if (held) updateSeat(lobby.id, held.token, { playerIds: [...client.playerIds] });
   removePlayerFromLobby(lobby.id, msg.playerId);
+  if (lobby.hostPlayerId === msg.playerId) {
+    lobby.hostPlayerId = lobby.players[0]?.id ?? null;
+  }
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
@@ -637,6 +656,12 @@ function handleUpdateSettings(ws: WebSocket, msg: any): void {
   const validated = validateSettings(msg.settings, lobby.settings);
   if (!validated) {
     send(ws, { type: 'error', message: 'Invalid settings' });
+    return;
+  }
+
+  const mode = getMode(validated.mode);
+  if (mode?.maxPlayers && lobby.players.length > mode.maxPlayers) {
+    send(ws, { type: 'error', message: `${mode.label} takes at most ${mode.maxPlayers} players` });
     return;
   }
 
@@ -668,7 +693,7 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
-function handleStartMatch(ws: WebSocket, msg: any): void {
+function handleStartMatch(ws: WebSocket, _msg: any): void {
   const seated = seatedInLobby(ws);
   if (!seated) return;
   const { client } = seated;
@@ -690,10 +715,28 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
     return;
   }
 
+  const mode = getMode(lobby.settings.mode);
+  if (mode?.maxPlayers && lobby.players.length > mode.maxPlayers) {
+    send(ws, { type: 'error', message: `${mode.label} takes at most ${mode.maxPlayers} players` });
+    return;
+  }
 
-  if (lobby.players.length < 1) {
+  if (lobby.isLocal && lobby.players.length < 1) {
     send(ws, { type: 'error', message: 'Need at least one player to start' });
     return;
+  }
+
+  if (!lobby.isLocal && lobby.players.length < 2) {
+    send(ws, { type: 'error', message: 'Need at least two players to start' });
+    return;
+  }
+
+  // Elevate any playerless lobby clients to spectators before starting match
+  for (const [, c] of allClients()) {
+    if (c.lobbyId === lobby.id && !c.isSpectator && !c.deviceId && c.playerIds.length === 0) {
+      revokeSeat(lobby.id, c.sessionId);
+      c.isSpectator = true;
+    }
   }
 
   const match = createMatch(lobby);
@@ -707,10 +750,10 @@ function handleStartMatch(ws: WebSocket, msg: any): void {
       // Same seat, new room id. A spectator carried along holds none and is told nothing.
       const held = heldSeat(match.id, c.sessionId);
       if (held) sendResume(w, { matchId: match.id }, held.token);
+      send(w, matchMessage('match_started', match, match.isLocal ? undefined : c.playerIds));
     }
   }
 
-  broadcastToMatch(match.id, matchMessage('match_started', match));
   // The one push a scoring device cannot do without: it is what starts a camera that powered itself
   // down between matches. A device only ever learns it is wanted from `scorer_state`.
   publishScorerStateFor(devicesScoringInto(match.id));
@@ -724,14 +767,14 @@ function handleAddDart(ws: WebSocket, msg: any): void {
   const dart = validateDartThrow(msg.dart);
   if (!dart) { send(ws, { type: 'error', message: 'Invalid dart coordinates' }); return; }
 
-  const playerId = match.isLocal ? match.players[match.currentPlayerIndex].id : client.playerId;
-  if (!playerId) { send(ws, { type: 'error', message: 'No player associated' }); return; }
-  if (!match.isLocal && playerId !== client.playerId) {
+  const current = match.players[match.currentPlayerIndex];
+  if (!current) { send(ws, { type: 'error', message: 'No current player' }); return; }
+  if (!match.isLocal && !client.playerIds.includes(current.id)) {
     send(ws, { type: 'error', message: 'You can only throw darts for your own player' });
     return;
   }
 
-  const result = addDartToMatch(match, playerId, dart);
+  const result = addDartToMatch(match, current.id, dart);
   if (!result.success) { send(ws, { type: 'error', message: result.error }); return; }
 
   commitScoredMatch(result.match);
@@ -744,7 +787,7 @@ function handleUndoDart(ws: WebSocket, _msg: any): void {
 
   const cv = match.currentVisit;
   if (!cv || cv.darts.length === 0) { send(ws, { type: 'error', message: 'No darts to undo' }); return; }
-  if (!match.isLocal && cv.playerId !== client.playerId) {
+  if (!match.isLocal && !client.playerIds.includes(cv.playerId)) {
     send(ws, { type: 'error', message: 'You can only undo your own darts' });
     return;
   }
@@ -761,7 +804,7 @@ function handleSubmitVisit(ws: WebSocket, _msg: any): void {
   const { client, match } = req;
 
   const cv = match.currentVisit;
-  if (cv && !match.isLocal && cv.playerId !== client.playerId) {
+  if (cv && !match.isLocal && !client.playerIds.includes(cv.playerId)) {
     send(ws, { type: 'error', message: 'You can only submit your own visit' });
     return;
   }
@@ -805,7 +848,7 @@ export function handleClientLeave(ws: WebSocket): void {
 
   client.lobbyId = null;
   client.matchId = null;
-  client.playerId = null;
+  client.playerIds = [];
 }
 
 function leaveAsSpectator(client: Client): void {
@@ -830,23 +873,36 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
   revokeSeat(client.matchId!, client.sessionId);
   const match = getMatch(client.matchId!);
   if (match) {
-    if (client.playerId) {
-      if (!match.departed.includes(client.playerId)) match.departed.push(client.playerId);
-      match.rematchVotes[client.playerId] = 'declined';
+    for (const pid of client.playerIds) {
+      if (!match.departed.includes(pid)) match.departed.push(pid);
+      match.rematchVotes[pid] = 'declined';
     }
 
+    const remaining = match.players.filter((p) => !match.departed.includes(p.id));
+
     if (match.status === 'in_progress') {
-      // A local match is one user's, so their leaving cancels it: no winner. An online match has an
-      // opponent still standing, and they take it.
-      const winnerId = !match.isLocal && match.players.length === 2
-        ? match.players.find((p) => p.id !== client.playerId)?.id ?? null
-        : null;
-      endMatch(match, winnerId);
+      if (match.isLocal || remaining.length === 0) {
+        endMatch(match, null);
+        broadcastToMatch(match.id, matchMessage('match_finished', match));
+      } else if (remaining.length === 1) {
+        endMatch(match, remaining[0].id);
+        broadcastToMatch(match.id, matchMessage('match_finished', match));
+      } else {
+        // The match continues!
+        // If the leaver held the current visit, drop currentVisit and advance currentPlayerIndex past them
+        const current = match.players[match.currentPlayerIndex];
+        if (current && match.departed.includes(current.id)) {
+          match.currentVisit = undefined;
+          match.currentPlayerIndex = nextActiveIndex(match, match.currentPlayerIndex);
+        }
+        broadcastToMatch(match.id, matchMessage('match_state', match));
+      }
+    } else {
+      broadcastToMatch(match.id, matchMessage('match_finished', match));
     }
-    broadcastToMatch(match.id, matchMessage('match_finished', match));
   }
   client.matchId = null;
-  client.playerId = null;
+  client.playerIds = [];
   publishScorerStateFor(devices);
 }
 
@@ -870,6 +926,7 @@ function leaveLobby(ws: WebSocket, client: Client): void {
   const lobby = getLobby(client.lobbyId!);
   if (!lobby) {
     client.lobbyId = null;
+    client.playerIds = [];
     return;
   }
 
@@ -879,26 +936,30 @@ function leaveLobby(ws: WebSocket, client: Client): void {
       if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
         send(otherWs, { type: 'lobby_abandoned' });
         otherClient.lobbyId = null;
-        otherClient.playerId = null;
+        otherClient.playerIds = [];
       }
     }
     deleteLobby(lobby.id);
   } else {
     // Non-host left: clear lobbyId before broadcasting so leaver is excluded
-    const leavingPlayerId = client.playerId;
+    const leavingPlayerIds = [...client.playerIds];
     client.lobbyId = null;
-    client.playerId = null;
-    lobby.remoteConnected = false;
-    if (leavingPlayerId) {
-      removePlayerFromLobby(lobby.id, leavingPlayerId);
+    client.playerIds = [];
+    for (const pid of leavingPlayerIds) {
+      removePlayerFromLobby(lobby.id, pid);
     }
-    generateInviteCode(lobby.id);
+    const hasOtherNonHosts = [...allClients()].some(
+      ([, c]) => c.lobbyId === lobby.id && c.sessionId !== lobby.hostSessionId && !c.deviceId,
+    );
+    if (!hasOtherNonHosts) {
+      generateInviteCode(lobby.id);
+    }
     broadcastToLobby(lobby.id, lobbyMessage(lobby));
     return;
   }
 
   client.lobbyId = null;
-  client.playerId = null;
+  client.playerIds = [];
 }
 
 function handleSpectate(ws: WebSocket, msg: any): void {
@@ -972,7 +1033,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
 /** Page reload during the lobby phase. */
 function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: Seat): void {
   // Cancel any pending disconnect for this player (page reload recovery)
-  cancelDisconnect(seat.playerId ? `lobby:${lobbyId}:${seat.playerId}` : `lobby:${lobbyId}:`);
+  cancelDisconnect(seat.playerIds[0] ? `lobby:${lobbyId}:${seat.playerIds[0]}` : `lobby:${lobbyId}:`);
 
   const lobby = getLobby(lobbyId);
   if (!lobby) {
@@ -981,7 +1042,7 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
   }
 
   client.lobbyId = lobby.id;
-  client.playerId = null;
+  client.playerIds = [];
   // Whatever this connection was before the reload, the seat is what it is now — and a seat is only
   // ever a participant's.
   client.isSpectator = false;
@@ -989,45 +1050,51 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
 
   // A seat with no player is an ordinary state, not a failure: a lobby taken before anybody was
   // added to it, or one whose player has since been removed.
-  const player = seat.playerId ? lobby.players.find((p) => p.id === seat.playerId) : undefined;
-  if (player) {
-    // A page reload gives a new session; the player it belongs to follows it.
-    player.sessionId = client.sessionId;
-    client.playerId = player.id;
+  for (const pid of seat.playerIds) {
+    const player = lobby.players.find((p) => p.id === pid);
+    if (player) {
+      // A page reload gives a new session; the player it belongs to follows it.
+      player.sessionId = client.sessionId;
+      client.playerIds.push(player.id);
+    }
   }
 
-  send(ws, lobbyMessage(lobby, { playerId: lobby.isLocal ? undefined : player?.id, host: seat.host }));
+  send(ws, lobbyMessage(lobby, { playerIds: lobby.isLocal ? undefined : client.playerIds, host: seat.host }));
 }
 
 /** Page reload during the match. */
 function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: Seat): void {
-  cancelDisconnect(`match:${matchId}:${seat.playerId}`);
+  if (seat.playerIds[0]) cancelDisconnect(`match:${matchId}:${seat.playerIds[0]}`);
 
   const match = getMatch(matchId);
   if (!match) {
     send(ws, { type: 'error', message: 'Match not found' });
     return;
   }
-  const player = seat.playerId ? match.players.find((p) => p.id === seat.playerId) : undefined;
-  if (!player) {
-    send(ws, { type: 'error', message: 'Player not found in match' });
-    return;
-  }
-  if (match.isLocal) cancelDisconnectsForMatch(match.id);
-  // Leaving is final: a player who walked out does not come back, however they walked out.
-  if (match.departed.includes(player.id)) {
-    send(ws, { type: 'error', message: 'You have left this match' });
+
+  if (seat.playerIds.length > 0 && seat.playerIds.every((id) => match.departed.includes(id))) {
+    send(ws, { type: 'error', message: 'You have already left this match' });
     return;
   }
 
-  player.sessionId = client.sessionId;
+  if (match.isLocal) cancelDisconnectsForMatch(match.id);
+
   client.lobbyId = null;
   client.matchId = match.id;
-  client.playerId = player.id;
+  client.playerIds = [];
   client.isSpectator = false;
-  // The one message that tells a connection which player is its own: a reloaded tab cannot work that
+
+  for (const pid of seat.playerIds) {
+    const player = match.players.find((p) => p.id === pid);
+    if (player) {
+      player.sessionId = client.sessionId;
+      client.playerIds.push(player.id);
+    }
+  }
+
+  // The one message that tells a connection which players are its own: a reloaded tab cannot work that
   // out from the match, and a local match is the same "no answer" it is everywhere else.
-  send(ws, matchMessage('match_state', match, match.isLocal ? undefined : player.id));
+  send(ws, matchMessage('match_state', match, match.isLocal ? undefined : client.playerIds));
 }
 
 /**
@@ -1047,7 +1114,7 @@ function handleRematchVote(ws: WebSocket, msg: any): void {
   const player = match.players.find((p) => p.id === msg.playerId);
   if (!player) return;
   // You may answer for your own players — which in a local match is all of them.
-  if (!match.isLocal && player.sessionId !== client.sessionId) {
+  if (!match.isLocal && !client.playerIds.includes(player.id)) {
     send(ws, { type: 'error', message: 'You can only answer for your own player' });
     return;
   }
@@ -1094,13 +1161,13 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     // The same seat under a new room id, so a tab reloaded into the re-match still knows itself.
     const held = heldSeat(rematch.id, other.sessionId);
     if (held) sendResume(otherWs, { matchId: rematch.id }, held.token);
+    send(otherWs, matchMessage('match_started', rematch, rematch.isLocal ? undefined : other.playerIds));
   }
-  broadcastToMatch(rematch.id, matchMessage('match_started', rematch));
   // Looked up on the new match, because the clients have already been moved onto it.
   publishScorerStateFor(devicesScoringInto(rematch.id));
 }
 
-function handleSwapPlayers(ws: WebSocket, _msg: any): void {
+function handleReorderPlayer(ws: WebSocket, msg: any): void {
   const req = requireLobby(ws);
   if (!req) return;
   const { client, lobby } = req;
@@ -1111,10 +1178,11 @@ function handleSwapPlayers(ws: WebSocket, _msg: any): void {
     return;
   }
 
-  if (!swapLobbyPlayers(lobby.id)) {
-    send(ws, { type: 'error', message: 'Need two players to swap order' });
-    return;
-  }
+  if (msg.direction !== 'up' && msg.direction !== 'down') return;
+  if (typeof msg.playerId !== 'string') return;
+
+  const moved = movePlayerInLobby(lobby.id, msg.playerId, msg.direction);
+  if (!moved) return;
 
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }

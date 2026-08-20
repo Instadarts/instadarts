@@ -9,14 +9,14 @@ interface LobbyPageProps {
   modes: ModeDescriptor[];
   mode: 'local' | 'online';
   isCreator: boolean;
-  ownPlayerId: string | null;
+  ownPlayerIds: string[];
   isSpectator: boolean;
   onStartGame: () => void;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
   onAddLocalPlayer: (name: string) => void;
   onRemovePlayer: (playerId: string) => void;
-  onSwapPlayers: () => void;
+  onReorderPlayer?: (playerId: string, direction: 'up' | 'down') => void;
 }
 
 export function LobbyPage({
@@ -24,19 +24,19 @@ export function LobbyPage({
   modes,
   mode,
   isCreator,
-  ownPlayerId,
+  ownPlayerIds,
   isSpectator,
   onStartGame,
   onLeave,
   onUpdateSettings,
   onAddLocalPlayer,
   onRemovePlayer,
-  onSwapPlayers,
+  onReorderPlayer,
 }: LobbyPageProps) {
   const canStart =
     mode === 'local'
       ? lobby.players.length >= 1
-      : lobby.players.length === 2;
+      : lobby.players.length >= 2;
   const canEdit = !isSpectator && (mode === 'local' || isCreator);
 
   return (
@@ -48,18 +48,19 @@ export function LobbyPage({
       <p className="text-gray-500 text-sm mb-6">
         {mode === 'local'
           ? 'Add players and configure the match'
-          : 'Share the code below and wait for your opponent to connect'}
+          : 'Share the code below and wait for players to connect'}
       </p>
 
       <PlayerList
         players={lobby.players}
+        maxPlayers={lobby.maxPlayers}
         mode={mode}
         isCreator={isCreator}
         isSpectator={isSpectator}
-        ownPlayerId={ownPlayerId}
+        ownPlayerIds={ownPlayerIds}
         onAdd={onAddLocalPlayer}
         onRemove={onRemovePlayer}
-        onSwap={onSwapPlayers}
+        onReorder={onReorderPlayer}
       />
 
       <MatchSettingsPanel
@@ -72,15 +73,17 @@ export function LobbyPage({
       {isCreator && mode === 'online' && (
         <InvitePanel
           inviteCode={lobby.inviteCode}
-          remoteConnected={lobby.remoteConnected}
+          userCount={lobby.userCount}
+          isFull={lobby.players.length >= lobby.maxPlayers}
+          maxPlayers={lobby.maxPlayers}
         />
       )}
 
       {mode === 'online' && !isSpectator && lobby.players.length < 2 && (
         <p className="text-yellow-400 text-sm mb-6">
-          {!ownPlayerId
+          {ownPlayerIds.length === 0
             ? 'Add yourself as a player to get started'
-            : 'Waiting for opponent to join...'}
+            : 'Waiting for players to join...'}
         </p>
       )}
 

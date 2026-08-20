@@ -85,7 +85,7 @@ function publishScorerState(deviceId: string): void {
     type: 'scorer_state',
     status: owner ? 'active' : 'waiting',
     scoring: target !== null,
-    scoringContextId: target ? scoringContextId(target.match.id, target.ownerPlayerId) : null,
+    scoringContextId: target ? scoringContextId(target.match.id, target.ownerPlayerIds?.[0] ?? null) : null,
     cameras: owner ? activeCameras(owner).length : 0,
   });
 }
@@ -108,14 +108,14 @@ function activeCameras(ownerSessionId: string): string[] {
  * The owner must be an actual player in a running match. Spectators get a `matchId` too, which is
  * exactly why the check is here: a spectator with a paired camera must not become a scorer.
  */
-function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerId: string | null } | null {
+function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerIds: string[] | null } | null {
   for (const [, client] of allClients()) {
     if (client.deviceId || client.sessionId !== ownerSessionId) continue;
     if (client.isSpectator || !client.matchId) return null;
     const match = getMatch(client.matchId);
     if (!match || match.status !== 'in_progress') return null;
-    // A local match is one board scored for whoever is up; an online one scores only for its owner.
-    return { match, ownerPlayerId: match.isLocal ? null : client.playerId };
+    // A local match is one board scored for whoever is up; an online one scores for any player owned by this client.
+    return { match, ownerPlayerIds: match.isLocal ? null : client.playerIds };
   }
   return null;
 }
@@ -141,7 +141,7 @@ export function handleScorerTips(ws: WebSocket, msg: any): void {
   const target = resolveScoringTarget(owner);
   if (!target) return;
 
-  const session = getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch);
+  const session = getScoringSession(target.match.id, target.ownerPlayerIds, commitScoredMatch);
   session.setCameras(activeCameras(owner));
   session.addTips(client.deviceId, tips);
 }
@@ -323,7 +323,7 @@ export function handleScorerUnpair(ws: WebSocket): void {
   // waits for a report that is never coming — the same reason handleScorerCamera does this.
   const target = resolveScoringTarget(owner);
   if (target) {
-    getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
+    getScoringSession(target.match.id, target.ownerPlayerIds, commitScoredMatch).setCameras(activeCameras(owner));
   }
   publishDevicesState(owner);
 }
@@ -349,7 +349,7 @@ export function handleScorerCamera(ws: WebSocket, msg: any): void {
     // report that is never coming.
     const target = resolveScoringTarget(owner);
     if (target) {
-      getScoringSession(target.match.id, target.ownerPlayerId, commitScoredMatch).setCameras(activeCameras(owner));
+      getScoringSession(target.match.id, target.ownerPlayerIds, commitScoredMatch).setCameras(activeCameras(owner));
     }
     publishDevicesState(owner);
   }

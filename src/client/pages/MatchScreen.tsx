@@ -20,7 +20,7 @@ interface MatchScreenProps {
   onUndoDart: (matchId: string) => void;
   onSubmitVisit: (matchId: string) => void;
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
-  ownPlayerId: string | null;
+  ownPlayerIds: string[];
   isSpectator: boolean;
   /** A photograph per dart slot from the board camera, or null where no camera is in play. */
   evidence: (string | undefined)[] | null;
@@ -92,9 +92,9 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerId, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
-  const isMyTurn = !isSpectator && match.status === 'in_progress' && (!ownPlayerId || currentPlayer.id === ownPlayerId);
+  const isMyTurn = !isSpectator && match.status === 'in_progress' && (ownPlayerIds.length === 0 || ownPlayerIds.includes(currentPlayer.id));
 
   const currentDarts = match.currentVisit?.darts ?? [];
   const visitLocked = match.currentVisit?.locked ?? false;
@@ -138,7 +138,7 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
 
       {over ? (
         <Stage>
-          <Summary match={match} isSpectator={isSpectator} ownPlayerId={ownPlayerId} onVote={onVoteRematch} />
+          <Summary match={match} isSpectator={isSpectator} ownPlayerIds={ownPlayerIds} onVote={onVoteRematch} />
         </Stage>
       ) : (
         <Stage>
@@ -232,12 +232,12 @@ function Stage({ children }: { children: ReactNode }) {
 function Summary({
   match,
   isSpectator,
-  ownPlayerId,
+  ownPlayerIds,
   onVote,
 }: {
   match: MatchState;
   isSpectator: boolean;
-  ownPlayerId: string | null;
+  ownPlayerIds: string[];
   onVote: (playerId: string, answer: RematchAnswer | 'neutral') => void;
 }) {
   return (
@@ -264,7 +264,7 @@ function Summary({
         </section>
       </div>
 
-      {!isSpectator && <RematchPanel match={match} ownPlayerId={ownPlayerId} onVote={onVote} />}
+      {!isSpectator && <RematchPanel match={match} ownPlayerIds={ownPlayerIds} onVote={onVote} />}
     </div>
   );
 }
@@ -288,6 +288,7 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
     <div className="flex flex-wrap justify-center gap-2 sm:gap-8 w-full">
       {match.players.map((player, i) => {
         const isCurrent = !over && i === match.currentPlayerIndex;
+        const isDeparted = match.departed.includes(player.id);
         const score = scores?.[player.id] ?? '';
         return (
           <div
@@ -295,7 +296,11 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
             data-player={player.name}
             aria-current={isCurrent}
             className={`text-center px-4 py-2 rounded-lg flex-1 min-w-[120px] max-w-[16rem] ${
-              isCurrent ? 'bg-green-900 border border-green-500' : 'bg-gray-900'
+              isDeparted
+                ? 'bg-gray-900/50 opacity-60 border border-red-900/50'
+                : isCurrent
+                  ? 'bg-green-900 border border-green-500'
+                  : 'bg-gray-900'
             }`}
           >
             <p className="text-sm text-gray-400">{player.name}</p>
@@ -322,7 +327,11 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
                 >
                   {textOf(score)}
                 </p>
-                {isCurrent && <p className="text-xs text-green-500 mt-1">▶ throwing</p>}
+                {isDeparted ? (
+                  <p className="text-xs text-red-400 mt-1">departed</p>
+                ) : isCurrent ? (
+                  <p className="text-xs text-green-500 mt-1">▶ throwing</p>
+                ) : null}
               </>
             )}
           </div>
@@ -347,6 +356,7 @@ function formatStandings(setWins: number, legWins: number, legsToWinSet: number)
  * How a player finished. A cancelled match has no winner and therefore no verdict to give.
  */
 function Verdict({ match, playerId }: { match: MatchState; playerId: string }) {
+  if (match.departed.includes(playerId)) return <p className="text-2xl font-bold text-red-400">left</p>;
   if (!match.winnerId) return <p className="text-2xl font-bold text-gray-600">—</p>;
   return match.winnerId === playerId
     ? <p className="text-2xl font-bold text-green-400">WINNER</p>

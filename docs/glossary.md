@@ -102,15 +102,14 @@ interface Player { id: string; name: string; sessionId?: string }
 - Player ids are `p1`, `p2`, … from a process-global counter
   ([`src/server/player.ts`](../src/server/player.ts)) — unique per server run, not per match.
 - Server-side, every player carries the `sessionId` of the user who added it. In a **local** match
-  both players carry the same session id; in an **online** match one player belongs to each user.
+  all players carry the same session id; in an **online** match players carry the session id of the user who added them.
 - **On the wire it is stripped** (`publicPlayers`, in
   [`connections.ts`](../src/server/connections.ts)): a lobby and a match go to the whole room,
   spectators with them, and whose player is whose is nobody else's business. That is why the field
   is optional — present on every player the server holds, absent from every player a client has
-  seen. A client asking "is this one mine?" compares it against `yourPlayerId`, which is sent to one
+  seen. A client asking "are these mine?" compares against `yourPlayerIds`, which is sent to one
   connection and never broadcast.
-- A match is limited to **two** players (`addPlayerToLobby` refuses a third), and a local match can
-  start with one.
+- Player counts are bounded by `effectiveMaxPlayers` (default 5, or lower if the game mode specifies a `maxPlayers` cap, e.g. 2 for x01 and Whac-A-Mole). A local match can start with one player; an online match requires at least two.
 
 ### Lobby
 
@@ -121,7 +120,7 @@ configured here. It is a distinct entity (`Lobby`), not a status of a match.
 - Always gets an invite code (`generateInviteCode`), even for a local lobby; the code is only shown
   for online lobbies.
 - `isLocal` decides who may do what (see [Local vs. online](#local-match--online-match)).
-- `remoteConnected` means a second user is present in an online lobby.
+- `userCount` is the number of distinct non-spectator users connected in the lobby.
 - Starting the match **destroys** the lobby: `createMatch(lobby)` calls `deleteLobby` and copies
   players and settings into the new match ([`createMatch`](../src/server/store.ts)).
 - A lobby idle for 10 minutes is abandoned and deleted, and everyone in it is told
@@ -130,7 +129,7 @@ configured here. It is a distinct entity (`Lobby`), not a status of a match.
 
 ### Match
 
-A **match** is the entire contest between two players: it has a lobby phase, then play, and ends
+A **match** is the entire contest between players: it has a lobby phase, then play, and ends
 either with a winner or by being abandoned/cancelled.
 
 In code it is `MatchState` / `matchId` / `match_*`, and the match layer is
@@ -148,7 +147,8 @@ How a match ends:
 | Cause | Result | Screen says |
 | --- | --- | --- |
 | The game mode declares a winner (x01: a checkout) | `status: 'finished'`, `winnerId` set | "🎯 X wins!" |
-| A player leaves an **online** match | The other player is declared winner | "🎯 X wins!" |
+| A player leaves an **online** match when only 2 were playing (or 2nd-to-last leaves) | The remaining player is declared winner | "🎯 X wins!" |
+| A player leaves an **online** match when 3+ remain | Match continues playing; leaver is marked departed | Match continues |
 | The user leaves a **local** match | `status: 'finished'`, **no** winner | "Match cancelled" |
 | Nobody touches it for 10 minutes | `status: 'finished'`, **no** winner | "Match cancelled" |
 
@@ -163,12 +163,12 @@ Finished matches are kept 5 minutes, then garbage-collected.
 
 ### Local match / Online match
 
-- **Local match** (`isLocal: true`) — one user, one board, both players added from the same frontend.
+- **Local match** (`isLocal: true`) — one user, one board, all players added from the same frontend.
   That user controls everyone: any client in the lobby may start it, remove players, change settings,
   and darts are always attributed to whoever is currently up.
-- **Online match** (`isLocal: false`) — two users, two boards. Each user may add exactly one player,
-  only the host may change settings / player order / start the match, and a user may only throw,
-  undo and submit for their own player.
+- **Online match** (`isLocal: false`) — multiple users, separate boards. Users may add players up to
+  the match capacity, only the host may change settings / player order / start the match, and a user
+  may only throw, undo and submit for their own players.
 
 `isLocal` is set at lobby creation and copied into the match. It is the single switch behind almost
 every permission difference in [`wsHandler.ts`](../src/server/wsHandler.ts), and also decides how a

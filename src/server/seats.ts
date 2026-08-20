@@ -22,8 +22,8 @@
 import { randomBytes } from 'node:crypto';
 
 export interface Seat {
-  /** The player this seat comes back as, or null for a room held before any player was added. */
-  playerId: string | null;
+  /** The players this seat comes back as, empty for a room held before any player was added. */
+  playerIds: string[];
   /** Whether coming back also restores the host chair. */
   host: boolean;
 }
@@ -61,7 +61,7 @@ export function grantSeat(roomId: string, sessionId: string, seat: Seat): string
     if (held.sessionId === sessionId) seats.delete(token);
   }
   const token = randomBytes(32).toString('hex');
-  seats.set(token, { ...seat, sessionId });
+  seats.set(token, { ...seat, playerIds: [...seat.playerIds], sessionId });
   return token;
 }
 
@@ -74,15 +74,18 @@ export function grantSeat(roomId: string, sessionId: string, seat: Seat): string
  */
 export function heldSeat(roomId: string, sessionId: string): { token: string; seat: Seat } | null {
   for (const [token, held] of rooms.get(roomId) ?? []) {
-    if (held.sessionId === sessionId) return { token, seat: { playerId: held.playerId, host: held.host } };
+    if (held.sessionId === sessionId) return { token, seat: { playerIds: [...held.playerIds], host: held.host } };
   }
   return null;
 }
 
-/** Fill in a seat already held — the first player a connection adds to a room it is already in. */
+/** Fill in a seat already held — players added/removed by a connection in a room it is already in. */
 export function updateSeat(roomId: string, token: string, patch: Partial<Seat>): void {
   const held = rooms.get(roomId)?.get(token);
-  if (held) Object.assign(held, patch);
+  if (held) {
+    if (patch.playerIds !== undefined) held.playerIds = [...patch.playerIds];
+    if (patch.host !== undefined) held.host = patch.host;
+  }
 }
 
 /**
@@ -106,7 +109,7 @@ export function redeemSeat(
   const previous = held.sessionId;
   held.sessionId = sessionId;
   return {
-    seat: { playerId: held.playerId, host: held.host },
+    seat: { playerIds: [...held.playerIds], host: held.host },
     // A tab reloading presents the same token under a new session id, so "somebody else had this"
     // is only true when the session differs — the ordinary reload is not a takeover of anything.
     takenFrom: previous === sessionId ? null : previous,

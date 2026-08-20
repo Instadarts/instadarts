@@ -93,7 +93,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `port`, `maxMatches` — never leaves the process |
+| `server` | `port`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
 | `frontend` | ⏳ nothing yet; the section exists so the first one has a home |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |

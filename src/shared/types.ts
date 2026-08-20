@@ -13,15 +13,23 @@ export interface Player {
   id: string;
   name: string;
   /**
-   * The user (frontend connection) that added this player. Both players share one in a local match.
+   * The user (frontend connection) that added this player. In a local match all players share one;
+   * online, a single user may also add multiple players.
    *
    * **Server-side only, and absent from every Player a client has ever held.** A lobby and a match
    * go on the wire whole — to everyone in the room, spectators with them — so this is stripped on
    * the way out (`lobbyMessage` / `matchMessage`). Nobody outside the server has a use for another
-   * user's session id: "is this player mine?" is answered by `yourPlayerId`, which is only ever
+   * user's session id: "are these players mine?" is answered by `yourPlayerIds`, which is only ever
    * told to the connection it belongs to.
    */
   sessionId?: string;
+  /**
+   * The board this player throws at, named by the first player of the user who owns it. Players a
+   * single user added share one — which in a local match is all of them. Public, unlike `sessionId`:
+   * it is a player id the whole room already has, and the screen needs it to know whose camera shows
+   * the thrower.
+   */
+  boardId?: string;
 }
 
 export interface DartThrow {
@@ -197,7 +205,10 @@ export interface Lobby {
    */
   hostSessionId?: string | null;
   isLocal: boolean;
-  remoteConnected: boolean;
+  /** The effective cap this lobby enforces: the deployment's, narrowed by the mode's. */
+  maxPlayers: number;
+  /** Distinct user connections in this lobby. */
+  userCount: number;
   createdAt: number;
   /** When this lobby is abandoned unless something happens first. Any input pushes it back. */
   expiresAt: number;

@@ -2,14 +2,18 @@ import { CopyableText } from './CopyableText';
 
 interface InvitePanelProps {
   inviteCode: string | null;
-  remoteConnected: boolean;
+  userCount: number;
+  isFull: boolean;
+  maxPlayers?: number;
 }
 
-export function InvitePanel({ inviteCode, remoteConnected }: InvitePanelProps) {
-  if (remoteConnected) {
+export function InvitePanel({ inviteCode, userCount, isFull, maxPlayers = 2 }: InvitePanelProps) {
+  if (isFull || (maxPlayers <= 2 && userCount >= 2)) {
     return (
       <div className="w-80 mb-6 text-center">
-        <p className="text-green-400 text-sm font-semibold">✓ Opponent connected</p>
+        <p className="text-green-400 text-sm font-semibold">
+          {userCount <= 2 ? '✓ Opponent connected' : '✓ Lobby is full'}
+        </p>
       </div>
     );
   }
@@ -18,6 +22,11 @@ export function InvitePanel({ inviteCode, remoteConnected }: InvitePanelProps) {
 
   return (
     <div className="w-80 mb-6 text-center">
+      {userCount > 1 && (
+        <p className="text-green-400 text-sm font-semibold mb-2">
+          {userCount === 2 ? '✓ Opponent connected' : `✓ ${userCount - 1} other users connected`}
+        </p>
+      )}
       <p className="text-gray-400 text-sm mb-2">Invite Code</p>
       {/* The code and the clipboard glyph are one target rather than two: the code is the obvious
           thing to click, the glyph is what says it can be clicked, and separating them made the

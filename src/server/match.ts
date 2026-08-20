@@ -84,10 +84,25 @@ export function undoDartFromMatch(
 }
 
 /**
+ * Find the next non-departed player's index in roster order, wrapping around.
+ *
+ * If all players are departed (or only the current one is left), returns `from`.
+ */
+export function nextActiveIndex(match: MatchState, from: number): number {
+  const n = match.players.length;
+  if (n === 0) return 0;
+  for (let step = 1; step <= n; step++) {
+    const i = (from + step) % n;
+    if (!match.departed.includes(match.players[i].id)) return i;
+  }
+  return from;
+}
+
+/**
  * Submit the visit in progress.
  *
  * The mode finalizes it and says whether it won the leg; everything after that — passing the board
- * to the other player, and what a won leg means for the match — is this layer's.
+ * to the next active player, and what a won leg means for the match — is this layer's.
  */
 export function submitVisitToMatch(
   match: MatchState,
@@ -106,7 +121,7 @@ export function submitVisitToMatch(
         ...match,
         visits: [...match.visits, visit],
         currentVisit: undefined,
-        currentPlayerIndex: (match.currentPlayerIndex + 1) % match.players.length,
+        currentPlayerIndex: nextActiveIndex(match, match.currentPlayerIndex),
       },
     };
   }
@@ -125,8 +140,12 @@ export function submitVisitToMatch(
     return { success: true, match: next };
   }
 
-  // Another leg, and the rota says whose throw it is.
-  next.currentPlayerIndex = starterIndex(standings, match.players.length);
+  // Another leg, and the rota says whose throw it is, skipping anyone who has departed.
+  const rawStarter = starterIndex(standings, match.players.length);
+  const starter = match.departed.includes(match.players[rawStarter]?.id)
+    ? nextActiveIndex(next, rawStarter)
+    : rawStarter;
+  next.currentPlayerIndex = starter;
   return { success: true, match: next };
 }
 

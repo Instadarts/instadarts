@@ -57,12 +57,13 @@ describe('with no file at all', () => {
 describe('what the file says', () => {
   it('takes each knob, and fills the rest in from the defaults', async () => {
     const { CONFIG, CONFIG_PATH, CONFIG_COMPLAINTS } = await load(`{
-      "server": { "maxMatches": 250 },
+      "server": { "maxMatches": 250, "maxPlayersPerMatch": 8 },
       "scorer": { "cameraFrameRate": 30 },
       "media": { "still": { "size": 480 } }
     }`);
 
     expect(CONFIG.server.maxMatches).toBe(250);
+    expect(CONFIG.server.maxPlayersPerMatch).toBe(8);
     expect(CONFIG.scorer.cameraFrameRate).toBe(30);
     expect(CONFIG.media.still.size).toBe(480);
     // Untouched sections and untouched neighbours are the defaults, not undefined.

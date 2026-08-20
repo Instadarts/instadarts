@@ -162,7 +162,7 @@ describe('a device learning whether it is wanted', () => {
     // A spectator with a paired camera must not become a scorer, and must not be told to power one
     // up for a match that will never take its tips.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', isLocal: true });
     host.send({ type: 'add_local_player', playerName: 'Alice' });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'start_match' });

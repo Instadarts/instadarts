@@ -50,8 +50,9 @@ function connect() {
     playerId() {
       for (let index = received.length - 1; index >= 0; index--) {
         const message = received[index];
-        if ((message.type === 'lobby_state' || message.type === 'match_state') && message.yourPlayerId) {
-          return message.yourPlayerId;
+        if (message.type === 'lobby_state' || message.type === 'match_state') {
+          if (message.yourPlayerIds?.[0]) return message.yourPlayerIds[0];
+          if ((message as any).yourPlayerId) return (message as any).yourPlayerId;
         }
       }
       return undefined;

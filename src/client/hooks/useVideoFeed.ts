@@ -52,12 +52,12 @@ export function frameIsFresh(lastFrameAt: number | null, now: number): boolean {
 /** Only an accepted, fresh feed may cover the virtual board. */
 export function selectVideoFeed(
   feeds: readonly VideoFeedView[],
-  currentPlayerId: string | null,
-  ownPlayerId: string | null,
+  currentBoardId: string | null,
+  ownBoardId: string | null,
   isSpectator: boolean,
   isLocal: boolean,
 ): VideoFeedView | null {
-  if (!currentPlayerId) return null;
+  if (!currentBoardId) return null;
   if (isLocal) {
     if (!isSpectator) return null;
     return feeds.find((feed) =>
@@ -65,9 +65,9 @@ export function selectVideoFeed(
       && feed.status === 'live'
       && feed.canvas !== null) ?? null;
   }
-  if (!isSpectator && currentPlayerId === ownPlayerId) return null;
+  if (!isSpectator && currentBoardId === ownBoardId) return null;
   return feeds.find((feed) =>
-    feed.playerId === currentPlayerId
+    feed.playerId === currentBoardId
     && feed.choice === 'accepted'
     && feed.status === 'live'
     && feed.canvas !== null) ?? null;
@@ -75,16 +75,29 @@ export function selectVideoFeed(
 
 /**
  * Name board feeds from match participants, never from the scorer device that happens to publish
- * them. A local match has one shared physical board, whose presentation belongs to its first
- * player regardless of whose turn is currently shown.
+ * them. Group players by their boardId so that a board shared by multiple players is labelled
+ * e.g. "Alice & Carol".
  */
 export function labelVideoFeedsForMatch(
   feeds: readonly VideoFeedView[],
   match: Pick<MatchState, 'isLocal' | 'players'> | null,
 ): VideoFeedView[] {
-  const localName = match?.isLocal ? match.players[0]?.name : undefined;
+  if (!match) return [...feeds];
+  if (match.isLocal) {
+    const localName = match.players[0]?.name;
+    return feeds.map((feed) => (localName ? { ...feed, label: localName } : feed));
+  }
+  const boardNames = new Map<string, string[]>();
+  for (const p of match.players) {
+    const bId = p.boardId ?? p.id;
+    const list = boardNames.get(bId) ?? [];
+    list.push(p.name);
+    boardNames.set(bId, list);
+  }
   return feeds.map((feed) => {
-    const label = localName ?? match?.players.find((player) => player.id === feed.playerId)?.name;
+    if (!feed.playerId) return feed;
+    const names = boardNames.get(feed.playerId);
+    const label = names ? names.join(' & ') : undefined;
     return label ? { ...feed, label } : feed;
   });
 }

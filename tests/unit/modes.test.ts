@@ -7,6 +7,7 @@ import { makeMatch, playVisit, throwDart } from '../helpers';
 // The helpers register x01, which is all most of this file needs. The media declarations are only
 // interesting where two modes disagree, so the second one is installed the way a deployment does it.
 import '../../src/server/modes/whac-a-mole';
+import '../../src/server/modes/count-up';
 import type { MatchState } from '../../src/shared/types';
 
 /**
@@ -41,6 +42,24 @@ describe('installed modes', () => {
     expect(x01.label).toBe('x01');
     expect(x01.defaults).toEqual({ startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' });
     expect(x01.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut', 'stats']);
+    expect(x01.maxPlayers).toBe(2);
+  });
+
+  it('declares maxPlayers, normalises silence to null, and narrows server cap', async () => {
+    await loadModes();
+    const described = allModes().map(describeMode);
+
+    const x01 = described.find((d) => d.id === 'x01')!;
+    expect(x01.maxPlayers).toBe(2);
+
+    const countUp = described.find((d) => d.id === 'count-up')!;
+    expect(countUp.maxPlayers).toBe(null);
+
+    const { effectiveMaxPlayers } = await import('../../src/shared/settings');
+    expect(effectiveMaxPlayers(5, 2)).toBe(2);
+    expect(effectiveMaxPlayers(5, null)).toBe(5);
+    expect(effectiveMaxPlayers(5, undefined)).toBe(5);
+    expect(effectiveMaxPlayers(2, 5)).toBe(2);
   });
 
   it('say which media features they do not want, and default to wanting all of them', async () => {

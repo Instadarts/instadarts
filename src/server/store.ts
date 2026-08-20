@@ -3,6 +3,8 @@ import { DEFAULT_MODE, getMode } from './modes/types';
 import { DEFAULT_FORMAT } from '../shared/matchFormat';
 import { IDLE_TTL_MS } from './lifecycle';
 import { carrySeats, dropSeats } from './seats';
+import { CONFIG } from './config';
+import { effectiveMaxPlayers } from '../shared/settings';
 
 // ============================================================
 // In-memory stores
@@ -33,7 +35,8 @@ export function createLobby(): Lobby {
     hostPlayerId: null,
     hostSessionId: null,
     isLocal: true,
-    remoteConnected: false,
+    maxPlayers: effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(DEFAULT_MODE)?.maxPlayers),
+    userCount: 0,
     createdAt: Date.now(),
     expiresAt: Date.now() + IDLE_TTL_MS,
   };
@@ -53,7 +56,8 @@ export function deleteLobby(id: string): void {
 export function addPlayerToLobby(lobbyId: string, player: Player): Lobby | null {
   const lobby = lobbies.get(lobbyId);
   if (!lobby) return null;
-  if (lobby.players.length >= 2) return null;
+  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
+  if (lobby.players.length >= max) return null;
   lobby.players.push(player);
   return lobby;
 }
@@ -65,11 +69,22 @@ export function removePlayerFromLobby(lobbyId: string, playerId: string): Lobby 
   return lobby;
 }
 
-export function swapLobbyPlayers(lobbyId: string): Lobby | null {
+export function movePlayerInLobby(lobbyId: string, playerId: string, direction: 'up' | 'down'): Lobby | null {
   const lobby = lobbies.get(lobbyId);
-  if (!lobby || lobby.players.length < 2) return null;
-  [lobby.players[0], lobby.players[1]] = [lobby.players[1], lobby.players[0]];
-  return lobby;
+  if (!lobby) return null;
+  const index = lobby.players.findIndex((p) => p.id === playerId);
+  if (index < 0) return null;
+  if (direction === 'up') {
+    if (index === 0) return null;
+    [lobby.players[index], lobby.players[index - 1]] = [lobby.players[index - 1], lobby.players[index]];
+    return lobby;
+  }
+  if (direction === 'down') {
+    if (index === lobby.players.length - 1) return null;
+    [lobby.players[index], lobby.players[index + 1]] = [lobby.players[index + 1], lobby.players[index]];
+    return lobby;
+  }
+  return null;
 }
 
 export function setLobbyInviteCode(lobbyId: string, code: string): Lobby | null {
@@ -134,7 +149,10 @@ export function createMatch(lobby: Lobby): MatchState {
  * function does not record that it did.
  */
 export function createRematch(previous: MatchState): MatchState {
-  const match = startMatch(previous.settings, [...previous.players].reverse(), previous.isLocal);
+  const players = previous.players.length > 1
+    ? [...previous.players.slice(1), previous.players[0]]
+    : [...previous.players];
+  const match = startMatch(previous.settings, players, previous.isLocal);
   carrySeats(previous.id, match.id);
   return match;
 }

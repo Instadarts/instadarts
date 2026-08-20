@@ -298,7 +298,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(raw, '', ['server', 'frontend', 'scorer', 'media']);
 
   const rawServer = section(raw, 'server');
-  reportUnknown(rawServer, 'server', ['port', 'maxMatches']);
+  reportUnknown(rawServer, 'server', ['port', 'maxMatches', 'maxPlayersPerMatch']);
 
   const rawFrontend = section(raw, 'frontend');
   reportUnknown(rawFrontend, 'frontend', []);
@@ -327,6 +327,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
       server: {
         port: positiveInt(rawServer, 'server', 'port', defaults.server.port),
         maxMatches: positiveInt(rawServer, 'server', 'maxMatches', defaults.server.maxMatches),
+        maxPlayersPerMatch: positiveInt(rawServer, 'server', 'maxPlayersPerMatch', defaults.server.maxPlayersPerMatch),
       },
       frontend: {},
       scorer: {

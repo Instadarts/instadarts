@@ -57,6 +57,12 @@ export interface GameMode {
    */
   readonly bansMedia?: readonly MediaFeature[];
 
+  /**
+   * The most players this mode's rules will take, or omitted for no limit of its own. The
+   * deployment's own cap still applies and is the smaller of the two.
+   */
+  readonly maxPlayers?: number;
+
   /** How many darts a visit may hold. Read by the match layer and by the match screen. */
   dartsPerVisit(settings: ModeSettings): number;
 
@@ -103,6 +109,7 @@ export function describeMode(mode: GameMode): ModeDescriptor {
     defaults: { ...mode.defaults },
     fields: mode.fields,
     bansMedia: [...(mode.bansMedia ?? [])],
+    maxPlayers: mode.maxPlayers ?? null,
   };
 }
 

@@ -92,9 +92,11 @@ export interface SpectateMessage {
   id: string;
 }
 
-export interface SwapPlayersMessage {
-  type: 'swap_players';
+export interface ReorderPlayerMessage {
+  type: 'reorder_player';
   lobbyId: string;
+  playerId: string;
+  direction: 'up' | 'down';
 }
 
 /**
@@ -295,7 +297,7 @@ export type ClientMessage =
   | LeaveMatchMessage
   | ReconnectMessage
   | SpectateMessage
-  | SwapPlayersMessage
+  | ReorderPlayerMessage
   | RematchVoteMessage
   | CreatePairingCodeMessage
   | ActivateDevicesMessage
@@ -320,7 +322,7 @@ export type ClientMessage =
 export interface LobbyStateMessage {
   type: 'lobby_state';
   lobby: Lobby;
-  yourPlayerId?: string;
+  yourPlayerIds?: string[];
   /**
    * Whether the receiving connection created this lobby — the answer to a question it used to work
    * out for itself by comparing session ids, which meant everybody was told the creator's.
@@ -354,12 +356,12 @@ export interface MatchStateMessage {
   view: ModeView;
   panel?: ModePanel;
   /**
-   * Which player is the receiving connection's own — set only on a reply to one connection, never on
+   * Which players are the receiving connection's own — set only on a reply to one connection, never on
    * a broadcast, and never in a local match where one user holds them all. It is how a tab that has
    * just reloaded into a match knows which side is its own, which it can no longer work out from the
    * players themselves.
    */
-  yourPlayerId?: string;
+  yourPlayerIds?: string[];
 }
 
 export interface ErrorMessage {

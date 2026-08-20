@@ -38,15 +38,16 @@ export function scoringContextId(matchId: string, ownerPlayerId: string | null):
  */
 export function getScoringSession(
   matchId: string,
-  ownerPlayerId: string | null,
+  ownerPlayerIds: string[] | null,
   commit: (match: MatchState) => void,
 ): ScoringSession {
-  const key = sessionKey(matchId, ownerPlayerId);
+  const primaryId = ownerPlayerIds?.[0] ?? null;
+  const key = sessionKey(matchId, primaryId);
   let session = sessions.get(key);
   if (!session) {
     session = new ScoringSession({
       getMatch: () => getMatch(matchId) ?? null,
-      ownerPlayerId,
+      ownerPlayerIds,
       commit,
     });
     sessions.set(key, session);

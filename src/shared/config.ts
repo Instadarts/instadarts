@@ -40,6 +40,11 @@ export interface ServerConfig {
    * the only figure to change.
    */
   maxMatches: number;
+  /**
+   * Most players a match on this server may hold, across all users. Game modes may narrow this for
+   * themselves, but no mode may raise it.
+   */
+  maxPlayersPerMatch: number;
 }
 
 /**
@@ -189,6 +194,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
   server: {
     port: 3000,
     maxMatches: 10_000,
+    maxPlayersPerMatch: 5,
   },
   frontend: {},
   scorer: {

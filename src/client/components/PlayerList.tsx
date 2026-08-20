@@ -4,26 +4,40 @@ import type { Player } from '../../shared/types';
 
 interface PlayerListProps {
   players: Player[];
+  maxPlayers: number;
   mode: 'local' | 'online';
   isCreator: boolean;
   isSpectator: boolean;
-  /** This user's own player, in an online lobby. A local lobby's players are all theirs. */
-  ownPlayerId: string | null;
+  /** This user's own players. In a local lobby all players are theirs. */
+  ownPlayerIds: string[];
   onAdd: (name: string) => void;
   onRemove: (playerId: string) => void;
-  onSwap: () => void;
+  onReorder?: (playerId: string, direction: 'up' | 'down') => void;
 }
 
-export function PlayerList({ players, mode, isCreator, isSpectator, ownPlayerId, onAdd, onRemove, onSwap }: PlayerListProps) {
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+export function PlayerList({
+  players,
+  maxPlayers,
+  mode,
+  isCreator,
+  isSpectator,
+  ownPlayerIds,
+  onAdd,
+  onRemove,
+  onReorder,
+}: PlayerListProps) {
   const [newName, setNewName] = useState('');
   const savedNames = storage.getPlayerNames();
   const usedNames = new Set(players.map((p) => p.name.toLowerCase()));
   const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
 
-  const canAddLocal = mode === 'local'
-    ? players.length < 2
-    : players.length < 2 && !ownPlayerId;
-
+  const canAdd = players.length < maxPlayers;
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
   const handleAdd = () => {
@@ -42,16 +56,43 @@ export function PlayerList({ players, mode, isCreator, isSpectator, ownPlayerId,
 
   return (
     <div className="w-80 mb-6">
-      <h3 className="text-gray-400 text-sm uppercase mb-2">Players</h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-gray-400 text-sm uppercase">Players</h3>
+        <span className="text-xs text-gray-500">
+          {players.length >= maxPlayers ? `Full — ${maxPlayers} max` : `${players.length}/${maxPlayers}`}
+        </span>
+      </div>
 
       {players.map((p, i) => (
         <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
-          <span className="text-gray-500 text-xs w-6">{i === 0 ? '1st' : '2nd'}</span>
-          <span className="flex-1 px-3 py-1 text-gray-200">{p.name}</span>
-          {!isSpectator && (mode === 'local' || p.id === ownPlayerId) && (
+          <span className="text-gray-500 text-xs w-7">{ordinal(i + 1)}</span>
+          <span className="flex-1 px-2 py-1 text-gray-200 truncate">{p.name}</span>
+
+          {!isSpectator && isCreator && onReorder && players.length >= 2 && (
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => onReorder(p.id, 'up')}
+                disabled={i === 0}
+                className="text-gray-400 hover:text-gray-200 disabled:opacity-20 text-xs px-1 py-0.5 rounded hover:bg-gray-800"
+                title="Move up"
+              >
+                ▲
+              </button>
+              <button
+                onClick={() => onReorder(p.id, 'down')}
+                disabled={i === players.length - 1}
+                className="text-gray-400 hover:text-gray-200 disabled:opacity-20 text-xs px-1 py-0.5 rounded hover:bg-gray-800"
+                title="Move down"
+              >
+                ▼
+              </button>
+            </div>
+          )}
+
+          {!isSpectator && (mode === 'local' || ownPlayerIds.includes(p.id)) && (
             <button
               onClick={() => onRemove(p.id)}
-              className="text-red-400 hover:text-red-300 text-sm px-1"
+              className="text-red-400 hover:text-red-300 text-sm px-1 ml-1"
               title="Remove player"
             >
               ✕
@@ -60,19 +101,7 @@ export function PlayerList({ players, mode, isCreator, isSpectator, ownPlayerId,
         </div>
       ))}
 
-      {!isSpectator && isCreator && players.length === 2 && (
-        <div className="mt-2 text-center">
-          <button
-            onClick={onSwap}
-            className="px-3 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            title="Swap player order"
-          >
-            ⇅ Swap order
-          </button>
-        </div>
-      )}
-
-      {!isSpectator && canAddLocal && (
+      {!isSpectator && canAdd && (
         <div className="mt-3 space-y-2">
           {availableNames.length > 0 && (
             <div className="flex flex-wrap gap-1.5">

@@ -2,7 +2,7 @@ export interface Client {
   sessionId: string;
   lobbyId: string | null;
   matchId: string | null;
-  playerId: string | null;
+  playerIds: string[];
   isSpectator: boolean;
   /**
    * Set once this connection has identified itself as a scoring device. A connection is either a

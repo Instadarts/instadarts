@@ -194,6 +194,9 @@ export const x01: GameMode = {
   id: 'x01',
   label: 'x01',
 
+  // x01 rules are not yet migrated to n players; capped at 2 for day-one backward compatibility.
+  maxPlayers: 2,
+
   defaults: { startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' },
   fields: [
     {

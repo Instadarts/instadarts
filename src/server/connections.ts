@@ -14,6 +14,9 @@ import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
 import { panelOf, viewOf } from './match';
+import { CONFIG } from './config';
+import { getMode } from './modes/types';
+import { effectiveMaxPlayers } from '../shared/settings';
 
 const clients = new Map<WebSocket, Client>();
 
@@ -91,21 +94,21 @@ export function findSessionSocket(sessionId: string): WebSocket | null {
 export function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(
   type: T,
   match: MatchState,
-  yourPlayerId?: string,
+  yourPlayerIds?: string[],
 ) {
   return {
     type,
     match: { ...match, players: publicPlayers(match.players) },
     view: viewOf(match),
     panel: panelOf(match),
-    yourPlayerId,
+    yourPlayerIds,
   };
 }
 
 /**
  * A lobby as it goes on the wire.
  *
- * `you` is the part that differs per recipient: which player is theirs, and whether the lobby is
+ * `you` is the part that differs per recipient: which players are theirs, and whether the lobby is
  * theirs. Both are parameters rather than fields of the lobby because a broadcast must not carry one
  * connection's standing to everyone else — which is exactly what `hostSessionId` used to do, and why
  * it is stripped here along with the players' own.
@@ -113,22 +116,33 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * Omitting `you` is what makes a message a broadcast: it then answers neither question, and a client
  * holding an answer already keeps it.
  */
-export function lobbyMessage(lobby: Lobby, you?: { playerId?: string; host: boolean }): ServerMessage {
+export function lobbyMessage(lobby: Lobby, you?: { playerIds?: string[]; host: boolean }): ServerMessage {
+  let userCount = 0;
+  for (const [, client] of clients) {
+    if (client.lobbyId === lobby.id && !client.isSpectator && !client.deviceId) {
+      userCount++;
+    }
+  }
+  const maxPlayers = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
   return {
     type: 'lobby_state',
-    lobby: { ...lobby, players: publicPlayers(lobby.players), hostSessionId: undefined },
-    yourPlayerId: you?.playerId,
+    lobby: { ...lobby, maxPlayers, userCount, players: publicPlayers(lobby.players), hostSessionId: undefined },
+    yourPlayerIds: you?.playerIds,
     youAreHost: you?.host,
   };
 }
 
 /**
- * Players with the one field that is nobody else's business taken off.
+ * Players with the private session id removed, and boardId computed.
  *
- * `sessionId` says which user added a player, and a room's state is sent to the whole room —
- * opponents and spectators alike. Nothing outside the server reads it: whether a player is yours is
- * `yourPlayerId`, which goes to one connection rather than to everyone.
+ * `boardId` is the id of the first player added by the same user in roster order (or the first
+ * player in a local match). Public, unlike `sessionId`: it is an existing player id that the screen
+ * needs to map a thrower to a camera.
  */
-function publicPlayers(players: Player[]): Player[] {
-  return players.map(({ sessionId: _owner, ...player }) => player);
+export function publicPlayers(players: Player[]): Player[] {
+  return players.map((player) => {
+    const boardId = (player.sessionId ? players.find((p) => p.sessionId === player.sessionId)?.id : undefined) ?? players[0]?.id ?? player.id;
+    const { sessionId: _owner, ...rest } = player;
+    return { ...rest, boardId };
+  });
 }

@@ -606,6 +606,9 @@ export const whacAMole: GameMode = {
   id: 'whac-a-mole',
   label: 'Whac-A-Mole',
 
+  // whac-a-mole rules are not yet migrated to n players; capped at 2 for day-one backward compatibility.
+  maxPlayers: 2,
+
   /**
    * A fresh `seed` every time this is read, which is what gives each match its own colony.
    *

@@ -17,7 +17,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   /** What this deployment can play. Sent once on connect; the lobby is built from it. */
   const [modes, setModes] = useState<ModeDescriptor[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [ownPlayerId, setOwnPlayerId] = useState<string | null>(null);
+  const [ownPlayerIds, setOwnPlayerIds] = useState<string[]>([]);
   const [isSpectator, setIsSpectator] = useState(false);
   /** Whether this user created the lobby it is in. The server's answer, not a comparison we make. */
   const [isHost, setIsHost] = useState(false);
@@ -44,11 +44,11 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         break;
       case 'lobby_state':
         setLobby(msg.lobby);
-        // Only a message addressed to this connection names its player; a broadcast names nobody's.
+        // Only a message addressed to this connection names its players; a broadcast names nobody's.
         // So "mine is gone" cannot be said by the absence of the field — it is the player itself no
         // longer being in the lobby, which is what removing your own player looks like from here.
-        if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
-        else setOwnPlayerId((mine) => (mine && msg.lobby.players.some((p: Player) => p.id === mine) ? mine : null));
+        if (msg.yourPlayerIds !== undefined) setOwnPlayerIds(msg.yourPlayerIds);
+        else setOwnPlayerIds((mine) => mine.filter((id) => msg.lobby.players.some((p: Player) => p.id === id)));
         // Addressed either way — `false` is as much an answer as `true`, and only a broadcast leaves
         // the question alone.
         if (msg.youAreHost !== undefined) setIsHost(msg.youAreHost);
@@ -63,8 +63,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setPanel(msg.panel);
         setLobby(null);
         // Only a reply to this connection carries one, and it is how a reloaded tab learns which
-        // player is its own — the match itself no longer says who anybody belongs to.
-        if (msg.yourPlayerId) setOwnPlayerId(msg.yourPlayerId);
+        // players are its own — the match itself no longer says who anybody belongs to.
+        if (msg.yourPlayerIds !== undefined) setOwnPlayerIds(msg.yourPlayerIds);
         break;
       case 'match_finished':
         setMatch(msg.match);
@@ -81,7 +81,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setMatch(null);
         setView(null);
         setPanel(undefined);
-        setOwnPlayerId(null);
+        setOwnPlayerIds([]);
         setIsSpectator(false);
         setIsHost(false);
         clearReconnectInfo();
@@ -92,14 +92,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setMatch(null);
         setView(null);
         setPanel(undefined);
-        setOwnPlayerId(null);
+        setOwnPlayerIds([]);
         setIsSpectator(false);
         setIsHost(false);
         clearReconnectInfo();
         break;
       case 'lobby_abandoned':
         setLobby(null);
-        setOwnPlayerId(null);
+        setOwnPlayerIds([]);
         setIsSpectator(false);
         setIsHost(false);
         clearReconnectInfo();
@@ -164,7 +164,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setMatch(null);
     setView(null);
     setLobby(null);
-    setOwnPlayerId(null);
+    setOwnPlayerIds([]);
     setIsSpectator(false);
     setIsHost(false);
     clearReconnectInfo();
@@ -182,8 +182,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     send({ type: 'rematch_vote', matchId, playerId, answer });
   }, [send]);
 
-  const swapPlayers = useCallback((lobbyId: string) => {
-    send({ type: 'swap_players', lobbyId });
+  const reorderPlayer = useCallback((lobbyId: string, playerId: string, direction: 'up' | 'down') => {
+    send({ type: 'reorder_player', lobbyId, playerId, direction });
   }, [send]);
 
   return {
@@ -199,7 +199,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     connectionSessionId: sessionId,
     roomGeneration,
     send,
-    ownPlayerId,
+    ownPlayerIds,
+    ownPlayerId: ownPlayerIds[0] ?? null,
     isSpectator,
     isHost,
     createLobby,
@@ -213,7 +214,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     submitVisit,
     leaveMatch,
     spectate,
-    swapPlayers,
+    reorderPlayer,
     voteRematch,
   };
 }

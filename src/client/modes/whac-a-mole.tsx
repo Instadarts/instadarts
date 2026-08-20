@@ -265,7 +265,7 @@ function bubbleAnchor(area: string): { x: number; y: number; flip: boolean } {
 
 function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg: SVGSVGElement | null }) {
   const viewBox = useViewBox(svg);
-  const precision = usePrecisionMirror(svg);
+  const topLayer = useBoardTopLayer(svg);
 
   const whacks = run.events.filter((e) => e.kind === 'whack');
   const rescues = run.events.filter((e) => e.kind === 'rescue');
@@ -351,24 +351,28 @@ function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg
         </g>
       )}
 
-      {/* Last of all: see `usePrecisionMirror`. */}
-      <g ref={precision} />
+      {/* Last of all: see `useBoardTopLayer`. */}
+      <g ref={topLayer} />
     </svg>,
     host,
   );
 }
 
 /**
- * The aiming dart, copied out of the board and drawn again on top of everything here.
+ * What the board draws on top of itself, copied out and drawn again on top of everything here.
  *
- * The board draws it as the last thing inside its own svg, and this overlay is a sibling painted
- * above that svg — so without this, a mole would cover the dart the player is lining up, which is
- * the one thing on screen that must never be covered. Copying it is the only way round that: the
- * overlay cannot go *under* the board, because the board paints an opaque circle.
+ * That is the landed darts and the dart being aimed — the two things on the board that say where a
+ * dart is, and so the two things a mole must never cover. This overlay is a sibling painted above
+ * the board's svg and cannot go under it, because the board paints an opaque circle; copying is the
+ * only way round that. Both svgs carry the same viewBox, so a copy lands exactly on its original.
  *
- * Both svgs carry the same viewBox, so the copy lands exactly on the original.
+ * "On top of itself" is, concretely, everything after the last sector number: the board draws its
+ * bed, its wires and its labels, and then the markers and the aiming dart over them
+ * ([`Dartboard.tsx`](../components/Dartboard.tsx)). Anything the board adds up there in future
+ * comes along for free; anything it adds *below* a label would not, and the symptom would be a
+ * marker back underneath a mole rather than anything breaking.
  */
-function usePrecisionMirror(svg: SVGSVGElement | null) {
+function useBoardTopLayer(svg: SVGSVGElement | null) {
   const ref = useRef<SVGGElement>(null);
 
   useEffect(() => {
@@ -377,9 +381,13 @@ function usePrecisionMirror(svg: SVGSVGElement | null) {
     const sync = () => {
       const host = ref.current;
       if (!host) return;
-      const dart = svg.querySelector('[data-testid="precision-dart"]');
+
+      const kids = [...svg.children];
+      const lastLabel = kids.map((kid) => kid.tagName).lastIndexOf('text');
+      const top = kids.slice(lastLabel + 1);
+
       // Cloning into our own svg does not disturb the one being observed, so this cannot loop.
-      if (dart) host.replaceChildren(dart.cloneNode(true));
+      if (top.length > 0) host.replaceChildren(...top.map((kid) => kid.cloneNode(true)));
       else if (host.firstChild) host.replaceChildren();
     };
 

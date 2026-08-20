@@ -55,7 +55,7 @@ const ALL_AREAS = [
 // ============================================================
 
 const SETTINGS: ModeSettings = {
-  rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'normal', seed: 4242,
+  rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: 4242,
 };
 
 function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
@@ -460,7 +460,7 @@ describe('whac-a-mole: settings', () => {
 
     expect(first.seed).not.toBe(second.seed);
     expect({ ...first, seed: 0 }).toEqual({ ...second, seed: 0 });
-    expect(first).toMatchObject({ rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'normal' });
+    expect(first).toMatchObject({ rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium' });
   });
 
   it('keeps the seed out of the lobby, so nothing can choose it', () => {

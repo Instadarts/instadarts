@@ -80,11 +80,10 @@ const DOUBLES = SECTOR_ORDER.map((n) => `D${n}`);
  * The areas grouped by how hard they are to hit, which is also the order the moles come to prefer
  * them in. `TIER_WEIGHTS` says how much, at the start of a run and at the end of one.
  *
- * No bull tier: the middle is a hole throughout, and nothing comes up in a hole. By the last round
- * five moles in six are on a treble or a double, which is what the run is training.
+ * No bull tier: the middle is a hole throughout, and nothing comes up in a hole.
  */
-const TIERS: AreaId[][] = [OUTER_SINGLES, INNER_SINGLES, [...TRIPLES, ...DOUBLES]];
-const TIER_WEIGHTS: [number, number][] = [[60, 4], [28, 12], [12, 84]];
+const TIERS: AreaId[][] = [OUTER_SINGLES, INNER_SINGLES, DOUBLES, TRIPLES];
+const TIER_WEIGHTS: [number, number][] = [[60, 10], [30, 20], [7, 40], [3, 30]];
 
 /** Which area a dart landed in, or null for a dart that missed the board entirely. */
 function areaOf(dart: DartThrow): AreaId | null {
@@ -150,7 +149,7 @@ function read(settings: ModeSettings): Config {
     moles: numberOr(settings, 'moles', 3),
     darts: numberOr(settings, 'darts', 3),
     digTime: numberOr(settings, 'digTime', 3),
-    difficulty: stringOr(settings, 'difficulty', 'normal'),
+    difficulty: stringOr(settings, 'difficulty', 'medium'),
     seed: numberOr(settings, 'seed', 0),
   };
 }
@@ -173,12 +172,12 @@ const FIELDS: SettingsField[] = [
   { key: 'digTime', label: 'Dig time (visits)', kind: 'number', min: 1, max: 5 },
   {
     key: 'difficulty',
-    label: 'How fast the targets shrink',
+    label: 'Target difficulty',
     kind: 'select',
     options: [
-      { value: 'gentle', label: 'Gentle' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'brutal', label: 'Brutal' },
+      { value: 'easy', label: 'Easy' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'hard', label: 'Hard' },
     ],
   },
 ];
@@ -216,8 +215,8 @@ function digTimeAt(round: number, cfg: Config): number {
 /** How far the difficulty has climbed, 0 at the first round and 1 at the last. */
 function pressureAt(round: number, cfg: Config): number {
   const linear = Math.min(1, Math.max(0, (round - 1) / Math.max(1, cfg.rounds - 1)));
-  if (cfg.difficulty === 'gentle') return linear ** 1.8;
-  if (cfg.difficulty === 'brutal') return linear ** 0.55;
+  if (cfg.difficulty === 'easy') return linear ** 1.8;
+  if (cfg.difficulty === 'hard') return linear ** 0.55;
   return linear;
 }
 
@@ -589,7 +588,7 @@ export const whacAMole: GameMode = {
    * production build.
    */
   get defaults(): ModeSettings {
-    return { rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'normal', seed: freshSeed() };
+    return { rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: freshSeed() };
   },
 
   fields: FIELDS,

@@ -54,6 +54,7 @@ for the places where that has already gone wrong.
 | [Link](#link--mesh) | One RTCPeerConnection between two peers | `PeerLink`, `peerLink.ts` |
 | [Mesh](#link--mesh) | The links one client holds, and its one encoder | `Mesh`, `useMediaMesh` |
 | [Media tier](#media-tier) | How much a device is willing to send | `MediaTier`, `media_ready` |
+| [Media ban](#media-ban) | A game mode declining one of the media features | `bansMedia`, `modeBans` |
 | [Board camera](#board-camera) | The source selected for one immutable match slot | `media_join` |
 | [Region of interest](#region-of-interest) | A square of a board, asked for by name | `Region`, `clampRegion` |
 | [Still](#still) | One photograph of a region, on request | `still_request`, `StillConfig` |
@@ -777,6 +778,16 @@ players. Participants never receive their own board video.
 
 Say **media** for the feature. Never "stream" (unused, and ambiguous between a `MediaStream` and the
 thing a viewer watches) and never "call" — nobody rings anybody.
+
+### Media ban
+
+A [game mode](#game-mode) saying it does not want one of the media features: `bansMedia` naming
+`boardVideo`, `dartEvidence`, or both. Declared in the mode's own file and carried to the client in
+its [descriptor](#game-mode); a mode that says nothing wants everything.
+
+Say **ban** about a feature and never about media as a whole — a mode that declined both still joins
+the mesh with a peer id and a roster, and would still receive anything added to it later. That is
+the distinction from [tier](#media-tier) `disabled`, which is the device saying it appears nowhere.
 
 ### Peer / peer id
 

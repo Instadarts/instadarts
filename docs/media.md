@@ -31,6 +31,14 @@ On every finish path—victory, cancellation, permanent leave, or idle expiry—
 source directives, publishes empty rosters, and destroys the media session immediately. A rematch
 creates a fresh mesh and clients resubmit their stored choices; the server copies no source selection.
 
+A [game mode](./game-modes.md#declining-a-media-feature) may decline a feature: `bansMedia` names
+`boardVideo`, `dartEvidence`, or both. The session reads it once at creation and it changes nothing
+about the mesh—the same declarations, peer ids, roster and setup overlay—because a ban is about one
+feature and not about media. Board video is refused where it is granted, at the source directive, so
+a declined feed is never offered and the camera stays in every roster with its stills and director
+edges intact. A still request never reaches the server, so that ban is honoured by the frontend not
+asking.
+
 ## Identities and topology
 
 `matchId` names gameplay. `meshId` names one media incarnation of that match. `peerId` names one live

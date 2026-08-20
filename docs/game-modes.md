@@ -68,6 +68,9 @@ interface GameMode {
   readonly defaults: ModeSettings;  // ─┐ its settings, declared here and nowhere else
   readonly fields: SettingsField[]; // ─┘
 
+  /** Media features this mode does not want. Omitted means none — see "Declining a media feature". */
+  readonly bansMedia?: readonly MediaFeature[];
+
   /** How many darts a visit may hold. The match screen and validation both read this. */
   dartsPerVisit(settings: ModeSettings): number;
 
@@ -129,6 +132,7 @@ interface ModeDescriptor {
   label: string;                 // shown in the lobby
   defaults: ModeSettings;
   fields: SettingsField[];       // declarative, rendered generically
+  bansMedia: readonly MediaFeature[];   // optional to declare, always present to read
 }
 
 type SettingsField =
@@ -170,6 +174,38 @@ same list, a field that is not declared is not merely absent from the form: it c
 so no crafted message reaches it. The **default** is unconditional, so the setting still exists and
 production simply always has the value it defaults to. Hiding a field is therefore never the same as
 removing a setting — the mode must still work when the field is not there.
+
+---
+
+## Declining a media feature
+
+A mode may name [media](./media.md) features it does not want:
+
+```ts
+export type MediaFeature = 'boardVideo' | 'dartEvidence';
+
+// whac-a-mole.ts — the moles are drawn onto the board's own geometry, and a photograph of a real
+// board cannot be laid over them. Stills are a strip under the slots and are untouched.
+bansMedia: ['boardVideo'],
+```
+
+Declared like `fields` and read elsewhere, so naming a feature is still not knowing that peers or
+sockets exist. `describeMode` turns an absent declaration into an empty list, so a consumer never has
+to tell "declined none" from "did not say", and both sides ask through `modeBans` in
+[`shared/settings.ts`](../src/shared/settings.ts), which **fails open**: a descriptor that has not
+arrived is not an instruction to withhold anything.
+
+**A ban is about a feature, not about media.** A mode that declined both would still declare its
+tier, join the mesh, take a roster and show the "Setting up match…" overlay exactly as any other —
+because `tier: 'disabled'` means *creates no peer identity*, which is a much larger thing, and
+because whatever is added to the mesh later should reach a mode that never asked to opt out of it.
+
+Where each ban bites, and why they differ:
+
+| Feature | Enforced | Where |
+| --- | --- | --- |
+| `boardVideo` | on the **server** | `syncSource` in [`server/media.ts`](../src/server/media.ts) withholds the active `media_source_state`, so the camera never mints a feed id and never offers. The device keeps its place in every roster, which is what leaves stills, director commands and the owner's link working — refusing it in `planFor` instead would take all of those with it. The frontend also declines, which with the directive withheld is belt and braces. |
+| `dartEvidence` | on the **client** | A still request is one peer asking another and never reaches the server, so there is nothing there to refuse. `useDartEvidence` takes an `enabled` option that gates the asking and the strip together. |
 
 ---
 

@@ -177,7 +177,15 @@ export async function startStunServer(port: number): Promise<StunServer> {
 
   let socket: Socket;
   try {
-    socket = await attempt('udp6').catch(() => attempt('udp4'));
+    socket = await attempt('udp6').catch((err: any) => {
+      // If the port is already in use or access is denied, trying udp4 won't help (and on Windows,
+      // an IPv4 bind can succeed even when an IPv6 dual-stack socket already owns the port).
+      // Only fall back to udp4 if IPv6 itself is unavailable or unsupported on the host.
+      if (err?.code === 'EADDRINUSE' || err?.code === 'EACCES' || err?.code === 'EPERM') {
+        throw err;
+      }
+      return attempt('udp4');
+    });
   } catch (err) {
     return { port: null, problem: (err as Error).message, close: () => {} };
   }

@@ -226,6 +226,43 @@ test.describe('dart evidence', () => {
     await scorer.context.close();
   });
 
+  test('survives a game mode that declined board video', async ({ browser }) => {
+    // Whac-A-Mole draws its moles onto the board's own geometry and cannot have a photograph of a
+    // real board laid over them, so it declines the feed. It says nothing about stills, and this is
+    // the test that the two are separate features rather than one switch: the same camera, the same
+    // nomination, the same pairing — a feed that never arrives and evidence that still does.
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.getByLabel('Game').selectOption('whac-a-mole');
+    await expect(host.getByText('Whac-A-Mole settings')).toBeVisible();
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await startCamera(scorer.page);
+    await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
+
+    await showScene(scorer.page, 'darts');
+    await scan(scorer.page);
+
+    // The evidence is untouched — asked for, taken, and delivered to the opponent as well.
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+
+    // And the camera was never asked to publish, so there is nothing to offer, consent to, or draw.
+    // The server withholds the source directive; nothing here depends on the frontend refusing.
+    // Null rather than empty: no publisher was ever made, as against one made and then given
+    // nobody to send to.
+    expect(await scorer.page.evaluate(() => (window as any).__media.video().published)).toBeNull();
+    await expect(host.getByTestId('live-board-feed')).toHaveCount(0);
+    await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
+    await expect(host.getByRole('dialog', { name: 'Live board video' })).toHaveCount(0);
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
   test('a camera answers its owner and ignores everybody else', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);

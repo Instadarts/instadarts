@@ -4,6 +4,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 import '../helpers';
+// The helpers register x01. Whac-A-Mole is installed the way a deployment installs it, because it
+// is the mode that declines board video and the only way to exercise a ban is to have one.
+import '../../src/server/modes/whac-a-mole';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
@@ -235,6 +238,28 @@ describe('topology and source intent', () => {
     expect(entryFor(user, camera)).toMatchObject({ own: true }); // control/stills edge
     expect(entryFor(watcher, camera)).toBeDefined();
     expect(camera.last('media_source_state')).toMatchObject({ active: true, audience: ['spectator'] });
+  });
+
+  it('never asks a camera to publish for a game mode that declined board video', () => {
+    const { host, camera, match } = startOnline({ settings: { mode: 'whac-a-mole' } });
+    expect(match.settings.mode).toBe('whac-a-mole');
+
+    // No active directive, so the phone mints no feed id and offers nothing. Compare the same call
+    // without settings, which is x01 and is asserted active above.
+    const directive = camera!.last('media_source_state');
+    expect(directive === undefined || directive.active === false).toBe(true);
+
+    // The camera keeps its place in every roster. That is the whole reason this is refused at the
+    // source directive rather than by leaving the device out of the plan: stills, director commands
+    // and the owner's own link are a different feature and this mode still wants them.
+    expect(entryFor(host, camera!)).toMatchObject({ kind: 'device', own: true, role: 'owner' });
+    expect(host.last('media_peers')!.setupComplete).toBe(true);
+  });
+
+  it('asks the same camera to publish once the mode is one that wants it', () => {
+    // The control for the case above: nothing about the pairing or the nomination differs.
+    const { camera } = startOnline({ settings: { mode: 'x01' } });
+    expect(camera!.last('media_source_state')).toMatchObject({ active: true });
   });
 
   it('ends and replaces source epochs on source change or scorer incarnation', () => {

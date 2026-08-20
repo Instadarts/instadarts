@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_MODE, allModes, describeMode, getMode, loadModes } from '../../src/server/modes/types';
+import { modeBans } from '../../src/shared/settings';
 import { panelOf } from '../../src/server/match';
 import { textOf } from '../../src/shared/types';
 import { makeMatch, playVisit, throwDart } from '../helpers';
+// The helpers register x01, which is all most of this file needs. The media declarations are only
+// interesting where two modes disagree, so the second one is installed the way a deployment does it.
+import '../../src/server/modes/whac-a-mole';
 import type { MatchState } from '../../src/shared/types';
 
 /**
@@ -37,6 +41,32 @@ describe('installed modes', () => {
     expect(x01.label).toBe('x01');
     expect(x01.defaults).toEqual({ startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' });
     expect(x01.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut', 'stats']);
+  });
+
+  it('say which media features they do not want, and default to wanting all of them', async () => {
+    await loadModes();
+    const described = allModes().map(describeMode);
+
+    // Optional to declare, always present to read: nobody consuming a descriptor has to tell
+    // "declined none" from "did not say".
+    const x01 = described.find((d) => d.id === 'x01')!;
+    expect(x01.bansMedia).toEqual([]);
+    expect(getMode('x01')!.bansMedia).toBeUndefined();
+
+    // The board is drawn on for this one, so a picture of a real board cannot be laid over it.
+    const whac = described.find((d) => d.id === 'whac-a-mole')!;
+    expect(whac.bansMedia).toEqual(['boardVideo']);
+
+    expect(modeBans(whac, 'boardVideo')).toBe(true);
+    // Banning one is not banning the other — evidence stills are untouched here.
+    expect(modeBans(whac, 'dartEvidence')).toBe(false);
+    expect(modeBans(x01, 'boardVideo')).toBe(false);
+  });
+
+  it('withholds nothing for a mode this build has never heard of', () => {
+    // A descriptor that has not arrived is not an instruction to take a feature away.
+    expect(modeBans(undefined, 'boardVideo')).toBe(false);
+    expect(modeBans(undefined, 'dartEvidence')).toBe(false);
   });
 
   it('keeps the statistics knob out of a production build', async () => {

@@ -212,6 +212,17 @@ function digTimeAt(round: number, cfg: Config): number {
   return cfg.digTime;
 }
 
+/**
+ * How many moles in one visit is a clean sweep.
+ *
+ * The whole board, or every dart in hand — whichever runs out first. A literal three was right for
+ * the settings it was written against and wrong either side of them: at two moles a visit it could
+ * never be reached, and at five it paid out for clearing three of them, which is not a sweep.
+ */
+function sweepAt(cfg: Config): number {
+  return Math.min(cfg.moles, cfg.darts);
+}
+
 /** How far the difficulty has climbed, 0 at the first round and 1 at the last. */
 function pressureAt(round: number, cfg: Config): number {
   const linear = Math.min(1, Math.max(0, (round - 1) / Math.max(1, cfg.rounds - 1)));
@@ -353,6 +364,21 @@ function allowanceOf(run: Run, playerId: string, cfg: Config): number {
 }
 
 /**
+ * The bonus throw: one extra dart, this visit only, for prising a dart off the janitor.
+ *
+ * Only ever one, because the janitor goes home the moment it is hit and there is at most one of it
+ * a visit. That ceiling is what `dartsPerVisit` is set from — see there.
+ */
+function bonusIn(run: Run, playerId: string): number {
+  return run.events.some((event) => event.kind === 'rescue' && event.playerId === playerId) ? 1 : 0;
+}
+
+/** What the thrower may still put on the board this visit, the bonus throw included. */
+function liveAllowance(start: Run, live: Run, playerId: string, cfg: Config): number {
+  return allowanceOf(start, playerId, cfg) + bonusIn(live, playerId);
+}
+
+/**
  * Whether the run is over, asked at the start of a visit.
  *
  * Either everybody has thrown their last dart into a hole, or the rounds are up. That visit is then
@@ -440,8 +466,12 @@ function applyDarts(
   allowance: number,
 ): void {
   let whacks = 0;
+  // Grows the moment the janitor is whacked, which is why the bound is inside the loop: a rescue
+  // with the last dart in hand has to open the next one.
+  let bonus = 0;
 
-  for (let i = 0; i < Math.min(darts.length, allowance); i++) {
+  for (let i = 0; i < darts.length; i++) {
+    if (i >= allowance + bonus) break;
     const area = areaOf(darts[i]);
     if (!area) continue;
 
@@ -462,9 +492,11 @@ function applyDarts(
       run.janitor = false;
       run.holesHit[ownerId] = Math.max(0, (run.holesHit[ownerId] ?? 0) - 1);
       run.rescued[playerId] = (run.rescued[playerId] ?? 0) + 1;
-      run.score[playerId] = (run.score[playerId] ?? 0) + 1;
-      run.whacks[playerId] = (run.whacks[playerId] ?? 0) + 1;
-      whacks++;
+      // No point for it, and it is not a whack: a round is worth the moles that came up plus the
+      // sweep for clearing them, and a janitor that scored would be a point the board never put
+      // up. What it pays is the dart — back to its owner next visit, and in this player's hand
+      // right now.
+      bonus = 1;
       run.events.push({ kind: 'rescue', area, dart: i, playerId, ownerId });
       continue;
     }
@@ -484,7 +516,7 @@ function applyDarts(
     }
   }
 
-  if (whacks >= 3) {
+  if (whacks >= sweepAt(cfg)) {
     run.score[playerId] = (run.score[playerId] ?? 0) + 1;
     run.perfectVisits++;
     run.events.push({ kind: 'perfect', area: '', playerId });
@@ -593,24 +625,34 @@ export const whacAMole: GameMode = {
 
   fields: FIELDS,
 
+  /**
+   * The most darts a visit could ever hold, which is one more than a player starts with: the
+   * janitor pays a bonus throw, and it can only ever pay one.
+   *
+   * This is the match layer's hard cap and it cannot see a visit, so it has to be the ceiling
+   * rather than the allowance. What a given visit actually permits is `isVisitLocked`'s business,
+   * and a dart squeezed past it counts for nothing — `applyDarts` stops reading at the allowance
+   * and `finalizeVisit` cuts the rest off.
+   */
   dartsPerVisit(settings: ModeSettings): number {
-    return read(settings).darts;
+    return read(settings).darts + 1;
   },
 
   isVisitLocked(ctx: LegContext): boolean {
-    const { start, over, cfg } = replay(ctx);
+    const { start, live, over, cfg } = replay(ctx);
     const playerId = ctx.currentVisit?.playerId ?? ctx.currentPlayerId;
-    const allowance = over ? 0 : allowanceOf(start, playerId, cfg);
+    const allowance = over ? 0 : liveAllowance(start, live, playerId, cfg);
     return (ctx.currentVisit?.darts.length ?? 0) >= allowance;
   },
 
   finalizeVisit(ctx: LegContext): FinalizedVisit {
     const { start, live, over, cfg } = replay(ctx);
     const playerId = ctx.currentVisit?.playerId ?? ctx.currentPlayerId;
-    const allowance = over ? 0 : allowanceOf(start, playerId, cfg);
+    const allowance = over ? 0 : liveAllowance(start, live, playerId, cfg);
 
-    // Exactly the darts that counted. No padding: a turn here is worth what was thrown in it, and a
-    // player down to one dart has not somehow thrown three.
+    // Exactly the darts that counted — the bonus throw included, or a rescue with the last dart in
+    // hand would be cut off here having earned the throw it just made. No padding: a turn here is
+    // worth what was thrown in it, and a player down to one dart has not somehow thrown three.
     const visit: Visit = {
       playerId,
       darts: (ctx.currentVisit?.darts ?? []).slice(0, allowance),
@@ -625,9 +667,10 @@ export const whacAMole: GameMode = {
   view(ctx: LegContext): ModeView {
     const { start, live, over, cfg } = replay(ctx);
     const playerId = ctx.currentVisit?.playerId ?? ctx.currentPlayerId;
-    const allowance = over ? 0 : allowanceOf(start, playerId, cfg);
+    const allowance = over ? 0 : liveAllowance(start, live, playerId, cfg);
     const thrown = ctx.currentVisit?.darts ?? [];
-    const whacks = live.events.filter((e) => e.kind === 'whack' || e.kind === 'rescue').length;
+    // Moles only. The janitor pays in darts, not in points.
+    const whacks = live.events.filter((e) => e.kind === 'whack').length;
     const perfect = live.events.some((e) => e.kind === 'perfect');
 
     const playerScores: Record<string, ViewText> = {};
@@ -643,7 +686,9 @@ export const whacAMole: GameMode = {
       notice: noticeFor(start, live, over, allowance, ctx, cfg),
       playerScores,
       visitTotal: `🔨 ${whacks}${perfect ? ' +1' : ''}`,
-      dartsPerVisit: cfg.darts,
+      // The row is as long as a visit can ever be, so the bonus slot has a place to sit whether or
+      // not it has been earned — see `slotsFor`, which always fills the last one.
+      dartsPerVisit: cfg.darts + 1,
       slots: slotsFor(thrown, live, allowanceOf(start, playerId, cfg), cfg, playerId),
       history: [...live.history].reverse(),
     };
@@ -851,7 +896,7 @@ function slotsFor(
   cfg: Config,
   playerId: string,
 ): ViewText[] {
-  const slots: ViewText[] = thrown.slice(0, budget).map((dart, i) => {
+  const outcome = (dart: DartThrow, i: number): ViewText => {
     const event = live.events.find(
       (e) => e.dart === i && (e.kind === 'whack' || e.kind === 'hole' || e.kind === 'rescue'),
     );
@@ -859,7 +904,9 @@ function slotsFor(
     if (event?.kind === 'rescue') return { text: '🛠 SAVED', tone: 'positive' };
     if (event?.kind === 'hole') return { text: `🕳 ${labelOf(event.area)}`, tone: 'danger' };
     return { text: dart.score.label, tone: 'muted' };
-  });
+  };
+
+  const slots: ViewText[] = thrown.slice(0, budget).map(outcome);
 
   while (slots.length < budget) slots.push({ text: '·', tone: 'muted' });
 
@@ -870,6 +917,15 @@ function slotsFor(
   for (let i = 0; i < lost; i++) {
     slots.push(i < returning ? { text: '↺ back', tone: 'accent' } : { text: '✖ lost', tone: 'danger' });
   }
+
+  // The bonus throw is always the last slot, whatever happened to the ones before it — the screen
+  // decorates it by position, and a slot that moved around would be decorating something else.
+  // `warning` is the tone no other slot uses, which is how the screen knows it is live.
+  const bonus = thrown[budget];
+  if (bonus) slots.push(outcome(bonus, budget));
+  else if (bonusIn(live, playerId)) slots.push({ text: '🛠 BONUS', tone: 'warning', weight: 'bold' });
+  else slots.push({ text: '🛠 BONUS', tone: 'muted', size: 'sm' });
+
   return slots;
 }
 

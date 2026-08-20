@@ -1004,6 +1004,35 @@ const CSS = `
 .wam-flash-soft { animation: wam-flash-soft 1.1s ease-in-out infinite }
 
 /*
+ * The last dart slot, which is the bonus throw the janitor pays for.
+ *
+ * Last, not fourth: a visit holds as many darts as the lobby asked for and the bonus sits after
+ * them, so the row is four slots at the default and six if somebody sets five darts.
+ *
+ * The mode fills that slot itself (see slotsFor) but a slot can only carry text and a tone, and
+ * "this one is not like the others" is a border rather than a word. So it is marked out from here,
+ * by position: the row is the only min-h-[40px] in VisitInput, and the mode always sends exactly
+ * one slot per dart the visit could hold, so the last one is always the bonus.
+ *
+ * An inset ring rather than a border, so it does not come out a different size from its neighbours.
+ * The two states come from what the mode sent, because what it sent is the state: warning is the
+ * tone no other slot in this mode uses, so it means the throw is live, and the small text is only
+ * ever the placeholder, so it means the slot is still out of reach. Keying the dim on the muted
+ * tone instead would have caught a bonus dart that missed, which is spent rather than disabled.
+ *
+ * If any of those class names ever changes the slot simply stops being decorated, which reads a
+ * little flatter rather than breaking.
+ */
+.min-h-\[40px\] > div:last-child { box-shadow: inset 0 0 0 1.5px #78350f }
+.min-h-\[40px\] > div:last-child.text-sm { opacity: .55 }
+.min-h-\[40px\] > div:last-child.bg-yellow-900 { animation: wam-bonus 1.1s ease-in-out infinite }
+
+@keyframes wam-bonus {
+  0%, 100% { box-shadow: inset 0 0 0 2px #f59e0b }
+  50% { box-shadow: inset 0 0 0 2px #fde68a, 0 0 12px rgba(245, 158, 11, .55) }
+}
+
+/*
  * A mallet, since that is what this is — but the mallet is not the cursor.
  *
  * A hammer head has no point, so a hotspot anywhere on it is a guess the player has to make about

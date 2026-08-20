@@ -204,11 +204,25 @@ describe('whac-a-mole: scoring', () => {
     expect(scoreOf(throwAt(throwAt(match, moles[0]), moles[1]))).toBe(2);
   });
 
-  it('scores a bonus point for clearing three in one visit', () => {
+  it('scores a bonus point for clearing the board in one visit', () => {
     const match = makeMatch();
     const moles = molesOn(match);
     const full = moles.reduce((current, area) => throwAt(current, area), match);
     expect(scoreOf(full)).toBe(4);
+  });
+
+  it('asks for the whole board, or every dart, whichever runs out first', () => {
+    // Two moles and three darts: the sweep is two, not the three it used to be hardcoded at.
+    const pair = makeMatch({ moles: 2 });
+    const cleared = molesOn(pair).reduce((current, area) => throwAt(current, area), pair);
+    expect(molesOn(cleared)).toEqual([]);
+    expect(scoreOf(cleared)).toBe(3);
+
+    // Five moles and three darts: three is every dart in hand, so it pays.
+    const many = makeMatch({ moles: 5 });
+    const spent = molesOn(many).slice(0, 3).reduce((current, area) => throwAt(current, area), many);
+    expect(scoreOf(spent)).toBe(4);
+    expect(molesOn(spent)).toHaveLength(2);
   });
 
   it('scores nothing for a dart that lands in the wrong ring of the right number', () => {
@@ -344,7 +358,7 @@ describe('whac-a-mole: the burrow and its janitor', () => {
     }
   });
 
-  it('hands the dart back to whoever lost it, and scores the player who hit it', () => {
+  it('hands the dart back to whoever lost it, and scores nobody for it', () => {
     const match = untilJanitor(makeMatch({}, 2));
     const holder = runOf(match).live.lost[0];
     const thrower = match.players[match.currentPlayerIndex].id;
@@ -356,7 +370,58 @@ describe('whac-a-mole: the burrow and its janitor', () => {
     expect(run.lost).toEqual([]);
     expect(run.holesHit[holder]).toBe(0);
     expect(run.rescued[thrower]).toBe(1);
-    expect(run.score[thrower]).toBe(1);
+    // The janitor pays in darts, not points — three moles a round plus the sweep is the ceiling.
+    expect(run.score[thrower]).toBe(0);
+    expect(run.whacks[thrower]).toBe(0);
+  });
+
+  it('pays a bonus throw, this visit, on top of the dart going home', () => {
+    const match = untilJanitor(makeMatch({}, 2));
+    const thrower = match.players[match.currentPlayerIndex].id;
+    expect(whacAMole.isVisitLocked(legContext(match))).toBe(false);
+
+    // Three of their own and then the one the janitor gave back.
+    let current = throwAt(match, BURROW);
+    for (let i = 0; i < 2; i++) current = throwAt(current, MISS);
+    expect(current.currentVisit?.darts).toHaveLength(SETTINGS.darts as number);
+    expect(whacAMole.isVisitLocked(legContext(current))).toBe(false);
+
+    const mole = molesOn(current)[0];
+    current = throwAt(current, mole);
+    expect(current.currentVisit?.darts).toHaveLength((SETTINGS.darts as number) + 1);
+    expect(whacAMole.isVisitLocked(legContext(current))).toBe(true);
+
+    // And the extra dart counted for something.
+    expect(runOf(current).live.score[thrower]).toBe(1);
+    expect(whacAMole.finalizeVisit(legContext(current)).visit.darts)
+      .toHaveLength((SETTINGS.darts as number) + 1);
+  });
+
+  it('pays it once, and only to a visit that earned it', () => {
+    const match = makeMatch({}, 2);
+    const three = [MISS, MISS, MISS].reduce((m) => throwAt(m, MISS), match);
+    expect(three.currentVisit?.darts).toHaveLength(3);
+    expect(whacAMole.isVisitLocked(legContext(three))).toBe(true);
+
+    // A dart forced past the lock is still worth nothing.
+    const forged = {
+      ...legContext(three),
+      currentVisit: { playerId: three.players[0].id, darts: [...three.currentVisit!.darts, MISS], locked: false },
+    };
+    expect(whacAMole.finalizeVisit(forged).visit.darts).toHaveLength(3);
+  });
+
+  it('keeps a clean sweep worth four, whether or not the janitor was in', () => {
+    const match = untilJanitor(makeMatch({}, 2));
+    const thrower = match.players[match.currentPlayerIndex].id;
+
+    let current = throwAt(match, BURROW);
+    for (const area of molesOn(current)) current = throwAt(current, area);
+
+    const run = runOf(current).live;
+    expect(current.currentVisit?.darts).toHaveLength((SETTINGS.darts as number) + 1);
+    expect(run.whacks[thrower]).toBe(3);
+    expect(run.score[thrower]).toBe(4);      // three moles and the sweep, nothing for the janitor
   });
 
   it('lets one player get a dart back for the other', () => {
@@ -479,19 +544,33 @@ describe('whac-a-mole: settings', () => {
   it('is installed, and offers itself to the lobby', () => {
     expect(getMode('whac-a-mole')).toBe(whacAMole);
     expect(whacAMole.label).toBe('Whac-A-Mole');
-    expect(whacAMole.dartsPerVisit({ ...SETTINGS, darts: 4 })).toBe(4);
+    // One more than a player starts with: the janitor's bonus throw needs somewhere to land.
+    expect(whacAMole.dartsPerVisit({ ...SETTINGS, darts: 4 })).toBe(5);
   });
 });
 
 describe('whac-a-mole: what the screen is told', () => {
+  /** Lose a dart down the burrow, then play on until the janitor is up holding it. */
+  function untilJanitor(match: MatchState): MatchState {
+    let current = submit(throwAt(match, BURROW));
+    for (let i = 0; i < 40; i++) {
+      if (runOf(current).live.janitor) return current;
+      current = idleVisit(current);
+    }
+    throw new Error('the janitor never came');
+  }
+
   it('draws a full row of slots, with the darts lost to holes shown as lost', () => {
     let match = makeMatch({ digTime: 1 });
     match = idleVisit(match);
     match = submit(throwAt(match, holesOn(match)[0]));
 
     const slots = whacAMole.view(legContext(match)).slots ?? [];
-    expect(slots).toHaveLength(3);
+    expect(slots).toHaveLength((SETTINGS.darts as number) + 1);
     expect(slots.filter((slot) => typeof slot !== 'string' && slot.text === '✖ lost')).toHaveLength(1);
+
+    // The last of them is always the bonus throw, dim until the janitor pays for it.
+    expect(slots.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'muted', size: 'sm' });
   });
 
   it('hands its own component a snapshot, and everyone else a table', () => {
@@ -506,6 +585,24 @@ describe('whac-a-mole: what the screen is told', () => {
     expect(custom.round).toBe(1);
     expect(custom.moles).toHaveLength(3);
     expect(JSON.parse(JSON.stringify(panel))).toEqual(panel);   // it has to survive the wire
+  });
+
+  it('lights the bonus slot the moment the janitor pays for it', () => {
+    const match = untilJanitor(makeMatch({}, 2));
+    const before = whacAMole.view(legContext(match)).slots ?? [];
+    expect(before.at(-1)).toMatchObject({ tone: 'muted' });
+
+    const after = whacAMole.view(legContext(throwAt(match, BURROW))).slots ?? [];
+    // `warning` is the tone nothing else in this row uses; the screen decorates on it.
+    expect(after.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'warning', weight: 'bold' });
+  });
+
+  it('puts the bonus last however many darts a visit was given', () => {
+    const view = whacAMole.view(legContext(makeMatch({ darts: 5 })));
+    expect(view.dartsPerVisit).toBe(6);
+    expect(view.slots).toHaveLength(6);
+    expect(view.slots?.at(-1)).toMatchObject({ text: '🛠 BONUS' });
+    expect(whacAMole.dartsPerVisit({ ...SETTINGS, darts: 5 })).toBe(6);
   });
 
   it('describes the finished run rather than the empty leg left behind it', () => {

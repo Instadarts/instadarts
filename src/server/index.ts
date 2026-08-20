@@ -14,7 +14,7 @@ import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
-import { CLIENT_DIR, QUIET } from './env';
+import { QUIET } from './env';
 import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
@@ -83,28 +83,10 @@ app.get('/server-stats', (_req, res) => {
   });
 });
 
-// Serve the built client, when this run has one to serve — see CLIENT_DIR in env.ts. `npm run dev`
-// does not: Vite has it on port 5173.
-if (CLIENT_DIR) {
-  // Held locally because an imported binding is not narrowed inside the handler below.
-  const clientDir = CLIENT_DIR;
-  // Cross-origin isolation, or LiteRT silently runs single-threaded on the scoring device. The
-  // headers have to reach the WASM worker script itself too, which is why they go on everything
-  // rather than only on the document. Nothing this app loads is cross-origin, so that costs us
-  // nothing — and note it must NOT include Permissions-Policy: camera=(), which would kill
-  // getUserMedia on the scoring device.
-  app.use((_req, res, next) => {
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-    next();
-  });
-  app.use(express.static(clientDir));
-  // SPA fallback: serve index.html for all non-API routes
-  app.get('/{*splat}', (_req, res) => {
-    res.sendFile('index.html', { root: clientDir });
-  });
-}
+import { registerClientServing } from './staticServing';
+
+// Serve the client (either embedded in instadarts.mjs or from CLIENT_DIR on disk).
+registerClientServing(app);
 
 // Cuts connections that stopped answering without closing — the only way a vanished phone is ever
 // noticed, since nothing else on the server distinguishes it from a quiet one.

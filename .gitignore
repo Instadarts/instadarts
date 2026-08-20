@@ -14,3 +14,6 @@ release
 # instadarts.config.example.jsonc.
 instadarts.config.jsonc
 instadarts.config.json
+
+#logs
+*.log

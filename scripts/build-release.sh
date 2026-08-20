@@ -5,8 +5,7 @@
 #
 # Produces release/instadarts-<version>.zip containing:
 #
-#   instadarts.mjs                  the whole server, dependencies inlined
-#   client/                         the built frontend
+#   instadarts.mjs                  the whole server + frontend, dependencies inlined
 #   instadarts.config.example.jsonc every setting, at its default
 #   LICENSE                         ours: the GNU AGPL v3
 #   THIRD-PARTY-NOTICES.txt         what the bundled licences ask us to carry
@@ -32,16 +31,31 @@ rm -rf "$OUT" && mkdir -p "$STAGE"
 
 echo "=== Building client ==="
 npx vite build
-cp -r dist/client "$STAGE/client"
+
+echo "=== Packaging embedded client ==="
+node scripts/bundle-client.mjs dist/client src/server/embeddedAssetsBundle.ts
+
+cleanup() {
+  cat << 'EOF' > src/server/embeddedAssetsBundle.ts
+/**
+ * In standard repository runs, this is `null` (the server falls back to `CLIENT_DIR` if set,
+ * or serves no client if running beside the Vite dev server).
+ *
+ * When bundled by `scripts/build-release.sh`, this file is temporarily replaced with the
+ * Base64-encoded, gzipped JSON dictionary containing every file in `dist/client`.
+ */
+export const EMBEDDED_CLIENT_BUNDLE: string | null = null;
+EOF
+}
+trap cleanup EXIT
 
 # ── 2. The server, as one file ───────────────────────────────────────
-#    esbuild strips the TypeScript and inlines express and ws, so the
-#    archive needs no dependencies of its own.
+#    esbuild strips the TypeScript and inlines express, ws, and the
+#    embedded client assets, so the archive needs no dependencies or
+#    external static files of its own.
 #
-#    The banner is the file's first act: say where the client is and that
-#    this is a production run, before any of the server's own top-level
-#    code reads them. Everything is one module after bundling, so "first
-#    in the file" is genuinely first.
+#    The banner is the file's first act: enforce minimum Node.js version
+#    and establish the runtime root directory.
 #
 #    INSTADARTS_DIR names the directory beside this file, so the settings
 #    can sit next to the thing they configure whichever directory it is
@@ -55,7 +69,7 @@ NODE_MAJOR="$(node --version | cut -d. -f1 | tr -d v)"
 banner="const [__nodeMajor] = (process.versions.node || '').split('.').map(Number);"
 banner+="if (!__nodeMajor || __nodeMajor < 22) { console.error('InstaDarts requires Node.js 22 or later (currently running on Node.js ' + (process.version || 'unknown') + ').'); process.exit(1); }"
 banner+="import { fileURLToPath as __toPath } from 'node:url';"
-banner+="import { dirname as __dir, join as __join } from 'node:path';"
+banner+="import { dirname as __dir } from 'node:path';"
 banner+="import { createRequire as __createRequire } from 'node:module';"
 # express reaches `debug`, which does `require('tty')` at load time. Bundled to ESM there is no
 # `require` for it to reach, and esbuild's shim throws rather than guessing — so give it one.
@@ -63,7 +77,6 @@ banner+="import { createRequire as __createRequire } from 'node:module';"
 banner+="const require = __createRequire(import.meta.url);"
 banner+="const __here = __dir(__toPath(import.meta.url));"
 banner+="process.env.NODE_ENV = 'production';"
-banner+="process.env.CLIENT_DIR = __join(__here, 'client');"
 banner+="process.env.INSTADARTS_DIR = process.env.INSTADARTS_DIR ?? __here;"
 
 echo "=== Bundling server ==="

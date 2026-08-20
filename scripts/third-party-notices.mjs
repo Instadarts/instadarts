@@ -119,7 +119,7 @@ const out = [
 for (const name of all) {
   const m = manifest(name);
   const spdx = typeof m.license === 'string' ? m.license : (m.license?.type ?? 'UNKNOWN');
-  const where = [server.has(name) && 'instadarts.mjs', client.has(name) && 'client/'].filter(Boolean).join(', ');
+  const where = [server.has(name) && 'instadarts.mjs', client.has(name) && 'instadarts.mjs (client)'].filter(Boolean).join(', ');
 
   out.push(rule, `${name} ${m.version}`, `License: ${spdx}`);
   if (m.homepage) out.push(`Homepage: ${m.homepage}`);

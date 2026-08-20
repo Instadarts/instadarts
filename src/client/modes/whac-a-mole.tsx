@@ -863,7 +863,7 @@ function Burrow({ run }: { run: RunView }) {
           ? 'The burrow is quiet'
           : `${run.lost} dart${run.lost === 1 ? '' : 's'} down the burrow`}
       </span>
-      <span className="shrink-0 font-mono text-[10px] text-gray-600">{run.lost > 0 ? 'janitor may call' : '—'}</span>
+      <span className="shrink-0 font-mono text-[10px] text-gray-600">{run.lost > 0 ? 'janitor may show up' : '—'}</span>
     </div>
   );
 }

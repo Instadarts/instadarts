@@ -54,6 +54,14 @@ export function stringOr(settings: ModeSettings, key: string, fallback: string):
 }
 
 /**
+ * One of the media features a game mode may decline. The names are the glossary's own.
+ *
+ * A ban is about a feature and not about media as a whole: a mode that wants no video still joins
+ * the mesh, still gets a roster, and would still be handed anything added later. See `bansMedia`.
+ */
+export type MediaFeature = 'boardVideo' | 'dartEvidence';
+
+/**
  * What a game mode says about itself, so the lobby can offer it without importing a line of its
  * code. Declared by the mode and shipped to the client on connect.
  */
@@ -63,4 +71,17 @@ export interface ModeDescriptor {
   label: string;
   defaults: ModeSettings;
   fields: SettingsField[];
+  /** Media features this mode does not want. Anything not named stays available. */
+  bansMedia: readonly MediaFeature[];
+}
+
+/**
+ * Whether a mode declined a feature.
+ *
+ * Fails open, and deliberately: a descriptor that has not arrived yet, or a mode this build does not
+ * have, is not an instruction to withhold anything. Both sides of the wire ask through here so that
+ * "does this mode want video" cannot be answered two different ways.
+ */
+export function modeBans(descriptor: ModeDescriptor | undefined, feature: MediaFeature): boolean {
+  return descriptor?.bansMedia?.includes(feature) ?? false;
 }

@@ -625,6 +625,11 @@ export const whacAMole: GameMode = {
 
   fields: FIELDS,
 
+  // The moles are drawn onto the board's own geometry, and a camera picture of a real board cannot
+  // be lined up with it — the overlay would sit on a photograph of somewhere else. Evidence stills
+  // are untouched: they are a strip under the slots and have nothing to do with the board's SVG.
+  bansMedia: ['boardVideo'],
+
   /**
    * The most darts a visit could ever hold, which is one more than a player starts with: the
    * janitor pays a bonus throw, and it can only ever pay one.

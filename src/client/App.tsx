@@ -22,6 +22,7 @@ import type { ControlMessage, VideoFeedId } from '../shared/media';
 import type { VideoFeedView } from './hooks/useVideoFeed';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
+import { modeBans } from '../shared/settings';
 import { CONFIG_DEFAULTS } from '../shared/config';
 
 export function App() {
@@ -101,6 +102,11 @@ export function App() {
   });
   mediaHandler.current = media.handleMessage;
 
+  // What this match's game mode declined, if anything. The catalog arrives on connect, before any
+  // lobby exists, so it is always here by match time — and if it somehow were not, `modeBans` reads
+  // as banning nothing, which is the behaviour of every mode that says nothing.
+  const modeDescriptor = modes.find((candidate) => candidate.id === match?.settings.mode);
+
   const liveVideoActive = Boolean(match?.status === 'in_progress');
   const localVideo = match?.isLocal ?? false;
   // Online owners offer their board to opponents and spectators. A local match has one shared
@@ -109,7 +115,10 @@ export function App() {
     mesh: media.mesh,
     config: media.config,
     links: media.links,
-    receive: liveVideoActive && (!localVideo || isSpectator),
+    // The server withholds the source directive for a mode that declined video, so there is
+    // normally nothing to refuse. Said here as well because this is the side that would have to
+    // draw it, and a screen that quietly refuses what it cannot use is worth more than the saving.
+    receive: liveVideoActive && (!localVideo || isSpectator) && !modeBans(modeDescriptor, 'boardVideo'),
     anticipate: false,
   });
   feedHandler.current = feed.handleControl;
@@ -125,6 +134,9 @@ export function App() {
     // Every dart the evidence asks about is also a shot the director calls, at the same square. Two
     // pictures of one dart, one still and one move, so the two can be compared directly.
     direct: feed.direct,
+    // A still request never reaches the server — it is one peer asking another — so a mode that
+    // declined evidence is honoured by not asking.
+    enabled: !modeBans(modeDescriptor, 'dartEvidence'),
   });
   evidenceHandler.current = evidence.handleControl;
   // Null draws no strip at all; an empty array draws it at full height, waiting. The difference is

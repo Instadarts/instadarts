@@ -58,6 +58,13 @@ interface Options {
   /** Whether this user is the one throwing — only they may ask their camera for anything. */
   isThrower: boolean;
   /**
+   * Whether this match wants evidence at all. False for a game mode that declined the feature.
+   *
+   * Gates the asking and the strip together, because half of that would be worse than neither: a
+   * picture requested and then not shown is a camera swung at a dart for nobody.
+   */
+  enabled?: boolean;
+  /**
    * Point the live feed at the same square, if there is a feed. Silent when there is not.
    *
    * Passed in rather than reached for, because this hook's business is evidence and the feed's is
@@ -90,7 +97,9 @@ export interface DartEvidence {
   available: boolean;
 }
 
-export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }: Options): DartEvidence {
+export function useDartEvidence({
+  mesh, links, currentVisit, isThrower, direct, enabled = true,
+}: Options): DartEvidence {
   const [images, setImages] = useState<(string | undefined)[]>([]);
   /** Object URLs we made, so they can be revoked. A blob URL leaks until it is. */
   const urls = useRef<(string | undefined)[]>([]);
@@ -137,7 +146,7 @@ export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }
   // Ask, once per dart, as it lands. Manual or camera-scored alike: either way a dart appeared in
   // the visit, and the board in front of the camera has one more in it.
   useEffect(() => {
-    if (!isThrower || !darts?.length) return;
+    if (!enabled || !isThrower || !darts?.length) return;
     const camera = boardCamera(meshRef.current);
     if (!camera) return;
 
@@ -172,7 +181,7 @@ export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }
     }
     // `links` is not read in here — it is the signal that a link may have become writable,
     // which is what turns the `if (!sent) continue;` above into a retry rather than a loss.
-  }, [darts, isThrower, measuring, links]);
+  }, [darts, enabled, isThrower, measuring, links]);
 
   const handleControl = useCallback((from: string, message: ControlMessage, payload?: Uint8Array) => {
     if (message.kind !== 'still' || !payload) return;
@@ -210,8 +219,9 @@ export function useDartEvidence({ mesh, links, currentVisit, isThrower, direct }
     handleControl,
     // A board camera in the room at all — ours if we are throwing, the thrower's if we are watching.
     // Asked of the roster rather than of what has arrived, so the answer is stable from the first
-    // frame of the visit rather than appearing with the first picture.
-    available: Boolean(mesh?.links().some((link) => link.peer.kind === 'device')),
+    // frame of the visit rather than appearing with the first picture. A mode that declined evidence
+    // reads as no camera, which is already the everyday case and already draws no strip.
+    available: enabled && Boolean(mesh?.links().some((link) => link.peer.kind === 'device')),
   };
 }
 

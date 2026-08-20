@@ -15,7 +15,7 @@
 //     is installed by writing the file and adding one import there.
 
 import type { CurrentVisit, MatchState, ModePanel, ModeView, Player, Visit } from '../../shared/types';
-import type { ModeDescriptor, ModeSettings, SettingsField } from '../../shared/settings';
+import type { MediaFeature, ModeDescriptor, ModeSettings, SettingsField } from '../../shared/settings';
 
 /**
  * One leg, as the mode's rules see it. Deliberately no match, no set, no leg number and no ids
@@ -46,6 +46,16 @@ export interface GameMode {
   /** This mode's settings: their defaults, and how to render and validate them. */
   readonly defaults: ModeSettings;
   readonly fields: SettingsField[];
+
+  /**
+   * Media features this mode does not want. Anything not named stays available, so leaving this out
+   * is the ordinary case and means a mode plays with everything the deployment offers.
+   *
+   * Declared here and read elsewhere, like `fields`: naming a feature is not knowing that peers or
+   * sockets exist. Nor is it a way to turn media off — a mode that banned both would still join the
+   * mesh and still be handed whatever is added to it later. It withholds a feature, no more.
+   */
+  readonly bansMedia?: readonly MediaFeature[];
 
   /** How many darts a visit may hold. Read by the match layer and by the match screen. */
   dartsPerVisit(settings: ModeSettings): number;
@@ -80,9 +90,20 @@ export interface GameMode {
   panel?(match: MatchState): ModePanel | undefined;
 }
 
-/** What the lobby needs to offer a mode, without importing any of its code. */
+/**
+ * What the lobby needs to offer a mode, without importing any of its code.
+ *
+ * `bansMedia` is optional to declare and always present to read: a mode that says nothing describes
+ * itself as banning nothing, so no consumer has to tell "declined none" from "did not say".
+ */
 export function describeMode(mode: GameMode): ModeDescriptor {
-  return { id: mode.id, label: mode.label, defaults: { ...mode.defaults }, fields: mode.fields };
+  return {
+    id: mode.id,
+    label: mode.label,
+    defaults: { ...mode.defaults },
+    fields: mode.fields,
+    bansMedia: [...(mode.bansMedia ?? [])],
+  };
 }
 
 // ============================================================

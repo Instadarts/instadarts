@@ -6,6 +6,7 @@
 import type { WebSocket } from 'ws';
 import type { MatchState } from '../shared/types';
 import type { MediaPeer, MediaRole, MediaTier } from '../shared/media';
+import type { MediaFeature } from '../shared/settings';
 import { MAX_SDP_BYTES, videoProfile } from '../shared/media';
 import { INTERNAL_ICE } from '../shared/config';
 import { CONFIG } from './config';
@@ -13,6 +14,7 @@ import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 import { allClients, getClient, send } from './connections';
 import { ownerOf, setDeviceMediaTier } from './devices';
 import { getMatch } from './store';
+import { getMode } from './modes/types';
 import { publishDevicesState } from './scoringDevices';
 import { startStunServer } from './stun';
 import { validateSignal } from './validation';
@@ -49,6 +51,11 @@ interface MatchMediaSession {
   participantSlots: Set<string>;
   declarations: Set<string>;
   sources: Map<string, SourceSlot>;
+  /**
+   * What this match's game mode declined. Read from the mode once, when the session is made: a
+   * match never changes mode, so asking again could only ever produce the same answer or drift.
+   */
+  bans: readonly MediaFeature[];
 }
 
 interface FrontendJoin {
@@ -86,6 +93,9 @@ export function startMediaForMatch(match: MatchState): void {
     participantSlots: slots,
     declarations: new Set(),
     sources: new Map([...slots].map((slot) => [slot, blankSource()])),
+    // A mode this build does not have bans nothing, which is the same answer as a mode that
+    // declared nothing. Neither is a reason to withhold a feature.
+    bans: getMode(match.settings.mode)?.bansMedia ?? [],
   });
 }
 
@@ -193,7 +203,12 @@ function deactivateSource(session: MatchMediaSession, source: SourceSlot): void 
 }
 
 function syncSource(session: MatchMediaSession, source: SourceSlot, participant?: Participant): void {
-  const active = participant?.kind === 'device' && participant.tier === 'video';
+  // A mode that declined board video is refused here rather than anywhere further down: no active
+  // directive means the camera never mints a feed id and never offers one, so nothing to decline
+  // and nothing encoded. The device keeps its place in every roster, which is what leaves stills,
+  // director commands and the owner's own link working.
+  const wanted = !session.bans.includes('boardVideo');
+  const active = wanted && participant?.kind === 'device' && participant.tier === 'video';
   if (!active || !source.deviceId) {
     if (source.sourceEpoch || source.socket) deactivateSource(session, source);
     return;

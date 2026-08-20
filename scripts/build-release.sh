@@ -52,7 +52,9 @@ cp -r dist/client "$STAGE/client"
 
 NODE_MAJOR="$(node --version | cut -d. -f1 | tr -d v)"
 
-banner="import { fileURLToPath as __toPath } from 'node:url';"
+banner="const [__nodeMajor] = (process.versions.node || '').split('.').map(Number);"
+banner+="if (!__nodeMajor || __nodeMajor < 22) { console.error('InstaDarts requires Node.js 22 or later (currently running on Node.js ' + (process.version || 'unknown') + ').'); process.exit(1); }"
+banner+="import { fileURLToPath as __toPath } from 'node:url';"
 banner+="import { dirname as __dir, join as __join } from 'node:path';"
 banner+="import { createRequire as __createRequire } from 'node:module';"
 # express reaches `debug`, which does `require('tty')` at load time. Bundled to ESM there is no

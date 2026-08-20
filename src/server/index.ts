@@ -1,3 +1,4 @@
+import './nodeVersion';
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';

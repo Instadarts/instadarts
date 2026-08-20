@@ -283,10 +283,13 @@ function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg
       aria-hidden
     >
       <defs>
+        {/* Earth, not shadow. The board's dark beds are #1a1a1a on a #000 backing, so a hole whose
+            middle was black read as one of them on a dim screen — every tone here stays above that
+            and stays brown, which is what tells the two apart. */}
         <radialGradient id="wam-hole" cx="50%" cy="50%" r="60%">
-          <stop offset="0%" stopColor="#000000" />
-          <stop offset="55%" stopColor="#1c1008" />
-          <stop offset="100%" stopColor="#4a2f19" />
+          <stop offset="0%" stopColor="#33200f" />
+          <stop offset="55%" stopColor="#563318" />
+          <stop offset="100%" stopColor="#8a5c35" />
         </radialGradient>
       </defs>
 
@@ -300,7 +303,7 @@ function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg
             d={areaPath(hole.area)}
             fill="none"
             fillRule="evenodd"
-            stroke={hole.area === run.burrow ? '#8a5a30' : '#7a5230'}
+            stroke={hole.area === run.burrow ? '#cb9a5c' : '#b8874f'}
             strokeWidth={hole.area === run.burrow ? 0.5 : 0.3}
             strokeDasharray="0.8 0.5"
             opacity={0.9}

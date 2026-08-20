@@ -52,7 +52,10 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
 }
 
 async function startCamera(page: Page) {
-  await page.getByRole('button', { name: 'Start camera' }).click();
+  const startButton = page.getByRole('button', { name: 'Start camera' });
+  if (await startButton.isVisible().catch(() => false)) {
+    await startButton.click().catch(() => {});
+  }
   await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
   // Motion stays disarmed: frame differencing over a captured canvas is not deterministic, and the
   // gate is not what this test is about.

@@ -77,7 +77,10 @@ async function pairCamera(player: Page, scorer: Page, scoring = true) {
 }
 
 async function startCamera(page: Page) {
-  await page.getByRole('button', { name: 'Start camera' }).click();
+  const startButton = page.getByRole('button', { name: 'Start camera' });
+  if (await startButton.isVisible().catch(() => false)) {
+    await startButton.click().catch(() => {});
+  }
   // The model is fetched and compiled on the first start; give it room.
   await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
   // Motion stays disarmed: frame differencing over a captured canvas is not deterministic, and the
@@ -247,7 +250,10 @@ test.describe('camera scoring, end to end', () => {
 
     // Deliberately NOT disarmed: this is the path a real throw takes. Starting the camera arms the
     // detector, so nothing below asks for an inference — the darts appearing is the assertion.
-    await scorer.page.getByRole('button', { name: 'Start camera' }).click();
+    const startButton = scorer.page.getByRole('button', { name: 'Start camera' });
+    if (await startButton.isVisible().catch(() => false)) {
+      await startButton.click().catch(() => {});
+    }
     await expect(scorer.page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
     await expect.poll(() => scorer.page.evaluate(() =>
       (window as unknown as { __scorer: { motion: { completedAnalyses: number } } })

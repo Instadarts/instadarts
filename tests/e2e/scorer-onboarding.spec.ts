@@ -48,7 +48,24 @@ async function pairedScorer(browser: Browser, { camera = true } = {}) {
   const scorer = await phone.newPage();
   // A common 720p camera shape: it accepts the scorer's preferred width but cannot provide more
   // than 720 rows. The page and every live vision path must agree on the centred 720x720 square.
-  if (camera) await installFakeCamera(scorer, SCENES, { maxWidth: 1280, maxHeight: 720 });
+  if (camera) {
+    await installFakeCamera(scorer, SCENES, { maxWidth: 1280, maxHeight: 720 });
+  } else {
+    await scorer.addInitScript(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            throw new DOMException('Permission denied', 'NotAllowedError');
+          },
+          enumerateDevices: async () => [],
+          getSupportedConstraints: () => ({}),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        },
+      });
+    });
+  }
   await scorer.goto('/scorer?e2e=1');
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();

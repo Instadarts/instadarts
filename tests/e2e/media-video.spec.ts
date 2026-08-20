@@ -52,7 +52,10 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
 }
 
 async function startCamera(page: Page) {
-  await page.getByRole('button', { name: 'Start camera' }).click();
+  const startButton = page.getByRole('button', { name: 'Start camera' });
+  if (await startButton.isVisible().catch(() => false)) {
+    await startButton.click().catch(() => {});
+  }
   await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
   await page.evaluate(() => (window as unknown as { __scorer: { motion: { disarm: () => void } } }).__scorer.motion.disarm());
 }

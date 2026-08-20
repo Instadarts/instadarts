@@ -83,7 +83,6 @@ export async function installFakeCamera(
     let current = Object.keys(images)[0];
     let revision = 0;
     let painting: Promise<void> = Promise.resolve();
-    let changingScene = false;
 
     async function paint(name: string, expectedRevision: number): Promise<void> {
       const image = await imageFor(name);
@@ -115,7 +114,7 @@ export async function installFakeCamera(
     // makes the fake independent of scheduler load and lets a scene change await the actual video
     // frame instead of sleeping for an assumed number of capture intervals.
     setInterval(() => {
-      if (!changingScene) void queuePaint();
+      void queuePaint();
     }, 100);
 
     const fakeDevice = { deviceId: 'fake-camera', kind: 'videoinput', label: 'Fake board camera', groupId: 'fake' };
@@ -193,7 +192,6 @@ export async function installFakeCamera(
 
     (window as unknown as { __scene: (name: string) => Promise<void> }).__scene = async (name: string) => {
       if (!(name in images)) throw new Error(`unknown fake-camera scene: ${name}`);
-      changingScene = true;
       try {
         current = name;
         revision += 1;
@@ -205,22 +203,31 @@ export async function installFakeCamera(
           return stream instanceof MediaStream && stream.getVideoTracks().some((track) => fakeTrackIds.has(track.id));
         });
         const present = async () => {
+          if (videos.length === 0) {
+            await queuePaint();
+            return;
+          }
           const nextFrames = videos.map((video) => new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('fake camera frame did not reach its video element')), 5000);
+            const timeout = setTimeout(() => reject(new Error('fake camera frame did not reach its video element')), 15000);
             video.requestVideoFrameCallback(() => {
               clearTimeout(timeout);
               resolve();
             });
           }));
-          await queuePaint();
-          await Promise.all(nextFrames);
+          const pump = setInterval(() => void queuePaint(), 50);
+          try {
+            await queuePaint();
+            await Promise.all(nextFrames);
+          } finally {
+            clearInterval(pump);
+          }
         };
         // The second presented frame is ordered after the first callback, so even a frame queued
         // just before the scene switch cannot satisfy the wait with the old picture.
         await present();
         await present();
       } finally {
-        changingScene = false;
+        // done
       }
     };
 

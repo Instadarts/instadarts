@@ -992,14 +992,35 @@ const CSS = `
 .wam-fade { animation: wam-fade .35s ease-out both }
 .wam-flash-soft { animation: wam-flash-soft 1.1s ease-in-out infinite }
 
-/* A mallet, since that is what this is. */
-[data-testid="dartboard"] { cursor: url("data:image/svg+xml;utf8,\
-<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'>\
-<g transform='rotate(-30 18 18)'>\
-<rect x='16' y='14' width='4' height='20' rx='1.6' fill='%23a16207' stroke='%23422006' stroke-width='1.2'/>\
-<rect x='7' y='3' width='22' height='11' rx='2.6' fill='%23dc2626' stroke='%23450a0a' stroke-width='1.4'/>\
-<rect x='7' y='3' width='22' height='4' rx='2' fill='%23f87171' opacity='.7'/>\
-</g></svg>") 18 4, crosshair }
+/*
+ * A mallet, since that is what this is — but the mallet is not the cursor.
+ *
+ * A hammer head has no point, so a hotspot anywhere on it is a guess the player has to make about
+ * their own aim. The crosshair at (15,50) is the cursor; the mallet is held above and to the right
+ * of it, clear of the arms so it never sits over the thing it is telling you about. Every line is
+ * drawn twice, dark under light, because the board it moves across is half cream and half black.
+ *
+ * The canvas is the two of them and almost nothing else — 50×66 is where the mallet's corners and
+ * the crosshair's arm tips land, so moving or resizing either means working the bounds out again
+ * rather than hoping the old box still covers it.
+ *
+ * It replaces the board's cursor-crosshair and only that. The board turns the cursor off entirely
+ * while a hold is aiming, because the oversized dart is the pointer then, and shows not-allowed
+ * when the visit will take no more darts; a mallet over either of those would be lying. Both are
+ * excluded by name rather than by luck: this rule and Tailwind's carry the same specificity, so
+ * without the :not()s whichever stylesheet came last would win.
+ */
+[data-testid="dartboard"]:not(.cursor-none):not(.cursor-not-allowed) { cursor: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='50' height='66' viewBox='0 0 50 66'>\
+<g transform='translate(31 23) rotate(135) scale(1.5)'>\
+<rect x='-2.1' y='-14' width='4.2' height='15' rx='2' fill='%23a16207' stroke='%23422006' stroke-width='1'/>\
+<rect x='-8.5' y='1' width='17' height='9' rx='2.4' fill='%23dc2626' stroke='%23450a0a' stroke-width='1'/>\
+<rect x='-7.4' y='2' width='14.8' height='3' rx='1.5' fill='%23f87171' opacity='.6'/>\
+</g>\
+<g stroke-linecap='round'>\
+<path d='M15 38V45.5 M15 54.5V62 M3 50H10.5 M19.5 50H27' stroke='%23000' stroke-width='5.1' opacity='.6'/>\
+<path d='M15 38V45.5 M15 54.5V62 M3 50H10.5 M19.5 50H27' stroke='%23fff' stroke-width='2.25'/>\
+</g></svg>") 15 50, crosshair }
 
 @media (prefers-reduced-motion: reduce) {
   .wam-rise, .wam-bob, .wam-glow, .wam-glow-hot, .wam-edge, .wam-flash, .wam-flash-soft, .wam-bonk, .wam-pop, .wam-dug, .wam-steam, .wam-banner, .wam-fade {

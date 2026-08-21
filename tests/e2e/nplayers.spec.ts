@@ -79,6 +79,52 @@ test.describe('N-players matches', () => {
     await expect(page.locator('[data-player="Bob"]').locator('text=▶ throwing')).toBeVisible();
   });
 
+  test('5-player local Whac-A-Mole, played through to the finale', async ({ page }) => {
+    // Whac-A-Mole counts turns rather than rounds, so five players share a run of twenty rather
+    // than stretching one over five times the darts. Twenty is the shortest run on offer: four
+    // turns each, and short enough to play out here.
+    await page.goto('/');
+    await page.click('text=Local Match');
+    await page.getByLabel('Game').selectOption('whac-a-mole');
+    // Exact, or it also matches "Dig time (turns)".
+    await page.getByLabel('Turns', { exact: true }).selectOption('20');
+
+    const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+    for (const name of names) {
+      await page.fill('input[placeholder="New player name"]', name);
+      await page.click('button:has-text("Add")');
+      await expect(page.getByText(name, { exact: true })).toBeVisible();
+    }
+
+    await page.click('text=Start Match');
+    await page.waitForURL('**/match/**');
+
+    // The mode's own HUD: a row per player, and a turn counter that counts turns.
+    for (const name of names) await expect(page.locator(`[data-player="${name}"]`)).toBeVisible();
+    await expect(page.getByText(/Turn\s*1\s*\/\s*20/)).toBeVisible();
+
+    // Play the run out. Misses cost nothing, so the turn limit is what ends it.
+    for (let turn = 0; turn < 20; turn++) await submitVisit(page);
+
+    // The heading, not the mode's "GAME OVER — submit to finish" notice, which says it too.
+    await expect(page.getByRole('heading', { name: 'GAME OVER' })).toBeVisible();
+    await expect(page.getByText(/of 20 turns/)).toBeVisible();
+
+    // The finale is exactly the board square and is `overflow-hidden`, so at five players the
+    // player list is what has to give. Measured rather than asserted visible: a clipped element
+    // still reports itself visible to Playwright, so `toBeVisible` passes either way and would
+    // have let this ship. Both ends have to sit inside the card.
+    const card = (await page.getByTestId('wam-finale').boundingBox())!;
+    for (const part of [
+      page.getByRole('heading', { name: 'GAME OVER' }),
+      page.getByText('Press Submit Visit to finish'),
+    ]) {
+      const box = (await part.boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(card.y);
+      expect(box.y + box.height).toBeLessThanOrEqual(card.y + card.height);
+    }
+  });
+
   test('three users get a match but no video mesh', async ({ browser }) => {
     // A third board is a topology the mesh was never built for, so the server creates no session at
     // all — and the screen says so, or missing video reads as a fault rather than as a decision.

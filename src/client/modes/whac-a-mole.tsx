@@ -16,7 +16,7 @@ import { RADII, CENTER, SECTOR_ORDER } from '../components/boardGeometry';
 //      viewBox so it follows the precision-aim zoom, and `pointer-events: none` so every click still
 //      lands on the board underneath. The one exception is the shield, which is there precisely to
 //      stop a player throwing when they have nothing left to throw.
-//   2. **The panel slot**, which holds the score, the round and what is currently digging.
+//   2. **The panel slot**, which holds the score, the turn and what is currently digging.
 //   3. **A finale**, filling that same board square, on the visit that ends the run. It has to be
 //      there rather than on the match summary, because the summary does not render a mode's panel
 //      at all — and it stays inside the board so that the Submit button it asks you to press, and
@@ -74,8 +74,9 @@ interface PlayerView {
 
 interface RunView {
   phase: 'playing' | 'pass' | 'finale';
-  round: number;
-  rounds: number;
+  /** Which turn the run is on, and how many it lasts. A turn is one visit — the mode's word for it. */
+  turn: number;
+  turns: number;
   stage: 'calm' | 'enraged' | 'frenzy';
   moleCount: number;
   banner?: 'enraged' | 'frenzy';
@@ -761,8 +762,8 @@ function Hud({ run }: { run: RunView }) {
         </div>
         <div className="flex flex-col items-end gap-1">
           <p className="text-sm font-mono text-gray-300">
-            Round <span className="text-gray-100">{run.round}</span>
-            <span className="text-gray-600"> / {run.rounds}</span>
+            Turn <span className="text-gray-100">{run.turn}</span>
+            <span className="text-gray-600"> / {run.turns}</span>
           </p>
           <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded ${stageClass}`}>{stageText}</span>
         </div>
@@ -917,17 +918,28 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
     // Sized in `cqw` against itself, so the whole card scales with the board rather than needing a
     // breakpoint per width. The board is a square from ~260px on a phone to ~600px on a desktop.
     <div
+      data-testid="wam-finale"
       className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-[1.5cqw] overflow-hidden border border-amber-700/50 bg-gray-950 p-[5cqw] text-center wam-fade [container-type:size]"
     >
       <p className="text-[2.6cqw] uppercase tracking-[0.3em] text-amber-500">the colony rests</p>
       <h2 className="text-[7.5cqw] font-bold leading-none text-amber-300">GAME OVER</h2>
 
-      <p className="font-mono text-[24cqw] font-bold leading-none text-amber-200 wam-pop">{run.team}</p>
+      {/* The hero number gives up its space to the roster rather than to the prompt at the bottom:
+          the card is exactly the board square and cannot grow, so past two players something has to
+          be smaller, and a score nobody can miss at 16cqw is the cheapest thing to shrink. */}
+      <p
+        className={`font-mono ${run.players.length > 2 ? 'text-[16cqw]' : 'text-[24cqw]'} font-bold leading-none text-amber-200 wam-pop`}
+      >
+        {run.team}
+      </p>
       <p className="text-[2.6cqw] uppercase tracking-wide text-gray-500">
-        {run.players.length > 1 ? 'team score' : 'score'} after {run.round} of {run.rounds} rounds
+        {run.players.length > 1 ? 'team score' : 'score'} after {run.turn} of {run.turns} turns
       </p>
 
-      <div className="mt-[2cqw] flex w-full flex-col gap-[1cqw]">
+      {/* The one part that grows with the roster, so it is the one that gives: `min-h-0` lets it
+          shrink below its content and scroll, which is what keeps five players from pushing GAME
+          OVER off the top and the Submit prompt off the bottom of an `overflow-hidden` card. */}
+      <div className="mt-[2cqw] flex w-full min-h-0 flex-col gap-[1cqw] overflow-y-auto">
         {run.players.map((player) => (
           <div
             key={player.id}

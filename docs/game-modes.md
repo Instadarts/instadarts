@@ -219,14 +219,20 @@ The same shape as a media ban, for the same reason: a mode says one thing about 
 something else acts on it.
 
 ```ts
-readonly maxPlayers?: number;   // Whac-A-Mole says 2; x01 and count-up say nothing
+readonly maxPlayers?: number;   // no shipped mode declares one
 ```
 
-**It is a fact about the mode's rules, not a setting.** Whac-A-Mole declares 2 because its rules
-were written for two players and have not been migrated; a mode written for any number simply leaves
-it out, as x01 does — a leg of x01 is a race of independent remaining scores, with no rule that
-reads one player's history while judging another's. Declaring a cap is not knowing that lobbies,
-users or connections exist — the same discipline as `fields` and `bansMedia`.
+**It is a fact about the mode's rules, not a setting.** A mode written for any number of players
+simply leaves it out, which all three shipped modes now do: a leg of x01 is a race of independent
+remaining scores, Whac-A-Mole counts turns rather than rounds, and count-up has barely a rule to
+its name — none of them has one that reads a second player's history while judging the first.
+Declaring a cap is not knowing that lobbies, users or connections exist — the same discipline as
+`fields` and `bansMedia`.
+
+The mechanism stays because it is the honest way for a mode to say so when its rules *are* written
+for a number, and the next one may be. Its behaviour is pinned by tests that register a capped mode
+for the purpose rather than by leaning on whichever shipped mode happens to declare one — which is
+what those tests used to do, and why they had to move twice.
 
 **A mode narrows; it never widens.** The deployment's `server.maxPlayersPerMatch` (default 5) is the
 ceiling, and `effectiveMaxPlayers(serverMax, modeMax)` in
@@ -238,7 +244,7 @@ refuse. It **fails open**: a mode this build does not have imposes nothing.
 Because the cap is the mode's, it moves when the mode does. Switching a lobby to a mode that takes
 fewer players than are already in it is **refused**, and the message names the mode:
 
-> Whac-A-Mole takes at most 2 players
+> Two Only takes at most 2 players
 
 Refusing beats allowing it and blocking Start later — the person changing the mode is the person who
 can undo it, and telling them then is the only moment that is true.
@@ -404,10 +410,10 @@ see it in the lobby under `npm run dev` and not on a deployed server.
 
 It was added when x01 and Whac-A-Mole both capped themselves at two players
 ([Limiting the player count](#limiting-the-player-count)) and nothing could exercise a match of
-three or more. x01 has since been let off its cap, so a deployed server can play five-handed
-without it; what count-up still gives the test suite is a mode with **no rules to get in the way** —
-every dart adds its face value, first to `targetScore` takes the leg, no busts and no finishing
-rule. Keeping it out of production is what lets it stay that thin.
+three or more. Both have since been migrated, so a deployed server plays five-handed without it;
+what count-up still gives the test suite is a mode with **no rules to get in the way** — every dart
+adds its face value, first to `targetScore` takes the leg, no busts and no finishing rule. Keeping
+it out of production is what lets it stay that thin.
 
 It is the one exception to "a mode is a file plus one line": the line is conditional. Anything else
 about it is an ordinary mode.

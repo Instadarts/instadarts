@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../helpers'; // installs the x01 game mode
-// count-up declares no player cap of its own, which is the only way to see the deployment's;
-// whac-a-mole still declares two, which is the only way to see a mode narrow it.
-import '../../src/server/modes/count-up';
-import '../../src/server/modes/whac-a-mole';
+// count-up declares no player cap of its own, which is the only way to see the deployment's.
+import { countUp } from '../../src/server/modes/count-up';
+import { registerMode } from '../../src/server/modes/types';
+
+/**
+ * A mode that caps itself at two players.
+ *
+ * Registered here rather than reached for among the shipped modes, because none of them declares a
+ * cap any more: x01 and Whac-A-Mole were both written for two and have both been migrated. The
+ * mechanism is still part of the contract, so what it does is still worth pinning — and a mode
+ * invented for the purpose says so, where leaning on whichever mode happened to be capped this
+ * month kept sending these tests somewhere else. Vitest isolates per file, so it goes no further.
+ */
+registerMode({ ...countUp, id: 'two-only', label: 'Two Only', maxPlayers: 2 });
 import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, movePlayerInLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {
@@ -40,10 +50,10 @@ describe('Store', () => {
     });
 
     it('refuses a player past a cap the mode declares', () => {
-      // Whac-A-Mole declares two, so the cap this lobby enforces is the mode's rather than the
+      // The mode declares two, so the cap this lobby enforces is the mode's rather than the
       // deployment's five.
       const lobby = createLobby();
-      lobby.settings = { ...lobby.settings, mode: 'whac-a-mole' };
+      lobby.settings = { ...lobby.settings, mode: 'two-only' };
       addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
       addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob' });
       expect(lobby.players).toHaveLength(2);

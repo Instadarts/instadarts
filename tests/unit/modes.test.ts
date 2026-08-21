@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_MODE, allModes, describeMode, getMode, loadModes } from '../../src/server/modes/types';
+import { DEFAULT_MODE, allModes, describeMode, getMode, loadModes, registerMode } from '../../src/server/modes/types';
 import { modeBans } from '../../src/shared/settings';
 import { panelOf } from '../../src/server/match';
 import { textOf } from '../../src/shared/types';
@@ -7,8 +7,19 @@ import { makeMatch, playVisit, throwDart } from '../helpers';
 // The helpers register x01, which is all most of this file needs. The media declarations are only
 // interesting where two modes disagree, so the second one is installed the way a deployment does it.
 import '../../src/server/modes/whac-a-mole';
-import '../../src/server/modes/count-up';
+import { countUp } from '../../src/server/modes/count-up';
 import type { MatchState } from '../../src/shared/types';
+
+/**
+ * A mode that caps itself at two players.
+ *
+ * Registered here rather than reached for among the shipped modes, because none of them declares a
+ * cap any more: x01 and Whac-A-Mole were both written for two and have both been migrated. The
+ * mechanism is still part of the contract, so what it does is still worth pinning — and a mode
+ * invented for the purpose says so, where leaning on whichever mode happened to be capped this
+ * month kept sending these tests somewhere else. Vitest isolates per file, so it goes no further.
+ */
+registerMode({ ...countUp, id: 'two-only', label: 'Two Only', maxPlayers: 2 });
 
 /**
  * Installing a mode is adding a file to src/server/modes/. These tests exercise the finding of them,
@@ -49,17 +60,13 @@ describe('installed modes', () => {
     await loadModes();
     const described = allModes().map(describeMode);
 
-    // Whac-A-Mole's rules are still written for two, so it says so.
-    const whac = described.find((d) => d.id === 'whac-a-mole')!;
-    expect(whac.maxPlayers).toBe(2);
-
-    // x01's are a race of independent scores with no rule about a second player, so it declares
-    // nothing and takes whatever the deployment allows.
-    const x01 = described.find((d) => d.id === 'x01')!;
-    expect(x01.maxPlayers).toBe(null);
-
-    const countUp = described.find((d) => d.id === 'count-up')!;
-    expect(countUp.maxPlayers).toBe(null);
+    // No shipped mode declares one any more: x01 is a race of independent scores and Whac-A-Mole
+    // counts turns rather than rounds, so neither has a rule about a second player. The mechanism
+    // is exercised by a mode registered for the purpose.
+    for (const id of ['x01', 'whac-a-mole', 'count-up']) {
+      expect(described.find((d) => d.id === id)!.maxPlayers).toBe(null);
+    }
+    expect(described.find((d) => d.id === 'two-only')!.maxPlayers).toBe(2);
 
     const { effectiveMaxPlayers } = await import('../../src/shared/settings');
     expect(effectiveMaxPlayers(5, 2)).toBe(2);

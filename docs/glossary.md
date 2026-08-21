@@ -665,8 +665,8 @@ leg means for the set and the match is the match layer's. The mode-agnostic surf
 ## Whac-A-Mole vocabulary
 
 **Everything below belongs to the Whac-A-Mole mode**
-([its own file](../src/server/modes/whac-a-mole.ts)), a co-op training mode for one player or two.
-As with x01's words, do not use these outside it.
+([its own file](../src/server/modes/whac-a-mole.ts)), a co-op training mode for any number of
+players. As with x01's words, do not use these outside it.
 
 ### [wam] Area
 
@@ -679,11 +679,11 @@ area, because the middle of the board is not a target here (see [the burrow](#wa
 ### [wam] Mole / dig time / hole
 
 A mole occupies an area and is **whacked** by a dart landing in it, for one point. Its **dig time**
-(`digTime`) is how many visits it takes to get through; a mole nobody stops is buried and its area
-becomes a **hole** for the rest of the run. A dart in a hole costs its thrower one dart per visit,
-from their next visit onwards.
+(`digTime`) is how many [turns](#wam-run--turn--curtain-call) it takes to get through; a mole nobody
+stops is buried and its area becomes a **hole** for the rest of the run. A dart in a hole costs its
+thrower one dart per visit, from their next visit onwards.
 
-Dig time is fixed when a mole spawns, not read from the round it is currently in, so crossing an
+Dig time is fixed when a mole spawns, not read from the turn it is currently in, so crossing an
 [enrage](#wam-enraged--frenzy) threshold never buries a mole that was already halfway down.
 
 ### [wam] The burrow
@@ -702,12 +702,23 @@ mole, and one dart a visit is the limit: the janitor goes home the moment it is 
 is an ordinary hole again for the rest of that visit. Like a loss, a rescue changes the allowance
 from the owner's *next* visit, which is why the screen marks that dart `↺` rather than `✖`.
 
-### [wam] Run / round / curtain call
+### [wam] Run / turn / curtain call
 
-A **run** is one leg. A **round** is one visit for each player. A run ends when the rounds are up or
-when nobody has a dart left; either way the next visit is the **curtain call** — no darts, locked
-from the start, and submitting it is what ends the leg. It exists so the closing screen is seen: the
-match summary does not draw a mode's panel.
+A **run** is one leg. A **turn** is this mode's word for a [visit](#visit) — one player, one go at
+the board — and it is the only unit the mode counts in. A run is a fixed number of turns, and the
+difficulty curve is a function of which turn it is on, so the colony advances at one rate however
+many people are sharing the turns out: a five-handed run plays like a solo run of the same length.
+It counts no **rounds**; the mode-agnostic sense of that word ([who throws first](#who-throws-first))
+is untouched and simply never appears here.
+
+A run ends when the turns are up or when nobody has a dart left. The turns being up is not quite
+enough on its own — a run stops at the end of a full way round the table, so nobody is cut off
+having had a turn fewer than the player beside them. Three players in a fifty-turn run therefore
+play fifty-one, while the lobby still offers the fifty it asked for.
+
+Either way the next visit is the **curtain call** — no darts, locked from the start, and submitting
+it is what ends the leg. It exists so the closing screen is seen: the match summary does not draw a
+mode's panel.
 
 ### [wam] Seed
 
@@ -726,8 +737,8 @@ A re-match copies the previous match's settings, seed included, so it opens on t
 
 ### [wam] Enraged / frenzy
 
-Three-fifths of the way through the rounds, newly spawned moles lose a visit of dig time
-(**enraged**); four-fifths of the way, another (**frenzy** — they have to be whacked in the visit
+Three-fifths of the way through the turns, newly spawned moles lose a turn of dig time
+(**enraged**); four-fifths of the way, another (**frenzy** — they have to be whacked in the turn
 they appear).
 
 ### Mode-specific vocabulary in mode-agnostic layers

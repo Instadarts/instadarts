@@ -185,7 +185,7 @@ test.describe('Spectator mode', () => {
     await ctx2.close();
   });
 
-  test('"Opponent connected" shows as soon as joiner enters lobby', async ({ browser }) => {
+  test('the invite code gives way to "Lobby is full" as soon as the roster fills', async ({ browser }) => {
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();
     const page1 = await ctx1.newPage();
@@ -194,9 +194,6 @@ test.describe('Spectator mode', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    // "Opponent" is only honest in a lobby that holds two and was only ever going to, so this is
-    // a test about a mode capped at two rather than about online lobbies in general.
-    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 
@@ -216,9 +213,10 @@ test.describe('Spectator mode', () => {
     await page2.waitForTimeout(1000);
     await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
 
-    // Creator should see "Opponent connected" instead of invite code
-    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
-    await expect(page1.locator('text=Invite Code')).not.toBeVisible({ timeout: 3000 });
+    // A second user is not a full lobby any more — five players fit, so the code is still worth
+    // showing and still shown.
+    await expect(page1.locator('text=Invite Code')).toBeVisible({ timeout: 5000 });
+    await expect(page1.locator('text=✓ 1 other user connected')).toBeVisible({ timeout: 5000 });
 
     // Joiner should see the "Add yourself" prompt (they haven't added a player yet)
     await expect(page2.locator('text=Add yourself as a player to get started')).toBeVisible({ timeout: 5000 });
@@ -226,10 +224,16 @@ test.describe('Spectator mode', () => {
     // Joiner now adds themselves
     await page2.fill('input[placeholder="New player name"]', 'Bob');
     await page2.click('button:has-text("Add")');
-    await expect(page2.locator('text=Bob')).toBeVisible();
+    await expect(page2.getByText('Bob', { exact: true })).toBeVisible();
 
-    // Creator still sees opponent connected
-    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
+    // The host fills the rest of the roster, and only then does the code go away — there is
+    // nothing left for it to buy.
+    for (const name of ['Carol', 'Dave', 'Eve']) {
+      await page1.fill('input[placeholder="New player name"]', name);
+      await page1.click('button:has-text("Add")');
+    }
+    await expect(page1.locator('text=✓ Lobby is full')).toBeVisible({ timeout: 5000 });
+    await expect(page1.locator('text=Invite Code')).not.toBeVisible({ timeout: 3000 });
 
     await ctx1.close();
     await ctx2.close();

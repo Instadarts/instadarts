@@ -7,13 +7,20 @@ import type { FinalizedVisit, GameMode, LegContext } from './types';
 import { registerMode } from './types';
 
 /**
- * Whac-A-Mole — a co-op highscore training mode, for one player or two.
+ * Whac-A-Mole — a co-op highscore training mode, for any number of players.
  *
  * Moles pop up on scoring **areas** and start digging. Hit the area and the mole is whacked; leave it
  * too long and it digs through, and that area is a hole for the rest of the run. Put a dart in a hole
  * and it costs you one dart per visit from your next turn onwards. The run ends when everybody has
- * run out of darts, or when the round limit is reached, and the score is what the two players whacked
- * between them.
+ * run out of darts, or when the turns are up, and the score is what the players whacked between them.
+ *
+ * **A turn is a visit** — this mode's own word for one, because it reads as an arcade machine rather
+ * than as a darts match. Everything about the colony is counted in them: how long a run lasts, how
+ * far the pressure has climbed, how long a mole takes to dig through. Nothing here counts *rounds*,
+ * and that is what lets any number of players share a run: the board a turn puts up is the same
+ * board whether two people are taking those turns or five, so the difficulty advances at one rate
+ * rather than at one rate per roster size. A five-handed run plays exactly like a solo run of the
+ * same length — there are simply more hands in it.
  *
  * What makes it a training mode is what counts as an area: the outer single 18 and the inner single
  * 18 are different places, so "hit the 18" is not an answer. As the run goes on the moles prefer
@@ -135,7 +142,8 @@ function neighboursOf(area: AreaId): AreaId[] {
 // ============================================================
 
 interface Config {
-  rounds: number;
+  /** How long the run is, in turns. A turn is one visit, however many players share them out. */
+  turns: number;
   moles: number;
   darts: number;
   digTime: number;
@@ -145,7 +153,7 @@ interface Config {
 
 function read(settings: ModeSettings): Config {
   return {
-    rounds: numberOr(settings, 'rounds', 25),
+    turns: numberOr(settings, 'turns', 50),
     moles: numberOr(settings, 'moles', 3),
     darts: numberOr(settings, 'darts', 3),
     digTime: numberOr(settings, 'digTime', 3),
@@ -156,20 +164,21 @@ function read(settings: ModeSettings): Config {
 
 const FIELDS: SettingsField[] = [
   {
-    key: 'rounds',
-    label: 'Rounds',
+    key: 'turns',
+    label: 'Turns',
     kind: 'number',
     min: 5,
-    max: 50,
+    max: 100,
     options: [
-      { value: 10, label: '10 — short' },
-      { value: 25, label: '25 — a full run' },
-      { value: 50, label: '50 — marathon' },
+      { value: 20, label: '20 — short' },
+      { value: 30, label: '30' },
+      { value: 40, label: '40' },
+      { value: 50, label: '50 — a full run' },
     ],
   },
   { key: 'moles', label: 'Moles at once', kind: 'number', min: 2, max: 5 },
   { key: 'darts', label: 'Darts per visit', kind: 'number', min: 1, max: 5 },
-  { key: 'digTime', label: 'Dig time (visits)', kind: 'number', min: 1, max: 5 },
+  { key: 'digTime', label: 'Dig time (turns)', kind: 'number', min: 1, max: 5 },
   {
     key: 'difficulty',
     label: 'Target difficulty',
@@ -182,31 +191,31 @@ const FIELDS: SettingsField[] = [
   },
 ];
 
-/** How far into the run a mole's dig time drops by a visit, and then by another. */
+/** Which turn a mole's dig time drops by a visit, and which turn it drops by another. */
 function enrageAt(cfg: Config): number {
-  return Math.max(2, Math.ceil(cfg.rounds * 0.6));
+  return Math.max(2, Math.ceil(cfg.turns * 0.6));
 }
 
 function frenzyAt(cfg: Config): number {
-  return Math.max(3, Math.ceil(cfg.rounds * 0.8));
+  return Math.max(3, Math.ceil(cfg.turns * 0.8));
 }
 
 type Stage = 'calm' | 'enraged' | 'frenzy';
 
-function stageAt(round: number, cfg: Config): Stage {
-  if (round >= frenzyAt(cfg)) return 'frenzy';
-  if (round >= enrageAt(cfg)) return 'enraged';
+function stageAt(turn: number, cfg: Config): Stage {
+  if (turn >= frenzyAt(cfg)) return 'frenzy';
+  if (turn >= enrageAt(cfg)) return 'enraged';
   return 'calm';
 }
 
 /**
- * How many visits a mole spawning in this round takes to dig through.
+ * How many turns a mole spawning on this one takes to dig through.
  *
- * Fixed when the mole spawns rather than read from the current round, so crossing a threshold never
+ * Fixed when the mole spawns rather than read from the current turn, so crossing a threshold never
  * buries a mole that was already halfway down — the board changes for the moles that come next.
  */
-function digTimeAt(round: number, cfg: Config): number {
-  const stage = stageAt(round, cfg);
+function digTimeAt(turn: number, cfg: Config): number {
+  const stage = stageAt(turn, cfg);
   if (stage === 'frenzy') return Math.max(1, cfg.digTime - 2);
   if (stage === 'enraged') return Math.max(1, cfg.digTime - 1);
   return cfg.digTime;
@@ -223,9 +232,9 @@ function sweepAt(cfg: Config): number {
   return Math.min(cfg.moles, cfg.darts);
 }
 
-/** How far the difficulty has climbed, 0 at the first round and 1 at the last. */
-function pressureAt(round: number, cfg: Config): number {
-  const linear = Math.min(1, Math.max(0, (round - 1) / Math.max(1, cfg.rounds - 1)));
+/** How far the difficulty has climbed, 0 on the first turn and 1 on the last. */
+function pressureAt(turn: number, cfg: Config): number {
+  const linear = Math.min(1, Math.max(0, (turn - 1) / Math.max(1, cfg.turns - 1)));
   if (cfg.difficulty === 'easy') return linear ** 1.8;
   if (cfg.difficulty === 'hard') return linear ** 0.55;
   return linear;
@@ -353,9 +362,16 @@ function cloneRun(run: Run): Run {
   };
 }
 
-/** Which round a visit belongs to, counting from one. A round is one visit for each player. */
-function roundOf(visitIndex: number, players: number): number {
-  return Math.floor(visitIndex / Math.max(1, players)) + 1;
+/**
+ * Which turn a visit is, counting from one. A turn **is** a visit — this mode's word for one.
+ *
+ * An identity, and named anyway: it is the seam where the roster used to come in. The curve was once
+ * read off the round a visit fell in, which made how fast it climbed a function of how many people
+ * were playing. Everything below asks for the turn instead, and gets an answer that does not know
+ * the roster exists.
+ */
+function turnOf(visitIndex: number): number {
+  return visitIndex + 1;
 }
 
 /** How many darts this player may throw, given what they have dropped into holes. */
@@ -381,11 +397,21 @@ function liveAllowance(start: Run, live: Run, playerId: string, cfg: Config): nu
 /**
  * Whether the run is over, asked at the start of a visit.
  *
- * Either everybody has thrown their last dart into a hole, or the rounds are up. That visit is then
+ * Either everybody has thrown their last dart into a hole, or the turns are up. That visit is then
  * the curtain call: nothing to throw, and submitting it ends the leg.
+ *
+ * The turns being up is not quite enough on its own: a run stops at the end of a **full way round
+ * the table**, so nobody is cut off having had a turn fewer than the player beside them. Three
+ * players in a fifty-turn run therefore play fifty-one. The lobby still offers the fifty it asked
+ * for, which is the honest number to choose between even if it is not always the number played.
+ *
+ * A **departed** player is skipped by the match layer, so from that point on the visits stop
+ * dividing evenly and this can land a turn late. Counting rounds had exactly the same hole; it is
+ * carried over rather than introduced, and a co-op run whose partner walked out has bigger problems.
  */
 function isOver(run: Run, ctx: LegContext, cfg: Config): boolean {
-  if (roundOf(run.visitIndex, ctx.players.length) > cfg.rounds) return true;
+  const players = Math.max(1, ctx.players.length);
+  if (run.visitIndex >= cfg.turns && run.visitIndex % players === 0) return true;
   return ctx.players.every((p) => allowanceOf(run, p.id, cfg) === 0);
 }
 
@@ -395,9 +421,9 @@ function isOver(run: Run, ctx: LegContext, cfg: Config): boolean {
 const JANITOR_CHANCE = 0.5;
 
 /** Top up to a full set of moles. Two never share an area, and none ever comes up in a hole. */
-function beginVisit(run: Run, ctx: LegContext, cfg: Config): void {
+function beginVisit(run: Run, cfg: Config): void {
   run.events = [];
-  const round = roundOf(run.visitIndex, ctx.players.length);
+  const turn = turnOf(run.visitIndex);
 
   // The janitor first, so the roll happens in the same order however many moles are due.
   run.janitor = false;
@@ -409,13 +435,13 @@ function beginVisit(run: Run, ctx: LegContext, cfg: Config): void {
   }
 
   const taken = new Set([...run.holes, ...run.moles.map((m) => m.area)]);
-  const pressure = pressureAt(round, cfg);
+  const pressure = pressureAt(turn, cfg);
 
   while (run.moles.length < cfg.moles) {
     const area = pickArea(run, taken, pressure);
     if (!area) break;
     taken.add(area);
-    run.moles.push({ id: run.nextMoleId++, area, born: run.visitIndex, digTime: digTimeAt(round, cfg) });
+    run.moles.push({ id: run.nextMoleId++, area, born: run.visitIndex, digTime: digTimeAt(turn, cfg) });
     run.events.push({ kind: 'spawn', area });
   }
 }
@@ -492,7 +518,7 @@ function applyDarts(
       run.janitor = false;
       run.holesHit[ownerId] = Math.max(0, (run.holesHit[ownerId] ?? 0) - 1);
       run.rescued[playerId] = (run.rescued[playerId] ?? 0) + 1;
-      // No point for it, and it is not a whack: a round is worth the moles that came up plus the
+      // No point for it, and it is not a whack: a turn is worth the moles that came up plus the
       // sweep for clearing them, and a janitor that scored would be a point the board never put
       // up. What it pays is the dart — back to its owner next visit, and in this player's hand
       // right now.
@@ -562,7 +588,7 @@ function replay(ctx: LegContext): { start: Run; live: Run; over: boolean; cfg: C
   const run = freshRun(ctx, cfg);
 
   for (const visit of ctx.visits) {
-    beginVisit(run, ctx, cfg);
+    beginVisit(run, cfg);
     applyDarts(run, visit.darts, visit.playerId, cfg, allowanceOf(run, visit.playerId, cfg));
     foldVisit(run, visit.darts);
     endVisit(run);
@@ -570,7 +596,7 @@ function replay(ctx: LegContext): { start: Run; live: Run; over: boolean; cfg: C
   }
 
   const over = isOver(run, ctx, cfg);
-  if (!over) beginVisit(run, ctx, cfg);
+  if (!over) beginVisit(run, cfg);
   else run.events = [];
 
   const start = cloneRun(run);
@@ -606,9 +632,6 @@ export const whacAMole: GameMode = {
   id: 'whac-a-mole',
   label: 'Whac-A-Mole',
 
-  // whac-a-mole rules are not yet migrated to n players; capped at 2 for day-one backward compatibility.
-  maxPlayers: 2,
-
   /**
    * A fresh `seed` every time this is read, which is what gives each match its own colony.
    *
@@ -623,7 +646,7 @@ export const whacAMole: GameMode = {
    * production build.
    */
   get defaults(): ModeSettings {
-    return { rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: freshSeed() };
+    return { turns: 50, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: freshSeed() };
   },
 
   fields: FIELDS,
@@ -729,7 +752,9 @@ export const whacAMole: GameMode = {
     };
 
     const { start, live, over, cfg } = replay(ctx);
-    const round = Math.min(cfg.rounds, roundOf(start.visitIndex, match.players.length));
+    // Clamped, because a run finishes the way round the table it is in and can overrun the number
+    // the lobby asked for. "Turn 51 / 50" is true and reads like a fault.
+    const turn = Math.min(cfg.turns, turnOf(start.visitIndex));
     const team = match.players.reduce((sum, p) => sum + (live.score[p.id] ?? 0), 0);
     const current = ctx.currentPlayerId;
     const allowance = over ? 0 : allowanceOf(start, current, cfg);
@@ -746,11 +771,11 @@ export const whacAMole: GameMode = {
       ],
       custom: {
         phase: over ? 'finale' : allowance === 0 ? 'pass' : 'playing',
-        round,
-        rounds: cfg.rounds,
-        stage: stageAt(round, cfg),
+        turn,
+        turns: cfg.turns,
+        stage: stageAt(turn, cfg),
         moleCount: cfg.moles,
-        banner: bannerFor(round, start.visitIndex, match.players.length, cfg),
+        banner: bannerFor(turn, cfg),
         team,
         players: match.players.map((p) => ({
           id: p.id,
@@ -786,7 +811,7 @@ export const whacAMole: GameMode = {
               ownerId: live.lost[0],
               ownerName: match.players.find((p) => p.id === live.lost[0])?.name ?? '',
               queue: live.lost.length,
-              grumble: JANITOR_GRUMBLES[pickIndex(cfg.seed, `janitor:${live.lost.length}:${round}`, JANITOR_GRUMBLES.length)],
+              grumble: JANITOR_GRUMBLES[pickIndex(cfg.seed, `janitor:${live.lost.length}:${turn}`, JANITOR_GRUMBLES.length)],
             }
           : null,
         lost: live.lost.length,
@@ -850,11 +875,15 @@ function callFor(seed: number, event: RunEvent): string {
   return '';
 }
 
-/** Shown once, on the first visit of a round that changed how patient the moles are. */
-function bannerFor(round: number, visitIndex: number, players: number, cfg: Config): Stage | undefined {
-  if (visitIndex % Math.max(1, players) !== 0) return undefined;
-  if (round === frenzyAt(cfg)) return 'frenzy';
-  if (round === enrageAt(cfg)) return 'enraged';
+/**
+ * Shown once, on the turn that changed how patient the moles are.
+ *
+ * Once by construction: a threshold is a single turn, and a turn happens once. This used to have to
+ * guard against firing again for every player in the round it landed in.
+ */
+function bannerFor(turn: number, cfg: Config): Stage | undefined {
+  if (turn === frenzyAt(cfg)) return 'frenzy';
+  if (turn === enrageAt(cfg)) return 'enraged';
   return undefined;
 }
 
@@ -877,8 +906,7 @@ function noticeFor(
     return { text: `🛠 The janitor has ${whose} dart — hit the BULL to get it back!`, tone: 'warning' };
   }
 
-  const round = roundOf(start.visitIndex, ctx.players.length);
-  const stage = stageAt(round, cfg);
+  const stage = stageAt(turnOf(start.visitIndex), cfg);
   if (live.moles.length === 0) {
     return { text: 'Board clear! Submit to bring the next lot up', tone: 'positive' };
   }
@@ -945,7 +973,7 @@ function listOf(names: string[]): string {
 
 function describeVisit(run: Run, ctx: LegContext, visit: Visit): { text: string; tone: TextTone } {
   const name = ctx.players.find((p) => p.id === visit.playerId)?.name ?? '?';
-  const round = roundOf(run.visitIndex - 1, ctx.players.length);
+  const turn = turnOf(run.visitIndex - 1);
   const whacks = run.events.filter((e) => e.kind === 'whack' || e.kind === 'rescue');
   const holes = run.events.filter((e) => e.kind === 'hole');
   const escapes = run.events.filter((e) => e.kind === 'escape');
@@ -962,7 +990,8 @@ function describeVisit(run: Run, ctx: LegContext, visit: Visit): { text: string;
   if (escapes.length > 0) parts.push(`escaped ${listOf(escapes.map((e) => labelOf(e.area)))}`);
 
   return {
-    text: `R${round} ${name}  ${parts.join(' · ')}`,
+    // `#12`, not `T12` — a T in front of a number is a treble everywhere else on this screen.
+    text: `#${turn} ${name}  ${parts.join(' · ')}`,
     tone: rescues.length > 0
       ? 'positive'
       : holes.length > 0

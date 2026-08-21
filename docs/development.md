@@ -241,9 +241,13 @@ user, and reuse the smallest arrangement that contains it.
 The `count-up` mode is what several of those specs use: it has no rules to work around, and it is
 installed only in development builds and under the test runner — see
 [docs/game-modes.md](./game-modes.md#the-development-only-mode). It shows up in the lobby's mode list
-when you `npm run dev`, and not on a deployed server. x01 takes any number of players too, so a spec
-that wants the shape a person actually plays should use it; Whac-A-Mole is the one still capped at
-two, and so the one to reach for when a spec needs a lobby that fills.
+when you `npm run dev`, and not on a deployed server. Every shipped mode takes any number of players
+now, so a spec that wants the shape a person actually plays should use one of those instead.
+
+**A spec that needs a lobby that fills has to fill it**, at five: no shipped mode narrows the
+deployment cap any more, and a specs's host can hold the whole roster itself, so this costs no extra
+browser context. `home.spec.ts` does exactly that. Unit tests that want a *mode's* cap register one
+for the purpose — see [game-modes.md](./game-modes.md#limiting-the-player-count).
 
 **Starving the suite of CPU is how intermittent failures get made, and not hypothetically.** A page
 that misses a heartbeat under load is cut by the server, and a scoring device that reconnects then

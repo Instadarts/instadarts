@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { WebSocket } from 'ws';
 import '../helpers';
-import '../../src/server/modes/count-up';
-import '../../src/server/modes/whac-a-mole';
+import { countUp } from '../../src/server/modes/count-up';
+import { registerMode } from '../../src/server/modes/types';
 import { handleMessage, registerClient } from '../../src/server/wsHandler';
 import { getLobby, createRematch } from '../../src/server/store';
 import { releaseRateLimit } from '../../src/server/rateLimit';
@@ -13,6 +13,17 @@ import { heldSeat, revokeSeat } from '../../src/server/seats';
 import type { ServerMessage } from '../../src/shared/protocol';
 import type { Player } from '../../src/shared/types';
 import { makeMatch, playVisit } from '../helpers';
+
+/**
+ * A mode that caps itself at two players.
+ *
+ * Registered here rather than reached for among the shipped modes, because none of them declares a
+ * cap any more: x01 and Whac-A-Mole were both written for two and have both been migrated. The
+ * mechanism is still part of the contract, so what it does is still worth pinning — and a mode
+ * invented for the purpose says so, where leaning on whichever mode happened to be capped this
+ * month kept sending these tests somewhere else. Vitest isolates per file, so it goes no further.
+ */
+registerMode({ ...countUp, id: 'two-only', label: 'Two Only', maxPlayers: 2 });
 
 let sessionCounter = 0;
 
@@ -98,7 +109,7 @@ describe('n-players lobby & roster management', () => {
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Carol' });
     expect(host.last('lobby_state')!.lobby.players).toHaveLength(3);
 
-    host.send({ type: 'update_settings', lobbyId, settings: { mode: 'whac-a-mole' } });
+    host.send({ type: 'update_settings', lobbyId, settings: { mode: 'two-only' } });
     expect(host.last('error')?.message).toContain('takes at most 2 players');
     expect(getLobby(lobbyId)!.settings.mode).toBe('count-up');
   });
@@ -429,13 +440,13 @@ describe('who holds a player', () => {
 
 describe('how many users a lobby takes', () => {
   it('refuses a user who could never take a place', () => {
-    // Whac-A-Mole caps itself at two players, so it caps the lobby at two users: a third could only
+    // The mode caps itself at two players, so it caps the lobby at two users: a third could only
     // ever sit there unable to add anybody. Note the roster holds one player, not two — it is the
     // user count that shuts the door here, which is the half of the rule this pins.
     const host = connect();
     host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
-    host.send({ type: 'update_settings', lobbyId, settings: { mode: 'whac-a-mole' } });
+    host.send({ type: 'update_settings', lobbyId, settings: { mode: 'two-only' } });
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
     const guest = connect();

@@ -40,88 +40,41 @@ test.describe('Home screen', () => {
   });
 
   test('joining a full lobby redirects to home', async ({ browser }) => {
+    // A lobby fills at players, not at users: the host holds the whole roster here, and the door is
+    // shut on the strength of that alone. No shipped mode caps itself any more, so five is the
+    // deployment's number and the only one there is.
+    //
+    // The user cap — a lobby refusing somebody who could never take a place — is the other half of
+    // the same rule, and is asserted directly in tests/unit/nplayers.test.ts rather than by opening
+    // five browsers here.
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();
-    const ctx3 = await browser.newContext();
     const page1 = await ctx1.newPage();
     const page2 = await ctx2.newPage();
-    const page3 = await ctx3.newPage();
 
-    // Creator creates online match and adds both players
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    // Whac-A-Mole is now the mode whose rules are still written for two, so it is the one whose
-    // lobby fills at two players. An x01 lobby takes the deployment's five.
-    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 
-    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    // Read before filling: a full lobby has nothing left to sell, so the code comes off the screen.
+    const code = await page1.locator('code').textContent();
     expect(code).toBeTruthy();
 
-    // Second player joins and adds themselves (fills the lobby)
-    await page2.goto('/');
-    await page2.waitForTimeout(1000);
-    await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
-    await page2.click('button:has-text("Join Match")');
-    await page2.waitForTimeout(1000);
-    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
-    await page2.click('button:has-text("Add")');
-    await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
+    for (const name of ['Bob', 'Carol', 'Dave', 'Eve']) {
+      await page1.fill('input[placeholder="New player name"]', name);
+      await page1.click('button:has-text("Add")');
+      await expect(page1.getByText(name, { exact: true })).toBeVisible();
+    }
+    await expect(page1.getByText('Full — 5 max', { exact: true })).toBeVisible();
 
-    // Third player tries to join the full lobby
-    await page3.goto(`/lobby/join/${code!.trim()}`);
-    // Should redirect to home because lobby is full
-    await page3.waitForURL('/', { timeout: 10000 });
-    await expect(page3.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
+    // A joiner arriving at a full lobby is turned round rather than parked in it.
+    await page2.goto(`/lobby/join/${code!.trim()}`);
+    await page2.waitForURL('/', { timeout: 10000 });
+    await expect(page2.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();
-    await ctx3.close();
-  });
-
-  test('only one joiner can connect to a lobby', async ({ browser }) => {
-    const ctx1 = await browser.newContext();
-    const ctx2 = await browser.newContext();
-    const ctx3 = await browser.newContext();
-    const page1 = await ctx1.newPage();
-    const page2 = await ctx2.newPage();
-    const page3 = await ctx3.newPage();
-
-    // Creator creates online match and adds self
-    await page1.goto('/');
-    await page1.click('text=Create Online Match');
-    // A mode capped at two players caps the lobby at two users, which is the rule under test.
-    await page1.getByLabel('Game').selectOption('whac-a-mole');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
-    await page1.click('button:has-text("Add")');
-
-    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
-    expect(code).toBeTruthy();
-
-    // First joiner joins the lobby (does NOT add a player yet)
-    await page2.goto('/');
-    await page2.waitForTimeout(1000);
-    await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
-    await page2.click('button:has-text("Join Match")');
-    await page2.waitForTimeout(1000);
-    await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
-
-    // Creator should see opponent connected
-    await expect(page1.locator('text=✓ Opponent connected')).toBeVisible({ timeout: 5000 });
-
-    // Second joiner tries to join the same lobby — should be rejected
-    await page3.goto(`/lobby/join/${code!.trim()}`);
-    // Should redirect to home because a joiner is already connected
-    await page3.waitForURL('/', { timeout: 10000 });
-    await expect(page3.getByRole('heading', { name: 'InstaDarts' })).toBeVisible();
-
-    await ctx1.close();
-    await ctx2.close();
-    await ctx3.close();
   });
 
   test('online lobby: each user holds exactly their own player', async ({ browser }) => {
@@ -134,29 +87,32 @@ test.describe('Home screen', () => {
 
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    // Two players fill a Whac-A-Mole lobby, which is what makes the "no second one to add"
-    // half of this test observable at all. An x01 lobby would still have room for three more.
-    await page1.getByLabel('Game').selectOption('whac-a-mole');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
-    await page1.click('button:has-text("Add")');
+    // Four from the host and one from the joiner fills the lobby at five, which is what makes the
+    // "no second one to add" half of this test observable at all.
+    for (const name of ['Alice', 'Carol', 'Dave', 'Eve']) {
+      await page1.fill('input[placeholder="New player name"]', name);
+      await page1.click('button:has-text("Add")');
+    }
 
-    const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
+    const code = await page1.locator('code').textContent();
     await page2.goto(`/lobby/join/${code!.trim()}`);
     await page2.fill('input[placeholder="New player name"]', 'Bob');
     await page2.click('button:has-text("Add")');
-    await expect(page2.locator('text=Alice')).toBeVisible({ timeout: 10000 });
+    await expect(page2.getByText('Alice', { exact: true })).toBeVisible({ timeout: 10000 });
 
-    // One removable player each — their own — and no second one to add.
-    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(1);
+    // Their own to remove, everyone else's to kick — and nothing left to add on either screen.
+    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(4);
+    await expect(page1.locator('button[title="Kick player"]')).toHaveCount(1);
     await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
+    await expect(page2.locator('button[title="Kick player"]')).toHaveCount(0);
     await expect(page1.locator('input[placeholder="New player name"]')).toHaveCount(0);
     await expect(page2.locator('input[placeholder="New player name"]')).toHaveCount(0);
 
-    // And it really is their own: Alice's ✕ takes Alice off, on both screens.
-    await page1.click('button[title="Remove player"]');
-    await expect(page2.locator('text=2nd')).toHaveCount(0, { timeout: 5000 });
+    // And it really is their own: the host's ✕ takes one of theirs off, on both screens.
+    await page1.locator('button[title="Remove player"]').first().click();
+    await expect(page2.locator('text=5th')).toHaveCount(0, { timeout: 5000 });
     await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
-    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(0);
+    await expect(page1.locator('button[title="Remove player"]')).toHaveCount(3);
     await expect(page1.locator('input[placeholder="New player name"]')).toBeVisible();
 
     await ctx1.close();

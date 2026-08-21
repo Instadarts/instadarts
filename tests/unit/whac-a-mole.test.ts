@@ -55,7 +55,7 @@ const ALL_AREAS = [
 // ============================================================
 
 const SETTINGS: ModeSettings = {
-  rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: 4242,
+  turns: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: 4242,
 };
 
 function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
@@ -68,10 +68,10 @@ function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
       legsToWinSet: 1,
       setsToWinMatch: 1,
     },
-    players: [
-      { id: 'p1', name: 'Alice' },
-      { id: 'p2', name: 'Bob' },
-    ].slice(0, players),
+    players: Array.from({ length: players }, (_, i) => ({
+      id: `p${i + 1}`,
+      name: ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'][i] ?? `P${i + 1}`,
+    })),
     visits: [],
     legs: [],
     currentPlayerIndex: 0,
@@ -120,6 +120,21 @@ function idleVisit(match: MatchState): MatchState {
   let current = match;
   for (let i = 0; i < 3; i++) current = throwAt(current, MISS);
   return submit(current);
+}
+
+/**
+ * Idle until the run says it is over, and report how many visits that took.
+ *
+ * A miss costs nothing, so the only thing that can end one of these is the turn limit — which is
+ * what makes the count the run's length rather than a story about darts.
+ */
+function playOut(match: MatchState): { match: MatchState; visits: number } {
+  let current = match;
+  for (let visits = 0; visits <= 200; visits++) {
+    if (whacAMole.finalizeVisit(legContext(current)).legWinnerId !== null) return { match: current, visits };
+    current = idleVisit(current);
+  }
+  throw new Error('the run never ended');
 }
 
 // ============================================================
@@ -287,9 +302,9 @@ describe('whac-a-mole: holes and darts', () => {
 });
 
 describe('whac-a-mole: how a run ends', () => {
-  it('plays exactly as many rounds as it says, then hands the leg a winner', () => {
-    let match = makeMatch({ rounds: 5 });
-    for (let round = 0; round < 5; round++) {
+  it('plays exactly as many turns as it says, then hands the leg a winner', () => {
+    let match = makeMatch({ turns: 5 });
+    for (let turn = 0; turn < 5; turn++) {
       expect(whacAMole.finalizeVisit(legContext(match)).legWinnerId).toBeNull();
       match = idleVisit(match);
     }
@@ -300,7 +315,7 @@ describe('whac-a-mole: how a run ends', () => {
   });
 
   it('ends the moment nobody has a dart left', () => {
-    let match = makeMatch({ digTime: 1, rounds: 50 });
+    let match = makeMatch({ digTime: 1, turns: 50 });
     match = idleVisit(match);
     // A hole a mole dug, not the burrow — the janitor is only ever in the middle, and this is about
     // running out of darts rather than about getting one back.
@@ -312,7 +327,8 @@ describe('whac-a-mole: how a run ends', () => {
   });
 
   it('names the better of two players, and only ever one', () => {
-    let match = makeMatch({ rounds: 2 }, 2);
+    // Four turns, shared by two — which is what the two rounds this used to ask for came to.
+    let match = makeMatch({ turns: 4 }, 2);
     match = submit(throwAt(match, molesOn(match)[0]));   // Alice whacks one
     match = idleVisit(match);                            // Bob does not
     match = idleVisit(match);
@@ -369,7 +385,7 @@ describe('whac-a-mole: the burrow and its janitor', () => {
     expect(run.lost).toEqual([]);
     expect(run.holesHit[holder]).toBe(0);
     expect(run.rescued[thrower]).toBe(1);
-    // The janitor pays in darts, not points — three moles a round plus the sweep is the ceiling.
+    // The janitor pays in darts, not points — three moles a turn plus the sweep is the ceiling.
     expect(run.score[thrower]).toBe(0);
     expect(run.whacks[thrower]).toBe(0);
   });
@@ -524,20 +540,20 @@ describe('whac-a-mole: settings', () => {
 
     expect(first.seed).not.toBe(second.seed);
     expect({ ...first, seed: 0 }).toEqual({ ...second, seed: 0 });
-    expect(first).toMatchObject({ rounds: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium' });
+    expect(first).toMatchObject({ turns: 50, moles: 3, darts: 3, digTime: 3, difficulty: 'medium' });
   });
 
   it('keeps the seed out of the lobby, so nothing can choose it', () => {
-    expect(whacAMole.fields.map((f) => f.key)).toEqual(['rounds', 'moles', 'darts', 'digTime', 'difficulty']);
+    expect(whacAMole.fields.map((f) => f.key)).toEqual(['turns', 'moles', 'darts', 'digTime', 'difficulty']);
 
     const current = { mode: 'whac-a-mole', modeSettings: { ...SETTINGS }, legsToWinSet: 1, setsToWinMatch: 1 };
     const validated = validateSettings(
-      { mode: 'whac-a-mole', modeSettings: { seed: 7, rounds: 10 } },
+      { mode: 'whac-a-mole', modeSettings: { seed: 7, turns: 30 } },
       current,
     );
 
     expect(validated?.modeSettings.seed).toBe(SETTINGS.seed);
-    expect(validated?.modeSettings.rounds).toBe(10);
+    expect(validated?.modeSettings.turns).toBe(30);
   });
 
   it('is installed, and offers itself to the lobby', () => {
@@ -579,9 +595,9 @@ describe('whac-a-mole: what the screen is told', () => {
     expect(panel.rows.map((row) => row.label)).toEqual(['Score', 'Darts left', 'Holes hit']);
     expect(panel.rows[1].values.p1).toBe('3');
 
-    const custom = panel.custom as { phase: string; moles: { label: string }[]; round: number };
+    const custom = panel.custom as { phase: string; moles: { label: string }[]; turn: number };
     expect(custom.phase).toBe('playing');
-    expect(custom.round).toBe(1);
+    expect(custom.turn).toBe(1);
     expect(custom.moles).toHaveLength(3);
     expect(JSON.parse(JSON.stringify(panel))).toEqual(panel);   // it has to survive the wire
   });
@@ -605,7 +621,7 @@ describe('whac-a-mole: what the screen is told', () => {
   });
 
   it('describes the finished run rather than the empty leg left behind it', () => {
-    let match = makeMatch({ rounds: 1 });
+    let match = makeMatch({ turns: 1 });
     match = submit(throwAt(match, molesOn(match)[0]));
     expect(match.status).toBe('in_progress');
     match = submit(match);
@@ -614,5 +630,92 @@ describe('whac-a-mole: what the screen is told', () => {
     const custom = whacAMole.panel!(match)!.custom as { team: number; phase: string };
     expect(custom.team).toBe(1);
     expect(custom.phase).toBe('finale');
+  });
+});
+
+// ============================================================
+// Any number of players
+// ============================================================
+
+describe('whac-a-mole: any number of players', () => {
+  it('puts up the same board however many players take the turns', () => {
+    // The whole point of counting turns rather than rounds. The colony is a function of the turns
+    // played and the darts thrown in them — not of how many people were taking it in turns to
+    // throw. Counting rounds, five players saw the same board five times as slowly.
+    let a = makeMatch({ turns: 50 }, 1);
+    let b = makeMatch({ turns: 50 }, 5);
+
+    for (let i = 0; i < 12; i++) {
+      const runA = runOf(a);
+      const runB = runOf(b);
+      expect(runB.live.moles.map((m) => m.area)).toEqual(runA.live.moles.map((m) => m.area));
+      expect(runB.live.moles.map((m) => m.digTime)).toEqual(runA.live.moles.map((m) => m.digTime));
+      expect(runB.live.holes).toEqual(runA.live.holes);
+      expect(runB.live.escaped).toBe(runA.live.escaped);
+      a = idleVisit(a);
+      b = idleVisit(b);
+    }
+  });
+
+  it('runs for the turns it says, and finishes the way round the table it is in', () => {
+    // Five divides fifty, so nothing is left over.
+    const five = playOut(makeMatch({ turns: 50 }, 5));
+    expect(five.visits).toBe(50);
+    expect(five.match.visits.filter((v) => v.playerId === 'p1')).toHaveLength(10);
+    expect(five.match.visits.filter((v) => v.playerId === 'p5')).toHaveLength(10);
+
+    // Three does not, so the run plays one more rather than stopping with two players a turn ahead.
+    const three = playOut(makeMatch({ turns: 50 }, 3));
+    expect(three.visits).toBe(51);
+    for (const id of ['p1', 'p2', 'p3']) {
+      expect(three.match.visits.filter((v) => v.playerId === id)).toHaveLength(17);
+    }
+  });
+
+  it('enrages the colony on the same turn whatever the roster', () => {
+    // turns: 20 puts enraged on turn 12 — ceil(20 * 0.6) — and that is a turn, not a round, so it
+    // is the twelfth visit in every one of these.
+    const stageOn = (players: number) => {
+      let match = makeMatch({ turns: 20 }, players);
+      for (let i = 0; i < 11; i++) match = idleVisit(match);
+      const custom = whacAMole.panel!(match)!.custom as { turn: number; stage: string; banner?: string };
+      return custom;
+    };
+
+    for (const players of [1, 2, 5]) {
+      expect(stageOn(players)).toMatchObject({ turn: 12, stage: 'enraged', banner: 'enraged' });
+    }
+  });
+
+  it('names the best of five, and breaks a tie on who kept their darts', () => {
+    // One turn each: Carol whacks, nobody else does.
+    let match = makeMatch({ turns: 5 }, 5);
+    match = idleVisit(match);                                   // Alice
+    match = idleVisit(match);                                   // Bob
+    match = submit(throwAt(match, molesOn(match)[0]));          // Carol
+    match = idleVisit(match);                                   // Dave
+    match = idleVisit(match);                                   // Eve
+
+    const finished = submit(match);
+    expect(finished.status).toBe('finished');
+    expect(finished.winnerId).toBe('p3');
+  });
+
+  it('tells the screen about all five of them', () => {
+    // What the mode's own component reads: a row value and a card per player, in roster order.
+    const match = makeMatch({ turns: 50 }, 5);
+    const panel = whacAMole.panel!(match)!;
+    const ids = ['p1', 'p2', 'p3', 'p4', 'p5'];
+
+    for (const row of panel.rows) expect(Object.keys(row.values)).toEqual(ids);
+    const custom = panel.custom as { players: { id: string; name: string }[] };
+    expect(custom.players.map((p) => p.id)).toEqual(ids);
+    expect(custom.players.map((p) => p.name)).toEqual(['Alice', 'Bob', 'Carol', 'Dave', 'Eve']);
+  });
+
+  it('numbers a history line by the turn, without it reading as a treble', () => {
+    const match = idleVisit(makeMatch({ turns: 50 }, 3));
+    const line = whacAMole.view(legContext(match)).history[0];
+    expect(typeof line === 'string' ? line : line.text).toMatch(/^#1 Alice /);
   });
 });

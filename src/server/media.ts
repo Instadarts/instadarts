@@ -5,6 +5,7 @@
 
 import type { WebSocket } from 'ws';
 import type { MatchState } from '../shared/types';
+import { boardsOf } from '../shared/types';
 import type { MediaPeer, MediaRole, MediaTier } from '../shared/media';
 import type { MediaFeature } from '../shared/settings';
 import { MAX_SDP_BYTES, videoProfile } from '../shared/media';
@@ -81,27 +82,6 @@ function blankSource(): SourceSlot {
   return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null };
 }
 
-/**
- * One slot per board, named by the first player of the user who owns it — the same name
- * `Player.boardId` carries on the wire.
- *
- * A slot is a **board**, not a player: a user holding two players has one camera watching one
- * dartboard, declares once, and publishes one feed that serves both of their turns. A match with a
- * single user is that rule at its extreme rather than a case of its own, which is why nothing here
- * asks how the match was created.
- */
-function boardSlotsOf(match: MatchState): string[] {
-  const seen = new Set<string>();
-  const slots: string[] = [];
-  for (const p of match.players) {
-    if (p.sessionId && !seen.has(p.sessionId)) {
-      seen.add(p.sessionId);
-      slots.push(p.id);
-    }
-  }
-  return slots;
-}
-
 /** Create the one media incarnation belonging to this match. Lobbies never call this. */
 export function startMediaForMatch(match: MatchState): void {
   if (!MEDIA_ENABLED || match.status !== 'in_progress') return;
@@ -109,7 +89,10 @@ export function startMediaForMatch(match: MatchState): void {
   // More than two boards is a mesh nobody has designed. No session at all is a state every client
   // path already handles — it is what a deployment with media switched off produces.
   if (!meshEligible(match)) return;
-  const slots = new Set(boardSlotsOf(match));
+  // A slot is a **board**, not a player: a user holding two players has one camera watching one
+  // dartboard, declares once, and publishes one feed that serves both of their turns. `boardsOf`
+  // names them the same way `Player.boardId` does on the wire, so both sides agree by construction.
+  const slots = new Set(boardsOf(match.players));
   sessions.set(match.id, {
     matchId: match.id,
     meshId: crypto.randomUUID(),

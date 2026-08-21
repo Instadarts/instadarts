@@ -172,8 +172,3 @@ export function carrySeats(fromRoomId: string, toRoomId: string): void {
 export function dropSeats(roomId: string): void {
   rooms.delete(roomId);
 }
-
-/** Tests only. */
-export function resetSeats(): void {
-  rooms.clear();
-}

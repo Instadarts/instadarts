@@ -14,9 +14,7 @@ import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
 import { meshEligible, panelOf, viewOf } from './match';
-import { CONFIG } from './config';
-import { getMode } from './modes/types';
-import { effectiveMaxPlayers } from '../shared/settings';
+import { maxPlayersFor } from './store';
 
 const clients = new Map<WebSocket, Client>();
 
@@ -67,6 +65,21 @@ export function broadcastToMatch(matchId: string, msg: ServerMessage): void {
       send(ws, msg);
     }
   }
+}
+
+/**
+ * How many users are in a lobby — playing connections only, so neither a spectator watching it nor a
+ * scoring device belonging to somebody in it is counted.
+ *
+ * Counted rather than stored: a number maintained across join, leave, disconnect and takeover is a
+ * number that eventually disagrees with the registry it was meant to describe.
+ */
+export function usersInLobby(lobbyId: string): number {
+  let count = 0;
+  for (const [, client] of clients) {
+    if (client.lobbyId === lobbyId && !client.isSpectator && !client.deviceId) count++;
+  }
+  return count;
 }
 
 /** The frontend connection for a session, if it is here. Never a scoring device. */
@@ -126,13 +139,8 @@ export function lobbyMessage(
   lobby: Lobby,
   you?: { playerIds?: string[]; host: boolean; spectator?: boolean },
 ): ServerMessage {
-  let userCount = 0;
-  for (const [, client] of clients) {
-    if (client.lobbyId === lobby.id && !client.isSpectator && !client.deviceId) {
-      userCount++;
-    }
-  }
-  const maxPlayers = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
+  const maxPlayers = maxPlayersFor(lobby.settings.mode);
+  const userCount = usersInLobby(lobby.id);
   return {
     type: 'lobby_state',
     lobby: { ...lobby, maxPlayers, userCount, players: publicPlayers(lobby.players), hostSessionId: undefined },

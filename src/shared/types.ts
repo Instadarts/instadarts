@@ -33,14 +33,28 @@ export interface Player {
 }
 
 /**
- * How many boards are in play — one per user, since a user has one dartboard in front of them.
+ * The boards in play, in roster order — one per user, since a user has one dartboard in front of
+ * them, named by the first of their players standing at it.
  *
  * Reads whichever owner identity the caller happens to hold: the server has `sessionId`, and the
  * client has `boardId`, which `publicPlayers` derives from it on the way out. Both group the same
- * players together, so both count the same boards.
+ * players together, so both name the same boards in the same order.
  */
+export function boardsOf(players: Player[]): string[] {
+  const seen = new Set<string>();
+  const boards: string[] = [];
+  for (const player of players) {
+    const owner = player.boardId ?? player.sessionId ?? player.id;
+    if (seen.has(owner)) continue;
+    seen.add(owner);
+    boards.push(player.boardId ?? player.id);
+  }
+  return boards;
+}
+
+/** How many boards are in play. */
 export function boardCount(players: Player[]): number {
-  return new Set(players.map((p) => p.boardId ?? p.sessionId ?? p.id)).size;
+  return boardsOf(players).length;
 }
 
 export interface DartThrow {

@@ -17,7 +17,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { CONFIG_DEFAULTS, INTERNAL_ICE, type ClientConfig, type DartEvidenceConfig, type MediaClientConfig, type VirtualCameraConfig } from '../../shared/config';
-import { videoProfile, type IceServerConfig, type VideoProfile } from '../../shared/media';
+import { type IceServerConfig } from '../../shared/media';
 
 let current: ClientConfig | null = null;
 const listeners = new Set<() => void>();
@@ -109,14 +109,4 @@ export function dartEvidence(): DartEvidenceConfig {
  */
 export function virtualCamera(): VirtualCameraConfig {
   return current?.media.virtualCamera ?? CONFIG_DEFAULTS.media.virtualCamera;
-}
-
-/**
- * How a publisher encodes.
- *
- * Unlike `mediaConfig`, this always answers: it describes a picture rather than granting permission
- * to send one, so a caller that already has a picture in front of it is entitled to an answer.
- */
-export function videoEncoding(): VideoProfile {
-  return current?.media.video ?? videoProfile(CONFIG_DEFAULTS.media.video);
 }

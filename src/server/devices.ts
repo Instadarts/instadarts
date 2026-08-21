@@ -226,11 +226,6 @@ export function setDeviceMediaTier(deviceId: string, tier: MediaTier): void {
   if (device) device.mediaTier = tier;
 }
 
-/** What a device is willing to share, or `disabled` for one we know nothing about. */
-export function mediaTierOf(deviceId: string): MediaTier {
-  return devices.get(deviceId)?.mediaTier ?? 'disabled';
-}
-
 /**
  * A device's socket closed. The record is kept while a frontend still holds it, so a phone that
  * loses Wi-Fi reconnects into the same pairing; with nobody holding it, there is nothing to keep.

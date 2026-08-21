@@ -15,7 +15,7 @@ import type { WebSocket } from 'ws';
 import type { MatchState, Lobby } from '../shared/types';
 import type { Client } from './types';
 import { parseMessage } from '../shared/protocol';
-import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, movePlayerInLobby } from './store';
+import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, maxPlayersFor, movePlayerInLobby } from './store';
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
 import { generateInviteCode } from './invite';
@@ -52,6 +52,7 @@ import {
   getClient,
   lobbyMessage,
   matchMessage,
+  usersInLobby,
   send,
 } from './connections';
 import {
@@ -527,19 +528,10 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
-  if (lobby.players.length >= max) {
-    send(ws, { type: 'error', message: 'Lobby is full' });
-    return;
-  }
-
-  let distinctUsers = 0;
-  for (const [, c] of allClients()) {
-    if (c.lobbyId === lobby.id && !c.isSpectator && !c.deviceId) {
-      distinctUsers++;
-    }
-  }
-  if (distinctUsers >= max) {
+  // A user brings at least one player, so the player cap caps them too: somebody who could never
+  // take a place is refused rather than admitted to sit and watch the Add button stay dead.
+  const max = maxPlayersFor(lobby.settings.mode);
+  if (lobby.players.length >= max || usersInLobby(lobby.id) >= max) {
     send(ws, { type: 'error', message: 'Lobby is full' });
     return;
   }
@@ -584,8 +576,7 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
-  if (lobby.players.length >= max) {
+  if (lobby.players.length >= maxPlayersFor(lobby.settings.mode)) {
     send(ws, { type: 'error', message: 'Lobby is full' });
     return;
   }

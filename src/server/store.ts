@@ -34,7 +34,7 @@ export function createLobby(): Lobby {
     inviteCode: null,
     hostSessionId: null,
     acceptsJoins: false,
-    maxPlayers: effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(DEFAULT_MODE)?.maxPlayers),
+    maxPlayers: maxPlayersFor(DEFAULT_MODE),
     userCount: 0,
     createdAt: Date.now(),
     expiresAt: Date.now() + IDLE_TTL_MS,
@@ -52,11 +52,21 @@ export function deleteLobby(id: string): void {
   dropSeats(id);
 }
 
+/**
+ * The cap this lobby enforces: the deployment's, narrowed by the game mode's.
+ *
+ * Derived on every ask rather than stored on the lobby, so it cannot drift from the mode currently
+ * selected — and named here rather than written out at each of the five places that ask, so those
+ * five cannot drift from each other either.
+ */
+export function maxPlayersFor(modeId: string): number {
+  return effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(modeId)?.maxPlayers);
+}
+
 export function addPlayerToLobby(lobbyId: string, player: Player): Lobby | null {
   const lobby = lobbies.get(lobbyId);
   if (!lobby) return null;
-  const max = effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(lobby.settings.mode)?.maxPlayers);
-  if (lobby.players.length >= max) return null;
+  if (lobby.players.length >= maxPlayersFor(lobby.settings.mode)) return null;
   lobby.players.push(player);
   return lobby;
 }

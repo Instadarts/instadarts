@@ -128,6 +128,25 @@ export function holdsSeat(roomId: string, sessionId: string): boolean {
   return heldSeat(roomId, sessionId) !== null;
 }
 
+/**
+ * Every player id held by a seat in this room — the roster's owner of record.
+ *
+ * A player no seat holds is unowned: nobody can throw for it, nobody can take it off, and no reload
+ * comes back as it. `start_match` reconciles the lobby against this before the lists go immutable,
+ * so an orphan produced by any path at all is taken out rather than played around.
+ *
+ * Asked of the seats and deliberately not of the connections: a tab inside its disconnect grace has
+ * left the client registry but still holds its place, and reconciling against live clients would
+ * delete the players of anybody mid-reload.
+ */
+export function seatedPlayerIds(roomId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const [, held] of rooms.get(roomId) ?? []) {
+    for (const playerId of held.playerIds) ids.add(playerId);
+  }
+  return ids;
+}
+
 /** Give up a place for good. Leaving is final, and a seat is what "final" is enforced with. */
 export function revokeSeat(roomId: string, sessionId: string): void {
   const seats = rooms.get(roomId);

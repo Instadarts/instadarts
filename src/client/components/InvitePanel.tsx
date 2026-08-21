@@ -2,17 +2,26 @@ import { CopyableText } from './CopyableText';
 
 interface InvitePanelProps {
   inviteCode: string | null;
+  /** Users in the lobby, the host included. */
   userCount: number;
-  isFull: boolean;
-  maxPlayers?: number;
+  /** The lobby's effective cap — the deployment's, narrowed by the game mode's. */
+  maxPlayers: number;
+  /**
+   * Whether anybody else could still take a place: the roster is full, or the lobby already holds
+   * as many users as it may. Either way the code has nothing left to buy, so it is not shown.
+   */
+  isClosed: boolean;
 }
 
-export function InvitePanel({ inviteCode, userCount, isFull, maxPlayers = 2 }: InvitePanelProps) {
-  if (isFull || (maxPlayers <= 2 && userCount >= 2)) {
+export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: InvitePanelProps) {
+  if (isClosed) {
+    // "Opponent" is only honest where a lobby holds two of them and was only ever going to: a
+    // five-player lobby that filled up has no opponent, it has a roster.
+    const oneOnOne = maxPlayers <= 2 && userCount >= 2;
     return (
       <div className="w-80 mb-6 text-center">
         <p className="text-green-400 text-sm font-semibold">
-          {userCount <= 2 ? '✓ Opponent connected' : '✓ Lobby is full'}
+          {oneOnOne ? '✓ Opponent connected' : '✓ Lobby is full'}
         </p>
       </div>
     );
@@ -24,7 +33,7 @@ export function InvitePanel({ inviteCode, userCount, isFull, maxPlayers = 2 }: I
     <div className="w-80 mb-6 text-center">
       {userCount > 1 && (
         <p className="text-green-400 text-sm font-semibold mb-2">
-          {userCount === 2 ? '✓ Opponent connected' : `✓ ${userCount - 1} other users connected`}
+          {`✓ ${userCount - 1} other ${userCount === 2 ? 'user' : 'users'} connected`}
         </p>
       )}
       <p className="text-gray-400 text-sm mb-2">Invite Code</p>

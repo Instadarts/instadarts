@@ -32,7 +32,7 @@ function connect() {
     sessionId,
     lobbyId: null,
     matchId: null,
-    playerId: null,
+    playerIds: [],
     isSpectator: false,
     deviceId: null,
   });

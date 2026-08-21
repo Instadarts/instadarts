@@ -121,7 +121,7 @@ test.describe('Home screen', () => {
 
   test('online lobby: each user holds exactly their own player', async ({ browser }) => {
     // Whose player is whose used to be read off `players[].sessionId`, which is no longer on the
-    // wire — the answer is `yourPlayerId` now, and this is the screen that shows it.
+    // wire — the answer is `yourPlayerIds` now, and this is the screen that shows it.
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();
     const page1 = await ctx1.newPage();

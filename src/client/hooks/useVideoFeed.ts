@@ -75,31 +75,48 @@ export function selectVideoFeed(
 
 /**
  * Name board feeds from match participants, never from the scorer device that happens to publish
- * them. Group players by their boardId so that a board shared by multiple players is labelled
- * e.g. "Alice & Carol".
+ * them.
+ *
+ * A board is named after everybody who throws at it — "Alice & Carol" where one user brought two
+ * players. A local match is the extreme of the same rule: one board with the whole roster on it,
+ * publishing a feed that carries no player id at all, so every feed takes that one name.
  */
 export function labelVideoFeedsForMatch(
   feeds: readonly VideoFeedView[],
   match: Pick<MatchState, 'isLocal' | 'players'> | null,
 ): VideoFeedView[] {
   if (!match) return [...feeds];
+
   if (match.isLocal) {
-    const localName = match.players[0]?.name;
-    return feeds.map((feed) => (localName ? { ...feed, label: localName } : feed));
+    const label = boardLabel(match.players);
+    return feeds.map((feed) => (label ? { ...feed, label } : feed));
   }
-  const boardNames = new Map<string, string[]>();
-  for (const p of match.players) {
-    const bId = p.boardId ?? p.id;
-    const list = boardNames.get(bId) ?? [];
-    list.push(p.name);
-    boardNames.set(bId, list);
+
+  const boards = new Map<string, { name: string }[]>();
+  for (const player of match.players) {
+    const boardId = player.boardId ?? player.id;
+    boards.set(boardId, [...(boards.get(boardId) ?? []), player]);
   }
   return feeds.map((feed) => {
-    if (!feed.playerId) return feed;
-    const names = boardNames.get(feed.playerId);
-    const label = names ? names.join(' & ') : undefined;
+    const label = feed.playerId ? boardLabel(boards.get(feed.playerId) ?? []) : undefined;
     return label ? { ...feed, label } : feed;
   });
+}
+
+/**
+ * What to call a board, given who throws at it.
+ *
+ * A **noun phrase**, and that is the whole design: the label lands in "<label> is offering a live
+ * video feed", so a bare list of names would put a plural subject in front of a singular verb. One
+ * player is simply named — a board with one person at it is that person, which is what an online
+ * 1v1 has always said. More than one becomes possessive, and a crowd stops listing names at all.
+ */
+function boardLabel(players: { name: string }[]): string | undefined {
+  if (players.length === 0) return undefined;
+  if (players.length === 1) return players[0].name;
+  if (players.length > 3) return 'the shared board';
+  const names = players.map((player) => player.name);
+  return `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}'s board`;
 }
 
 interface Options {

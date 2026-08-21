@@ -37,7 +37,7 @@ import {
   finishMediaForMatch,
 } from './media';
 import { dropScoringSessions } from './scoring/store';
-import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, updateSeat, type Seat } from './seats';
+import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatedPlayerIds, updateSeat, type Seat } from './seats';
 import { allModes, describeMode, getMode } from './modes/types';
 import { effectiveMaxPlayers } from '../shared/settings';
 import { canCreateLobby, canCreateMatch } from './capacity';
@@ -549,13 +549,23 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   // Associate client with lobby — players are added via add_local_player
   const client = getClient(ws);
   if (client) {
+    // A connection already in this lobby is re-announcing itself rather than arriving, and its
+    // players are whatever its **seat** says they are — the seat outranks the connection here as
+    // everywhere else. Clearing the list unconditionally orphaned them: still on the roster, owned
+    // by nobody, and carried into the match as ghosts nobody could throw for.
+    const held = heldSeat(lobby.id, client.sessionId);
+    const mine = (held?.seat.playerIds ?? []).filter((id) => lobby.players.some((p) => p.id === id));
     client.lobbyId = lobby.id;
-    client.playerIds = [];
+    client.playerIds = mine;
     const host = client.sessionId === lobby.hostSessionId;
-    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host }));
+    if (held) updateSeat(lobby.id, held.token, { playerIds: mine });
+    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: mine, host }));
   }
 
-  send(ws, lobbyMessage(lobby, { playerIds: [], host: client?.sessionId === lobby.hostSessionId }));
+  send(ws, lobbyMessage(lobby, {
+    playerIds: client?.playerIds ?? [],
+    host: client?.sessionId === lobby.hostSessionId,
+  }));
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
 
@@ -617,6 +627,15 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
   send(ws, lobbyMessage(lobby, { playerIds: lobby.isLocal ? undefined : client.playerIds, host }));
 }
 
+/**
+ * Take a player off the roster — your own, or anybody's if you are the host.
+ *
+ * The host's power over the roster is a **kick**, and what makes it more than an edit of one's own
+ * list is *where the removal lands*: a player is held by its owner's connection and its owner's
+ * seat, never by the connection doing the removing. Editing the remover's lists left the owner
+ * holding an id for somebody no longer in the room — which is precisely what a ghost participant is
+ * made of, and what `seatedPlayerIds` now backstops at the freeze point.
+ */
 function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const req = requireLobby(ws);
   if (!req) return;
@@ -625,21 +644,42 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // Only allow removing your own session's player (local lobbies: one user controls all)
-  if (!lobby.isLocal && player.sessionId !== client.sessionId && client.sessionId !== lobby.hostSessionId) {
+  // A local lobby is one user's, so every player in it is theirs. Online, a player is yours to take
+  // off, or you are the host and it is a kick.
+  const removerIsHost = client.sessionId === lobby.hostSessionId;
+  if (!lobby.isLocal && player.sessionId !== client.sessionId && !removerIsHost) {
     send(ws, { type: 'error', message: 'You can only remove your own player' });
     return;
   }
 
-  client.playerIds = client.playerIds.filter((id) => id !== msg.playerId);
-
-  const held = heldSeat(lobby.id, client.sessionId);
-  if (held) updateSeat(lobby.id, held.token, { playerIds: [...client.playerIds] });
-  removePlayerFromLobby(lobby.id, msg.playerId);
-  if (lobby.hostPlayerId === msg.playerId) {
-    lobby.hostPlayerId = lobby.players[0]?.id ?? null;
+  // Whoever actually holds this player. The same connection as the remover in every case but a
+  // kick, which is the case that used to go wrong.
+  const ownerWs = player.sessionId ? findSessionSocket(player.sessionId) : null;
+  const owner = ownerWs ? getClient(ownerWs) : null;
+  if (owner) owner.playerIds = owner.playerIds.filter((id) => id !== player.id);
+  // Updated from the seat's own list rather than from the client's, and even when no live
+  // connection answers for the session: a tab inside its disconnect grace holds no usable client
+  // record but still holds its place, and that seat is what its reload comes back on.
+  const held = player.sessionId ? heldSeat(lobby.id, player.sessionId) : null;
+  if (held) {
+    updateSeat(lobby.id, held.token, {
+      playerIds: held.seat.playerIds.filter((id) => id !== player.id),
+    });
   }
+
+  removePlayerFromLobby(lobby.id, player.id);
+  if (lobby.hostPlayerId === player.id) lobby.hostPlayerId = lobby.players[0]?.id ?? null;
+
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
+  // The owner is told what it has left rather than left to infer it from a roster that names
+  // nobody's players. Without this a kicked user only ever learns it by subtraction.
+  if (ownerWs && owner) {
+    send(ownerWs, lobbyMessage(lobby, {
+      playerIds: lobby.isLocal ? undefined : owner.playerIds,
+      host: owner.sessionId === lobby.hostSessionId,
+      spectator: owner.isSpectator,
+    }));
+  }
 }
 
 function handleUpdateSettings(ws: WebSocket, msg: any): void {
@@ -715,6 +755,17 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
     return;
   }
 
+  // Nothing unowned goes into a match. A player belongs to the seat that holds it, and the rosters
+  // go immutable at `createMatch` — so this is the last moment an orphan can be taken out, and it
+  // runs before the counts below so they see the roster that will actually play.
+  const seatedIds = seatedPlayerIds(lobby.id);
+  for (const player of [...lobby.players]) {
+    if (!seatedIds.has(player.id)) removePlayerFromLobby(lobby.id, player.id);
+  }
+  if (lobby.hostPlayerId && !lobby.players.some((p) => p.id === lobby.hostPlayerId)) {
+    lobby.hostPlayerId = lobby.players[0]?.id ?? null;
+  }
+
   const mode = getMode(lobby.settings.mode);
   if (mode?.maxPlayers && lobby.players.length > mode.maxPlayers) {
     send(ws, { type: 'error', message: `${mode.label} takes at most ${mode.maxPlayers} players` });
@@ -731,12 +782,18 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
     return;
   }
 
-  // Elevate any playerless lobby clients to spectators before starting match
+  // Nobody sits in a match without a player in it. A user who watched the lobby without adding one
+  // becomes what it already was in practice — a spectator — and gives up its seat, which is what
+  // stops it throwing for whoever is up in a local match.
+  //
+  // Measured against the reconciled roster and not against the connection's own list, so a client
+  // holding only ids that have just gone away is demoted with the rest.
   for (const [, c] of allClients()) {
-    if (c.lobbyId === lobby.id && !c.isSpectator && !c.deviceId && c.playerIds.length === 0) {
-      revokeSeat(lobby.id, c.sessionId);
-      c.isSpectator = true;
-    }
+    if (c.lobbyId !== lobby.id || c.isSpectator || c.deviceId) continue;
+    c.playerIds = c.playerIds.filter((id) => lobby.players.some((p) => p.id === id));
+    if (c.playerIds.length > 0) continue;
+    revokeSeat(lobby.id, c.sessionId);
+    c.isSpectator = true;
   }
 
   const match = createMatch(lobby);
@@ -750,7 +807,10 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
       // Same seat, new room id. A spectator carried along holds none and is told nothing.
       const held = heldSeat(match.id, c.sessionId);
       if (held) sendResume(w, { matchId: match.id }, held.token);
-      send(w, matchMessage('match_started', match, match.isLocal ? undefined : c.playerIds));
+      send(w, matchMessage('match_started', match, {
+        playerIds: match.isLocal ? undefined : c.playerIds,
+        spectator: c.isSpectator,
+      }));
     }
   }
 
@@ -948,12 +1008,14 @@ function leaveLobby(ws: WebSocket, client: Client): void {
     for (const pid of leavingPlayerIds) {
       removePlayerFromLobby(lobby.id, pid);
     }
-    const hasOtherNonHosts = [...allClients()].some(
-      ([, c]) => c.lobbyId === lobby.id && c.sessionId !== lobby.hostSessionId && !c.deviceId,
+    // The code is retired once the last guest is gone, so a leaver cannot walk back into a lobby
+    // that has emptied out. While others are still here it stays put: with n users, minting a new
+    // one on every departure would strand everybody else's copy. Spectators do not count — watching
+    // is not holding a place.
+    const guestsRemain = [...allClients()].some(
+      ([, c]) => c.lobbyId === lobby.id && c.sessionId !== lobby.hostSessionId && !c.deviceId && !c.isSpectator,
     );
-    if (!hasOtherNonHosts) {
-      generateInviteCode(lobby.id);
-    }
+    if (!guestsRemain) generateInviteCode(lobby.id);
     broadcastToLobby(lobby.id, lobbyMessage(lobby));
     return;
   }
@@ -977,7 +1039,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
       client.lobbyId = lobby.id;
       client.isSpectator = true;
     }
-    send(ws, lobbyMessage(lobby, { host: false }));
+    send(ws, lobbyMessage(lobby, { host: false, spectator: true }));
     return;
   }
 
@@ -988,7 +1050,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
       client.matchId = match.id;
       client.isSpectator = true;
     }
-    send(ws, matchMessage('match_state', match));
+    send(ws, matchMessage('match_state', match, { spectator: true }));
     return;
   }
 
@@ -1094,7 +1156,10 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
 
   // The one message that tells a connection which players are its own: a reloaded tab cannot work that
   // out from the match, and a local match is the same "no answer" it is everywhere else.
-  send(ws, matchMessage('match_state', match, match.isLocal ? undefined : client.playerIds));
+  send(ws, matchMessage('match_state', match, {
+    playerIds: match.isLocal ? undefined : client.playerIds,
+    spectator: false,
+  }));
 }
 
 /**
@@ -1161,7 +1226,10 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     // The same seat under a new room id, so a tab reloaded into the re-match still knows itself.
     const held = heldSeat(rematch.id, other.sessionId);
     if (held) sendResume(otherWs, { matchId: rematch.id }, held.token);
-    send(otherWs, matchMessage('match_started', rematch, rematch.isLocal ? undefined : other.playerIds));
+    send(otherWs, matchMessage('match_started', rematch, {
+      playerIds: rematch.isLocal ? undefined : other.playerIds,
+      spectator: other.isSpectator,
+    }));
   }
   // Looked up on the new match, because the clients have already been moved onto it.
   publishScorerStateFor(devicesScoringInto(rematch.id));

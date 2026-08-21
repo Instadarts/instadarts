@@ -21,7 +21,7 @@ function connect() {
     send: (raw: string) => received.push(JSON.parse(raw)),
   } as unknown as WebSocket;
 
-  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });
+  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerIds: [], isSpectator: false, deviceId: null });
   openSockets.push(ws);
 
   return {

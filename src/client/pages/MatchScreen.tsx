@@ -22,6 +22,11 @@ interface MatchScreenProps {
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   ownPlayerIds: string[];
   isSpectator: boolean;
+  /**
+   * This match's shape has no media mesh — more than two boards are in play. Said on the screen
+   * because missing video that nobody explains reads as a fault rather than as a decision.
+   */
+  mediaDisabled: boolean;
   /** A photograph per dart slot from the board camera, or null where no camera is in play. */
   evidence: (string | undefined)[] | null;
   /** The fresh current player's remote board feed, or null for the virtual-board fallback. */
@@ -92,7 +97,7 @@ const HISTORY_ROWS = 12;
  * lines — arrives in `view`, computed by the game mode on the server. Nothing here knows what a bust
  * or a checkout is, and adding a game mode does not change this file.
  */
-export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
+export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerIds, isSpectator, mediaDisabled, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
   const isMyTurn = !isSpectator && match.status === 'in_progress' && (ownPlayerIds.length === 0 || ownPlayerIds.includes(currentPlayer.id));
 
@@ -126,6 +131,11 @@ export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart
         <h2 className={`${modeTextClasses(view.headline, { tone: 'accent', size: '2xl', weight: 'bold' })} min-w-0`}>
           {textOf(view.headline)}
           {isSpectator && <span className="text-yellow-400 text-base ml-2">(spectating)</span>}
+          {mediaDisabled && !over && (
+            <span className="text-gray-500 text-sm font-normal ml-2 whitespace-nowrap">
+              · video off — more than two boards
+            </span>
+          )}
         </h2>
 
         <button

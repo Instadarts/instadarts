@@ -2,22 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { addDartToMatch, undoDartFromMatch } from '../../src/server/match';
 import { makeDart, makeMatch, playVisit } from '../helpers';
 
-describe('Online match player limits', () => {
+describe('Who owns a player', () => {
   it('match properly tracks visit ownership', () => {
     const match = playVisit(makeMatch({ isLocal: false }), 'p1', ['T20', 'T20', 'T20']);
     expect(match.visits[0].voided).toBe(false);
     expect(match.visits[0].playerId).toBe('p1');
   });
 
-  it('allows up to 2 players (1 per session) in online lobby', () => {
+  it('lets several players in an online match answer to one user', () => {
+    // Who owns a player is `sessionId` and nothing else — there is no rule that an online user
+    // brings exactly one. How many a match may hold is the player limit, enforced in the lobby.
     const match = makeMatch({ isLocal: false, players: [
       { id: 'p1', name: 'Alice', sessionId: 'session-a' },
-      { id: 'p2', name: 'Bob', sessionId: 'session-b' },
+      { id: 'p2', name: 'Carol', sessionId: 'session-a' },
+      { id: 'p3', name: 'Bob', sessionId: 'session-b' },
     ] });
-    expect(match.players).toHaveLength(2);
-    expect(match.players[0].sessionId).toBe('session-a');
-    expect(match.players[1].sessionId).toBe('session-b');
-    expect(match.players[0].sessionId).not.toBe(match.players[1].sessionId);
+    const owners = new Set(match.players.map((p) => p.sessionId));
+    expect(match.players).toHaveLength(3);
+    expect(owners.size).toBe(2);
   });
 });
 
@@ -59,11 +61,6 @@ describe('Online match role enforcement', () => {
     // This is enforced by the server: hostSessionId is set once
   });
 
-  it('joiner can only add 1 player (per-session check)', () => {
-    // Server checks: lobby.players.some(p => p.sessionId === client.sessionId)
-    // If joiner tries to add a second player, server rejects
-    // This is a wsHandler-level check, tested via E2E
-  });
 });
 
 describe('Match finish scenarios', () => {

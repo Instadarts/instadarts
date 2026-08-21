@@ -15,7 +15,7 @@ of truth.
 | **[x01]** | Belongs to the **x01 game mode**, not to the app. Another mode need not have the concept at all. |
 
 The **[x01]** distinction matters more than it looks. *Bust* and *checkout* are x01's names for
-"this visit scored nothing" and "this dart won"; a mode where both players always throw the same
+"this visit scored nothing" and "this dart won"; a mode where every player always throws the same
 number of visits and nothing is ever overthrown has neither. Whenever you reach for a mode word,
 check whether the layer you are writing in is allowed to know it — see
 [Mode-specific vocabulary in mode-agnostic layers](#mode-specific-vocabulary-in-mode-agnostic-layers)
@@ -29,9 +29,11 @@ for the places where that has already gone wrong.
 | --- | --- | --- |
 | [User](#user) | One frontend instance. No accounts exist. | `sessionId`, `Client` |
 | [Player](#player--participant) / Participant | A competitor in a match, added by a user | `Player`, `playerId`, `players[]` |
+| [Player limit](#player-limit) | The most players a match may hold | `maxPlayersPerMatch`, `GameMode.maxPlayers`, `effectiveMaxPlayers` |
+| [Board](#board) | The dartboard one user throws at. Their players share it | `Player.boardId`, media source slots |
 | [Seat](#seat) | A place in a room, and the token a reloaded tab presents to get it back | `seats.ts`, `resume`, `reconnect` |
 | [Lobby](#lobby) | Setup phase of a match | `Lobby`, `lobbyId` |
-| [Match](#match) | The whole contest between two players | `MatchState`, `matchId`, `match_*` messages, `/match/:id` |
+| [Match](#match) | The whole contest between its players | `MatchState`, `matchId`, `match_*` messages, `/match/:id` |
 | [Game Mode](#game-mode) | The rules of a single play-through (x01) | `GameMode`, `MatchSettings.mode`, `ModeDescriptor` |
 | [Leg](#leg) | One play-through of the game mode | `MatchState.visits` (current), `CompletedLeg` |
 | [Set](#set) | A group of legs, "first to n legs" | `legsToWinSet`, `setsToWinMatch`, `standingsOf` |
@@ -82,13 +84,14 @@ Consequences worth knowing:
 - Ownership checks ("only your own player", "only the creator may change settings") compare
   `client.sessionId` against `lobby.hostSessionId` / `player.sessionId` — **on the server, which is
   the only place either of those exists.** Both are stripped from every lobby and match on the way
-  out, and the client is told the conclusions instead: `yourPlayerId` and `youAreHost`, addressed to
-  one connection rather than broadcast to the room.
+  out, and the client is told the conclusions instead: `yourPlayerIds`, `youAreHost` and
+  `youAreSpectator`, addressed to one connection rather than broadcast to the room.
 - Browser-level state that outlives the tab (paired scoring devices) lives in `localStorage`;
   tab-level state (which devices *this tab* is using) lives in `sessionStorage`. See
   [`deviceStorage.ts`](../src/client/lib/deviceStorage.ts).
 
-Do **not** write "user" when you mean a player. In a local match one user owns two players.
+Do **not** write "user" when you mean a player. One user can own several: every player in a local
+match, and as many as it added in an online one.
 
 ### Player / Participant
 
@@ -96,7 +99,7 @@ A **player** is a participant in a match. Prefer **player** in code and UI; *par
 acceptable in prose when contrasting with users, but no identifier should use it.
 
 ```ts
-interface Player { id: string; name: string; sessionId?: string }
+interface Player { id: string; name: string; sessionId?: string; boardId?: string }
 ```
 
 - Player ids are `p1`, `p2`, … from a process-global counter
@@ -109,7 +112,43 @@ interface Player { id: string; name: string; sessionId?: string }
   is optional — present on every player the server holds, absent from every player a client has
   seen. A client asking "are these mine?" compares against `yourPlayerIds`, which is sent to one
   connection and never broadcast.
-- Player counts are bounded by `effectiveMaxPlayers` (default 5, or lower if the game mode specifies a `maxPlayers` cap, e.g. 2 for x01 and Whac-A-Mole). A local match can start with one player; an online match requires at least two.
+- `boardId` names the [board](#board) this player throws at — the id of the first player added by
+  the same user, so players one user brought share one. Unlike `sessionId` it **is** public: it is a
+  player id the whole room already has, and the screen needs it to know whose camera shows the
+  thrower.
+- How many there may be is the [player limit](#player-limit). A local match can start with one; an
+  online match needs at least two.
+
+### Player limit
+
+The most players one match may hold — **the deployment's cap, narrowed by the game mode's**, and
+never the other way round:
+
+- `server.maxPlayersPerMatch` in the settings file, default 5. The deployment's word, and the only
+  one an operator turns ([`config.ts`](../src/server/config.ts)).
+- `GameMode.maxPlayers`, declared by a mode about its own rules and optional to declare — saying
+  nothing means the mode has no limit of its own. x01 and Whac-A-Mole both say 2, because their
+  rules have not been written for more; that is a fact about those modes, not about the app.
+- `effectiveMaxPlayers(serverMax, modeMax)` in [`settings.ts`](../src/shared/settings.ts) is the
+  smaller of the two, asked by both sides so the lobby cannot offer a place the server would refuse.
+  It **fails open**, like `modeBans`: a mode that said nothing is not an instruction to allow one.
+
+It caps users as well as players, since a user brings at least one of each — see [Lobby](#lobby).
+Changing the mode is refused while more players are in the lobby than the new mode takes; the answer
+names the mode, because that is the part that is saying no.
+
+### Board
+
+The physical dartboard a user throws at, and — because a user has one — what every player that user
+added shares. `Player.boardId` names it by the id of the first of those players.
+
+A board is the unit the [media](#media) feature is built on: one source slot per board, not per
+player, so a user holding two players declares once and publishes one camera feed for both of their
+turns. A local match is the same rule at its extreme — one user, one board, every player on it.
+
+The mesh is built for at most two boards. A match with a third gets no media session at all, and the
+screen is told so (`mediaDisabled`) rather than left showing video that never arrives. See
+[docs/media.md](./media.md).
 
 ### Lobby
 
@@ -120,9 +159,19 @@ configured here. It is a distinct entity (`Lobby`), not a status of a match.
 - Always gets an invite code (`generateInviteCode`), even for a local lobby; the code is only shown
   for online lobbies.
 - `isLocal` decides who may do what (see [Local vs. online](#local-match--online-match)).
-- `userCount` is the number of distinct non-spectator users connected in the lobby.
+- `userCount` is how many non-spectator users are connected to it; `maxPlayers` is the
+  [player limit](#player-limit) it enforces. Both are computed per message rather than stored, so
+  neither can drift from what the server would actually do.
+- **Joining is refused once no newcomer could take a place**: the roster is full, or the lobby
+  already holds as many users as players (a user brings at least one, so the player limit caps them
+  too). Watching is still open — a full lobby can be spectated.
+- The **host may remove any player**, not only its own; a user may remove the ones it added. A
+  removal lands on the owner's connection and the owner's [seat](#seat), never on the remover's.
 - Starting the match **destroys** the lobby: `createMatch(lobby)` calls `deleteLobby` and copies
-  players and settings into the new match ([`createMatch`](../src/server/store.ts)).
+  players and settings into the new match ([`createMatch`](../src/server/store.ts)). Two things
+  happen first, and they are the last moment either can: a player no seat holds is taken off the
+  roster, and a user left holding none becomes a [spectator](#spectator) of the match it is about to
+  watch. After that the user and player lists never change again.
 - A lobby idle for 10 minutes is abandoned and deleted, and everyone in it is told
   ([`lifecycle.ts`](../src/server/lifecycle.ts)). Nothing collects it later: its deadline is
   the only way it ends.
@@ -147,8 +196,8 @@ How a match ends:
 | Cause | Result | Screen says |
 | --- | --- | --- |
 | The game mode declares a winner (x01: a checkout) | `status: 'finished'`, `winnerId` set | "🎯 X wins!" |
-| A player leaves an **online** match when only 2 were playing (or 2nd-to-last leaves) | The remaining player is declared winner | "🎯 X wins!" |
-| A player leaves an **online** match when 3+ remain | Match continues playing; leaver is marked departed | Match continues |
+| A user leaves an **online** match, and two or more players are left | It plays on without them | Nothing — the rota steps over them |
+| A user leaves an **online** match, and one player is left | That player wins it | "🎯 X wins!" |
 | The user leaves a **local** match | `status: 'finished'`, **no** winner | "Match cancelled" |
 | Nobody touches it for 10 minutes | `status: 'finished'`, **no** winner | "Match cancelled" |
 
@@ -196,6 +245,11 @@ A read-only observer. A user becomes one via `spectate` on `/spectate/:id`, whic
 excluded from every gameplay guard, and explicitly from scoring: a spectator with a paired camera
 must not score ([`resolveScoringTarget`](../src/server/scoringDevices.ts)).
 
+A user can also **become** one without asking for it: sitting in a lobby until the match starts
+without ever adding a player. It is taken out of the room's roster, gives up its [seat](#seat), and
+is told so (`youAreSpectator`, addressed like `youAreHost`) — otherwise its tab would go on offering
+a board it is not allowed to touch, and in a local match it could actually throw at one.
+
 `client.isSpectator` guards a *connection*, so it cannot be the whole answer: a page load is a new
 connection, and nothing about a fresh socket says what the tab was doing a moment ago. What stops
 watching from being reloaded into playing is that resuming a place requires a [seat](#seat), and a
@@ -229,6 +283,13 @@ Three rules make it worth something:
   may do, the seat says who may do it now, and a connection that no longer holds one cannot throw,
   submit, start, vote or leave.
 
+**Seats are the roster's owner of record.** A player no seat holds is owned by nobody: nothing can
+throw for it, nobody can take it off, and no reload comes back as it. `start_match` drops any such
+player before the lists freeze (`seatedPlayerIds` in [`seats.ts`](../src/server/seats.ts)), so an
+orphan produced by any path at all is taken out rather than played around. Asked of the seats and
+deliberately not of the live connections, for the reason above: a tab inside its disconnect grace has
+left the client registry but still holds its place.
+
 **Separate tabs are separate users.** The token lives in `sessionStorage`, which is per tab, so two
 tabs of one browser hold two seats and never contend — that is what lets one browser play both sides
 of an online match. Only a *duplicated* tab arrives holding somebody else's place.
@@ -236,7 +297,8 @@ of an online match. Only a *duplicated* tab arrives holding somebody else's plac
 ### Re-Match
 
 A new match with the same rules and the same participants, started straight from a finished one with
-**no lobby phase**, and with the player order switched so the other player begins.
+**no lobby phase**, and with the player order rotated by one so the next player begins. With two
+players that is the order reversed, which is all it ever used to be.
 
 A re-match is not a continuation and carries nothing over — not scores, not history, not who won. It
 is an ordinary new match that skips the lobby because everything a lobby would ask for is already
@@ -268,7 +330,11 @@ Leave, or by dropping the connection for longer than the reconnect grace period:
 - only the connection **holding** the place may do it, so a tab whose place was taken over cannot
   concede a match it is no longer in;
 - it counts as **declining** a [re-match](#re-match), and cannot be taken back by anyone;
-- if it was still being played, it ends — see [Match](#match).
+- a user leaving takes **every** player it holds with it;
+- the [rota](#who-throws-first) skips them from then on: they keep their cards and their score, and
+  simply never come up again;
+- if that leaves one player, the match ends and they win it; if it leaves none, or the match was
+  local, it is cancelled — see [Match](#match).
 
 ### Deadlines
 
@@ -360,13 +426,18 @@ else is the same whatever was played inside the legs.
 
 ### Who throws first
 
-The throw alternates every leg, **and every set alternates independently of how the last one ended**:
-the first player starts sets 1, 3, 5 and the second starts sets 2, 4, 6, whoever won what. A player
-who takes a set 3–1 — winning its last leg — still throws first in the next set.
+The throw moves along the roster every leg, **and every set carries on from where the legs left
+off, independently of how the last one ended**: with two players the first starts sets 1, 3, 5 and
+the second starts sets 2, 4, 6, whoever won what; with five it simply keeps going round. A player who
+takes a set 3–1 — winning its last leg — still throws first in the next set.
 
 Derived, not stored: `(setsPlayed + legsInCurrentSet) % playerCount`
-([`starterIndex`](../src/shared/matchFormat.ts)). `swap_players` in the lobby decides who is "first
-player" to begin with.
+([`starterIndex`](../src/shared/matchFormat.ts)). `reorder_player` in the lobby decides the order to
+begin with, and it is fixed from the moment the match starts.
+
+Within a leg the board passes to the **next player still in the match** (`nextActiveIndex` in
+[`match.ts`](../src/server/match.ts)) — [departed](#departed) players are stepped over, at the start
+of a leg as well as within one.
 
 ---
 
@@ -509,7 +580,7 @@ player and draws recent scoring as bars.
 ## x01 vocabulary
 
 **Everything below belongs to the x01 mode.** These words describe x01's rules, not the app's model.
-A different mode may have no equivalent — a mode where both players always throw the same number of
+A different mode may have no equivalent — a mode where every player always throws the same number of
 visits and nothing can be overthrown has no bust and no checkout, only "the mode decided who won".
 Do not use these terms in match-level, protocol-level or scoring-device-level code or prose.
 
@@ -928,7 +999,7 @@ During an in-progress online match, each owner addresses their nominated camera'
 and `spectator`, never `owner`. Each recipient accepts or declines independently and can change that
 choice from the board controls. Participants display accepted video only on the opponent's turn;
 spectators display the current player's accepted feed. A local match addresses its single shared
-board camera only to spectators, who display it for both players' turns. Declined, missing or
+board camera only to spectators, who display it for every player's turn. Declined, missing or
 three-seconds-stale video uncovers the virtual board. See [docs/media.md](./media.md#live-board-video).
 
 ### Audience
@@ -1066,5 +1137,5 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | --- | --- |
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
 | "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), the e2e specs |
-| `visitNumber` counts across the leg and both players, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
+| `visitNumber` counts across the leg and every player in it, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
 | The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` and are summarised, never replayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

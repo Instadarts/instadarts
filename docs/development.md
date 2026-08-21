@@ -231,6 +231,18 @@ another inside that project. `scorer-onboarding.spec.ts` then gets a one-file `o
 after `heavy`, because a project containing one file is the reliable way to make that particularly
 expensive self-test run alone.
 
+### Multi-context specs
+
+A user is a browser context, so a match of n users is n of them in one test. `nplayers.spec.ts` runs
+three, which is the same weight as `home.spec.ts`; `media-link.spec.ts` already ran four. Contexts
+are the CPU lever this section is about, so add them for a property that genuinely needs another
+user, and reuse the smallest arrangement that contains it.
+
+The `count-up` mode is what makes those specs possible: x01 and Whac-A-Mole cap themselves at two
+players, and `count-up` is installed only in development builds and under the test runner — see
+[docs/game-modes.md](./game-modes.md#the-development-only-mode). It shows up in the lobby's mode list
+when you `npm run dev`, and not on a deployed server.
+
 **Starving the suite of CPU is how intermittent failures get made, and not hypothetically.** A page
 that misses a heartbeat under load is cut by the server, and a scoring device that reconnects then
 walks the whole path this app takes most seriously — see `scoringContextId` above. The symptom lands

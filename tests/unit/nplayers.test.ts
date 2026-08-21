@@ -3,15 +3,15 @@ import type { WebSocket } from 'ws';
 import '../helpers';
 import '../../src/server/modes/count-up';
 import { handleMessage, registerClient } from '../../src/server/wsHandler';
-import { deleteLobby, deleteMatch, getLobby, getMatch, movePlayerInLobby, createRematch } from '../../src/server/store';
+import { getLobby, createRematch } from '../../src/server/store';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import { resetDeviceRegistry } from '../../src/server/devices';
-import { nextActiveIndex, addDartToMatch, submitVisitToMatch } from '../../src/server/match';
+import { nextActiveIndex } from '../../src/server/match';
 import { publicPlayers } from '../../src/server/connections';
-import { startMediaForMatch, userCountOf } from '../../src/server/media';
+import { heldSeat, revokeSeat } from '../../src/server/seats';
 import type { ServerMessage } from '../../src/shared/protocol';
-import type { MatchState, Player } from '../../src/shared/types';
-import { makeMatch } from '../helpers';
+import type { Player } from '../../src/shared/types';
+import { makeMatch, playVisit } from '../helpers';
 
 let sessionCounter = 0;
 
@@ -40,6 +40,17 @@ function connect() {
     all<T extends ServerMessage['type']>(type: T) {
       return received.filter((message) => message.type === type) as
         Extract<ServerMessage, { type: T }>[];
+    },
+    resumeToken() { return this.last('resume')?.token; },
+    spectator(): boolean | undefined {
+      for (let i = received.length - 1; i >= 0; i--) {
+        const m = received[i];
+        if ((m.type === 'lobby_state' || m.type === 'match_state' || m.type === 'match_started')
+          && m.youAreSpectator !== undefined) {
+          return m.youAreSpectator;
+        }
+      }
+      return undefined;
     },
     playerIds(): string[] {
       for (let i = received.length - 1; i >= 0; i--) {
@@ -215,6 +226,34 @@ describe('n-players turn rotation & leaver rule', () => {
   });
 });
 
+describe('a leg with five players', () => {
+  it('goes round the whole roster and ends when one of them gets there', () => {
+    // count-up, first to 200: five visits of T20 is 180, so nobody wins on the first lap and the
+    // rota has to come back round. The match layer is what is under test here — the rotation and
+    // the win — not the mode's arithmetic.
+    const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+    let match = makeMatch({
+      settings: { mode: 'count-up', targetScore: 200 } as never,
+      players: names.map((name, i) => ({ id: `p${i + 1}`, name, sessionId: `s${i + 1}` })),
+      isLocal: true,
+    });
+
+    const order: string[] = [];
+    for (let visit = 0; visit < 10 && match.status === 'in_progress'; visit++) {
+      const up = match.players[match.currentPlayerIndex];
+      order.push(up.name);
+      match = playVisit(match, up.id, ['T20', 'T20', 'T20']);
+    }
+
+    // One full lap in roster order, then round again — no player skipped, none taken twice.
+    expect(order.slice(0, 5)).toEqual(names);
+    expect(order[5]).toBe('Alice');
+    // Alice reaches 360 on her second visit and takes the leg, and with it the match.
+    expect(match.status).toBe('finished');
+    expect(match.winnerId).toBe('p1');
+  });
+});
+
 describe('n-players rematch rotation', () => {
   it('rotates players by one on rematch', () => {
     const p1: Player = { id: 'p1', name: 'Alice', sessionId: 's1' };
@@ -234,33 +273,153 @@ describe('n-players rematch rotation', () => {
   });
 });
 
-describe('n-players media activation', () => {
-  it('enables media mesh for 2 distinct users even with 4 players', () => {
-    const p1: Player = { id: 'p1', name: 'Alice', sessionId: 's1' };
-    const p2: Player = { id: 'p2', name: 'Carol', sessionId: 's1' };
-    const p3: Player = { id: 'p3', name: 'Bob', sessionId: 's2' };
-    const p4: Player = { id: 'p4', name: 'Dave', sessionId: 's2' };
+/**
+ * An online count-up lobby, one connection per user, each adding the names listed for it. count-up
+ * is the mode that takes more than two players, which is what every shape below needs.
+ */
+function onlineLobby(names: string[][]) {
+  const host = connect();
+  host.send({ type: 'create_lobby', isLocal: false });
+  const lobbyId = host.last('lobby_state')!.lobby.id;
+  host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
+  const users: ReturnType<typeof connect>[] = [];
+  for (const [index, mine] of names.entries()) {
+    const user = index === 0 ? host : connect();
+    if (index > 0) user.send({ type: 'join_lobby', lobbyId });
+    users.push(user);
+    for (const name of mine) user.send({ type: 'add_local_player', lobbyId, playerName: name });
+  }
+  return { host, users, lobbyId };
+}
 
-    const match = makeMatch({
-      isLocal: false,
-      players: [p1, p2, p3, p4],
-    });
+describe('who holds a player', () => {
+  it('the host kicks somebody else\'s player, and it is taken off the owner rather than the host', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice'], ['Bob', 'Dave']]);
+    const [, guest] = users;
+    const bob = getLobby(lobbyId)!.players.find((p) => p.name === 'Bob')!;
 
-    expect(userCountOf(match)).toBe(2);
-    // startMediaForMatch should not throw and should activate for 2 users
-    startMediaForMatch(match);
+    host.send({ type: 'remove_player', lobbyId, playerId: bob.id });
+
+    // Off the roster, off the owner's list, and off the owner's seat — the three places a player
+    // is held. Editing the remover's copies instead is what used to leave a ghost behind.
+    expect(getLobby(lobbyId)!.players.map((p) => p.name)).toEqual(['Alice', 'Dave']);
+    expect(guest.playerIds()).toEqual([getLobby(lobbyId)!.players[1].id]);
+    expect(heldSeat(lobbyId, guest.sessionId)!.seat.playerIds).toEqual([getLobby(lobbyId)!.players[1].id]);
+    // And the host still holds exactly what it held.
+    expect(host.playerIds()).toEqual([getLobby(lobbyId)!.players[0].id]);
   });
 
-  it('disables media mesh when userCount > 2', () => {
-    const p1: Player = { id: 'p1', name: 'Alice', sessionId: 's1' };
-    const p2: Player = { id: 'p2', name: 'Bob', sessionId: 's2' };
-    const p3: Player = { id: 'p3', name: 'Carol', sessionId: 's3' };
+  it('a user kicked down to nothing starts the match as a spectator, and is told so', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice', 'Carol'], ['Bob']]);
+    const [, guest] = users;
+    const bob = getLobby(lobbyId)!.players.find((p) => p.name === 'Bob')!;
 
-    const match = makeMatch({
-      isLocal: false,
-      players: [p1, p2, p3],
-    });
+    host.send({ type: 'remove_player', lobbyId, playerId: bob.id });
+    host.send({ type: 'start_match', lobbyId });
 
-    expect(userCountOf(match)).toBe(3);
+    const match = host.last('match_started')!.match;
+    expect(match.players.map((p) => p.name)).toEqual(['Alice', 'Carol']);
+    // No ghost: Bob is nowhere in the roster that just froze.
+    expect(match.players.some((p) => p.id === bob.id)).toBe(false);
+    // The guest is in the room but not in the match, and its own tab is told rather than left to
+    // work it out from a match that names nobody's role.
+    expect(guest.spectator()).toBe(true);
+    expect(host.spectator()).toBe(false);
+  });
+
+  it('a user who never added a player becomes a spectator at start', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice', 'Carol'], []]);
+    const [, watcher] = users;
+
+    host.send({ type: 'start_match', lobbyId });
+
+    expect(host.last('match_started')!.match.players).toHaveLength(2);
+    expect(watcher.spectator()).toBe(true);
+    // Seat given up with the place: a spectator cannot act on the match it is watching.
+    expect(heldSeat(host.last('match_started')!.match.id, watcher.sessionId)).toBeNull();
+  });
+
+  it('re-announcing a connection to its lobby keeps the players it already added', () => {
+    const { users, lobbyId } = onlineLobby([['Alice'], ['Bob']]);
+    const [, guest] = users;
+    const before = guest.playerIds();
+    expect(before).toHaveLength(1);
+
+    // A tab that lands on the join URL a second time is re-announcing itself, not arriving. Its
+    // players used to be orphaned here — left on the roster, owned by nobody.
+    guest.send({ type: 'join_lobby', lobbyId });
+
+    expect(guest.playerIds()).toEqual(before);
+    expect(heldSeat(lobbyId, guest.sessionId)!.seat.playerIds).toEqual(before);
+  });
+
+  it('drops a player no seat holds before the roster freezes', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice', 'Carol'], ['Bob']]);
+    const [, guest] = users;
+    // However an orphan came about — this is the shape of every way it can — the seat is the
+    // owner of record, so a player nobody holds does not get to play.
+    revokeSeat(lobbyId, guest.sessionId);
+
+    host.send({ type: 'start_match', lobbyId });
+
+    const match = host.last('match_started')!.match;
+    expect(match.players.map((p) => p.name)).toEqual(['Alice', 'Carol']);
+  });
+
+  it('keeps the players of a tab that is merely mid-reload', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice'], ['Bob']]);
+    const [, guest] = users;
+    const seat = heldSeat(lobbyId, guest.sessionId)!;
+
+    // The socket closed; within the grace the client record is what a reload replaces, but the
+    // seat is untouched — which is exactly why reconciling is asked of the seats.
+    guest.ws.readyState = 3 as unknown as typeof guest.ws.readyState;
+    const returning = connect();
+    returning.send({ type: 'reconnect', lobbyId, token: seat.token });
+
+    host.send({ type: 'start_match', lobbyId });
+    expect(host.last('match_started')!.match.players.map((p) => p.name)).toEqual(['Alice', 'Bob']);
+    expect(returning.spectator()).toBe(false);
+  });
+
+  it('brings back every player on a reloaded seat, not just the first', () => {
+    const { host, users, lobbyId } = onlineLobby([['Alice'], ['Bob', 'Dave']]);
+    const [, guest] = users;
+    host.send({ type: 'start_match', lobbyId });
+    const match = host.last('match_started')!.match;
+    const mine = guest.playerIds();
+    expect(mine).toHaveLength(2);
+
+    const returning = connect();
+    returning.send({ type: 'reconnect', matchId: match.id, token: guest.resumeToken() });
+
+    expect(returning.playerIds()).toEqual(mine);
+    expect(returning.spectator()).toBe(false);
+  });
+});
+
+describe('how many users a lobby takes', () => {
+  it('refuses a user who could never take a place', () => {
+    // x01 caps itself at two players, so it caps the lobby at two users: a third could only ever
+    // sit there unable to add anybody.
+    const host = connect();
+    host.send({ type: 'create_lobby', isLocal: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    const guest = connect();
+    guest.send({ type: 'join_lobby', lobbyId });
+
+    const third = connect();
+    third.send({ type: 'join_lobby', lobbyId });
+    expect(third.last('error')?.message).toBe('Lobby is full');
+    expect(guest.last('error')).toBeUndefined();
+  });
+
+  it('tells the lobby what its cap is and how many users are in it', () => {
+    const { host, lobbyId } = onlineLobby([['Alice'], ['Bob']]);
+    const lobby = host.last('lobby_state')!.lobby;
+    expect(lobby.id).toBe(lobbyId);
+    expect(lobby.maxPlayers).toBe(5);
+    expect(lobby.userCount).toBe(2);
   });
 });

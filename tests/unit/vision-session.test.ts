@@ -32,12 +32,13 @@ const S1 = polar(150_000, 18);
  * A live match plus a session watching it, wired the way the server wires them: the session
  * re-resolves the match every time, and commits replace it.
  */
-function harness(overrides: Partial<MatchState> = {}, ownerPlayerId: string | null = 'p1') {
+/** `owner` is the players the frontend behind these cameras controls; null is a local match. */
+function harness(overrides: Partial<MatchState> = {}, owner: string[] | null = ['p1']) {
   let match = makeMatch({ isLocal: true, ...overrides });
   const commits: MatchState[] = [];
   const session = new ScoringSession({
     getMatch: () => match,
-    ownerPlayerId,
+    ownerPlayerIds: owner,
     commit: (next) => {
       match = next;
       commits.push(next);
@@ -108,26 +109,33 @@ describe('ScoringSession — darts', () => {
 
 describe('ScoringSession — whose darts', () => {
   it('scores for whoever is up in a local match', () => {
-    const h = harness({ isLocal: true, currentPlayerIndex: 1 }, 'p1');
+    const h = harness({ isLocal: true, currentPlayerIndex: 1 }, null);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit?.playerId).toBe('p2');
   });
 
   it('scores for the owning player in an online match', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 0 }, 'p1');
+    const h = harness({ isLocal: false, currentPlayerIndex: 0 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit?.playerId).toBe('p1');
   });
 
+  it('scores for any of its own players, which is what a user holding two of them needs', () => {
+    // One board, two players on it: the camera watching it is the right camera for both turns.
+    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1', 'p2']);
+    h.see('cam-a', tip(T20));
+    expect(h.match.currentVisit?.playerId).toBe('p2');
+  });
+
   it('refuses to score in an online match when it is the opponent\'s turn', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, 'p1');
+    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit).toBeUndefined();
     expect(h.commits).toHaveLength(0);
   });
 
   it('still tracks a dart it was not allowed to score, so it is not offered later', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, 'p1');
+    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.session.trackedDarts).toBe(1);
   });

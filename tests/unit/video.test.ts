@@ -275,16 +275,36 @@ describe('live board selection', () => {
     expect(selectVideoFeed([shared], 'p1', null, false, true)).toBeNull();
   });
 
-  it('names feeds after their player and the shared local board after the first player', () => {
+  it('follows the thrower to their board, including a user\'s second player', () => {
+    // Alice and Carol share the host's board, so Carol's turn shows the feed published for it.
+    // Selecting on player id instead would leave the other side looking at a virtual board.
+    const feeds = [feed('p1'), feed('p3')];
+    expect(selectVideoFeed(feeds, 'p1', 'p3', false, false)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed(feeds, 'p1', 'p1', false, false)).toBeNull();
+    expect(selectVideoFeed(feeds, 'p3', 'p1', false, false)?.peerId).toBe('camera-p3');
+  });
+
+  it('names a board after everybody who throws at it', () => {
     const online = {
       isLocal: false,
-      players: [{ id: 'p1', name: 'Alice' }, { id: 'p2', name: 'Bob' }],
+      players: [
+        { id: 'p1', name: 'Alice', boardId: 'p1' },
+        { id: 'p2', name: 'Carol', boardId: 'p1' },
+        { id: 'p3', name: 'Bob', boardId: 'p3' },
+      ],
     };
-    expect(labelVideoFeedsForMatch([feed('p2')], online)[0].label).toBe('Bob');
+    // A noun phrase, because the label goes in front of "is offering a live video feed".
+    expect(labelVideoFeedsForMatch([feed('p1')], online)[0].label).toBe("Alice & Carol's board");
+    expect(labelVideoFeedsForMatch([feed('p3')], online)[0].label).toBe('Bob');
 
+    // The one shared local board is named after everybody on it, by the same rule.
     const shared = { ...feed('p2'), playerId: undefined };
     const local = { ...online, isLocal: true };
-    expect(labelVideoFeedsForMatch([shared], local)[0].label).toBe('Alice');
+    expect(labelVideoFeedsForMatch([shared], local)[0].label).toBe("Alice, Carol & Bob's board");
+
+    // Past a few names, listing them says less than not listing them.
+    const crowd = { ...local, players: [...local.players, { id: 'p4', name: 'Dave', boardId: 'p1' }] };
+    expect(labelVideoFeedsForMatch([shared], crowd)[0].label).toBe('the shared board');
   });
 });
 

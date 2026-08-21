@@ -8,6 +8,7 @@ import {
   MAX_ROOMS,
   MAX_USERS,
   MAX_USERS_PER_MATCH,
+  TYPICAL_USERS_PER_MATCH,
   canAcceptConnection,
   canAcceptDevice,
   canCreateLobby,
@@ -30,7 +31,7 @@ import '../helpers'; // registers the x01 mode
 describe('the derived model', () => {
   it('is whole numbers throughout', () => {
     for (const [name, value] of Object.entries({
-      MAX_MATCHES, MAX_ROOMS, MAX_USERS_PER_MATCH, MAX_USERS,
+      MAX_MATCHES, MAX_ROOMS, MAX_USERS_PER_MATCH, TYPICAL_USERS_PER_MATCH, MAX_USERS,
       DEVICES_PER_USER, MAX_DEVICE_CONNECTIONS, MAX_CONNECTIONS, MAX_DEVICE_RECORDS,
     })) {
       expect(Number.isInteger(value), `${name} = ${value}`).toBe(true);
@@ -40,7 +41,7 @@ describe('the derived model', () => {
 
   it('scales every limit from the one knob', () => {
     expect(MAX_ROOMS).toBe(MAX_MATCHES);
-    expect(MAX_USERS).toBe(2 * MAX_MATCHES);
+    expect(MAX_USERS).toBe(TYPICAL_USERS_PER_MATCH * MAX_MATCHES);
     expect(MAX_DEVICE_CONNECTIONS).toBe(3 * MAX_USERS);
     expect(MAX_CONNECTIONS).toBe(MAX_USERS + MAX_DEVICE_CONNECTIONS);
     expect(MAX_DEVICE_RECORDS).toBe(DEVICES_PER_USER * MAX_USERS);

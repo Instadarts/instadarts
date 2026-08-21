@@ -150,6 +150,29 @@ export function submitVisitToMatch(
 }
 
 /**
+ * How many users a match has — distinct owners among its players, which is the same number as how
+ * many **boards** are in play. A local match is one user holding every player, and so one board.
+ */
+export function userCountOf(match: MatchState): number {
+  return new Set(match.players.map((player) => player.sessionId)).size;
+}
+
+/**
+ * Whether this match gets a media mesh at all.
+ *
+ * A board belongs to a user, not to a player, and the mesh is built for at most two of them — which
+ * covers every shape that plays today: a local match of any size (one shared board), and an online
+ * match between two users however they split their players. A third user is a topology nobody has
+ * designed yet, and it gets no session rather than a broken one.
+ *
+ * Lives here rather than in media.ts so that the match layer and the wire agree on the answer by
+ * construction: `matchMessage` tells the screen why its video is missing out of this same function.
+ */
+export function meshEligible(match: MatchState): boolean {
+  return userCountOf(match) <= 2;
+}
+
+/**
  * What the game mode says to show for this match.
  *
  * Travels with every match message. An unknown mode still has to render something, so it gets an

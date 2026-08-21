@@ -141,8 +141,8 @@ export function createMatch(lobby: Lobby): MatchState {
 }
 
 /**
- * A re-match: the same rules and the same participants, with the order switched so the other player
- * begins.
+ * A re-match: the same rules and the same participants, with the order rotated by one so the next
+ * player begins. With two players that is the order reversed, which is all it ever used to be.
  *
  * Nothing else carries over — it is an ordinary new match that happens to skip the lobby, not a
  * continuation. Nothing anywhere needs to know it came from another match, which is why this

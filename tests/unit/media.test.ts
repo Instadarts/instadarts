@@ -7,6 +7,9 @@ import '../helpers';
 // The helpers register x01. Whac-A-Mole is installed the way a deployment installs it, because it
 // is the mode that declines board video and the only way to exercise a ban is to have one.
 import '../../src/server/modes/whac-a-mole';
+// And count-up, because it is the only installed mode that takes more than two players — which is
+// what a test about boards versus players needs.
+import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
@@ -28,7 +31,7 @@ function connect() {
     send: (raw: string) => received.push(JSON.parse(raw)),
   } as unknown as WebSocket;
   registerClient(ws, {
-    sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null,
+    sessionId, lobbyId: null, matchId: null, playerIds: [], isSpectator: false, deviceId: null,
   });
   openSockets.push(ws);
 
@@ -50,9 +53,8 @@ function connect() {
     playerId() {
       for (let index = received.length - 1; index >= 0; index--) {
         const message = received[index];
-        if (message.type === 'lobby_state' || message.type === 'match_state') {
-          if (message.yourPlayerIds?.[0]) return message.yourPlayerIds[0];
-          if ((message as any).yourPlayerId) return (message as any).yourPlayerId;
+        if ((message.type === 'lobby_state' || message.type === 'match_state') && message.yourPlayerIds?.[0]) {
+          return message.yourPlayerIds[0];
         }
       }
       return undefined;
@@ -91,6 +93,29 @@ function onlineLobby() {
   guest.send({ type: 'join_lobby', lobbyId, playerName: 'Bob' });
   guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
   return { host, guest, lobbyId };
+}
+
+/**
+ * An online count-up match, one connection per user, each adding the names listed for it. The mode
+ * matters: x01 caps itself at two players, and every shape worth testing here has more.
+ */
+function startBoards(names: string[][]) {
+  const host = connect();
+  host.send({ type: 'create_lobby', isLocal: false });
+  const lobbyId = host.last('lobby_state')!.lobby.id;
+  host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
+  const users = [host];
+  for (const [index, mine] of names.entries()) {
+    const user = index === 0 ? host : connect();
+    if (index > 0) { user.send({ type: 'join_lobby', lobbyId }); users.push(user); }
+    for (const name of mine) user.send({ type: 'add_local_player', lobbyId, playerName: name });
+  }
+  host.send({ type: 'start_match', lobbyId });
+  const match = host.last('match_started')!.match;
+  for (const user of users) {
+    user.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: null });
+  }
+  return { users, host, match };
 }
 
 function startOnline(options: {
@@ -138,6 +163,37 @@ describe('match-scoped lifetime and setup', () => {
     expect(camera.count('media_peers')).toBe(0);
     host.send({ type: 'media_signal', to: 'forged', description: { type: 'offer', sdp: 'v=0\r\n' } });
     expect(camera.count('media_signal')).toBe(0);
+  });
+
+  it('gives one slot per board, so a user holding two players still declares once', () => {
+    // Two users, three players: the host holds Alice and Carol at one board, the guest holds Bob at
+    // another. Slots are boards and not players — keyed per player, the third slot would wait for a
+    // declaration nothing can send and setup would never complete.
+    const { users, host, match } = startBoards([['Alice', 'Carol'], ['Bob']]);
+    const [, guest] = users;
+
+    expect(match.players).toHaveLength(3);
+    expect(host.last('media_peers')!.setupComplete).toBe(true);
+    expect(guest.last('media_peers')!.setupComplete).toBe(true);
+    expect(entryFor(host, guest)).toBeDefined();
+    expect(host.last('match_started')!.mediaDisabled).toBe(false);
+
+    // Alice and Carol answer to the host's board; Bob is his own.
+    const [alice, carol, bob] = match.players;
+    expect(carol.boardId).toBe(alice.id);
+    expect(alice.boardId).toBe(alice.id);
+    expect(bob.boardId).toBe(bob.id);
+  });
+
+  it('creates no session at all once a third board is in play', () => {
+    const { users, host, match } = startBoards([['Alice'], ['Bob'], ['Carol']]);
+
+    expect(match.players).toHaveLength(3);
+    // Not a roster with nobody in it — no peer identity was ever minted, which is the same state a
+    // deployment with media switched off produces.
+    for (const user of users) expect(user.count('media_peers')).toBe(0);
+    // And the screen is told why, or missing video reads as a fault.
+    expect(host.last('match_started')!.mediaDisabled).toBe(true);
   });
 
   it('waits for every participant declaration, with disabled counting and spectators excluded', () => {

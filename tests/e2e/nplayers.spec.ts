@@ -45,6 +45,41 @@ test.describe('N-players matches', () => {
     await expect(page.locator('[data-player="Alice"]').locator('text=▶ throwing')).toBeVisible();
   });
 
+  test('three users get a match but no video mesh', async ({ browser }) => {
+    // A third board is a topology the mesh was never built for, so the server creates no session at
+    // all — and the screen says so, or missing video reads as a fault rather than as a decision.
+    const contexts = await Promise.all([0, 1, 2].map(() => browser.newContext()));
+    const [host, second, third] = await Promise.all(contexts.map((ctx) => ctx.newPage()));
+
+    await host.goto('/');
+    await host.click('text=Online Match');
+    await host.getByLabel('Game').selectOption('count-up');
+    await host.fill('input[placeholder="New player name"]', 'Alice');
+    await host.click('button:has-text("Add")');
+
+    const code = (await host.locator('code').textContent())!.trim();
+    for (const [page, name] of [[second, 'Bob'], [third, 'Carol']] as const) {
+      await page.goto(`/lobby/join/${code}`);
+      await page.fill('input[placeholder="New player name"]', name);
+      await page.click('button:has-text("Add")');
+      await expect(page.getByText(name, { exact: true })).toBeVisible();
+    }
+    // Three of a possible five, counted by the lobby itself.
+    await expect(host.getByText('3/5', { exact: true })).toBeVisible();
+
+    await host.click('text=Start Match');
+    await Promise.all([host, second, third].map((page) => page.waitForURL('**/match/**')));
+
+    for (const page of [host, second, third]) {
+      await expect(page.locator('[data-player="Alice"]')).toBeVisible();
+      await expect(page.locator('[data-player="Bob"]')).toBeVisible();
+      await expect(page.locator('[data-player="Carol"]')).toBeVisible();
+      await expect(page.locator('text=video off — more than two boards')).toBeVisible();
+    }
+
+    await Promise.all(contexts.map((ctx) => ctx.close()));
+  });
+
   test('multi-player per online user with leaver rules', async ({ browser }) => {
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();

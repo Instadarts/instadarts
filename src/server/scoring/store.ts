@@ -1,9 +1,13 @@
-// Which scoring session belongs to which player of which match.
+// Which scoring session belongs to which board of which match.
 //
-// Keyed by (matchId, ownerPlayerId), not by matchId alone. In an online match the two players stand
-// at two different boards with two different cameras: one shared session would let one player's
-// empty board submit the other's visit, and would repeat-filter one player's tips against the
-// other's darts. A local match has one board and one frontend, so it has one session.
+// Keyed by (matchId, board), not by matchId alone. In an online match the users stand at different
+// boards with different cameras: one shared session would let one board submit another's visit, and
+// would repeat-filter one board's tips against another's darts. A local match has one board and one
+// frontend, so it has one session.
+//
+// A board is named by the first player its user added, which is also how `Player.boardId` names it:
+// a user holding two players has one camera watching one board, and therefore one session serving
+// both of their turns.
 //
 // Not keyed by the owning socket either — a frontend reload must not lose the record of which
 // darts are already physically in the board, or they would all be counted a second time.
@@ -16,22 +20,23 @@ import { ScoringSession } from './session';
 const sessions = new Map<string, ScoringSession>();
 
 /**
- * The stable identity of one board's scoring context.
+ * The stable identity of one board's scoring context. `boardId` is null for a local match's single
+ * shared board.
  *
  * Also sent to scoring devices so they can tell a reconnect to this same context from a new match
  * without being given any of the match itself.
  */
-function sessionKey(matchId: string, ownerPlayerId: string | null): string {
-  return `${matchId}::${ownerPlayerId ?? ''}`;
+function sessionKey(matchId: string, boardId: string | null): string {
+  return `${matchId}::${boardId ?? ''}`;
 }
 
 /** Public identity of that key, without exposing either server-side identifier to the device. */
-export function scoringContextId(matchId: string, ownerPlayerId: string | null): string {
-  return createHash('sha256').update(sessionKey(matchId, ownerPlayerId)).digest('base64url');
+export function scoringContextId(matchId: string, boardId: string | null): string {
+  return createHash('sha256').update(sessionKey(matchId, boardId)).digest('base64url');
 }
 
 /**
- * The session for this player of this match, created on first use.
+ * The session for this board of this match, created on first use.
  *
  * `commit` is supplied by the caller rather than imported, because persisting and broadcasting a
  * match is the transport layer's job and this module should not know how that is done.
@@ -41,8 +46,9 @@ export function getScoringSession(
   ownerPlayerIds: string[] | null,
   commit: (match: MatchState) => void,
 ): ScoringSession {
-  const primaryId = ownerPlayerIds?.[0] ?? null;
-  const key = sessionKey(matchId, primaryId);
+  // The board these players share, named the same way `Player.boardId` names it — the first player
+  // the user added. Null is a local match: one board for everyone.
+  const key = sessionKey(matchId, ownerPlayerIds?.[0] ?? null);
   let session = sessions.get(key);
   if (!session) {
     session = new ScoringSession({

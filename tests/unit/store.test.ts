@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../helpers'; // installs the x01 game mode
-import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
+// count-up declares no player cap of its own, which is the only way to see the deployment's.
+import '../../src/server/modes/count-up';
+import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, movePlayerInLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {
   beforeEach(() => {
@@ -21,7 +23,7 @@ describe('Store', () => {
 
     it('adds player to lobby', () => {
       const lobby = createLobby();
-      const updated = addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
+      const updated = addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
       expect(updated).not.toBeNull();
       expect(updated!.players).toHaveLength(1);
       expect(updated!.players[0].name).toBe('Alice');
@@ -29,18 +31,49 @@ describe('Store', () => {
 
     it('adds second player to lobby', () => {
       const lobby = createLobby();
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
-      const updated = addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: true });
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
+      const updated = addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob' });
       expect(updated).not.toBeNull();
       expect(updated!.players).toHaveLength(2);
     });
 
-    it('rejects third player', () => {
+    it('refuses a player past the cap, which a new lobby takes from x01', () => {
+      // A lobby starts on x01, and x01 declares two — so the cap a new lobby enforces is the mode's
+      // rather than the deployment's five.
       const lobby = createLobby();
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: true });
-      const result = addPlayerToLobby(lobby.id, { id: 'p3', name: 'Charlie', isRemote: true });
-      expect(result).toBeNull();
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob' });
+      expect(lobby.players).toHaveLength(2);
+      expect(addPlayerToLobby(lobby.id, { id: 'p3', name: 'Charlie' })).toBeNull();
+    });
+
+    it('takes the deployment cap where the mode declares none', () => {
+      const lobby = createLobby();
+      lobby.settings = { ...lobby.settings, mode: 'count-up' };
+      for (let i = 1; i <= 5; i++) {
+        expect(addPlayerToLobby(lobby.id, { id: `p${i}`, name: `P${i}` })).not.toBeNull();
+      }
+      expect(addPlayerToLobby(lobby.id, { id: 'p6', name: 'P6' })).toBeNull();
+    });
+
+    it('moves a player up and down the order, and no further than the ends', () => {
+      const lobby = createLobby();
+      lobby.settings = { ...lobby.settings, mode: 'count-up' };
+      for (const [id, name] of [['p1', 'Alice'], ['p2', 'Bob'], ['p3', 'Carol']]) {
+        addPlayerToLobby(lobby.id, { id, name });
+      }
+      const names = () => getLobby(lobby.id)!.players.map((p) => p.name);
+
+      expect(movePlayerInLobby(lobby.id, 'p3', 'up')).not.toBeNull();
+      expect(names()).toEqual(['Alice', 'Carol', 'Bob']);
+      expect(movePlayerInLobby(lobby.id, 'p3', 'down')).not.toBeNull();
+      expect(names()).toEqual(['Alice', 'Bob', 'Carol']);
+
+      // At an end there is nowhere to go, and saying so is a no-op rather than an error.
+      expect(movePlayerInLobby(lobby.id, 'p1', 'up')).toBeNull();
+      expect(movePlayerInLobby(lobby.id, 'p3', 'down')).toBeNull();
+      expect(movePlayerInLobby(lobby.id, 'nobody', 'up')).toBeNull();
+      expect(names()).toEqual(['Alice', 'Bob', 'Carol']);
     });
 
     it('finds lobby by invite code', () => {
@@ -61,8 +94,8 @@ describe('Store', () => {
   describe('matches', () => {
     it('creates a match from a lobby', () => {
       const lobby = createLobby();
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', isRemote: false });
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
+      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob' });
       const match = createMatch(lobby);
 
       expect(match.id).toBeTruthy();
@@ -76,7 +109,7 @@ describe('Store', () => {
 
     it('gets and updates a match', () => {
       const lobby = createLobby();
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', isRemote: false });
+      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
       const match = createMatch(lobby);
 
       const found = getMatch(match.id);
@@ -132,18 +165,14 @@ describe('Store', () => {
 
     it('non-host leaving lobby: player removed, lobby still exists', () => {
       const lobby = createLobby();
-      lobby.remoteConnected = true;
       addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 'host' });
       addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 'joiner' });
 
-      // Simulate joiner (p2) leaves: remove player, set remoteConnected false
       const updated = removePlayerFromLobby(lobby.id, 'p2');
       expect(updated).not.toBeNull();
-      expect(updated!.players).toHaveLength(1);
-      lobby.remoteConnected = false;
-
+      expect(updated!.players.map((p) => p.name)).toEqual(['Alice']);
+      // The lobby outlives a guest: only the host leaving abandons it.
       expect(getLobby(lobby.id)).toBeDefined();
-      expect(lobby.remoteConnected).toBe(false);
     });
   });
 });

@@ -14,6 +14,7 @@ import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 import { allClients, getClient, send } from './connections';
 import { ownerOf, setDeviceMediaTier } from './devices';
 import { getMatch } from './store';
+import { meshEligible } from './match';
 import { getMode } from './modes/types';
 import { publishDevicesState } from './scoringDevices';
 import { startStunServer } from './stun';
@@ -81,10 +82,6 @@ function blankSource(): SourceSlot {
   return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null };
 }
 
-export function userCountOf(match: MatchState): number {
-  return new Set(match.players.map((p) => p.sessionId)).size;
-}
-
 function boardSlotsOf(match: MatchState): string[] {
   const seen = new Set<string>();
   const slots: string[] = [];
@@ -101,7 +98,9 @@ function boardSlotsOf(match: MatchState): string[] {
 export function startMediaForMatch(match: MatchState): void {
   if (!MEDIA_ENABLED || match.status !== 'in_progress') return;
   finishMediaForMatch(match.id);
-  if (userCountOf(match) > 2) return;
+  // More than two boards is a mesh nobody has designed. No session at all is a state every client
+  // path already handles — it is what a deployment with media switched off produces.
+  if (!meshEligible(match)) return;
   const slotList = match.isLocal ? [LOCAL_SLOT] : boardSlotsOf(match);
   const slots = new Set(slotList);
   sessions.set(match.id, {

@@ -68,7 +68,7 @@ interface GameMode {
   readonly defaults: ModeSettings;  // ─┐ its settings, declared here and nowhere else
   readonly fields: SettingsField[]; // ─┘
 
-  /** Maximum number of players supported (e.g. 2 for x01). Omitted or null means server max (default 5). */
+  /** The most players its rules take. Omitted means none of its own — see "Limiting the player count". */
   readonly maxPlayers?: number;
 
   /** Media features this mode does not want. Omitted means none — see "Declining a media feature". */
@@ -111,8 +111,9 @@ Deliberately **not** in the contract:
 - **Any way to end the match.** A mode reports `legWinnerId`; the match layer decides what that means
   for the set and the match. A mode never writes `status`, `winnerId`, `finishedAt` or
   `currentPlayerIndex`.
-- **Turn advancement.** A visit is exactly one player's turn, and the board passes to the other
-  player when the visit is submitted. That is universal, so the match layer does it.
+- **Turn advancement.** A visit is exactly one player's turn, and the board passes to the next
+  player still in the match when the visit is submitted — round the roster, stepping over anyone who
+  has left. That is universal, so the match layer does it.
 
 ### Locked ≠ ended
 
@@ -209,6 +210,37 @@ Where each ban bites, and why they differ:
 | --- | --- | --- |
 | `boardVideo` | on the **server** | `syncSource` in [`server/media.ts`](../src/server/media.ts) withholds the active `media_source_state`, so the camera never mints a feed id and never offers. The device keeps its place in every roster, which is what leaves stills, director commands and the owner's link working — refusing it in `planFor` instead would take all of those with it. The frontend also declines, which with the directive withheld is belt and braces. |
 | `dartEvidence` | on the **client** | A still request is one peer asking another and never reaches the server, so there is nothing there to refuse. `useDartEvidence` takes an `enabled` option that gates the asking and the strip together. |
+
+---
+
+## Limiting the player count
+
+The same shape as a media ban, for the same reason: a mode says one thing about itself, and
+something else acts on it.
+
+```ts
+readonly maxPlayers?: number;   // x01 and Whac-A-Mole both say 2
+```
+
+**It is a fact about the mode's rules, not a setting.** x01 and Whac-A-Mole declare 2 because their
+rules were written for two players and have not been migrated; a mode written for any number simply
+leaves it out. Declaring it is not knowing that lobbies, users or connections exist — the same
+discipline as `fields` and `bansMedia`.
+
+**A mode narrows; it never widens.** The deployment's `server.maxPlayersPerMatch` (default 5) is the
+ceiling, and `effectiveMaxPlayers(serverMax, modeMax)` in
+[`shared/settings.ts`](../src/shared/settings.ts) is the smaller of the two. `describeMode` turns an
+absent declaration into `null`, so no consumer has to tell "no limit" from "did not say", and both
+sides of the wire ask through the same function — the lobby cannot offer a place the server would
+refuse. It **fails open**: a mode this build does not have imposes nothing.
+
+Because the cap is the mode's, it moves when the mode does. Switching a lobby to a mode that takes
+fewer players than are already in it is **refused**, and the message names the mode:
+
+> x01 takes at most 2 players
+
+Refusing beats allowing it and blocking Start later — the person changing the mode is the person who
+can undo it, and telling them then is the only moment that is true.
 
 ---
 
@@ -362,6 +394,21 @@ Two consequences worth knowing:
   without it. The symptom is a mode missing from the lobby, not an error at boot.
 - **x01 is mandatory.** It is the default a new lobby starts on, and `loadModes` refuses to start a
   server that does not have it registered.
+
+### The development-only mode
+
+`count-up` is installed in development builds and in the test runner, and **not in production**:
+`registry.ts` imports it behind `IS_DEV`, the same switch that hides x01's `stats` field. Expect to
+see it in the lobby under `npm run dev` and not on a deployed server.
+
+It exists because x01 and Whac-A-Mole both cap themselves at two players
+([Limiting the player count](#limiting-the-player-count)), so without it nothing could exercise a
+match of three or more — or a mode that declares no cap at all. Its rules are the least that can be
+a mode: every dart adds its face value, first to `targetScore` takes the leg, no busts and no
+finishing rule. Keeping it out of production is what lets it stay that thin.
+
+It is the one exception to "a mode is a file plus one line": the line is conditional. Anything else
+about it is an ordinary mode.
 
 ### Writing one
 

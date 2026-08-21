@@ -13,7 +13,7 @@ import type { ServerMessage } from '../shared/protocol';
 import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
-import { panelOf, viewOf } from './match';
+import { meshEligible, panelOf, viewOf } from './match';
 import { CONFIG } from './config';
 import { getMode } from './modes/types';
 import { effectiveMaxPlayers } from '../shared/settings';
@@ -94,14 +94,20 @@ export function findSessionSocket(sessionId: string): WebSocket | null {
 export function matchMessage<T extends 'match_state' | 'match_started' | 'match_finished'>(
   type: T,
   match: MatchState,
-  yourPlayerIds?: string[],
+  you?: { playerIds?: string[]; spectator?: boolean },
 ) {
   return {
     type,
     match: { ...match, players: publicPlayers(match.players) },
     view: viewOf(match),
     panel: panelOf(match),
-    yourPlayerIds,
+    yourPlayerIds: you?.playerIds,
+    // Why there is no video, told to everyone rather than addressed: it is a fact about the match's
+    // shape, not about the recipient. Silence would be indistinguishable from a mesh that failed.
+    mediaDisabled: !meshEligible(match),
+    // Addressed either way — `false` is as much an answer as `true`. Passing no `you` at all is
+    // what makes a message a broadcast, and a broadcast settles nothing about anybody.
+    youAreSpectator: you ? you.spectator ?? false : undefined,
   };
 }
 
@@ -116,7 +122,10 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * Omitting `you` is what makes a message a broadcast: it then answers neither question, and a client
  * holding an answer already keeps it.
  */
-export function lobbyMessage(lobby: Lobby, you?: { playerIds?: string[]; host: boolean }): ServerMessage {
+export function lobbyMessage(
+  lobby: Lobby,
+  you?: { playerIds?: string[]; host: boolean; spectator?: boolean },
+): ServerMessage {
   let userCount = 0;
   for (const [, client] of clients) {
     if (client.lobbyId === lobby.id && !client.isSpectator && !client.deviceId) {
@@ -129,6 +138,7 @@ export function lobbyMessage(lobby: Lobby, you?: { playerIds?: string[]; host: b
     lobby: { ...lobby, maxPlayers, userCount, players: publicPlayers(lobby.players), hostSessionId: undefined },
     yourPlayerIds: you?.playerIds,
     youAreHost: you?.host,
+    youAreSpectator: you ? you.spectator ?? false : undefined,
   };
 }
 
@@ -141,8 +151,13 @@ export function lobbyMessage(lobby: Lobby, you?: { playerIds?: string[]; host: b
  */
 export function publicPlayers(players: Player[]): Player[] {
   return players.map((player) => {
-    const boardId = (player.sessionId ? players.find((p) => p.sessionId === player.sessionId)?.id : undefined) ?? players[0]?.id ?? player.id;
+    // The first player of this player's user, in roster order. A player with no owner recorded is
+    // its own board rather than joining player one's: guessing a shared camera is worse than
+    // admitting there is none.
+    const owner = player.sessionId
+      ? players.find((p) => p.sessionId === player.sessionId)?.id
+      : undefined;
     const { sessionId: _owner, ...rest } = player;
-    return { ...rest, boardId };
+    return { ...rest, boardId: owner ?? player.id };
   });
 }

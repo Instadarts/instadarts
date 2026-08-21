@@ -30,7 +30,7 @@ function connect() {
     send: (raw: string) => received.push(JSON.parse(raw)),
   } as unknown as WebSocket;
 
-  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerId: null, isSpectator: false, deviceId: null });
+  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerIds: [], isSpectator: false, deviceId: null });
   openSockets.push(ws);
 
   return {
@@ -161,11 +161,16 @@ describe('a device learning whether it is wanted', () => {
   it('is not scoring for a spectator, however many matches are running', () => {
     // A spectator with a paired camera must not become a scorer, and must not be told to power one
     // up for a match that will never take its tips.
+    // An online match, which is where the question has teeth: a local one scores for whoever is up
+    // and never consults an owner at all, so it could not tell a spectator from a player.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: true });
-    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    host.send({ type: 'create_lobby', isLocal: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
-    host.send({ type: 'start_match' });
+    host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    const guest = connect();
+    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
+    host.send({ type: 'start_match', lobbyId });
     const matchId = host.last('match_started')!.match.id;
 
     const watcher = connect();

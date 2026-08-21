@@ -9,10 +9,25 @@ peer and never receives an image, encoded frame, consent choice, or private came
 
 ## Ownership and lifetime
 
-At match start the server creates a private `MatchMediaSession` with a fresh `meshId`. Online source
-slots are keyed by the first player ID of each distinct user board. A local match has one shared-board slot.
-Video mesh activation is enabled for matches with $\le 2$ distinct users (whether 1v1, 2v1, 2v2 on 2 boards, or local).
-Matches with $> 2$ distinct users disable the video mesh. This state is not part of public `MatchState`.
+At match start the server creates a private `MatchMediaSession` with a fresh `meshId`. This state is
+not part of public `MatchState`.
+
+**A source slot is a board, and a board belongs to a user.** Online slots are keyed by the id of the
+first player each user added, so two players one user brought share a slot and that user declares
+once for both. A local match is the same rule at its extreme: one user, one shared-board slot, every
+player on it.
+
+**The mesh is built for at most two boards**, which covers every shape that plays: a local match of
+any size, and an online match between two users however they split their players between them —
+one each, or two and one, or two and two. The peers are the same in each case, because the peers are
+the frontends and their cameras rather than the players.
+
+A match with a third board gets **no session at all**: `startMediaForMatch` returns without creating
+one, which is the state a deployment with `media.enabled: false` already produces, so every client
+path handles it. It is not a mesh with nobody in it — no peer identity is ever minted. The match
+messages carry `mediaDisabled` so the screen can say why, and the frontend does not announce itself
+into a session that is never coming. An n-board mesh is a topology nobody has designed; this is where
+that decision would be made.
 
 Each frontend declares its current choice after it receives a running match:
 
@@ -71,7 +86,7 @@ The normal online topology is:
 
 - participant frontend ↔ participant frontend;
 - selected board device ↔ its owner;
-- selected board device ↔ the opponent;
+- selected board device ↔ every frontend at another board;
 - spectator ↔ participant frontends and selected devices;
 - never device ↔ device or spectator ↔ spectator.
 

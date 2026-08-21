@@ -29,10 +29,27 @@ export const MAX_MATCHES = CONFIG.server.maxMatches;
  */
 export const MAX_ROOMS = MAX_MATCHES;
 
-/** A match can hold at most as many users as it can hold players — each brings at least one. */
+/**
+ * The most users one match can hold: a user brings at least one player, so the player cap caps them
+ * too. A deployment ceiling, like every other figure here — a game mode narrowing itself to two
+ * players narrows its lobbies to two users with it, and that is the mode's business rather than the
+ * server's.
+ */
 export const MAX_USERS_PER_MATCH = CONFIG.server.maxPlayersPerMatch;
-/** What a match actually has. Sizes the connection budget, like TYPICAL_DEVICES_PER_USER does. */
-const TYPICAL_USERS_PER_MATCH = 2;
+
+/**
+ * What a match is expected to actually have. Sizes the connection budget on the typical figure
+ * rather than the maximum, exactly as TYPICAL_DEVICES_PER_USER does: every match on the server
+ * being a five-hander at once is not a deployment, it is an attack.
+ */
+export const TYPICAL_USERS_PER_MATCH = 2;
+
+/**
+ * Frontend connections. Spectators count: an audience is uncapped per match by design, so it is
+ * this budget they spend from, and this is the limit a busy server actually reaches.
+ *
+ * **Refused**, as part of MAX_CONNECTIONS.
+ */
 export const MAX_USERS = TYPICAL_USERS_PER_MATCH * MAX_MATCHES;
 
 /**

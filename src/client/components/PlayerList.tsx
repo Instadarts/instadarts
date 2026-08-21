@@ -38,6 +38,8 @@ export function PlayerList({
   const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
 
   const canAdd = players.length < maxPlayers;
+  /** A local lobby's players are all this user's; online, only the ones it added. */
+  const isMine = (playerId: string) => mode === 'local' || ownPlayerIds.includes(playerId);
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
   const handleAdd = () => {
@@ -89,11 +91,13 @@ export function PlayerList({
             </div>
           )}
 
-          {!isSpectator && (mode === 'local' || ownPlayerIds.includes(p.id)) && (
+          {!isSpectator && (isMine(p.id) || isCreator) && (
             <button
               onClick={() => onRemove(p.id)}
               className="text-red-400 hover:text-red-300 text-sm px-1 ml-1"
-              title="Remove player"
+              /* Taking somebody else's player off the roster is a kick, not tidying your own
+                 list, and the two should not read the same. */
+              title={isMine(p.id) ? 'Remove player' : 'Kick player'}
             >
               ✕
             </button>

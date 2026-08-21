@@ -14,6 +14,11 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [match, setMatch] = useState<MatchState | null>(null);
   const [view, setView] = useState<ModeView | null>(null);
   const [panel, setPanel] = useState<ModePanel | undefined>(undefined);
+  /**
+   * This match has no media mesh because of its own shape — more than two boards. Told by the
+   * server rather than worked out here, so "how many boards is too many" is stated once.
+   */
+  const [mediaDisabled, setMediaDisabled] = useState(false);
   /** What this deployment can play. Sent once on connect; the lobby is built from it. */
   const [modes, setModes] = useState<ModeDescriptor[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +57,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         // Addressed either way — `false` is as much an answer as `true`, and only a broadcast leaves
         // the question alone.
         if (msg.youAreHost !== undefined) setIsHost(msg.youAreHost);
+        if (msg.youAreSpectator !== undefined) setIsSpectator(msg.youAreSpectator);
         break;
       case 'mode_catalog':
         setModes(msg.modes);
@@ -61,15 +67,20 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setMatch(msg.match);
         setView(msg.view);
         setPanel(msg.panel);
+        setMediaDisabled(Boolean(msg.mediaDisabled));
         setLobby(null);
         // Only a reply to this connection carries one, and it is how a reloaded tab learns which
         // players are its own — the match itself no longer says who anybody belongs to.
         if (msg.yourPlayerIds !== undefined) setOwnPlayerIds(msg.yourPlayerIds);
+        // And whether it is playing at all: a user who never added a player is taken out of the
+        // roster when the match starts, and this is the only thing that tells its tab so.
+        if (msg.youAreSpectator !== undefined) setIsSpectator(msg.youAreSpectator);
         break;
       case 'match_finished':
         setMatch(msg.match);
         setView(msg.view);
         setPanel(msg.panel);
+        setMediaDisabled(Boolean(msg.mediaDisabled));
         clearReconnectInfo();
         break;
       // Another tab took this one's place — duplicating a tab copies the token that holds it. The
@@ -81,6 +92,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setMatch(null);
         setView(null);
         setPanel(undefined);
+        setMediaDisabled(false);
         setOwnPlayerIds([]);
         setIsSpectator(false);
         setIsHost(false);
@@ -92,6 +104,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setMatch(null);
         setView(null);
         setPanel(undefined);
+        setMediaDisabled(false);
         setOwnPlayerIds([]);
         setIsSpectator(false);
         setIsHost(false);
@@ -164,6 +177,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setMatch(null);
     setView(null);
     setLobby(null);
+    setMediaDisabled(false);
     setOwnPlayerIds([]);
     setIsSpectator(false);
     setIsHost(false);
@@ -191,6 +205,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     match,
     view,
     panel,
+    mediaDisabled,
     modes,
     error,
     notice,
@@ -200,7 +215,6 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     roomGeneration,
     send,
     ownPlayerIds,
-    ownPlayerId: ownPlayerIds[0] ?? null,
     isSpectator,
     isHost,
     createLobby,

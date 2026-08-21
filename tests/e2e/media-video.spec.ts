@@ -726,13 +726,15 @@ test.describe('board video', () => {
     const watchingContext = await browser.newContext();
     const watcher = await watchingContext.newPage();
     await watcher.goto(`/spectate/${matchId}?e2e=1`);
-    await acceptOffer(watcher, 'Alice');
+    // One physical board with both of them at it, so it is named as a board rather than as a
+    // person — and the name does not change when the board is handed over.
+    await acceptOffer(watcher, "Alice & Bob's board");
     await expect.poll(() => published(scorer.page), { timeout: 20_000 }).not.toBeNull();
     await expect(watcher.getByTestId('live-board-feed')).toBeVisible({ timeout: 20_000 });
 
     const [shared] = await watching(watcher);
     expect(shared.playerId).toBeUndefined();
-    expect(shared.label).toBe('Alice');
+    expect(shared.label).toBe("Alice & Bob's board");
     const sharedFeedId = shared.feedId;
 
     // Alice hands the shared physical board to Bob. The spectator keeps the same unassigned feed;

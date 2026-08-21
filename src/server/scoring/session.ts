@@ -49,9 +49,7 @@ export interface ScoringSessionOptions {
   /** The match these cameras are watching, or null once it is gone. Re-resolved on every use. */
   getMatch: () => MatchState | null;
   /** Which players the owning frontend controls. Ignored in a local match, where it scores for whoever is up. */
-  ownerPlayerIds?: string[] | null;
-  /** Deprecated single-player alias for tests/backwards-compatibility. */
-  ownerPlayerId?: string | null;
+  ownerPlayerIds: string[] | null;
   /** Persist and broadcast a mutated match. */
   commit: (match: MatchState) => void;
 }
@@ -257,8 +255,7 @@ export class ScoringSession {
     const current = match.players[match.currentPlayerIndex];
     if (!current) return null;
     if (match.isLocal) return current.id;
-    const ids = this.opts.ownerPlayerIds ?? (this.opts.ownerPlayerId ? [this.opts.ownerPlayerId] : []);
-    return ids.includes(current.id) ? current.id : null;
+    return this.opts.ownerPlayerIds?.includes(current.id) ? current.id : null;
   }
 
   /**

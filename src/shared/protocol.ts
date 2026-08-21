@@ -331,6 +331,15 @@ export interface LobbyStateMessage {
    * mean "this is about you", while a broadcast carries no field at all and settles nothing.
    */
   youAreHost?: boolean;
+  /**
+   * Whether the receiving connection is watching rather than playing. Addressed like `youAreHost`,
+   * and for the same reason: a connection cannot work it out from a room that names nobody's role.
+   *
+   * The case it exists for is the one that has no other signal — a user who sat in a lobby without
+   * adding a player is taken out of the roster when the match starts, and would otherwise be handed
+   * a playable screen it is not allowed to touch.
+   */
+  youAreSpectator?: boolean;
 }
 
 /**
@@ -362,6 +371,14 @@ export interface MatchStateMessage {
    * players themselves.
    */
   yourPlayerIds?: string[];
+  /** Whether this connection is watching rather than playing. See `LobbyStateMessage`. */
+  youAreSpectator?: boolean;
+  /**
+   * This match's own shape has no media mesh — more than two boards are in play. Distinct from a
+   * deployment with media switched off, which the client already knows from `app_config`, and from
+   * a mesh that is merely still setting up. Without it, a match with no video looks broken.
+   */
+  mediaDisabled?: boolean;
 }
 
 export interface ErrorMessage {

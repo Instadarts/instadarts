@@ -510,7 +510,7 @@ function verdictFor(ctx: LegContext): StyledText | null {
 
   const { visit, legWinnerId } = x01.finalizeVisit(ctx);
   if (visit.voided) return { text: 'Bust!', tone: 'danger', size: '3xl' };
-  if (legWinnerId) return { text: 'Checkout!', tone: 'warning', size: '3xl' };
+  if (legWinnerId) return { text: 'Checkout!', tone: 'warning', size: '2xl' };
   return null;
 }
 

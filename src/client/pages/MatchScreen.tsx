@@ -295,7 +295,7 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
   const standings = standingsOf(match.legs, match.settings);
 
   return (
-    <div className="flex flex-wrap justify-center gap-2 sm:gap-8 w-full">
+    <div className="flex flex-wrap justify-center gap-2 w-full">
       {match.players.map((player, i) => {
         const isCurrent = !over && i === match.currentPlayerIndex;
         const isDeparted = match.departed.includes(player.id);
@@ -332,7 +332,7 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
                   className={modeTextClasses(
                     score,
                     { tone: isCurrent ? 'accent' : 'default', size: '4xl', weight: 'bold' },
-                    'font-mono',
+                    'font-mono overflow-hidden',
                   )}
                 >
                   {textOf(score)}

@@ -94,7 +94,6 @@ interface RunView {
   maxScore: number;
   stats: {
     whacked: number;
-    escaped: number;
     perfectVisits: number;
     holes: number;
     rescued: number;

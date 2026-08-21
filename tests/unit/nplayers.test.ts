@@ -14,15 +14,8 @@ import type { ServerMessage } from '../../src/shared/protocol';
 import type { Player } from '../../src/shared/types';
 import { makeMatch, playVisit } from '../helpers';
 
-/**
- * A mode that caps itself at two players.
- *
- * Registered here rather than reached for among the shipped modes, because none of them declares a
- * cap any more: x01 and Whac-A-Mole were both written for two and have both been migrated. The
- * mechanism is still part of the contract, so what it does is still worth pinning — and a mode
- * invented for the purpose says so, where leaning on whichever mode happened to be capped this
- * month kept sending these tests somewhere else. Vitest isolates per file, so it goes no further.
- */
+// A mode that caps itself at two players, because no shipped one does any more. Vitest isolates
+// per file, so it goes no further — see docs/game-modes.md, "Limiting the player count".
 registerMode({ ...countUp, id: 'two-only', label: 'Two Only', maxPlayers: 2 });
 
 let sessionCounter = 0;

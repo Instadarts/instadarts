@@ -673,7 +673,6 @@ describe('whac-a-mole: any number of players', () => {
       expect(runB.live.moles.map((m) => m.area)).toEqual(runA.live.moles.map((m) => m.area));
       expect(runB.live.moles.map((m) => m.digTime)).toEqual(runA.live.moles.map((m) => m.digTime));
       expect(runB.live.holes).toEqual(runA.live.holes);
-      expect(runB.live.escaped).toBe(runA.live.escaped);
       a = idleVisit(a);
       b = idleVisit(b);
     }

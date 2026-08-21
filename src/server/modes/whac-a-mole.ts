@@ -320,7 +320,10 @@ export interface RunEvent {
 export interface Run {
   rng: number;
   moles: Mole[];
-  /** Every area dug through, oldest first. The burrow is there before anybody throws. */
+  /**
+   * Every area dug through, oldest first. The burrow is there before anybody throws, so the moles
+   * that got away number `holes.length - 1` — which is why that is not counted separately.
+   */
   holes: AreaId[];
   score: Record<string, number>;
   whacks: Record<string, number>;
@@ -333,7 +336,6 @@ export interface Run {
   /** Visits committed so far — the index of the visit about to be played. */
   visitIndex: number;
   nextMoleId: number;
-  escaped: number;
   perfectVisits: number;
   /** Everything that happened in the visit being played. Cleared as each one begins. */
   events: RunEvent[];
@@ -359,7 +361,6 @@ function freshRun(ctx: LegContext, cfg: Config): Run {
     janitor: false,
     visitIndex: 0,
     nextMoleId: 1,
-    escaped: 0,
     perfectVisits: 0,
     events: [],
     buried: [],
@@ -578,7 +579,6 @@ function endVisit(run: Run): void {
     if (run.visitIndex - mole.born + 1 < mole.digTime) return true;
     buried.push(mole.area);
     run.holes.push(mole.area);
-    run.escaped++;
     run.events.push({ kind: 'escape', area: mole.area, moleId: mole.id });
     return false;
   });
@@ -853,7 +853,6 @@ export const whacAMole: GameMode = {
         maxScore: maxScoreOf(cfg, match.players.length),
         stats: {
           whacked: match.players.reduce((sum, p) => sum + (live.whacks[p.id] ?? 0), 0),
-          escaped: live.escaped,
           perfectVisits: live.perfectVisits,
           holes: live.holes.length,
           rescued: match.players.reduce((sum, p) => sum + (live.rescued[p.id] ?? 0), 0),

@@ -33,6 +33,7 @@ for the places where that has already gone wrong.
 | [Board](#board) | The dartboard one user throws at. Their players share it | `Player.boardId`, media source slots |
 | [Seat](#seat) | A place in a room, and the token a reloaded tab presents to get it back | `seats.ts`, `resume`, `reconnect` |
 | [Lobby](#lobby) | Setup phase of a match | `Lobby`, `lobbyId` |
+| [Accepting joins](#accepting-joins) | Whether a lobby has an invite code and takes newcomers | `Lobby.acceptsJoins` |
 | [Match](#match) | The whole contest between its players | `MatchState`, `matchId`, `match_*` messages, `/match/:id` |
 | [Game Mode](#game-mode) | The rules of a single play-through (x01) | `GameMode`, `MatchSettings.mode`, `ModeDescriptor` |
 | [Leg](#leg) | One play-through of the game mode | `MatchState.visits` (current), `CompletedLeg` |
@@ -104,8 +105,8 @@ interface Player { id: string; name: string; sessionId?: string; boardId?: strin
 
 - Player ids are `p1`, `p2`, … from a process-global counter
   ([`src/server/player.ts`](../src/server/player.ts)) — unique per server run, not per match.
-- Server-side, every player carries the `sessionId` of the user who added it. In a **local** match
-  all players carry the same session id; in an **online** match players carry the session id of the user who added them.
+- Server-side, every player carries the `sessionId` of the user who added it. One user may hold
+  several — every player in a match nobody else joined, and as many as it added in one they did.
 - **On the wire it is stripped** (`publicPlayers`, in
   [`connections.ts`](../src/server/connections.ts)): a lobby and a match go to the whole room,
   spectators with them, and whose player is whose is nobody else's business. That is why the field
@@ -116,8 +117,11 @@ interface Player { id: string; name: string; sessionId?: string; boardId?: strin
   the same user, so players one user brought share one. Unlike `sessionId` it **is** public: it is a
   player id the whole room already has, and the screen needs it to know whose camera shows the
   thrower.
-- How many there may be is the [player limit](#player-limit). A local match can start with one; an
-  online match needs at least two.
+- How many there may be is the [player limit](#player-limit). One is enough to start: a match of one
+  player is a practice session.
+- **Names are display only.** Every lookup runs id → name and never the reverse, so nothing depends
+  on one. They are nevertheless **unique within a lobby**, refused by the browser and by the server
+  alike (`nameIsTaken`), because two identical player cards and an ambiguous history help nobody.
 
 ### Player limit
 
@@ -144,7 +148,7 @@ added shares. `Player.boardId` names it by the id of the first of those players.
 
 A board is the unit the [media](#media) feature is built on: one source slot per board, not per
 player, so a user holding two players declares once and publishes one camera feed for both of their
-turns. A local match is the same rule at its extreme — one user, one board, every player on it.
+turns. One user holding the whole roster is that rule at its extreme — one board, everybody on it.
 
 The mesh is built for at most two boards. A match with a third gets no media session at all, and the
 screen is told so (`mediaDisabled`) rather than left showing video that never arrives. See
@@ -156,9 +160,9 @@ The **lobby** is the first phase of a match: participants, match settings and ga
 configured here. It is a distinct entity (`Lobby`), not a status of a match.
 
 - Created by `create_lobby`; the creating user becomes the **host** (`hostSessionId`).
-- Always gets an invite code (`generateInviteCode`), even for a local lobby; the code is only shown
-  for online lobbies.
-- `isLocal` decides who may do what (see [Local vs. online](#local-match--online-match)).
+- Gets an invite code only if it [accepts joins](#accepting-joins). One that does not is minted
+  without one, which is what makes it unjoinable rather than merely unadvertised.
+- `acceptsJoins` decides whether it has an invite code at all (see [Accepting joins](#accepting-joins)).
 - `userCount` is how many non-spectator users are connected to it; `maxPlayers` is the
   [player limit](#player-limit) it enforces. Both are computed per message rather than stored, so
   neither can drift from what the server would actually do.
@@ -210,18 +214,34 @@ A finished match is not the end of the story: it lives out its summary and is th
 
 Finished matches are kept 5 minutes, then garbage-collected.
 
-### Local match / Online match
+### Accepting joins
 
-- **Local match** (`isLocal: true`) — one user, one board, all players added from the same frontend.
-  That user controls everyone: any client in the lobby may start it, remove players, change settings,
-  and darts are always attributed to whoever is currently up.
-- **Online match** (`isLocal: false`) — multiple users, separate boards. Users may add players up to
-  the match capacity, only the host may change settings / player order / start the match, and a user
-  may only throw, undo and submit for their own players.
+`Lobby.acceptsJoins` — whether a lobby advertises an invite code and admits newcomers. Decided when
+it is created and **never afterwards**; it is not a match setting and `update_settings` cannot reach
+it. What the home screen calls a **Local Match** is a lobby that says no, and an **Online Match** is
+one that says yes. That is the whole of the difference.
 
-`isLocal` is set at lobby creation and copied into the match. It is the single switch behind almost
-every permission difference in [`wsHandler.ts`](../src/server/wsHandler.ts), and also decides how a
-camera attributes darts ([`session.ts`](../src/server/scoring/session.ts)).
+- A lobby that says no is **minted without a code at all**, so `findLobbyByInviteCode` has nothing to
+  match. `join_lobby` also refuses it by name, because a lobby id is public — it is the spectate URL
+  — and the id is the other way in. Watching stays open either way: a closed lobby is closed to
+  players, not to an audience.
+- A lobby that says yes gets a code, shown to the host, and re-minted once the last guest leaves so a
+  departed one cannot walk back in.
+
+**Nothing else follows from it.** How a match is played is decided by *who ended up in it*, never by
+how its lobby was created:
+
+| The question | What answers it |
+| --- | --- |
+| May I throw for this player? | The players this connection holds — `client.playerIds` |
+| Whose darts is this camera scoring? | The same list — [`session.ts`](../src/server/scoring/session.ts) |
+| How many boards, and who may see whose? | [`boardCount`](../src/shared/types.ts) over `Player.boardId` |
+| Who may start, reorder or kick? | The [host](#host--creator), and a lone user is one |
+
+A match therefore has **no flag of its own**, and one user holding every player is not a mode the
+server is in — it is simply a match with one user. A lobby that was opened, took no joins, and
+started with a single user plays exactly like one that was never opened, with nothing to arrange
+that.
 
 ### Host / Creator
 
@@ -234,7 +254,7 @@ whether it is the host (`youAreHost` on a `lobby_state` addressed to one connect
 working it out by comparing session ids, which required publishing the creator's to the room. A
 broadcast carries no answer at all, so it cannot overwrite the one a connection was given; `false` is
 as much an answer as `true`, and a reload is told again from the [seat](#seat). `isCreator` in the
-client is `isHost || lobby.isLocal`.
+client is simply `isHost`: a lobby nobody joined has one user, and that user created it.
 
 Pick one word in new code: **host** for the server-side session, **creator** in user-facing copy.
 
@@ -248,7 +268,7 @@ must not score ([`resolveScoringTarget`](../src/server/scoringDevices.ts)).
 A user can also **become** one without asking for it: sitting in a lobby until the match starts
 without ever adding a player. It is taken out of the room's roster, gives up its [seat](#seat), and
 is told so (`youAreSpectator`, addressed like `youAreHost`) — otherwise its tab would go on offering
-a board it is not allowed to touch, and in a local match it could actually throw at one.
+a board it is not allowed to touch.
 
 `client.isSpectator` guards a *connection*, so it cannot be the whole answer: a page load is a new
 connection, and nothing about a fresh socket says what the tab was doing a moment ago. What stops
@@ -317,7 +337,7 @@ through the ordinary broadcast):
 There is no way to leave the question open. **Leaving counts as declining** — see
 [Departed](#departed) — and the deadline answers for anyone who never did.
 
-- A user may only answer for a player of their own session — which in a local match is all of them.
+- A user may only answer for its own players — which for a user holding the roster is all of them.
 - When a re-match starts, everyone on the old match moves to the new one, **spectators included**.
 
 ### Departed
@@ -842,10 +862,10 @@ on a wall.
 The optional feature that carries video and stills peer-to-peer between the devices already in a
 match. Full write-up in [media.md](./media.md); this section is the vocabulary.
 
-Stills provide dart evidence, and live video replaces the read-only virtual board. In online matches,
-spectators receive both boards and follow the thrower while each participant may receive only the
-opponent's board. In local matches, spectators may receive the one physical board shared by both
-players. Participants never receive their own board video.
+Stills provide dart evidence, and live video replaces the read-only virtual board. Spectators receive
+every board and follow the thrower; a participant may receive the other board and never their own. A
+match with one board therefore offers it to spectators alone — not as a special case, but because
+there is nobody standing anywhere else.
 
 Say **media** for the feature. Never "stream" (unused, and ambiguous between a `MediaStream` and the
 thing a viewer watches) and never "call" — nobody rings anybody.
@@ -995,11 +1015,11 @@ A participant frontend reload keeps the source epoch and feed. A scorer replacem
 tier reactivation, match finish, or rematch ends it. Temporary link/camera failure pauses encoding
 without discarding consent for the same eligible peer and feed.
 
-During an in-progress online match, each owner addresses their nominated camera's offer to `opponent`
-and `spectator`, never `owner`. Each recipient accepts or declines independently and can change that
-choice from the board controls. Participants display accepted video only on the opponent's turn;
-spectators display the current player's accepted feed. A local match addresses its single shared
-board camera only to spectators, who display it for every player's turn. Declined, missing or
+During an in-progress match, each owner addresses their nominated camera's offer to `opponent` and
+`spectator`, never `owner`. Each recipient accepts or declines independently and can change that
+choice from the board controls. Participants display accepted video only on a turn taken at another
+board; spectators display the current player's accepted feed. Where there is only one board, its
+audience is spectators alone, and they see it for every player's turn. Declined, missing or
 three-seconds-stale video uncovers the virtual board. See [docs/media.md](./media.md#live-board-video).
 
 ### Audience

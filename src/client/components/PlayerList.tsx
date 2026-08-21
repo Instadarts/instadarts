@@ -5,10 +5,9 @@ import type { Player } from '../../shared/types';
 interface PlayerListProps {
   players: Player[];
   maxPlayers: number;
-  mode: 'local' | 'online';
   isCreator: boolean;
   isSpectator: boolean;
-  /** This user's own players. In a local lobby all players are theirs. */
+  /** This user's own players — every one of them, in a lobby nobody else joined. */
   ownPlayerIds: string[];
   onAdd: (name: string) => void;
   onRemove: (playerId: string) => void;
@@ -24,7 +23,6 @@ function ordinal(n: number): string {
 export function PlayerList({
   players,
   maxPlayers,
-  mode,
   isCreator,
   isSpectator,
   ownPlayerIds,
@@ -38,8 +36,8 @@ export function PlayerList({
   const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
 
   const canAdd = players.length < maxPlayers;
-  /** A local lobby's players are all this user's; online, only the ones it added. */
-  const isMine = (playerId: string) => mode === 'local' || ownPlayerIds.includes(playerId);
+  /** Whether a player is this user's own. In a lobby nobody joined, that is all of them. */
+  const isMine = (playerId: string) => ownPlayerIds.includes(playerId);
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
   const handleAdd = () => {

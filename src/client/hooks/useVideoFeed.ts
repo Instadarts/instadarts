@@ -55,16 +55,10 @@ export function selectVideoFeed(
   currentBoardId: string | null,
   ownBoardId: string | null,
   isSpectator: boolean,
-  isLocal: boolean,
 ): VideoFeedView | null {
   if (!currentBoardId) return null;
-  if (isLocal) {
-    if (!isSpectator) return null;
-    return feeds.find((feed) =>
-      feed.choice === 'accepted'
-      && feed.status === 'live'
-      && feed.canvas !== null) ?? null;
-  }
+  // Never your own board: you are standing at it. Which also covers the whole of a single-board
+  // match for the people playing it, without that being a case of its own.
   if (!isSpectator && currentBoardId === ownBoardId) return null;
   return feeds.find((feed) =>
     feed.playerId === currentBoardId
@@ -77,20 +71,14 @@ export function selectVideoFeed(
  * Name board feeds from match participants, never from the scorer device that happens to publish
  * them.
  *
- * A board is named after everybody who throws at it — "Alice & Carol" where one user brought two
- * players. A local match is the extreme of the same rule: one board with the whole roster on it,
- * publishing a feed that carries no player id at all, so every feed takes that one name.
+ * A board is named after everybody who throws at it — "Alice & Carol's board" where one user
+ * brought two players, and the whole roster where one user brought them all.
  */
 export function labelVideoFeedsForMatch(
   feeds: readonly VideoFeedView[],
-  match: Pick<MatchState, 'isLocal' | 'players'> | null,
+  match: Pick<MatchState, 'players'> | null,
 ): VideoFeedView[] {
   if (!match) return [...feeds];
-
-  if (match.isLocal) {
-    const label = boardLabel(match.players);
-    return feeds.map((feed) => (label ? { ...feed, label } : feed));
-  }
 
   const boards = new Map<string, { name: string }[]>();
   for (const player of match.players) {

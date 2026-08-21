@@ -85,7 +85,7 @@ function publishScorerState(deviceId: string): void {
     type: 'scorer_state',
     status: owner ? 'active' : 'waiting',
     scoring: target !== null,
-    scoringContextId: target ? scoringContextId(target.match.id, target.ownerPlayerIds?.[0] ?? null) : null,
+    scoringContextId: target ? scoringContextId(target.match.id, target.ownerPlayerIds[0] ?? null) : null,
     cameras: owner ? activeCameras(owner).length : 0,
   });
 }
@@ -108,14 +108,15 @@ function activeCameras(ownerSessionId: string): string[] {
  * The owner must be an actual player in a running match. Spectators get a `matchId` too, which is
  * exactly why the check is here: a spectator with a paired camera must not become a scorer.
  */
-function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerIds: string[] | null } | null {
+function resolveScoringTarget(ownerSessionId: string): { match: MatchState; ownerPlayerIds: string[] } | null {
   for (const [, client] of allClients()) {
     if (client.deviceId || client.sessionId !== ownerSessionId) continue;
     if (client.isSpectator || !client.matchId) return null;
     const match = getMatch(client.matchId);
     if (!match || match.status !== 'in_progress') return null;
-    // A local match is one board scored for whoever is up; an online one scores for any player owned by this client.
-    return { match, ownerPlayerIds: match.isLocal ? null : client.playerIds };
+    // A frontend's cameras score for the players that frontend holds, and for no others. Holding
+    // every player in the match is not a special case of that — it is the same rule.
+    return { match, ownerPlayerIds: client.playerIds };
   }
   return null;
 }

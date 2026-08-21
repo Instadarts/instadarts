@@ -62,10 +62,10 @@ const QUICK_MATCH = { mode: 'x01', modeSettings: { startScore: 180, doubleIn: fa
 /** Centre of the treble 20 bed. */
 const T20 = { x: 500_000, y: 726_000 };
 
-/** A local match with two players, played by one user. */
+/** Two players played by one user — one board, and no invite code offered. */
 function localMatch() {
   const user = connect();
-  user.send({ type: 'create_lobby', isLocal: true });
+  user.send({ type: 'create_lobby', acceptsJoins: false });
   user.send({ type: 'add_local_player', playerName: 'Alice' });
   user.send({ type: 'add_local_player', playerName: 'Bob' });
   user.send({ type: 'update_settings', settings: QUICK_MATCH });
@@ -73,10 +73,10 @@ function localMatch() {
   return { user, match: () => matchOf(user)! };
 }
 
-/** An online match: two users, one player each. */
+/** Two users, one player each, in a lobby that took a join. */
 function onlineMatch() {
   const host = connect();
-  host.send({ type: 'create_lobby', isLocal: false });
+  host.send({ type: 'create_lobby', acceptsJoins: true });
   host.send({ type: 'add_local_player', playerName: 'Alice' });
 
   const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
@@ -222,7 +222,6 @@ describe('re-match', () => {
     expect(rematch.status).toBe('in_progress');
     expect(rematch.players.map((p) => p.name)).toEqual(['Bob', 'Alice']); // the other player begins
     expect(rematch.settings).toEqual(original.settings);                  // same rules
-    expect(rematch.isLocal).toBe(false);
 
     // Nothing at all carries over.
     expect(rematch.visits).toEqual([]);
@@ -294,7 +293,6 @@ describe('re-match', () => {
 
     user.send({ type: 'rematch_vote', matchId: original.id, playerId: bob.id, answer: 'accepted' });
     const rematch = startedOther(user, original.id)!;
-    expect(rematch.isLocal).toBe(true);
     expect(rematch.players.map((p) => p.name)).toEqual(['Bob', 'Alice']);
   });
 });

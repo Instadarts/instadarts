@@ -14,13 +14,14 @@ not part of public `MatchState`.
 
 **A source slot is a board, and a board belongs to a user.** Online slots are keyed by the id of the
 first player each user added, so two players one user brought share a slot and that user declares
-once for both. A local match is the same rule at its extreme: one user, one shared-board slot, every
-player on it.
+once for both. One user holding the whole roster is that rule at its extreme: one slot, every player
+standing at it.
 
-**The mesh is built for at most two boards**, which covers every shape that plays: a local match of
-any size, and an online match between two users however they split their players between them —
-one each, or two and one, or two and two. The peers are the same in each case, because the peers are
-the frontends and their cameras rather than the players.
+**The mesh is built for at most two boards**, which covers every shape that plays: one user with any
+number of players at one board, and two users however they split theirs — one each, or two and one,
+or two and two. The peers are the same in each case, because the peers are the frontends and their
+cameras rather than the players. Nothing here asks how the match was created; it asks how many
+boards are in play.
 
 A match with a third board gets **no session at all**: `startMediaForMatch` returns without creating
 one, which is the state a deployment with `media.enabled: false` already produces, so every client
@@ -90,8 +91,9 @@ The normal online topology is:
 - spectator ↔ participant frontends and selected devices;
 - never device ↔ device or spectator ↔ spectator.
 
-A local match has one source. It is addressed to spectators only, so the local playing screen never
-shows self-video. Its owner/device link remains useful for stills and director commands.
+A match with one board has one source, and `audienceFor` derives its audience from that: there is
+nobody at another board, so it is addressed to spectators alone and the playing screen never shows
+self-video. Its owner/device link remains useful for stills and director commands.
 
 Device IDs never enter a roster. The server resolves them through the private stable source slot and
 current device claim. A participant frontend replacement preserves that source intent; transferring

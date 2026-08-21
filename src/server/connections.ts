@@ -145,9 +145,8 @@ export function lobbyMessage(
 /**
  * Players with the private session id removed, and boardId computed.
  *
- * `boardId` is the id of the first player added by the same user in roster order (or the first
- * player in a local match). Public, unlike `sessionId`: it is an existing player id that the screen
- * needs to map a thrower to a camera.
+ * `boardId` is the id of the first player added by the same user, in roster order. Public, unlike
+ * `sessionId`: it is an existing player id that the screen needs to map a thrower to a camera.
  */
 export function publicPlayers(players: Player[]): Player[] {
   return players.map((player) => {

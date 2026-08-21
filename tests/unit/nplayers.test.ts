@@ -71,7 +71,7 @@ beforeEach(() => {
 describe('n-players lobby & roster management', () => {
   it('allows adding up to 5 players in count-up local lobby', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: true });
+    host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
 
@@ -88,7 +88,7 @@ describe('n-players lobby & roster management', () => {
 
   it('rejects switching to a 2-player mode when lobby has 3+ players', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: true });
+    host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
 
@@ -102,9 +102,35 @@ describe('n-players lobby & roster management', () => {
     expect(getLobby(lobbyId)!.settings.mode).toBe('count-up');
   });
 
+  it('refuses a name the lobby already has, and lets a player keep its own', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby', acceptsJoins: false });
+    const lobbyId = host.last('lobby_state')!.lobby.id;
+    host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
+    host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+
+    // The browser has always refused this; the server used to take it, and `set_player_name` has no
+    // UI at all, so a rename could only ever arrive this way.
+    host.send({ type: 'add_local_player', lobbyId, playerName: '  alice  ' });
+    expect(host.last('error')?.message).toBe('That name is already taken');
+    expect(getLobby(lobbyId)!.players).toHaveLength(1);
+
+    const alice = getLobby(lobbyId)!.players[0];
+    host.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
+    const bob = getLobby(lobbyId)!.players[1];
+
+    host.send({ type: 'set_player_name', lobbyId, playerId: bob.id, name: 'Alice' });
+    expect(host.last('error')?.message).toBe('That name is already taken');
+    expect(getLobby(lobbyId)!.players[1].name).toBe('Bob');
+
+    // Renaming a player to what it is already called is a no-op, not a refusal.
+    host.send({ type: 'set_player_name', lobbyId, playerId: alice.id, name: 'Alice' });
+    expect(getLobby(lobbyId)!.players[0].name).toBe('Alice');
+  });
+
   it('supports reordering players with reorder_player', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: true });
+    host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
 
@@ -140,7 +166,7 @@ describe('n-players lobby & roster management', () => {
 describe('multi-player per online connection', () => {
   it('allows multiple players per online user and tracks ownPlayerIds', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
 
@@ -191,7 +217,7 @@ describe('n-players turn rotation & leaver rule', () => {
 
   it('3-player online match continues when 1 player leaves, and finishes when 2nd leaves', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
@@ -235,7 +261,6 @@ describe('a leg with five players', () => {
     let match = makeMatch({
       settings: { mode: 'count-up', targetScore: 200 } as never,
       players: names.map((name, i) => ({ id: `p${i + 1}`, name, sessionId: `s${i + 1}` })),
-      isLocal: true,
     });
 
     const order: string[] = [];
@@ -279,7 +304,7 @@ describe('n-players rematch rotation', () => {
  */
 function onlineLobby(names: string[][]) {
   const host = connect();
-  host.send({ type: 'create_lobby', isLocal: false });
+  host.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
   const users: ReturnType<typeof connect>[] = [];
@@ -403,7 +428,7 @@ describe('how many users a lobby takes', () => {
     // x01 caps itself at two players, so it caps the lobby at two users: a third could only ever
     // sit there unable to add anybody.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     const guest = connect();

@@ -68,19 +68,19 @@ function pairTo(frontend: Conn) {
  * `startScore` must be a legal one (101–999); anything else is silently ignored by validateSettings
  * and the match quietly starts at 501.
  */
-function setup(options: { isLocal?: boolean; startScore?: number } = {}) {
-  const isLocal = options.isLocal !== false;
+function setup(options: { oneBoard?: boolean; startScore?: number } = {}) {
+  const oneBoard = options.oneBoard !== false;
   const frontend = connect();
   const { scorer, deviceId, token, tokenHash } = pairTo(frontend);
 
-  frontend.send({ type: 'create_lobby', isLocal });
+  frontend.send({ type: 'create_lobby', acceptsJoins: !oneBoard });
   frontend.send({ type: 'add_local_player', playerName: 'Alice' });
 
   let opponent: Conn | null = null;
-  if (isLocal) {
+  if (oneBoard) {
     frontend.send({ type: 'add_local_player', playerName: 'Bob' });
   } else {
-    // An online lobby takes one player per connection, so the opponent needs their own.
+    // Two boards means two users, so the opponent needs a connection of their own.
     const inviteCode = frontend.last('lobby_state')!.lobby.inviteCode!;
     opponent = connect();
     opponent.send({ type: 'join_lobby', inviteCode, playerName: 'Bob' });
@@ -286,7 +286,7 @@ describe('camera darts — refusals', () => {
   });
 
   it('an online camera does not score on the opponent\'s turn', () => {
-    const { frontend, scorer, match } = setup({ isLocal: false });
+    const { frontend, scorer, match } = setup({ oneBoard: false });
     expect(match().players).toHaveLength(2);
 
     // It is Alice's turn and the camera belongs to Alice's browser, so her throw lands.

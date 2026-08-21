@@ -59,7 +59,7 @@ function matchOf(conn: Conn) {
 
 function lobby() {
   const user = connect();
-  user.send({ type: 'create_lobby', isLocal: true });
+  user.send({ type: 'create_lobby', acceptsJoins: false });
   user.send({ type: 'add_local_player', playerName: 'Alice' });
   return user;
 }

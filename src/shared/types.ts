@@ -13,8 +13,8 @@ export interface Player {
   id: string;
   name: string;
   /**
-   * The user (frontend connection) that added this player. In a local match all players share one;
-   * online, a single user may also add multiple players.
+   * The user (frontend connection) that added this player. One user may hold several: every player
+   * in a match nobody else joined, and as many as it added in one they did.
    *
    * **Server-side only, and absent from every Player a client has ever held.** A lobby and a match
    * go on the wire whole — to everyone in the room, spectators with them — so this is stripped on
@@ -25,11 +25,22 @@ export interface Player {
   sessionId?: string;
   /**
    * The board this player throws at, named by the first player of the user who owns it. Players a
-   * single user added share one — which in a local match is all of them. Public, unlike `sessionId`:
+   * single user added share one — which may be the whole roster. Public, unlike `sessionId`:
    * it is a player id the whole room already has, and the screen needs it to know whose camera shows
    * the thrower.
    */
   boardId?: string;
+}
+
+/**
+ * How many boards are in play — one per user, since a user has one dartboard in front of them.
+ *
+ * Reads whichever owner identity the caller happens to hold: the server has `sessionId`, and the
+ * client has `boardId`, which `publicPlayers` derives from it on the way out. Both group the same
+ * players together, so both count the same boards.
+ */
+export function boardCount(players: Player[]): number {
+  return new Set(players.map((p) => p.boardId ?? p.sessionId ?? p.id)).size;
 }
 
 export interface DartThrow {
@@ -166,7 +177,6 @@ export interface MatchState {
   winnerId: string | null;
   createdAt: number;
   finishedAt: number | null;
-  isLocal: boolean;
   currentVisit?: CurrentVisit;
   /**
    * Participants who have left. Leaving is final: they cannot rejoin, and it counts as declining a
@@ -197,14 +207,20 @@ export interface Lobby {
   players: Player[];
   settings: MatchSettings;
   inviteCode: string | null;
-  hostPlayerId: string | null;
   /**
    * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the
    * same reason `Player.sessionId` is: a lobby goes to everyone in it. A client asking "am I the
    * creator?" is answered by `youAreHost`, which is told to one connection rather than to the room.
    */
   hostSessionId?: string | null;
-  isLocal: boolean;
+  /**
+   * Whether this lobby advertises an invite code and admits newcomers.
+   *
+   * Decided when it is created and never afterwards. A lobby that says no is minted without a code
+   * at all, so there is nothing to find it by — what the UI offers as a "Local Match". Nothing else
+   * follows from it: how a match is played is decided by who ended up in it, not by this.
+   */
+  acceptsJoins: boolean;
   /** The effective cap this lobby enforces: the deployment's, narrowed by the mode's. */
   maxPlayers: number;
   /** Distinct user connections in this lobby. */

@@ -67,7 +67,6 @@ export function makeMatch(overrides: MatchOver = {}): MatchState {
     winnerId: null,
     createdAt: 0,
     finishedAt: null,
-    isLocal: false,
     departed: [],
     rematchVotes: [],
     ...rest,

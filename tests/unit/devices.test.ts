@@ -440,7 +440,7 @@ describe('scoring devices and frontends are different kinds of client', () => {
     const frontend = connect();
     const { scorer } = pair(frontend);
 
-    scorer.send({ type: 'create_lobby', isLocal: true });
+    scorer.send({ type: 'create_lobby', acceptsJoins: false });
     scorer.send({ type: 'add_dart', matchId: 'x', dart: { x: 1, y: 1 } });
     scorer.send({ type: 'spectate', id: 'x' });
 

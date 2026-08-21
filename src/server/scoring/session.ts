@@ -48,8 +48,8 @@ const EMPTY_INFERENCES_FOR_TAKEOUT = 1;
 export interface ScoringSessionOptions {
   /** The match these cameras are watching, or null once it is gone. Re-resolved on every use. */
   getMatch: () => MatchState | null;
-  /** Which players the owning frontend controls. Ignored in a local match, where it scores for whoever is up. */
-  ownerPlayerIds: string[] | null;
+  /** Which players the owning frontend controls. Empty means it controls none and scores nothing. */
+  ownerPlayerIds: string[];
   /** Persist and broadcast a mutated match. */
   commit: (match: MatchState) => void;
 }
@@ -246,16 +246,15 @@ export class ScoringSession {
   /**
    * Whose darts these are, or null when they are nobody's.
    *
-   * A local match is one board with one frontend scoring for everyone, so the camera scores for
-   * whoever is up — the same rule the manual dartboard already follows. An online match has
-   * boards across users, so a camera scores for the frontend that owns it whenever any of that
-   * frontend's players is up.
+   * A camera watches one board, and a board is one user's — so it scores whenever any of that
+   * user's players is up, and never otherwise. A user holding every player therefore scores for
+   * whoever is up, which is what a single-board match looks like from here; it needs no case of its
+   * own, because owning all of them is not a different rule from owning some.
    */
   private scoringPlayerId(match: MatchState): string | null {
     const current = match.players[match.currentPlayerIndex];
     if (!current) return null;
-    if (match.isLocal) return current.id;
-    return this.opts.ownerPlayerIds?.includes(current.id) ? current.id : null;
+    return this.opts.ownerPlayerIds.includes(current.id) ? current.id : null;
   }
 
   /**

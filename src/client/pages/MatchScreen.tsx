@@ -99,7 +99,7 @@ const HISTORY_ROWS = 12;
  */
 export function MatchScreen({ match, view, panel, onLeave, onAddDart, onUndoDart, onSubmitVisit, onVoteRematch, ownPlayerIds, isSpectator, mediaDisabled, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: MatchScreenProps) {
   const currentPlayer = match.players[match.currentPlayerIndex];
-  const isMyTurn = !isSpectator && match.status === 'in_progress' && (ownPlayerIds.length === 0 || ownPlayerIds.includes(currentPlayer.id));
+  const isMyTurn = !isSpectator && match.status === 'in_progress' && ownPlayerIds.includes(currentPlayer.id);
 
   const currentDarts = match.currentVisit?.darts ?? [];
   const visitLocked = match.currentVisit?.locked ?? false;

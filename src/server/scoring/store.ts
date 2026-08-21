@@ -2,8 +2,8 @@
 //
 // Keyed by (matchId, board), not by matchId alone. In an online match the users stand at different
 // boards with different cameras: one shared session would let one board submit another's visit, and
-// would repeat-filter one board's tips against another's darts. A local match has one board and one
-// frontend, so it has one session.
+// would repeat-filter one board's tips against another's darts. One user holding every player has
+// one board and one frontend, so it has one session.
 //
 // A board is named by the first player its user added, which is also how `Player.boardId` names it:
 // a user holding two players has one camera watching one board, and therefore one session serving
@@ -20,8 +20,8 @@ import { ScoringSession } from './session';
 const sessions = new Map<string, ScoringSession>();
 
 /**
- * The stable identity of one board's scoring context. `boardId` is null for a local match's single
- * shared board.
+ * The stable identity of one board's scoring context. `boardId` is the first player standing at it,
+ * and is null only for an owner holding no players at all.
  *
  * Also sent to scoring devices so they can tell a reconnect to this same context from a new match
  * without being given any of the match itself.
@@ -43,12 +43,12 @@ export function scoringContextId(matchId: string, boardId: string | null): strin
  */
 export function getScoringSession(
   matchId: string,
-  ownerPlayerIds: string[] | null,
+  ownerPlayerIds: string[],
   commit: (match: MatchState) => void,
 ): ScoringSession {
   // The board these players share, named the same way `Player.boardId` names it — the first player
-  // the user added. Null is a local match: one board for everyone.
-  const key = sessionKey(matchId, ownerPlayerIds?.[0] ?? null);
+  // the user added.
+  const key = sessionKey(matchId, ownerPlayerIds[0] ?? null);
   let session = sessions.get(key);
   if (!session) {
     session = new ScoringSession({

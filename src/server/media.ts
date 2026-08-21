@@ -22,7 +22,6 @@ import { validateSignal } from './validation';
 import { QUIET } from './env';
 
 const MEDIA_ENABLED = CONFIG.media.enabled;
-const LOCAL_SLOT = 'local-board';
 
 let stunPort: number | null = null;
 
@@ -48,7 +47,7 @@ interface SourceSlot {
 interface MatchMediaSession {
   matchId: string;
   meshId: string;
-  isLocal: boolean;
+  /** One per board in play — see `boardSlotsOf`. Immutable for the life of the session. */
   participantSlots: Set<string>;
   declarations: Set<string>;
   sources: Map<string, SourceSlot>;
@@ -82,6 +81,15 @@ function blankSource(): SourceSlot {
   return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null };
 }
 
+/**
+ * One slot per board, named by the first player of the user who owns it — the same name
+ * `Player.boardId` carries on the wire.
+ *
+ * A slot is a **board**, not a player: a user holding two players has one camera watching one
+ * dartboard, declares once, and publishes one feed that serves both of their turns. A match with a
+ * single user is that rule at its extreme rather than a case of its own, which is why nothing here
+ * asks how the match was created.
+ */
 function boardSlotsOf(match: MatchState): string[] {
   const seen = new Set<string>();
   const slots: string[] = [];
@@ -101,12 +109,10 @@ export function startMediaForMatch(match: MatchState): void {
   // More than two boards is a mesh nobody has designed. No session at all is a state every client
   // path already handles — it is what a deployment with media switched off produces.
   if (!meshEligible(match)) return;
-  const slotList = match.isLocal ? [LOCAL_SLOT] : boardSlotsOf(match);
-  const slots = new Set(slotList);
+  const slots = new Set(boardSlotsOf(match));
   sessions.set(match.id, {
     matchId: match.id,
     meshId: crypto.randomUUID(),
-    isLocal: match.isLocal,
     participantSlots: slots,
     declarations: new Set(),
     sources: new Map([...slots].map((slot) => [slot, blankSource()])),
@@ -190,9 +196,6 @@ interface Pairing { a: Participant; b: Participant }
 
 function slotForFrontend(match: MatchState, client: NonNullable<ReturnType<typeof getClient>>): string | null {
   if (client.isSpectator) return null;
-  if (match.isLocal) {
-    return match.players.some((player) => player.sessionId === client.sessionId) ? LOCAL_SLOT : null;
-  }
   return match.players.find((candidate) => candidate.sessionId === client.sessionId)?.id ?? null;
 }
 
@@ -203,8 +206,16 @@ function scorerSocket(deviceId: string): WebSocket | null {
   return null;
 }
 
+/**
+ * Who a board's feed may be offered to.
+ *
+ * Everyone at another board, and the audience. A match with one board has nobody at another, so it
+ * is offered to spectators alone — which is what stops a single shared board becoming self-video,
+ * and is derived here rather than declared, because "is there anyone else" is a fact about the
+ * slots and not about how the match was created.
+ */
 function audienceFor(session: MatchMediaSession): MediaRole[] {
-  return session.isLocal ? ['spectator'] : ['opponent', 'spectator'];
+  return session.participantSlots.size > 1 ? ['opponent', 'spectator'] : ['spectator'];
 }
 
 function deactivateSource(session: MatchMediaSession, source: SourceSlot): void {
@@ -258,7 +269,7 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
       ws, peerId: binding.peerId, kind: 'user', spectator: join.spectator,
       slotId: join.slotId, tier: join.tier as Exclude<MediaTier, 'disabled'>,
     };
-    if (join.slotId && join.slotId !== LOCAL_SLOT) {
+    if (join.slotId) {
       const player = match.players.find((candidate) => candidate.id === join.slotId);
       if (player) peer.playerId = player.id;
     }
@@ -275,7 +286,7 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
       ws, peerId: binding.peerId, kind: 'device', spectator: false, slotId,
       tier: tier as Exclude<MediaTier, 'disabled'>,
     };
-    const player = slotId === LOCAL_SLOT ? null : match.players.find((candidate) => candidate.id === slotId);
+    const player = match.players.find((candidate) => candidate.id === slotId);
     if (player) device.playerId = player.id;
     devices.push(device);
     syncSource(session, source, device);
@@ -301,9 +312,7 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
     for (let j = i + 1; j < users.length; j++) pair(users[i], users[j]);
   }
   for (const device of devices) {
-    if (!session.isLocal) {
-      for (const user of users) if (user.slotId !== device.slotId) pair(device, user);
-    }
+    for (const user of users) if (user.slotId !== device.slotId) pair(device, user);
   }
   for (const spectator of admitted) for (const user of users) pair(spectator, user);
   for (const spectator of admitted) for (const device of devices) pair(spectator, device);
@@ -472,9 +481,8 @@ export function revalidateMediaDeviceOwner(deviceId: string, newOwnerSessionId: 
     let changed = false;
     for (const [slotId, source] of session.sources) {
       if (source.deviceId !== deviceId) continue;
-      const stillOwnsSlot = slotId === LOCAL_SLOT
-        ? match.players.some((player) => player.sessionId === newOwnerSessionId)
-        : match.players.find((player) => player.id === slotId)?.sessionId === newOwnerSessionId;
+      const stillOwnsSlot =
+        match.players.find((player) => player.id === slotId)?.sessionId === newOwnerSessionId;
       if (stillOwnsSlot) continue;
       deactivateSource(session, source);
       source.deviceId = null;

@@ -125,8 +125,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
 
   const { send, connected, generation: connectionGeneration, sessionId } = useWebSocket(handleMessage);
 
-  const createLobby = useCallback((isLocal = true) => {
-    send({ type: 'create_lobby', isLocal });
+  const createLobby = useCallback((acceptsJoins = false) => {
+    send({ type: 'create_lobby', acceptsJoins });
     setError(null);
     setNotice(null);
   }, [send]);

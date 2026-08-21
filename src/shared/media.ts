@@ -119,9 +119,9 @@ export interface MediaPeer {
   /** The most this peer will send. Never `disabled` — such a peer is in no roster at all. */
   tier: MediaTier;
   /**
-   * The player this peer belongs to, where that is unambiguous — so a viewer can put a board or a
-   * face beside the right player card. Absent for a local match's user, who holds every player, and
-   * for anyone with no player at all.
+   * The board this peer belongs to, named by the first player standing at it — so a viewer can put a
+   * board or a face beside the right player card. Absent for anyone with no board at all, which is
+   * every spectator.
    */
   playerId?: string;
   /**
@@ -134,7 +134,7 @@ export interface MediaPeer {
    *   · a **device** honours a command only from the peer marked `own`, which is what stops an
    *     opponent deciding what somebody else's camera photographs;
    *   · a **frontend** finds its own board camera by it, since a roster addresses peers by opaque id
-   *     and `playerId` has no answer in a local match.
+   *     and nothing else in it says which camera is yours.
    *
    * This is "the roster is the authorization" widened from who may *connect* to who may *command*.
    */

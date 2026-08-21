@@ -32,9 +32,13 @@ const S1 = polar(150_000, 18);
  * A live match plus a session watching it, wired the way the server wires them: the session
  * re-resolves the match every time, and commits replace it.
  */
-/** `owner` is the players the frontend behind these cameras controls; null is a local match. */
-function harness(overrides: Partial<MatchState> = {}, owner: string[] | null = ['p1']) {
-  let match = makeMatch({ isLocal: true, ...overrides });
+/**
+ * `owner` is the players the frontend behind these cameras controls. The default is **both** of
+ * `makeMatch`'s players — one user holding the whole roster, which is what a single-board match is.
+ * An empty list is a frontend that holds none, and scores nothing.
+ */
+function harness(overrides: Partial<MatchState> = {}, owner: string[] = ['p1', 'p2']) {
+  let match = makeMatch({ ...overrides });
   const commits: MatchState[] = [];
   const session = new ScoringSession({
     getMatch: () => match,
@@ -108,40 +112,35 @@ describe('ScoringSession — darts', () => {
 });
 
 describe('ScoringSession — whose darts', () => {
-  it('scores for whoever is up in a local match', () => {
-    const h = harness({ isLocal: true, currentPlayerIndex: 1 }, null);
-    h.see('cam-a', tip(T20));
-    expect(h.match.currentVisit?.playerId).toBe('p2');
-  });
-
-  it('scores for the owning player in an online match', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 0 }, ['p1']);
+  it('scores for the player who is up, when that player is its own', () => {
+    const h = harness({ currentPlayerIndex: 0 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit?.playerId).toBe('p1');
   });
 
-  it('scores for any of its own players, which is what a user holding two of them needs', () => {
-    // One board, two players on it: the camera watching it is the right camera for both turns.
-    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1', 'p2']);
+  it('scores for any of its own players, so a user holding two of them scores for both turns', () => {
+    // One board, two players standing at it. A user holding the whole roster is the same rule taken
+    // to its end, and is what a single-board match looks like from here.
+    const h = harness({ currentPlayerIndex: 1 }, ['p1', 'p2']);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit?.playerId).toBe('p2');
   });
 
-  it('refuses to score in an online match when it is the opponent\'s turn', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1']);
+  it('refuses to score when it is somebody else\'s turn', () => {
+    const h = harness({ currentPlayerIndex: 1 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.match.currentVisit).toBeUndefined();
     expect(h.commits).toHaveLength(0);
   });
 
   it('still tracks a dart it was not allowed to score, so it is not offered later', () => {
-    const h = harness({ isLocal: false, currentPlayerIndex: 1 }, ['p1']);
+    const h = harness({ currentPlayerIndex: 1 }, ['p1']);
     h.see('cam-a', tip(T20));
     expect(h.session.trackedDarts).toBe(1);
   });
 
   it('refuses to score for an owner with no player', () => {
-    const h = harness({ isLocal: false }, null);
+    const h = harness({}, []);
     h.see('cam-a', tip(T20));
     expect(h.commits).toHaveLength(0);
   });

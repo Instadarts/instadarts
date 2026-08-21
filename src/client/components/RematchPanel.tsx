@@ -3,7 +3,7 @@ import type { MatchState, RematchAnswer } from '../../shared/types';
 
 interface RematchPanelProps {
   match: MatchState;
-  /** This user's own players. A user answers for their own — in a local match, for all of them. */
+  /** This user's own players. A user answers for its own — for all of them, if it holds all. */
   ownPlayerIds: string[];
   onVote: (playerId: string, answer: RematchAnswer | 'neutral') => void;
 }
@@ -22,7 +22,7 @@ export function RematchPanel({ match, ownPlayerIds, onVote }: RematchPanelProps)
   const answers = match.players.map((p) => match.rematchVotes[p.id]);
   const declined = answers.some((a) => a === 'declined');
 
-  const mine = (playerId: string) => match.isLocal || ownPlayerIds.includes(playerId);
+  const mine = (playerId: string) => ownPlayerIds.includes(playerId);
 
   return (
     <div className="flex flex-col items-center gap-3">

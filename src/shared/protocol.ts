@@ -10,7 +10,8 @@ import type { ClientConfig } from './config';
 
 export interface CreateLobbyMessage {
   type: 'create_lobby';
-  isLocal?: boolean;
+  /** Advertise a code and admit newcomers. Absent means no, which is the "Local Match" button. */
+  acceptsJoins?: boolean;
 }
 
 export interface JoinLobbyMessage {
@@ -102,7 +103,7 @@ export interface ReorderPlayerMessage {
 /**
  * A player accepting, or withdrawing, a re-match. Every participant accepting starts one.
  *
- * A user may only vote for a player of their own session — which in a local match is both of them.
+ * A user may only vote for its own players — which for a user holding the whole roster is all of them.
  */
 export interface RematchVoteMessage {
   type: 'rematch_vote';
@@ -365,10 +366,10 @@ export interface MatchStateMessage {
   view: ModeView;
   panel?: ModePanel;
   /**
-   * Which players are the receiving connection's own — set only on a reply to one connection, never on
-   * a broadcast, and never in a local match where one user holds them all. It is how a tab that has
-   * just reloaded into a match knows which side is its own, which it can no longer work out from the
-   * players themselves.
+   * Which players are the receiving connection's own — set only on a reply to one connection and
+   * never on a broadcast, because a room's state goes to the whole room. It is how a tab that has
+   * just reloaded into a match knows which players are its own, which it cannot work out from a
+   * match that names nobody's owner. A user holding every player is told exactly that.
    */
   yourPlayerIds?: string[];
   /** Whether this connection is watching rather than playing. See `LobbyStateMessage`. */

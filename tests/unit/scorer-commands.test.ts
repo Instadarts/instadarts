@@ -70,7 +70,7 @@ function pairTo(frontend: Conn) {
 function setup() {
   const frontend = connect();
   const { scorer, deviceId, token, tokenHash } = pairTo(frontend);
-  frontend.send({ type: 'create_lobby', isLocal: true });
+  frontend.send({ type: 'create_lobby', acceptsJoins: false });
   frontend.send({ type: 'add_local_player', playerName: 'Alice' });
   frontend.send({ type: 'add_local_player', playerName: 'Bob' });
   return { frontend, scorer, deviceId, token, tokenHash };
@@ -140,7 +140,7 @@ describe('a device learning whether it is wanted', () => {
 
     frontend.send({ type: 'leave_match' });
     expect(scorer.last('scorer_state')!.scoringContextId).toBeNull();
-    frontend.send({ type: 'create_lobby', isLocal: true });
+    frontend.send({ type: 'create_lobby', acceptsJoins: false });
     frontend.send({ type: 'add_local_player', playerName: 'Alice' });
     frontend.send({ type: 'start_match' });
 
@@ -164,7 +164,7 @@ describe('a device learning whether it is wanted', () => {
     // An online match, which is where the question has teeth: a local one scores for whoever is up
     // and never consults an owner at all, so it could not tell a spectator from a player.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     const guest = connect();

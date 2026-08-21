@@ -1,5 +1,5 @@
 import { scoreFromBoardCoords } from '../shared/scoring';
-import type { MatchSettings, ModeSettings, DartThrow } from '../shared/types';
+import type { MatchSettings, ModeSettings, DartThrow, Player } from '../shared/types';
 import { getMode } from './modes/types';
 import { MATCH_FIELDS } from '../shared/matchFormat';
 import type { SettingsField } from '../shared/settings';
@@ -16,6 +16,23 @@ const NAME_MIN = 1;
 const NAME_MAX = 20;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
+
+/**
+ * Whether a lobby already has this name.
+ *
+ * The browser has always refused a duplicate (`PlayerList`'s Add button goes dead), and until now
+ * that was the only place it was refused — so a crafted message landed one, and `set_player_name`,
+ * which has no UI at all, could only ever land one. Said here as well, with the browser's own
+ * comparison: trimmed and case-insensitive.
+ *
+ * Names are display-only — every lookup runs id → name, never the reverse — so a duplicate breaks
+ * nothing. It produces two identical player cards, ambiguous history lines and a board named after
+ * the same person twice, which is reason enough.
+ */
+export function nameIsTaken(players: Player[], name: string, exceptPlayerId?: string): boolean {
+  const wanted = name.trim().toLowerCase();
+  return players.some((p) => p.id !== exceptPlayerId && p.name.trim().toLowerCase() === wanted);
+}
 
 export function sanitizeName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;

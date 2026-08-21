@@ -33,11 +33,9 @@ export function LobbyPage({
   onRemovePlayer,
   onReorderPlayer,
 }: LobbyPageProps) {
-  const canStart =
-    mode === 'local'
-      ? lobby.players.length >= 1
-      : lobby.players.length >= 2;
-  const canEdit = !isSpectator && (mode === 'local' || isCreator);
+  // One player is enough for any lobby: a match of one is a practice session.
+  const canStart = lobby.players.length >= 1;
+  const canEdit = !isSpectator && isCreator;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -54,7 +52,6 @@ export function LobbyPage({
       <PlayerList
         players={lobby.players}
         maxPlayers={lobby.maxPlayers}
-        mode={mode}
         isCreator={isCreator}
         isSpectator={isSpectator}
         ownPlayerIds={ownPlayerIds}
@@ -81,10 +78,12 @@ export function LobbyPage({
         />
       )}
 
-      {mode === 'online' && !isSpectator && lobby.players.length < 2 && (
+      {mode === 'online' && !isSpectator && (ownPlayerIds.length === 0 || lobby.userCount === 1) && (
         <p className="text-yellow-400 text-sm mb-6">
           {ownPlayerIds.length === 0
             ? 'Add yourself as a player to get started'
+            /* Keyed on users rather than players: a lobby of one player is startable now, so the
+               only thing still worth waiting for is somebody else turning up. */
             : 'Waiting for players to join...'}
         </p>
       )}

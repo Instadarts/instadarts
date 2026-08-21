@@ -78,7 +78,6 @@ function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
     winnerId: null,
     createdAt: 0,
     finishedAt: null,
-    isLocal: true,
     departed: [],
     rematchVotes: {},
     expiresAt: 0,

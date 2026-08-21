@@ -21,6 +21,7 @@ import type { ServerMessage } from '../shared/protocol';
 import type { ControlMessage, VideoFeedId } from '../shared/media';
 import type { VideoFeedView } from './hooks/useVideoFeed';
 import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../shared/types';
+import { boardCount } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 import { modeBans } from '../shared/settings';
 import { CONFIG_DEFAULTS } from '../shared/config';
@@ -84,7 +85,7 @@ export function App() {
   // evidence or direct their own feed.
   const currentPlayer = match?.players[match.currentPlayerIndex];
   const isThrower = !isSpectator && match?.status === 'in_progress'
-    && (ownPlayerIds.length === 0 || ownPlayerIds.includes(currentPlayer?.id ?? ''));
+    && ownPlayerIds.includes(currentPlayer?.id ?? '');
 
   const evidenceHandler = useRef<((from: string, message: ControlMessage, payload?: Uint8Array) => void) | null>(null);
   const feedHandler = useRef<((from: string, message: ControlMessage) => void) | null>(null);
@@ -111,9 +112,9 @@ export function App() {
   const modeDescriptor = modes.find((candidate) => candidate.id === match?.settings.mode);
 
   const liveVideoActive = Boolean(match?.status === 'in_progress');
-  const localVideo = match?.isLocal ?? false;
-  // Online owners offer their board to opponents and spectators. A local match has one shared
-  // physical board, so its single feed is offered only to spectators.
+  // One board means the only board is your own, so there is nothing for a player to receive — its
+  // single feed is offered to spectators alone. The server says the same thing in `audienceFor`.
+  const oneBoard = match ? boardCount(match.players) === 1 : false;
   const feed = useVideoFeed({
     mesh: media.mesh,
     config: media.config,
@@ -121,7 +122,7 @@ export function App() {
     // The server withholds the source directive for a mode that declined video, so there is
     // normally nothing to refuse. Said here as well because this is the side that would have to
     // draw it, and a screen that quietly refuses what it cannot use is worth more than the saving.
-    receive: liveVideoActive && (!localVideo || isSpectator) && !modeBans(modeDescriptor, 'boardVideo'),
+    receive: liveVideoActive && (!oneBoard || isSpectator) && !modeBans(modeDescriptor, 'boardVideo'),
     anticipate: false,
   });
   feedHandler.current = feed.handleControl;
@@ -148,13 +149,7 @@ export function App() {
 
   const ownBoardId = match?.players.find((p) => ownPlayerIds.includes(p.id))?.boardId ?? null;
   const currentBoardId = currentPlayer?.boardId ?? null;
-  const liveFeed = selectVideoFeed(
-    videoFeeds,
-    currentBoardId,
-    ownBoardId,
-    isSpectator,
-    match?.isLocal ?? true,
-  );
+  const liveFeed = selectVideoFeed(videoFeeds, currentBoardId, ownBoardId, isSpectator);
   const pendingVideoOffer = liveVideoActive
     ? videoFeeds.find((candidate) => candidate.choice === 'pending') ?? null
     : null;
@@ -252,8 +247,8 @@ export function App() {
       <Routes>
         <Route path="/" element={
           <HomePage
-            onCreateLocalMatch={() => { createLobby(true); }}
-            onCreateOnlineMatch={() => { createLobby(false); }}
+            onCreateLocalMatch={() => { createLobby(false); }}
+            onCreateOnlineMatch={() => { createLobby(true); }}
             connected={connected}
             notice={notice}
           />
@@ -358,8 +353,8 @@ function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMa
     <LobbyPage
       lobby={lobby}
       modes={modes}
-      mode={lobby.isLocal ? 'local' : 'online'}
-      isCreator={isHost || lobby.isLocal}
+      mode={lobby.acceptsJoins ? 'online' : 'local'}
+      isCreator={isHost}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
       onStartGame={() => startMatch(lobby.id)}
@@ -460,7 +455,7 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
       <LobbyPage
         lobby={lobby}
         modes={modes}
-        mode={lobby.isLocal ? 'local' : 'online'}
+        mode={lobby.acceptsJoins ? 'online' : 'local'}
         isCreator={false}
         ownPlayerIds={[]}
         isSpectator={true}

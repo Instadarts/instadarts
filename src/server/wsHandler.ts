@@ -19,7 +19,7 @@ import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createM
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
 import { generateInviteCode } from './invite';
-import { sanitizeName, validateSettings, validateDartThrow } from './validation';
+import { nameIsTaken, sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { CONFIG } from './config';
 import {
@@ -110,20 +110,6 @@ function cancelDisconnect(key: string): void {
   if (timer) {
     clearTimeout(timer);
     pendingDisconnects.delete(key);
-  }
-}
-
-/**
- * Cancel every pending disconnect for a match.
- *
- * For a **local** match, which is one user holding every player: the key a disconnect was filed
- * under names whichever player that connection was associated with, and a reloading client cannot
- * know which one that was. Their return covers all of them, because there is nobody else it could
- * be. An online match is left alone — one player coming back says nothing about the other.
- */
-function cancelDisconnectsForMatch(matchId: string): void {
-  for (const key of [...pendingDisconnects.keys()]) {
-    if (key.startsWith(`match:${matchId}:`)) cancelDisconnect(key);
   }
 }
 
@@ -504,7 +490,9 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
   }
 
   const lobby = createLobby();
-  lobby.isLocal = msg.isLocal !== false;
+  // Absent means no, so a bare `create_lobby` is the closed one — which is the button most people
+  // press, and the safer default besides.
+  lobby.acceptsJoins = msg.acceptsJoins === true;
   const client = getClient(ws);
   if (client) {
     client.lobbyId = lobby.id;
@@ -515,7 +503,9 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
     sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host: true }));
   }
 
-  generateInviteCode(lobby.id);
+  // A closed lobby is minted without a code at all. That is the enforcement, not a decoration: a
+  // code nobody has cannot be presented, and `findLobbyByInviteCode` has nothing to match.
+  if (lobby.acceptsJoins) generateInviteCode(lobby.id);
   send(ws, lobbyMessage(lobby, { playerIds: [], host: true }));
 }
 
@@ -526,6 +516,14 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
 
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
+    return;
+  }
+
+  // Asked before anything about capacity, because a closed lobby is not a lobby you were nearly
+  // admitted to. It is minted without a code, so the only way to be here is by naming its id — and
+  // a lobby id is public: it is the spectate URL.
+  if (!lobby.acceptsJoins) {
+    send(ws, { type: 'error', message: 'This lobby is not open to joins' });
     return;
   }
 
@@ -592,6 +590,11 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     return;
   }
 
+  if (nameIsTaken(lobby.players, name)) {
+    send(ws, { type: 'error', message: 'That name is already taken' });
+    return;
+  }
+
   const player = {
     id: generatePlayerId(),
     name,
@@ -606,11 +609,6 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
 
   client.playerIds.push(player.id);
 
-  // Set host player if this is the first player in an online lobby
-  if (!lobby.hostPlayerId && !lobby.isLocal) {
-    lobby.hostPlayerId = player.id;
-  }
-
   // The seat this connection already holds in the lobby, now with its players on it.
   const host = client.sessionId === lobby.hostSessionId;
   const held = heldSeat(lobby.id, client.sessionId);
@@ -621,10 +619,10 @@ function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
     sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [...client.playerIds], host }));
   }
 
-  // Everyone sees the lobby; only this connection is told which players are its own — and in a local
-  // match, where one user holds them all, that question has no answer.
+  // Everyone sees the lobby; only this connection is told which players are its own. One user
+  // holding every player is not a reason to withhold the answer — the answer is all of them.
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
-  send(ws, lobbyMessage(lobby, { playerIds: lobby.isLocal ? undefined : client.playerIds, host }));
+  send(ws, lobbyMessage(lobby, { playerIds: client.playerIds, host }));
 }
 
 /**
@@ -644,10 +642,10 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // A local lobby is one user's, so every player in it is theirs. Online, a player is yours to take
-  // off, or you are the host and it is a kick.
+  // A player is yours to take off, or you are the host and it is a kick. A lobby held by one user
+  // needs no case of its own: that user owns every player in it and is its host besides.
   const removerIsHost = client.sessionId === lobby.hostSessionId;
-  if (!lobby.isLocal && player.sessionId !== client.sessionId && !removerIsHost) {
+  if (player.sessionId !== client.sessionId && !removerIsHost) {
     send(ws, { type: 'error', message: 'You can only remove your own player' });
     return;
   }
@@ -668,14 +666,13 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   }
 
   removePlayerFromLobby(lobby.id, player.id);
-  if (lobby.hostPlayerId === player.id) lobby.hostPlayerId = lobby.players[0]?.id ?? null;
 
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
   // The owner is told what it has left rather than left to infer it from a roster that names
   // nobody's players. Without this a kicked user only ever learns it by subtraction.
   if (ownerWs && owner) {
     send(ownerWs, lobbyMessage(lobby, {
-      playerIds: lobby.isLocal ? undefined : owner.playerIds,
+      playerIds: owner.playerIds,
       host: owner.sessionId === lobby.hostSessionId,
       spectator: owner.isSpectator,
     }));
@@ -717,8 +714,8 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   const player = lobby.players.find((p) => p.id === msg.playerId);
   if (!player) return;
 
-  // Only allow renaming your own session's player (local lobbies: one user controls all)
-  if (!lobby.isLocal && player.sessionId !== client.sessionId) {
+  // Renaming is your own players only — the host's power over the roster stops at removing.
+  if (player.sessionId !== client.sessionId) {
     send(ws, { type: 'error', message: 'You can only rename your own player' });
     return;
   }
@@ -726,6 +723,12 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   const name = sanitizeName(msg.name);
   if (!name) {
     send(ws, { type: 'error', message: 'Invalid player name (1-20 characters)' });
+    return;
+  }
+  // Excluding the player being renamed, so renaming it to what it is already called is a no-op
+  // rather than a refusal.
+  if (nameIsTaken(lobby.players, name, player.id)) {
+    send(ws, { type: 'error', message: 'That name is already taken' });
     return;
   }
 
@@ -744,8 +747,9 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
     return;
   }
 
-  // Only the host can start the match (local lobbies: anyone can)
-  if (!lobby.isLocal && client.sessionId !== lobby.hostSessionId) {
+  // Only the host starts the match. The one user of a lobby nobody joined is its host, so that
+  // costs them nothing.
+  if (client.sessionId !== lobby.hostSessionId) {
     send(ws, { type: 'error', message: 'Only the match creator can start the match' });
     return;
   }
@@ -762,9 +766,6 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
   for (const player of [...lobby.players]) {
     if (!seatedIds.has(player.id)) removePlayerFromLobby(lobby.id, player.id);
   }
-  if (lobby.hostPlayerId && !lobby.players.some((p) => p.id === lobby.hostPlayerId)) {
-    lobby.hostPlayerId = lobby.players[0]?.id ?? null;
-  }
 
   const mode = getMode(lobby.settings.mode);
   if (mode?.maxPlayers && lobby.players.length > mode.maxPlayers) {
@@ -772,19 +773,16 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
     return;
   }
 
-  if (lobby.isLocal && lobby.players.length < 1) {
+  // One player is a practice session rather than a mistake, and it is the same rule whether or not
+  // anybody else was invited.
+  if (lobby.players.length < 1) {
     send(ws, { type: 'error', message: 'Need at least one player to start' });
-    return;
-  }
-
-  if (!lobby.isLocal && lobby.players.length < 2) {
-    send(ws, { type: 'error', message: 'Need at least two players to start' });
     return;
   }
 
   // Nobody sits in a match without a player in it. A user who watched the lobby without adding one
   // becomes what it already was in practice — a spectator — and gives up its seat, which is what
-  // stops it throwing for whoever is up in a local match.
+  // keeps it out of every guard that asks whether a connection holds a place.
   //
   // Measured against the reconciled roster and not against the connection's own list, so a client
   // holding only ids that have just gone away is demoted with the rest.
@@ -808,7 +806,7 @@ function handleStartMatch(ws: WebSocket, _msg: any): void {
       const held = heldSeat(match.id, c.sessionId);
       if (held) sendResume(w, { matchId: match.id }, held.token);
       send(w, matchMessage('match_started', match, {
-        playerIds: match.isLocal ? undefined : c.playerIds,
+        playerIds: c.playerIds,
         spectator: c.isSpectator,
       }));
     }
@@ -829,7 +827,7 @@ function handleAddDart(ws: WebSocket, msg: any): void {
 
   const current = match.players[match.currentPlayerIndex];
   if (!current) { send(ws, { type: 'error', message: 'No current player' }); return; }
-  if (!match.isLocal && !client.playerIds.includes(current.id)) {
+  if (!client.playerIds.includes(current.id)) {
     send(ws, { type: 'error', message: 'You can only throw darts for your own player' });
     return;
   }
@@ -847,7 +845,7 @@ function handleUndoDart(ws: WebSocket, _msg: any): void {
 
   const cv = match.currentVisit;
   if (!cv || cv.darts.length === 0) { send(ws, { type: 'error', message: 'No darts to undo' }); return; }
-  if (!match.isLocal && !client.playerIds.includes(cv.playerId)) {
+  if (!client.playerIds.includes(cv.playerId)) {
     send(ws, { type: 'error', message: 'You can only undo your own darts' });
     return;
   }
@@ -864,7 +862,7 @@ function handleSubmitVisit(ws: WebSocket, _msg: any): void {
   const { client, match } = req;
 
   const cv = match.currentVisit;
-  if (cv && !match.isLocal && !client.playerIds.includes(cv.playerId)) {
+  if (cv && !client.playerIds.includes(cv.playerId)) {
     send(ws, { type: 'error', message: 'You can only submit your own visit' });
     return;
   }
@@ -941,7 +939,9 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
     const remaining = match.players.filter((p) => !match.departed.includes(p.id));
 
     if (match.status === 'in_progress') {
-      if (match.isLocal || remaining.length === 0) {
+      // Nobody left to play it. A user holding every player takes them all with it, which is how a
+      // one-user match ends up here and why that needs no case of its own.
+      if (remaining.length === 0) {
         endMatch(match, null);
         broadcastToMatch(match.id, matchMessage('match_finished', match));
       } else if (remaining.length === 1) {
@@ -1015,7 +1015,7 @@ function leaveLobby(ws: WebSocket, client: Client): void {
     const guestsRemain = [...allClients()].some(
       ([, c]) => c.lobbyId === lobby.id && c.sessionId !== lobby.hostSessionId && !c.deviceId && !c.isSpectator,
     );
-    if (!guestsRemain) generateInviteCode(lobby.id);
+    if (!guestsRemain && lobby.acceptsJoins) generateInviteCode(lobby.id);
     broadcastToLobby(lobby.id, lobbyMessage(lobby));
     return;
   }
@@ -1121,7 +1121,7 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
     }
   }
 
-  send(ws, lobbyMessage(lobby, { playerIds: lobby.isLocal ? undefined : client.playerIds, host: seat.host }));
+  send(ws, lobbyMessage(lobby, { playerIds: client.playerIds, host: seat.host }));
 }
 
 /** Page reload during the match. */
@@ -1139,7 +1139,6 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
     return;
   }
 
-  if (match.isLocal) cancelDisconnectsForMatch(match.id);
 
   client.lobbyId = null;
   client.matchId = match.id;
@@ -1154,10 +1153,10 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
     }
   }
 
-  // The one message that tells a connection which players are its own: a reloaded tab cannot work that
-  // out from the match, and a local match is the same "no answer" it is everywhere else.
+  // The one message that tells a connection which players are its own: a reloaded tab cannot work
+  // that out from a match that names nobody's owner.
   send(ws, matchMessage('match_state', match, {
-    playerIds: match.isLocal ? undefined : client.playerIds,
+    playerIds: client.playerIds,
     spectator: false,
   }));
 }
@@ -1178,8 +1177,8 @@ function handleRematchVote(ws: WebSocket, msg: any): void {
 
   const player = match.players.find((p) => p.id === msg.playerId);
   if (!player) return;
-  // You may answer for your own players — which in a local match is all of them.
-  if (!match.isLocal && !client.playerIds.includes(player.id)) {
+  // You may answer for your own players — which for a user holding all of them is all of them.
+  if (!client.playerIds.includes(player.id)) {
     send(ws, { type: 'error', message: 'You can only answer for your own player' });
     return;
   }
@@ -1227,7 +1226,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     const held = heldSeat(rematch.id, other.sessionId);
     if (held) sendResume(otherWs, { matchId: rematch.id }, held.token);
     send(otherWs, matchMessage('match_started', rematch, {
-      playerIds: rematch.isLocal ? undefined : other.playerIds,
+      playerIds: other.playerIds,
       spectator: other.isSpectator,
     }));
   }
@@ -1240,8 +1239,8 @@ function handleReorderPlayer(ws: WebSocket, msg: any): void {
   if (!req) return;
   const { client, lobby } = req;
 
-  // Only the host can reorder players
-  if (client.sessionId !== lobby.hostSessionId && !lobby.isLocal) {
+  // Only the host reorders players — see `handleStartMatch` on why that costs a lone user nothing.
+  if (client.sessionId !== lobby.hostSessionId) {
     send(ws, { type: 'error', message: 'Only the match creator can change player order' });
     return;
   }

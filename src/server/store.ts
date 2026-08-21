@@ -32,9 +32,8 @@ export function createLobby(): Lobby {
     players: [],
     settings: { mode: DEFAULT_MODE, modeSettings: { ...getMode(DEFAULT_MODE)!.defaults }, ...DEFAULT_FORMAT },
     inviteCode: null,
-    hostPlayerId: null,
     hostSessionId: null,
-    isLocal: true,
+    acceptsJoins: false,
     maxPlayers: effectiveMaxPlayers(CONFIG.server.maxPlayersPerMatch, getMode(DEFAULT_MODE)?.maxPlayers),
     userCount: 0,
     createdAt: Date.now(),
@@ -109,7 +108,7 @@ export function findLobbyByInviteCode(code: string): Lobby | undefined {
  * A match at its beginning. The only way one is ever created, so a match started from a lobby and a
  * re-match are the same thing to everything downstream.
  */
-function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean): MatchState {
+function startMatch(settings: MatchSettings, players: Player[]): MatchState {
   const id = generateId();
   const match: MatchState = {
     id,
@@ -122,7 +121,6 @@ function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean
     winnerId: null,
     createdAt: Date.now(),
     finishedAt: null,
-    isLocal,
     departed: [],
     rematchVotes: {},
     expiresAt: Date.now() + IDLE_TTL_MS,
@@ -132,7 +130,7 @@ function startMatch(settings: MatchSettings, players: Player[], isLocal: boolean
 }
 
 export function createMatch(lobby: Lobby): MatchState {
-  const match = startMatch(lobby.settings, lobby.players, lobby.isLocal);
+  const match = startMatch(lobby.settings, lobby.players);
   // Before the lobby goes: everyone who held a place in it holds the same place in the match, and
   // their tab has no way of hearing that the room it can name has changed id.
   carrySeats(lobby.id, match.id);
@@ -152,7 +150,7 @@ export function createRematch(previous: MatchState): MatchState {
   const players = previous.players.length > 1
     ? [...previous.players.slice(1), previous.players[0]]
     : [...previous.players];
-  const match = startMatch(previous.settings, players, previous.isLocal);
+  const match = startMatch(previous.settings, players);
   carrySeats(previous.id, match.id);
   return match;
 }

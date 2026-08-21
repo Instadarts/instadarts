@@ -57,7 +57,7 @@ const T20 = { x: 500_000, y: 726_000 };
 
 function lobby() {
   const user = connect();
-  user.send({ type: 'create_lobby', isLocal: true });
+  user.send({ type: 'create_lobby', acceptsJoins: false });
   user.send({ type: 'add_local_player', playerName: 'Alice' });
   return user;
 }

@@ -77,7 +77,7 @@ const DART = { x: 500_000, y: 500_000 };
 /** A local match — one user holding every player. A single-player match is this with one name. */
 function localMatch(...names: string[]) {
   const host = connect();
-  host.send({ type: 'create_lobby', isLocal: true });
+  host.send({ type: 'create_lobby', acceptsJoins: false });
   for (const name of names) host.send({ type: 'add_local_player', playerName: name });
   host.send({ type: 'start_match' });
   const match = host.last('match_started')!.match;
@@ -87,7 +87,7 @@ function localMatch(...names: string[]) {
 /** An online match — two users, one player each. */
 function onlineMatch() {
   const alice = connect();
-  alice.send({ type: 'create_lobby', isLocal: false });
+  alice.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = alice.last('lobby_state')!.lobby.id;
   alice.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -157,7 +157,7 @@ describe('what watching a match tells you', () => {
 
   it('keeps it off a lobby too, and off the broadcast the players themselves get', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -176,7 +176,7 @@ describe('what watching a match tells you', () => {
 
   it('does not hand out the creator\'s session id either', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
 
     const spec = connect();
@@ -192,7 +192,7 @@ describe('what watching a match tells you', () => {
 
   it('tells a joiner it is not the host, and says nothing to the room', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -301,7 +301,7 @@ describe('a spectator of a local lobby', () => {
     // without even a player id to name. The host seat is who may change the settings and remove
     // players, so it is worth as much as a turn at the board.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: true });
+    host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -373,7 +373,7 @@ describe('a duplicated tab', () => {
 
   it('takes a lobby over too, chair and all', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -432,7 +432,7 @@ describe('holding the place, not remembering it', () => {
 
   it('refuses a connection that believes it is in a lobby but holds no seat', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
@@ -470,7 +470,7 @@ describe('the real player reloading their own page', () => {
     // The client no longer works this out by comparing session ids, so a reload has nothing of its
     // own to go on: being the creator has to survive in the seat and be said again on the way back.
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
     const token = host.last('resume')!.token;
@@ -487,7 +487,7 @@ describe('the real player reloading their own page', () => {
 
   it('comes back as a guest without the creator\'s chair', () => {
     const host = connect();
-    host.send({ type: 'create_lobby', isLocal: false });
+    host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 

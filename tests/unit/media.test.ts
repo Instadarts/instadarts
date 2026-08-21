@@ -86,7 +86,7 @@ function pairDevice(frontend: Connection, name = 'Board', tier: MediaTier = 'vid
 
 function onlineLobby() {
   const host = connect();
-  host.send({ type: 'create_lobby', isLocal: false });
+  host.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
   const guest = connect();
@@ -101,7 +101,7 @@ function onlineLobby() {
  */
 function startBoards(names: string[][]) {
   const host = connect();
-  host.send({ type: 'create_lobby', isLocal: false });
+  host.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
   const users = [host];
@@ -250,7 +250,7 @@ describe('match-scoped lifetime and setup', () => {
 
   it('tears media down when a local owner cancels the match', () => {
     const user = connect();
-    user.send({ type: 'create_lobby', isLocal: true });
+    user.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = user.last('lobby_state')!.lobby.id;
     user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     const camera = pairDevice(user, 'Local board');
@@ -280,7 +280,7 @@ describe('topology and source intent', () => {
 
   it('offers a local shared source to spectators without making it self-video', () => {
     const user = connect();
-    user.send({ type: 'create_lobby', isLocal: true });
+    user.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = user.last('lobby_state')!.lobby.id;
     user.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     user.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
@@ -295,6 +295,9 @@ describe('topology and source intent', () => {
     expect(entryFor(user, camera)).toMatchObject({ own: true }); // control/stills edge
     expect(entryFor(watcher, camera)).toBeDefined();
     expect(camera.last('media_source_state')).toMatchObject({ active: true, audience: ['spectator'] });
+    // One board, so one slot — and one declaration completes setup however many players stand at it.
+    // Slots keyed per player instead would wait here for a declaration nothing can send.
+    expect(user.last('media_peers')!.setupComplete).toBe(true);
   });
 
   it('never asks a camera to publish for a game mode that declined board video', () => {

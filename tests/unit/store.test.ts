@@ -117,43 +117,10 @@ describe('Store', () => {
     });
   });
 
-  describe('handleClientLeave scenarios (store-level contracts)', () => {
-    // These tests verify the data operations that handleClientLeave orchestrates.
-    // The wsHandler-level refactor must preserve these state transitions.
-
-    it('local match: setting status=finished with no winner simulates creator disconnect', () => {
-      const lobby = createLobby();
-      lobby.isLocal = true;
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 's1' });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 's1' });
-      const match = createMatch(lobby);
-
-      // Simulate handleClientLeave: match.status = 'finished', no winner
-      match.status = 'finished';
-      match.finishedAt = Date.now();
-      // winnerId stays null — local match cancellation
-
-      expect(match.status).toBe('finished');
-      expect(match.winnerId).toBeNull();
-    });
-
-    it('online match: player leave declares other player winner', () => {
-      const lobby = createLobby();
-      lobby.isLocal = false;
-      addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice', sessionId: 's1' });
-      addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob', sessionId: 's2' });
-      const match = createMatch(lobby);
-
-      // Simulate p1 leaves: p2 wins
-      const otherPlayer = match.players.find((p) => p.id !== 'p1');
-      expect(otherPlayer).toBeDefined();
-      match.status = 'finished';
-      match.winnerId = otherPlayer!.id;
-      match.finishedAt = Date.now();
-
-      expect(match.winnerId).toBe('p2');
-      expect(match.status).toBe('finished');
-    });
+  describe('what leaving does to the store', () => {
+    // What a leave *means* is decided in wsHandler and covered there — rematch.test.ts,
+    // nplayers.test.ts and one-user.test.ts. What is left for this file is the store operations
+    // those handlers call.
 
     it('host leaving lobby: deleteLobby cleans up the lobby', () => {
       const lobby = createLobby();

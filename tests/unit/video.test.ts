@@ -250,43 +250,44 @@ describe('live board selection', () => {
 
   it('shows an opponent but never the local player to a participant', () => {
     const feeds = [feed('p1'), feed('p2')];
-    expect(selectVideoFeed(feeds, 'p1', 'p1', false, false)).toBeNull();
-    expect(selectVideoFeed(feeds, 'p2', 'p1', false, false)?.peerId).toBe('camera-p2');
+    expect(selectVideoFeed(feeds, 'p1', 'p1', false)).toBeNull();
+    expect(selectVideoFeed(feeds, 'p2', 'p1', false)?.peerId).toBe('camera-p2');
   });
 
   it('follows the current player for a spectator', () => {
     const feeds = [feed('p1'), feed('p2')];
-    expect(selectVideoFeed(feeds, 'p1', null, true, false)?.peerId).toBe('camera-p1');
-    expect(selectVideoFeed(feeds, 'p2', null, true, false)?.peerId).toBe('camera-p2');
+    expect(selectVideoFeed(feeds, 'p1', null, true)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed(feeds, 'p2', null, true)?.peerId).toBe('camera-p2');
   });
 
   it('falls through to the virtual board for every unusable state', () => {
     for (const status of ['offered', 'waiting', 'stalled', 'unavailable'] as const) {
-      expect(selectVideoFeed([feed('p2', status)], 'p2', 'p1', false, false)).toBeNull();
+      expect(selectVideoFeed([feed('p2', status)], 'p2', 'p1', false)).toBeNull();
     }
-    expect(selectVideoFeed([{ ...feed('p2'), choice: 'declined' }], 'p2', 'p1', false, false)).toBeNull();
-    expect(selectVideoFeed([], 'p2', 'p1', false, false)).toBeNull();
-  });
-
-  it('uses one shared local-board feed for every spectator turn, but never on the local screen', () => {
-    const shared = { ...feed('p1'), playerId: undefined };
-    expect(selectVideoFeed([shared], 'p1', null, true, true)?.peerId).toBe('camera-p1');
-    expect(selectVideoFeed([shared], 'p2', null, true, true)?.peerId).toBe('camera-p1');
-    expect(selectVideoFeed([shared], 'p1', null, false, true)).toBeNull();
+    expect(selectVideoFeed([{ ...feed('p2'), choice: 'declined' }], 'p2', 'p1', false)).toBeNull();
+    expect(selectVideoFeed([], 'p2', 'p1', false)).toBeNull();
   });
 
   it('follows the thrower to their board, including a user\'s second player', () => {
     // Alice and Carol share the host's board, so Carol's turn shows the feed published for it.
     // Selecting on player id instead would leave the other side looking at a virtual board.
     const feeds = [feed('p1'), feed('p3')];
-    expect(selectVideoFeed(feeds, 'p1', 'p3', false, false)?.peerId).toBe('camera-p1');
-    expect(selectVideoFeed(feeds, 'p1', 'p1', false, false)).toBeNull();
-    expect(selectVideoFeed(feeds, 'p3', 'p1', false, false)?.peerId).toBe('camera-p3');
+    expect(selectVideoFeed(feeds, 'p1', 'p3', false)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed(feeds, 'p1', 'p1', false)).toBeNull();
+    expect(selectVideoFeed(feeds, 'p3', 'p1', false)?.peerId).toBe('camera-p3');
+  });
+
+  it('shows one shared board on every turn to a watcher, and never to the people at it', () => {
+    // The shape a single user produces: every player resolves to the same board, so a watcher sees
+    // it whoever is up, and the people standing at it never do. Nothing here needs to know how the
+    // match was created — `boardCount` and `Player.boardId` carry that, and are tested separately.
+    const feeds = [feed('p1')];
+    expect(selectVideoFeed(feeds, 'p1', null, true)?.peerId).toBe('camera-p1');
+    expect(selectVideoFeed(feeds, 'p1', 'p1', false)).toBeNull();
   });
 
   it('names a board after everybody who throws at it', () => {
     const online = {
-      isLocal: false,
       players: [
         { id: 'p1', name: 'Alice', boardId: 'p1' },
         { id: 'p2', name: 'Carol', boardId: 'p1' },
@@ -297,14 +298,15 @@ describe('live board selection', () => {
     expect(labelVideoFeedsForMatch([feed('p1')], online)[0].label).toBe("Alice & Carol's board");
     expect(labelVideoFeedsForMatch([feed('p3')], online)[0].label).toBe('Bob');
 
-    // The one shared local board is named after everybody on it, by the same rule.
-    const shared = { ...feed('p2'), playerId: undefined };
-    const local = { ...online, isLocal: true };
-    expect(labelVideoFeedsForMatch([shared], local)[0].label).toBe("Alice, Carol & Bob's board");
+    // One user holding the whole roster is one board, named after all of them by the same rule.
+    const oneBoard = {
+      players: online.players.map((p) => ({ ...p, boardId: 'p1' })),
+    };
+    expect(labelVideoFeedsForMatch([feed('p1')], oneBoard)[0].label).toBe("Alice, Carol & Bob's board");
 
     // Past a few names, listing them says less than not listing them.
-    const crowd = { ...local, players: [...local.players, { id: 'p4', name: 'Dave', boardId: 'p1' }] };
-    expect(labelVideoFeedsForMatch([shared], crowd)[0].label).toBe('the shared board');
+    const crowd = { players: [...oneBoard.players, { id: 'p4', name: 'Dave', boardId: 'p1' }] };
+    expect(labelVideoFeedsForMatch([feed('p1')], crowd)[0].label).toBe('the shared board');
   });
 });
 

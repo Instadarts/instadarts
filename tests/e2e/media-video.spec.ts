@@ -733,16 +733,21 @@ test.describe('board video', () => {
     await expect(watcher.getByTestId('live-board-feed')).toBeVisible({ timeout: 20_000 });
 
     const [shared] = await watching(watcher);
-    expect(shared.playerId).toBeUndefined();
+    // The feed is published for a **board**, and a board is named by the first player of the user
+    // who owns it — so both Alice's and Bob's turns resolve to this one id rather than to theirs.
+    expect(shared.playerId).toBeTruthy();
     expect(shared.label).toBe("Alice & Bob's board");
     const sharedFeedId = shared.feedId;
+    const sharedBoardId = shared.playerId;
 
-    // Alice hands the shared physical board to Bob. The spectator keeps the same unassigned feed;
-    // local player IDs do not select between cameras because there is only this one camera.
+    // Alice hands the shared physical board to Bob. The spectator keeps the very same feed, because
+    // the board it belongs to has not changed hands — there is only this one camera.
     await clickT20(player);
     await submitVisit(player);
     await expect(watcher.getByTestId('live-board-feed')).toBeVisible();
-    expect((await watching(watcher))[0].feedId).toBe(sharedFeedId);
+    const afterHandover = (await watching(watcher))[0];
+    expect(afterHandover.feedId).toBe(sharedFeedId);
+    expect(afterHandover.playerId).toBe(sharedBoardId);
 
     await watchingContext.close();
     await local.close();

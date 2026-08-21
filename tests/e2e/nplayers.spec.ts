@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clickT20, submitVisit } from './appHelpers';
+import { clickT20, clickT19, clickD12, submitVisit, setupLocalMatch } from './appHelpers';
 
 test.describe('N-players matches', () => {
   test('3-player local match with Count-Up mode', async ({ page }) => {
@@ -77,6 +77,39 @@ test.describe('N-players matches', () => {
     await expect(page.locator('[data-player="Bob"]')).toContainText('501');
     await expect(page.locator('[data-player="Eve"]')).toContainText('501');
     await expect(page.locator('[data-player="Bob"]').locator('text=▶ throwing')).toBeVisible();
+  });
+
+  test('a crowded roster keeps every card\'s contents inside it, on a screen that scales', async ({ page }) => {
+    // Above 2000px the root font size steps up (index.css), and everything in a player card is
+    // sized in rem — so on a big screen the type grows and the box has to grow with it. Four is the
+    // roster that catches it: four cards at their minimum width are almost exactly the summary
+    // column, so none of them grows, and WINNER is the widest word either screen draws.
+    await page.setViewportSize({ width: 2560, height: 1440 });
+    const names = ['Alice', 'Bob', 'Carol', 'Dave'];
+    await setupLocalMatch(page, names, 501);
+
+    // Measured, not asserted visible: text that spills out of its box is still visible to
+    // Playwright, and at 1600px wide it spills into the card's padding and leaves no other trace.
+    const spilling = () => page.evaluate(() => (
+      ([...document.querySelectorAll('[data-player]')] as HTMLElement[]).flatMap((card) => [
+        ...(card.scrollWidth > card.clientWidth + 1 ? [`${card.dataset.player}: the card itself`] : []),
+        ...[...card.querySelectorAll('p')]
+          .filter((line) => line.scrollWidth > line.getBoundingClientRect().width + 1)
+          .map((line) => `${card.dataset.player}: "${line.textContent}"`),
+      ])
+    ));
+
+    expect(await spilling(), 'score cards during the match').toEqual([]);
+
+    // Alice takes it in three visits — 180, 180, then a 141 checkout — while the other three pass.
+    for (const visit of [[clickT20, clickT20, clickT20], [clickT20, clickT20, clickT20], [clickT20, clickT19, clickD12]]) {
+      for (const dart of visit) await dart(page);
+      await submitVisit(page);
+      if (visit[2] !== clickD12) for (let i = 1; i < names.length; i++) await submitVisit(page);
+    }
+
+    await expect(page.getByText('Alice wins!')).toBeVisible({ timeout: 10_000 });
+    expect(await spilling(), 'verdict cards on the summary').toEqual([]);
   });
 
   test('5-player local Whac-A-Mole, played through to the finale', async ({ page }) => {

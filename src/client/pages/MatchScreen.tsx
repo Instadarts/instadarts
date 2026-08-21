@@ -305,7 +305,7 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
             key={player.id}
             data-player={player.name}
             aria-current={isCurrent}
-            className={`text-center px-4 py-2 rounded-lg flex-1 min-w-[120px] max-w-[16rem] ${
+            className={`text-center px-4 py-2 rounded-lg flex-1 min-w-[7.5rem] max-w-[16rem] ${
               isDeparted
                 ? 'bg-gray-900/50 opacity-60 border border-red-900/50'
                 : isCurrent

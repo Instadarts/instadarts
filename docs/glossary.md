@@ -720,6 +720,24 @@ Either way the next visit is the **curtain call** — no darts, locked from the 
 it is what ends the leg. It exists so the closing screen is seen: the match summary does not draw a
 mode's panel.
 
+### [wam] Perfect run / points per turn
+
+A turn is worth at most `min(darts, moles)` whacks — neither a dart without a mole nor a mole
+without a dart pays — plus one for the sweep, which is awarded for exactly that many. Nothing else
+can be earned: the janitor pays in darts rather than points, and it is only ever in once a dart has
+been lost, which a flawless run never does.
+
+So a **perfect run** scores `turns × (min(darts, moles) + 1)`, counted over the turns the run really
+plays — rounded up to a whole way round the table, since three players in a fifty-turn run play
+fifty-one. `maxScoreOf` computes it from the settings alone, which is why it reads the same before
+the first dart as after the last, and why the closing screen can show the team total as a share of
+it. **It no longer scales with the roster**: five players and one player chasing the same `turns`
+chase the same number, so their scores compare.
+
+**Points per turn** (`ppt`) is the team total over the turns taken, the turn in hand included — the
+one figure in the stats block that is a rate rather than a tally, against a ceiling of
+`min(darts, moles) + 1`.
+
 ### [wam] Seed
 
 The number a whole run is computed from. Every mole's area, every reaction and every taunt comes out

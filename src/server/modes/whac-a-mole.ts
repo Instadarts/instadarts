@@ -232,6 +232,27 @@ function sweepAt(cfg: Config): number {
   return Math.min(cfg.moles, cfg.darts);
 }
 
+/**
+ * The most a team could possibly score, from the settings alone.
+ *
+ * A turn is worth the moles it can reach — `min(darts, moles)`, since neither a dart without a mole
+ * nor a mole without a dart pays — plus one for the sweep, which `sweepAt` sets to exactly that
+ * number. Nothing else can be earned: the janitor pays in darts rather than points, and it is only
+ * ever in when a dart has already been lost, which a flawless run never does.
+ *
+ * The turn count is rounded up to a whole way round the table, because that is the run `isOver`
+ * actually plays — three players in a fifty-turn run play fifty-one, and the fifty-first is worth
+ * as much as any other.
+ *
+ * A fact about the settings, not about the run: it is the same number before the first dart as
+ * after the last, which is what makes the share of it worth showing.
+ */
+function maxScoreOf(cfg: Config, players: number): number {
+  const seats = Math.max(1, players);
+  const turns = Math.ceil(cfg.turns / seats) * seats;
+  return turns * (Math.min(cfg.darts, cfg.moles) + 1);
+}
+
 /** How far the difficulty has climbed, 0 on the first turn and 1 on the last. */
 function pressureAt(turn: number, cfg: Config): number {
   const linear = Math.min(1, Math.max(0, (turn - 1) / Math.max(1, cfg.turns - 1)));
@@ -756,6 +777,11 @@ export const whacAMole: GameMode = {
     // the lobby asked for. "Turn 51 / 50" is true and reads like a fault.
     const turn = Math.min(cfg.turns, turnOf(start.visitIndex));
     const team = match.players.reduce((sum, p) => sum + (live.score[p.id] ?? 0), 0);
+    // Turns the score has had to happen in: the ones played, and the one being played while there
+    // is one. Counting the turn in hand is what lets this move as the darts land rather than
+    // sitting still until somebody submits — and once the run is over there is no turn in hand, so
+    // the divisor is the run's real length rather than the curtain call's number.
+    const turnsTaken = Math.max(1, over ? start.visitIndex : turnOf(start.visitIndex));
     const current = ctx.currentPlayerId;
     const allowance = over ? 0 : allowanceOf(start, current, cfg);
 
@@ -821,12 +847,20 @@ export const whacAMole: GameMode = {
           call: callFor(cfg.seed, event),
         })),
         buried: live.buried,
+        // What a flawless run of these settings would score, so the team total means something on
+        // its own. Sent as the number rather than as a share of it: the screen has the total
+        // already, and one of the two is a fact while the other is a rendering of it.
+        maxScore: maxScoreOf(cfg, match.players.length),
         stats: {
           whacked: match.players.reduce((sum, p) => sum + (live.whacks[p.id] ?? 0), 0),
           escaped: live.escaped,
           perfectVisits: live.perfectVisits,
           holes: live.holes.length,
           rescued: match.players.reduce((sum, p) => sum + (live.rescued[p.id] ?? 0), 0),
+          // Points per turn, against a ceiling of `min(darts, moles) + 1` — four by default. The
+          // one figure here that is a rate rather than a tally, and the one that says whether a
+          // run is going well while it is still going.
+          ppt: team / turnsTaken,
         },
       },
     };

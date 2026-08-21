@@ -102,6 +102,7 @@ test.describe('N-players matches', () => {
     // The mode's own HUD: a row per player, and a turn counter that counts turns.
     for (const name of names) await expect(page.locator(`[data-player="${name}"]`)).toBeVisible();
     await expect(page.getByText(/Turn\s*1\s*\/\s*20/)).toBeVisible();
+    await expect(page.getByText('ppt', { exact: true })).toBeVisible();
 
     // Play the run out. Misses cost nothing, so the turn limit is what ends it.
     for (let turn = 0; turn < 20; turn++) await submitVisit(page);
@@ -109,16 +110,25 @@ test.describe('N-players matches', () => {
     // The heading, not the mode's "GAME OVER — submit to finish" notice, which says it too.
     await expect(page.getByRole('heading', { name: 'GAME OVER' })).toBeVisible();
     await expect(page.getByText(/of 20 turns/)).toBeVisible();
+    // Four turns each at four points a turn: the ceiling for these settings, computed on the
+    // server and shown so the total means something on its own.
+    await expect(page.getByText('0% of a perfect 80')).toBeVisible();
+    await expect(page.getByTestId('wam-finale').getByText('ppt', { exact: true })).toBeVisible();
 
     // The finale is exactly the board square and is `overflow-hidden`, so at five players the
     // player list is what has to give. Measured rather than asserted visible: a clipped element
     // still reports itself visible to Playwright, so `toBeVisible` passes either way and would
     // have let this ship. Both ends have to sit inside the card.
-    const card = (await page.getByTestId('wam-finale').boundingBox())!;
-    for (const part of [
+    const finale = page.getByTestId('wam-finale');
+    const card = (await finale.boundingBox())!;
+    const parts = [
       page.getByRole('heading', { name: 'GAME OVER' }),
       page.getByText('Press Submit Visit to finish'),
-    ]) {
+      // And every player's row: a card that fits its own ends but scrolls its roster is still
+      // hiding the result from three of the five people who just played for it.
+      ...names.map((name) => finale.getByText(name, { exact: true })),
+    ];
+    for (const part of parts) {
       const box = (await part.boundingBox())!;
       expect(box.y).toBeGreaterThanOrEqual(card.y);
       expect(box.y + box.height).toBeLessThanOrEqual(card.y + card.height);

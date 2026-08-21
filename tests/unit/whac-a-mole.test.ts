@@ -123,6 +123,22 @@ function idleVisit(match: MatchState): MatchState {
 }
 
 /**
+ * Play a flawless run: every turn whacks every mole it can reach, and nothing is ever lost.
+ *
+ * The only way to reach the ceiling, which is what makes it the way to check the ceiling is right.
+ */
+function playPerfect(match: MatchState): MatchState {
+  let current = match;
+  const darts = current.settings.modeSettings.darts as number;
+  for (let visits = 0; visits <= 400; visits++) {
+    if (whacAMole.finalizeVisit(legContext(current)).legWinnerId !== null) return current;
+    for (const area of molesOn(current).slice(0, darts)) current = throwAt(current, area);
+    current = submit(current);
+  }
+  throw new Error('the run never ended');
+}
+
+/**
  * Idle until the run says it is over, and report how many visits that took.
  *
  * A miss costs nothing, so the only thing that can end one of these is the turn limit — which is
@@ -595,10 +611,16 @@ describe('whac-a-mole: what the screen is told', () => {
     expect(panel.rows.map((row) => row.label)).toEqual(['Score', 'Darts left', 'Holes hit']);
     expect(panel.rows[1].values.p1).toBe('3');
 
-    const custom = panel.custom as { phase: string; moles: { label: string }[]; turn: number };
+    const custom = panel.custom as {
+      phase: string; moles: { label: string }[]; turn: number; maxScore: number;
+      stats: { ppt: number };
+    };
     expect(custom.phase).toBe('playing');
     expect(custom.turn).toBe(1);
     expect(custom.moles).toHaveLength(3);
+    // 25 turns, three darts against three moles: three whacks and the sweep, every turn.
+    expect(custom.maxScore).toBe(100);
+    expect(custom.stats.ppt).toBe(0);
     expect(JSON.parse(JSON.stringify(panel))).toEqual(panel);   // it has to survive the wire
   });
 
@@ -717,5 +739,71 @@ describe('whac-a-mole: any number of players', () => {
     const match = idleVisit(makeMatch({ turns: 50 }, 3));
     const line = whacAMole.view(legContext(match)).history[0];
     expect(typeof line === 'string' ? line : line.text).toMatch(/^#1 Alice /);
+  });
+});
+
+// ============================================================
+// What a run was worth
+// ============================================================
+
+describe('whac-a-mole: the ceiling and the rate', () => {
+  /** `custom` as the mode's own component reads it. */
+  const customOf = (match: MatchState) => whacAMole.panel!(match)!.custom as {
+    team: number;
+    maxScore: number;
+    stats: { ppt: number; whacked: number; perfectVisits: number };
+  };
+
+  it('is a fact about the settings, so it is the same before the first dart as after the last', () => {
+    const before = customOf(makeMatch({ turns: 20 }, 5));
+    const after = customOf(playPerfect(makeMatch({ turns: 20 }, 5)));
+    expect(before.maxScore).toBe(after.maxScore);
+    expect(before.team).toBe(0);
+  });
+
+  it('is exactly what a flawless run scores, whatever the roster', () => {
+    // turns × (min(darts, moles) + 1): the moles a turn can reach, plus the sweep for clearing them.
+    for (const [turns, players, expected] of [[25, 1, 100], [50, 1, 200], [50, 2, 200], [20, 5, 80]] as const) {
+      const custom = customOf(playPerfect(makeMatch({ turns }, players)));
+      expect({ turns, players, max: custom.maxScore }).toEqual({ turns, players, max: expected });
+      expect(custom.team).toBe(expected);
+    }
+  });
+
+  it('moves with the darts and the moles, not with the player count', () => {
+    // Neither a dart without a mole nor a mole without a dart pays, so the smaller of the two rules.
+    expect(customOf(makeMatch({ turns: 50, darts: 2, moles: 3 }, 2)).maxScore).toBe(150);
+    expect(customOf(makeMatch({ turns: 50, darts: 3, moles: 2 }, 2)).maxScore).toBe(150);
+    expect(customOf(makeMatch({ turns: 50, darts: 5, moles: 5 }, 2)).maxScore).toBe(300);
+  });
+
+  it('counts the turns a run really plays, not the number the lobby asked for', () => {
+    // Three players in a fifty-turn run play fifty-one, and the fifty-first is worth as much as
+    // any other — so the ceiling is the rounded-up run rather than the setting.
+    const custom = customOf(playPerfect(makeMatch({ turns: 50 }, 3)));
+    expect(custom.maxScore).toBe(204);
+    expect(custom.team).toBe(204);
+  });
+
+  it('reports points per turn against that same ceiling', () => {
+    // A flawless run scores the per-turn maximum every turn: three whacks and the sweep.
+    const perfect = customOf(playPerfect(makeMatch({ turns: 20 }, 5)));
+    expect(perfect.stats.ppt).toBe(4);
+
+    // And a run where nobody hits anything scores none of it.
+    let idle = makeMatch({ turns: 20 }, 5);
+    for (let i = 0; i < 5; i++) idle = idleVisit(idle);
+    expect(customOf(idle).stats.ppt).toBe(0);
+  });
+
+  it('counts the turn in hand, so the rate moves as the darts land', () => {
+    // Turn one, two moles down out of three: two points over one turn.
+    let match = makeMatch({ turns: 50 }, 2);
+    for (const area of molesOn(match).slice(0, 2)) match = throwAt(match, area);
+    expect(customOf(match).stats.ppt).toBe(2);
+
+    // The third clears the board, and the sweep takes the turn to its maximum.
+    match = throwAt(match, molesOn(match)[0]);
+    expect(customOf(match).stats.ppt).toBe(4);
   });
 });

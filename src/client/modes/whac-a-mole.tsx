@@ -90,7 +90,22 @@ interface RunView {
   lost: number;
   events: EventView[];
   buried: string[];
-  stats: { whacked: number; escaped: number; perfectVisits: number; holes: number; rescued: number };
+  /** What a flawless run of these settings would score. The team total is shown as a share of it. */
+  maxScore: number;
+  stats: {
+    whacked: number;
+    escaped: number;
+    perfectVisits: number;
+    holes: number;
+    rescued: number;
+    /** Points per turn so far, the turn in hand included. A rate, so it is drawn to one decimal. */
+    ppt: number;
+  };
+}
+
+/** The team total as a share of a flawless run. Whole percent — this is a verdict, not a measurement. */
+function shareOf(team: number, maxScore: number): number {
+  return maxScore > 0 ? Math.round((team / maxScore) * 100) : 0;
 }
 
 export default function WhacAMolePanel({ panel }: ModePanelProps) {
@@ -826,11 +841,12 @@ function Hud({ run }: { run: RunView }) {
         </div>
       </div>
 
-      <dl className="grid grid-cols-4 gap-1 text-center">
+      <dl className="grid grid-cols-5 gap-1 text-center">
         <Stat label="whacked" value={run.stats.whacked} tone="good" />
         <Stat label="holes" value={run.stats.holes} tone="danger" />
         <Stat label="saved" value={run.stats.rescued} tone="info" />
         <Stat label="perfect" value={run.stats.perfectVisits} tone="warn" />
+        <Stat label="ppt" value={run.stats.ppt.toFixed(1)} tone="good" />
       </dl>
     </div>
   );
@@ -883,7 +899,7 @@ function Pips({ total, left }: { total: number; left: number }) {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: 'good' | 'warn' | 'danger' | 'info' }) {
+function Stat({ label, value, tone }: { label: string; value: number | string; tone: 'good' | 'warn' | 'danger' | 'info' }) {
   const colour = tone === 'danger'
     ? 'text-red-400'
     : tone === 'warn'
@@ -910,6 +926,10 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: 'goo
  * screen and does not draw a mode's panel, so this is the only moment the run has to be told about.
  */
 function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
+  // The card is exactly the board square and cannot grow, so past a pair everything that scales
+  // with the roster is drawn smaller. One flag, so the pieces stay in proportion.
+  const crowded = run.players.length > 2;
+
   return createPortal(
     // Exactly the board square, and nothing outside it: the rest of the screen — the score cards,
     // the slots, Submit — is what the player is being asked to look at next, and dimming the whole
@@ -928,34 +948,47 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
           the card is exactly the board square and cannot grow, so past two players something has to
           be smaller, and a score nobody can miss at 16cqw is the cheapest thing to shrink. */}
       <p
-        className={`font-mono ${run.players.length > 2 ? 'text-[16cqw]' : 'text-[24cqw]'} font-bold leading-none text-amber-200 wam-pop`}
+        className={`font-mono ${crowded ? 'text-[14cqw]' : 'text-[22cqw]'} font-bold leading-none text-amber-200 wam-pop`}
       >
         {run.team}
+      </p>
+      <p className="text-[3.2cqw] font-semibold tracking-wide text-amber-400">
+        {shareOf(run.team, run.maxScore)}% of a perfect {run.maxScore}
       </p>
       <p className="text-[2.6cqw] uppercase tracking-wide text-gray-500">
         {run.players.length > 1 ? 'team score' : 'score'} after {run.turn} of {run.turns} turns
       </p>
 
-      {/* The one part that grows with the roster, so it is the one that gives: `min-h-0` lets it
-          shrink below its content and scroll, which is what keeps five players from pushing GAME
-          OVER off the top and the Submit prompt off the bottom of an `overflow-hidden` card. */}
-      <div className="mt-[2cqw] flex w-full min-h-0 flex-col gap-[1cqw] overflow-y-auto">
+      {/* The one part that grows with the roster, so it is the one that has to give.
+          `min-h-0` lets it shrink below its content and scroll, which is the safety net that keeps
+          GAME OVER and the Submit prompt inside an `overflow-hidden` card. But a scrollbar is a
+          poor answer on the screen whose whole job is reporting the result — at five players it
+          hid three of them — so a crowded roster goes into two columns at a smaller size, which
+          fits it into the space there is rather than into the space it wanted. */}
+      <div
+        className={`mt-[2cqw] grid w-full min-h-0 gap-[1cqw] overflow-y-auto ${crowded ? 'grid-cols-2' : 'grid-cols-1'}`}
+      >
         {run.players.map((player) => (
           <div
             key={player.id}
-            className="flex items-center justify-between rounded bg-gray-900 px-[3cqw] py-[1.4cqw]"
+            className={`flex items-center justify-between rounded bg-gray-900 px-[3cqw] ${crowded ? 'py-[0.8cqw]' : 'py-[1.4cqw]'}`}
           >
-            <span className="truncate text-[3.4cqw] text-gray-300">{player.name}</span>
-            <span className="font-mono text-[4.4cqw] text-amber-300">{player.score}</span>
+            <span className={`truncate ${crowded ? 'text-[2.8cqw]' : 'text-[3.4cqw]'} text-gray-300`}>
+              {player.name}
+            </span>
+            <span className={`font-mono ${crowded ? 'text-[3.6cqw]' : 'text-[4.4cqw]'} text-amber-300`}>
+              {player.score}
+            </span>
           </div>
         ))}
       </div>
 
-      <dl className="mt-[1cqw] grid w-full grid-cols-4 gap-[1.2cqw]">
+      <dl className="mt-[1cqw] grid w-full grid-cols-5 gap-[1.2cqw]">
         <FinaleStat label="whacked" value={run.stats.whacked} colour="text-green-400" />
         <FinaleStat label="holes" value={run.stats.holes} colour="text-red-400" />
         <FinaleStat label="saved" value={run.stats.rescued} colour="text-cyan-300" />
         <FinaleStat label="perfect" value={run.stats.perfectVisits} colour="text-amber-400" />
+        <FinaleStat label="ppt" value={run.stats.ppt.toFixed(1)} colour="text-green-400" />
       </dl>
 
       <p className="mt-[1.5cqw] text-[3cqw] text-gray-400">
@@ -967,7 +1000,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
 }
 
 /** The finale's own tiles, which scale with the board rather than with the panel column. */
-function FinaleStat({ label, value, colour }: { label: string; value: number; colour: string }) {
+function FinaleStat({ label, value, colour }: { label: string; value: number | string; colour: string }) {
   return (
     <div className="rounded bg-gray-900 py-[1.2cqw]">
       <dd className={`font-mono text-[4cqw] ${colour}`}>{value}</dd>

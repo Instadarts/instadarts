@@ -19,7 +19,7 @@ src/shared/     types.ts        the match, the visit, the mode's view of both â€
 
 src/server/     index.ts        boot: modes, express, the socket server, the clocks
                 wsHandler.ts    routing, and the gameplay handlers â€” lobby, match, re-match, spectate
-                connections.ts  who is connected and how to address them; nothing about meaning
+                connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
                 store.ts        lobbies and matches in memory, and the only place either is created
                 seats.ts        a place in a room and the token that proves it, for reconnecting

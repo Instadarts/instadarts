@@ -43,8 +43,8 @@ for the places where that has already gone wrong.
 | [Dart](#dart--throw) | One throw: board coordinates + score | `DartThrow` |
 | [Locked visit](#locked-visit) | The mode will accept no further dart this visit | `CurrentVisit.locked` |
 | [Voided visit](#voided-visit) | A finalized visit that scored nothing | `Visit.voided` |
-| **[x01]** [Bust](#x01-bust) | x01's void: overthrown, or an impossible leave | `Visit.bust`, `isBustScore` |
-| **[x01]** [Checkout](#x01-checkout) | x01's win: reaching exactly zero | `VisitResult.won` |
+| **[x01]** [Bust](#x01-bust) | x01's void: overthrown, or an impossible leave | `isBustScore`, committed as `Visit.voided` |
+| **[x01]** [Checkout](#x01-checkout) | x01's win: reaching exactly zero | `FinalizedVisit.legWinnerId` |
 | [Mode view](#mode-view) | The mode's text for the current leg | `ModeView`, `ViewText`, `mode.view(ctx)` |
 | [Mode panel](#mode-panel) | The mode's own block, across the match | `ModePanel`, `mode.panel(match)` |
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
@@ -160,17 +160,20 @@ The **lobby** is the first phase of a match: participants, match settings and ga
 configured here. It is a distinct entity (`Lobby`), not a status of a match.
 
 - Created by `create_lobby`; the creating user becomes the **host** (`hostSessionId`).
-- Gets an invite code only if it [accepts joins](#accepting-joins). One that does not is minted
-  without one, which is what makes it unjoinable rather than merely unadvertised.
-- `acceptsJoins` decides whether it has an invite code at all (see [Accepting joins](#accepting-joins)).
-- `userCount` is how many non-spectator users are connected to it; `maxPlayers` is the
-  [player limit](#player-limit) it enforces. Both are computed per message rather than stored, so
-  neither can drift from what the server would actually do.
+- `acceptsJoins` decides whether it gets an invite code at all — and since a code is the only way in,
+  a lobby without one is unjoinable rather than merely unadvertised. See
+  [Accepting joins](#accepting-joins).
+- `userCount` is how many non-spectator users are connected to it, `maxPlayers` is the
+  [player limit](#player-limit) it enforces, and `admitting` is whether another user could still take
+  a place. All three are computed per message rather than stored, so none can drift from what the
+  server would actually do — and `admitting` in particular is the server's own answer (`joinRefusal`),
+  so the lobby screen stops offering the code exactly when `join_lobby` starts refusing it.
 - **Joining is refused once no newcomer could take a place**: the roster is full, or the lobby
   already holds as many users as players (a user brings at least one, so the player limit caps them
   too). Watching is still open — a full lobby can be spectated.
 - The **host may remove any player**, not only its own; a user may remove the ones it added. A
-  removal lands on the owner's connection and the owner's [seat](#seat), never on the remover's.
+  removal lands on the owner's [seat](#seat) — the one place a player is recorded as somebody's —
+  and never on the remover's, which is what a kick makes different from tidying your own list.
 - Starting the match **destroys** the lobby: `createMatch(lobby)` calls `deleteLobby` and copies
   players and settings into the new match ([`createMatch`](../src/server/store.ts)). Two things
   happen first, and they are the last moment either can: a player no seat holds is taken off the
@@ -221,12 +224,17 @@ it is created and **never afterwards**; it is not a match setting and `update_se
 it. What the home screen calls a **Local Match** is a lobby that says no, and an **Online Match** is
 one that says yes. That is the whole of the difference.
 
-- A lobby that says no is **minted without a code at all**, so `findLobbyByInviteCode` has nothing to
-  match. `join_lobby` also refuses it by name, because a lobby id is public — it is the spectate URL
-  — and the id is the other way in. Watching stays open either way: a closed lobby is closed to
-  players, not to an audience.
-- A lobby that says yes gets a code, shown to the host, and re-minted once the last guest leaves so a
-  departed one cannot walk back in.
+- **Joining is by invite code and only by invite code.** `join_lobby` once took a lobby id as well,
+  and an id is the weaker secret of the two — it is in the spectate URL, so anybody handed something
+  to watch could have named it to join instead.
+- A lobby that says no is therefore **minted without a code at all**, and that is the enforcement
+  rather than a decoration: there is nothing to present. `findLobbyByInviteCode` refuses anything
+  that is not a real code, because a lobby without one carries `null` and `null === null` would
+  otherwise hand over the first closed lobby on the server. `join_lobby` states the rule again on top
+  of that, so it is said as well as arranged.
+- Watching stays open either way: a closed lobby is closed to players, not to an audience.
+- A lobby that says yes gets a code, shown to the host, and re-minted once the **last** guest leaves,
+  so a departed one cannot walk back into an empty lobby while everyone else's copy keeps working.
 
 **Nothing else follows from it.** How a match is played is decided by *who ended up in it*, never by
 how its lobby was created:
@@ -246,8 +254,8 @@ that.
 ### Host / Creator
 
 The user whose session created the lobby (`hostSessionId`). The UI calls this the **creator**
-("Only the match creator can change settings"). `hostPlayerId` is separate and only set for online
-lobbies — the first player the host adds.
+("Only the match creator can change settings"). It is a *session*, not a player: the host may hold
+several players, one, or — briefly, before it adds any — none at all.
 
 `hostSessionId` is server-side, like a [player's](#player--participant): the client is **told**
 whether it is the host (`youAreHost` on a `lobby_state` addressed to one connection) rather than
@@ -395,8 +403,9 @@ unanswered re-match into a decline.
 
 ### Invite code
 
-Six characters from an unambiguous alphabet (no `I`, `O`, `0`, `1`), attached to a lobby and used to
-join an online match: `/lobby/join/:code`. Regenerated when a joiner leaves. Not to be confused with
+Six characters from an unambiguous alphabet (no `I`, `O`, `0`, `1`), attached to a lobby and **the
+only way to join one**: `/lobby/join/:code`. Minted only for a lobby that
+[accepts joins](#accepting-joins), and re-minted once the last guest leaves. Not to be confused with
 a scoring device **pairing code**, which uses the same alphabet and length but a completely separate
 mechanism.
 
@@ -620,9 +629,10 @@ Defaults to 501.
 
 ### [x01] Remaining score
 
-What a player still has to score. **Derived, never stored**: `getRemainingScore` replays every
-non-void visit in `game.visits` and subtracts it. This is why the concept cannot survive multiple
-legs in one flat array unchanged.
+What a player still has to score. **Derived, never stored**: `remainingFor`
+([`x01.ts`](../src/server/modes/x01.ts)) replays every non-void visit in the leg's `visits` and
+subtracts it. Nothing outside x01 has the concept — the mode-agnostic question is whether the visit
+is [locked](#locked-visit).
 
 ### [x01] Double in / Double out
 
@@ -645,8 +655,9 @@ Say **bust** only about x01. The mode-agnostic word is *voided visit*.
 
 ### [x01] Checkout
 
-x01's win condition: reaching exactly 0, on a double if double-out is on. Wins the leg — today, the
-match. The mode-agnostic surface is `VisitResult.won`.
+x01's win condition: reaching exactly 0, on a double if double-out is on. Wins the leg; what a won
+leg means for the set and the match is the match layer's. The mode-agnostic surface is the
+`legWinnerId` a mode returns from `finalizeVisit`.
 
 ---
 
@@ -731,7 +742,7 @@ that remain are the constraints a second game mode will meet.
 | `doubleIn` / `doubleOut` / `startScore` flat in the settings type | `MatchSettings = { mode, modeSettings }`; the mode declares its own fields |
 | `getRemainingScore` in the generic handler contract | gone from the contract — a countdown is x01's business alone |
 | `validateSettings` naming x01 fields | validates against the mode's declared fields |
-| The store writing x01's defaults at lobby creation | writes `defaultSettingsFor(DEFAULT_MODE)` |
+| The store writing x01's defaults at lobby creation | writes `getMode(DEFAULT_MODE).defaults`, whichever mode that is |
 | The camera layer re-deriving x01 bust rules (`isAlreadyBust`) | asks `currentVisit.locked` — the mode's own answer |
 | The match screen re-implementing remaining score, double-in and bust/checkout display | renders `ModeView` strings; knows no rule |
 | `GameSettingsPanel` rendering x01's three settings | `MatchSettingsPanel` renders the mode's declared fields, from the catalog the server sends |

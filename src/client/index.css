@@ -13,7 +13,7 @@
   html { font-size: 22px; }
 }
 @media (min-width: 2000px) {
-  html { font-size: 26px; }
+  html { font-size: 24px; }
 }
 
 /* Ensure form inputs remain selectable (Tailwind may disable by default) */

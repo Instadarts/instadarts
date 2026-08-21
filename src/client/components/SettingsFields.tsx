@@ -19,7 +19,7 @@ interface SettingsFieldsProps {
  */
 export function SettingsFields({ title, fields, values, canEdit, onChange, children }: SettingsFieldsProps) {
   return (
-    <div className="w-80 mb-6">
+    <div className="w-full">
       <h3 className="text-gray-400 text-sm uppercase mb-2">
         {title}
         {!canEdit && <span className="text-gray-600 ml-1">(read-only)</span>}

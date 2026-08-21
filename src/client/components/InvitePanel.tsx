@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { CopyableText } from './CopyableText';
 
 interface InvitePanelProps {
@@ -19,18 +20,18 @@ export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: Inv
     // five-player lobby that filled up has no opponent, it has a roster.
     const oneOnOne = maxPlayers <= 2 && userCount >= 2;
     return (
-      <div className="w-80 mb-6 text-center">
+      <Panel>
         <p className="text-green-400 text-sm font-semibold">
           {oneOnOne ? '✓ Opponent connected' : '✓ Lobby is full'}
         </p>
-      </div>
+      </Panel>
     );
   }
 
   if (!inviteCode) return null;
 
   return (
-    <div className="w-80 mb-6 text-center">
+    <Panel>
       {userCount > 1 && (
         <p className="text-green-400 text-sm font-semibold mb-2">
           {`✓ ${userCount - 1} other ${userCount === 2 ? 'user' : 'users'} connected`}
@@ -54,7 +55,7 @@ export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: Inv
           </span>
         </CopyableText>
       </div>
-      <p className="text-gray-500 text-xs">
+      <p className="text-gray-500 text-xs break-words">
         Or share:{' '}
         <CopyableText
           value={`${window.location.origin}/lobby/join/${inviteCode}`}
@@ -63,6 +64,22 @@ export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: Inv
           /lobby/join/{inviteCode}
         </CopyableText>
       </p>
+    </Panel>
+  );
+}
+
+/**
+ * A titled card, the same one the roster and the settings blocks use.
+ *
+ * Everything the panel says lives inside the single card element — including, whichever branch drew
+ * it, the code and the words "Invite Code" as siblings. Seven e2e specs read the code as "the
+ * `<code>` next to that label", so a wrapper between the two would break them.
+ */
+function Panel({ children }: { children: ReactNode }) {
+  return (
+    <div className="w-full">
+      <h3 className="text-gray-400 text-sm uppercase mb-2">Invite</h3>
+      <div className="bg-gray-900 rounded-lg p-4 text-center">{children}</div>
     </div>
   );
 }

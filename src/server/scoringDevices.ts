@@ -23,6 +23,7 @@ import {
   findSessionSocket,
   getClient,
   matchMessage,
+  playersOf,
   send,
 } from './connections';
 import {
@@ -116,7 +117,7 @@ function resolveScoringTarget(ownerSessionId: string): { match: MatchState; owne
     if (!match || match.status !== 'in_progress') return null;
     // A frontend's cameras score for the players that frontend holds, and for no others. Holding
     // every player in the match is not a special case of that — it is the same rule.
-    return { match, ownerPlayerIds: client.playerIds };
+    return { match, ownerPlayerIds: playersOf(client) };
   }
   return null;
 }

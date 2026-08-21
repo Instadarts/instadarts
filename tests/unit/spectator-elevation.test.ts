@@ -45,7 +45,7 @@ function connect(standing: Partial<Pick<Client, 'lobbyId' | 'matchId' | 'playerI
   } as unknown as WebSocket;
 
   registerClient(ws, {
-    sessionId, lobbyId: null, matchId: null, playerIds: [], isSpectator: false, deviceId: null, ...standing,
+    sessionId, lobbyId: null, matchId: null, isSpectator: false, deviceId: null, ...standing,
   });
   openSockets.add(ws);
 

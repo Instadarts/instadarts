@@ -103,7 +103,7 @@ wss.on('connection', (ws) => {
 
   if (!QUIET) console.log('Client connected');
   const sessionId = crypto.randomUUID();
-  registerClient(ws, { sessionId, lobbyId: null, matchId: null, playerIds: [], isSpectator: false, deviceId: null });
+  registerClient(ws, { sessionId, lobbyId: null, matchId: null, isSpectator: false, deviceId: null });
   ws.send(JSON.stringify({ type: 'connected', sessionId }));
 
   ws.on('message', (data) => {

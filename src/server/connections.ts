@@ -14,6 +14,7 @@ import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
 import { meshEligible, panelOf, viewOf } from './match';
+import { heldSeat } from './seats';
 import { maxPlayersFor } from './store';
 
 const clients = new Map<WebSocket, Client>();
@@ -38,6 +39,37 @@ export function allClients(): IterableIterator<[WebSocket, Client]> {
 /** How many sockets are open, of either kind. The registry is the only thing that should count. */
 export function clientCount(): number {
   return clients.size;
+}
+
+// ============================================================
+// Who a connection may act for
+// ============================================================
+
+/**
+ * The players this connection holds, read from the [seat](./seats.ts) that holds them.
+ *
+ * Asked of the seat and never remembered on the connection. A copy is a thing that can disagree, and
+ * it did twice: `join_lobby` once cleared the connection's copy and not the seat's, orphaning
+ * players onto a roster nobody owned, and the host's kick edited the remover's copy instead of the
+ * owner's. Both were one invariant, maintained by hand, breaking. There is now nothing to maintain.
+ *
+ * A spectator holds no seat and therefore no players — the same answer by the same route, rather
+ * than a case of its own.
+ */
+export function playersOf(client: Client): string[] {
+  const roomId = client.matchId ?? client.lobbyId;
+  if (!roomId || client.isSpectator) return [];
+  return heldSeat(roomId, client.sessionId)?.seat.playerIds ?? [];
+}
+
+/**
+ * Whether this connection may act for a player.
+ *
+ * The guards' form of the question. Separate from `playersOf` because it is asked on the path of
+ * every dart, and wants an answer rather than a list to search.
+ */
+export function holdsPlayer(client: Client, playerId: string): boolean {
+  return playersOf(client).includes(playerId);
 }
 
 // ============================================================

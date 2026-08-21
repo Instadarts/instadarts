@@ -233,8 +233,8 @@ how its lobby was created:
 
 | The question | What answers it |
 | --- | --- |
-| May I throw for this player? | The players this connection holds — `client.playerIds` |
-| Whose darts is this camera scoring? | The same list — [`session.ts`](../src/server/scoring/session.ts) |
+| May I throw for this player? | The players this connection's [seat](#seat) holds — `holdsPlayer` |
+| Whose darts is this camera scoring? | The same seat — [`session.ts`](../src/server/scoring/session.ts) |
 | How many boards, and who may see whose? | [`boardCount`](../src/shared/types.ts) over `Player.boardId` |
 | Who may start, reorder or kick? | The [host](#host--creator), and a lone user is one |
 
@@ -301,14 +301,22 @@ Three rules make it worth something:
   the connection's own record (`seatedInLobby` / `seatedInMatch` in
   [`wsHandler.ts`](../src/server/wsHandler.ts)) — a `Client` says what a connection was last told it
   may do, the seat says who may do it now, and a connection that no longer holds one cannot throw,
-  submit, start, vote or leave.
+  submit, start, vote or leave. That distinction is now exact: a `Client` records the room it is in
+  and whether it is watching, and nothing about who it may play.
 
-**Seats are the roster's owner of record.** A player no seat holds is owned by nobody: nothing can
-throw for it, nobody can take it off, and no reload comes back as it. `start_match` drops any such
-player before the lists freeze (`seatedPlayerIds` in [`seats.ts`](../src/server/seats.ts)), so an
-orphan produced by any path at all is taken out rather than played around. Asked of the seats and
-deliberately not of the live connections, for the reason above: a tab inside its disconnect grace has
-left the client registry but still holds its place.
+**Seats are the roster's owner of record — the only one.** Which players a connection holds is read
+from its seat every time it is asked (`playersOf` / `holdsPlayer` in
+[`connections.ts`](../src/server/connections.ts)) and is not remembered anywhere else. `Client` used
+to carry a copy, and the copy is what went wrong twice: `join_lobby` cleared it without clearing the
+seat, orphaning players onto a roster nobody owned, and the host's kick edited the remover's copy
+instead of the owner's. One writer, `updateSeat`, and there is no invariant left to break.
+
+It follows that a player no seat holds is owned by nobody: nothing can throw for it, nobody can take
+it off, and no reload comes back as it. `start_match` reconciles both directions before the lists
+freeze — `seatedPlayerIds` drops roster players no seat holds, and the demotion beside it drops seat
+entries no roster player answers to. Asked of the seats and deliberately not of the live connections,
+for the reason above: a tab inside its disconnect grace has left the client registry but still holds
+its place.
 
 **Separate tabs are separate users.** The token lives in `sessionStorage`, which is per tab, so two
 tabs of one browser hold two seats and never contend — that is what lets one browser play both sides

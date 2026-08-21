@@ -161,16 +161,15 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
       // The lens correction describes this particular lens, so it can only be applied once we know
       // which one opened.
       runtime.setLensCalibration(lensForCamera(loadSettings(), info.label));
+      setCameraActive(true);
+      onCameraActiveRef.current(true);
       // `runtime.start` has loaded LiteRT, received the camera's first frame, restored zoom and
       // armed motion detection. Prime the complete pipeline once now, without waiting for motion:
       // a mounted camera normally sees the board already, which gives evidence stills and director
       // commands their homography before the first dart and pays the unusually slow cold inference
-      // while startup is still in progress. Awaiting it also means "camera on" never races this
-      // initialization on either this screen or the owner's frontend.
+      // while startup is still in progress.
       await runtime.infer();
       syncZoom();
-      setCameraActive(true);
-      onCameraActiveRef.current(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);

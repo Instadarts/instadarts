@@ -14,10 +14,17 @@ export interface CreateLobbyMessage {
   acceptsJoins?: boolean;
 }
 
+/**
+ * Taking a place in somebody else's lobby.
+ *
+ * **By invite code, and only by invite code.** A lobby id would do the job too, and used to be
+ * accepted — but an id is public where a code is not: it is in the spectate URL, so anyone handed
+ * something to watch could have named it to join instead. The code is the thing the host chose to
+ * share, and a lobby that admits nobody is minted without one at all.
+ */
 export interface JoinLobbyMessage {
   type: 'join_lobby';
-  lobbyId?: string;
-  inviteCode?: string;
+  inviteCode: string;
   playerName: string;
 }
 

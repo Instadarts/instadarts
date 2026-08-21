@@ -174,8 +174,9 @@ describe('multi-player per online connection', () => {
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Carol' });
     expect(host.playerIds()).toHaveLength(2);
 
+    const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode });
     guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
     guest.send({ type: 'add_local_player', lobbyId, playerName: 'Dave' });
     expect(guest.playerIds()).toHaveLength(2);
@@ -221,13 +222,14 @@ describe('n-players turn rotation & leaver rule', () => {
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
 
     const guest1 = connect();
-    guest1.send({ type: 'join_lobby', lobbyId });
+    guest1.send({ type: 'join_lobby', inviteCode });
     guest1.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
 
     const guest2 = connect();
-    guest2.send({ type: 'join_lobby', lobbyId });
+    guest2.send({ type: 'join_lobby', inviteCode });
     guest2.send({ type: 'add_local_player', lobbyId, playerName: 'Carol' });
 
     host.send({ type: 'start_match', lobbyId });
@@ -307,14 +309,15 @@ function onlineLobby(names: string[][]) {
   host.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
+  const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
   const users: ReturnType<typeof connect>[] = [];
   for (const [index, mine] of names.entries()) {
     const user = index === 0 ? host : connect();
-    if (index > 0) user.send({ type: 'join_lobby', lobbyId });
+    if (index > 0) user.send({ type: 'join_lobby', inviteCode });
     users.push(user);
     for (const name of mine) user.send({ type: 'add_local_player', lobbyId, playerName: name });
   }
-  return { host, users, lobbyId };
+  return { host, users, lobbyId, inviteCode };
 }
 
 describe('who holds a player', () => {
@@ -372,7 +375,7 @@ describe('who holds a player', () => {
 
     // A tab that lands on the join URL a second time is re-announcing itself, not arriving. Its
     // players used to be orphaned here — left on the roster, owned by nobody.
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode: getLobby(lobbyId)!.inviteCode! });
 
     expect(guest.playerIds()).toEqual(before);
     expect(heldSeat(lobbyId, guest.sessionId)!.seat.playerIds).toEqual(before);
@@ -431,20 +434,38 @@ describe('how many users a lobby takes', () => {
     host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
+    const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode });
 
     const third = connect();
-    third.send({ type: 'join_lobby', lobbyId });
+    third.send({ type: 'join_lobby', inviteCode });
     expect(third.last('error')?.message).toBe('Lobby is full');
     expect(guest.last('error')).toBeUndefined();
   });
 
-  it('tells the lobby what its cap is and how many users are in it', () => {
+  it('tells the lobby what its cap is, how many users are in it, and whether it still admits one', () => {
     const { host, lobbyId } = onlineLobby([['Alice'], ['Bob']]);
     const lobby = host.last('lobby_state')!.lobby;
     expect(lobby.id).toBe(lobbyId);
     expect(lobby.maxPlayers).toBe(5);
     expect(lobby.userCount).toBe(2);
+    // The screen is told the answer rather than handed the numbers to re-derive it from.
+    expect(lobby.admitting).toBe(true);
+  });
+
+  it('stops admitting once the roster is full, and says so', () => {
+    const { host, lobbyId } = onlineLobby([['Alice', 'Bob', 'Carol', 'Dave', 'Eve']]);
+    expect(host.last('lobby_state')!.lobby.admitting).toBe(false);
+
+    const sixth = connect();
+    sixth.send({ type: 'join_lobby', inviteCode: getLobby(lobbyId)!.inviteCode! });
+    expect(sixth.last('error')?.message).toBe('Lobby is full');
+  });
+
+  it('a lobby that admits nobody says so too', () => {
+    const host = connect();
+    host.send({ type: 'create_lobby' });
+    expect(host.last('lobby_state')!.lobby.admitting).toBe(false);
   });
 });

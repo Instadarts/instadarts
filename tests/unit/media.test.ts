@@ -90,7 +90,7 @@ function onlineLobby() {
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
   const guest = connect();
-  guest.send({ type: 'join_lobby', lobbyId, playerName: 'Bob' });
+  guest.send({ type: 'join_lobby', inviteCode: host.last('lobby_state')!.lobby.inviteCode! });
   guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
   return { host, guest, lobbyId };
 }
@@ -104,10 +104,11 @@ function startBoards(names: string[][]) {
   host.send({ type: 'create_lobby', acceptsJoins: true });
   const lobbyId = host.last('lobby_state')!.lobby.id;
   host.send({ type: 'update_settings', lobbyId, settings: { mode: 'count-up' } });
+  const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
   const users = [host];
   for (const [index, mine] of names.entries()) {
     const user = index === 0 ? host : connect();
-    if (index > 0) { user.send({ type: 'join_lobby', lobbyId }); users.push(user); }
+    if (index > 0) { user.send({ type: 'join_lobby', inviteCode }); users.push(user); }
     for (const name of mine) user.send({ type: 'add_local_player', lobbyId, playerName: name });
   }
   host.send({ type: 'start_match', lobbyId });

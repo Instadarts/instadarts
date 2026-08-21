@@ -72,9 +72,8 @@ export function LobbyPage({
           inviteCode={lobby.inviteCode}
           userCount={lobby.userCount}
           maxPlayers={lobby.maxPlayers}
-          /* The server's own join rule, so the panel stops offering a code exactly when the server
-             would start refusing it: a full roster, or a lobby already holding its user limit. */
-          isClosed={lobby.players.length >= lobby.maxPlayers || lobby.userCount >= lobby.maxPlayers}
+          /* The server's answer, not our re-derivation of its rule — see `joinRefusal`. */
+          isClosed={!lobby.admitting}
         />
       )}
 

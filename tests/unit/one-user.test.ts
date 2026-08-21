@@ -155,17 +155,20 @@ describe('one user running the lobby', () => {
 });
 
 describe('a lobby nobody was invited to', () => {
-  it('is minted without a code, and refuses a join that names its id', () => {
+  it('is minted without a code, so there is nothing to join it by', () => {
     const { user, lobbyId } = lobbyOf(['Alice']);
 
-    // No code is the enforcement rather than a decoration: there is nothing to present, and
-    // `findLobbyByInviteCode` has nothing to match.
+    // Not minting one is the enforcement rather than a decoration. Joining is by code and only by
+    // code, so a lobby without one cannot be named at all — its id is public (it is the spectate
+    // URL) and buys nothing.
     expect(user.last('lobby_state')!.lobby.inviteCode).toBeNull();
 
-    // A lobby id is public — it is the spectate URL — so the id path needs refusing on its own.
+    // The one thing a closed lobby does carry is `null`, and presenting that must not match it:
+    // `lobby.inviteCode === code` is true of `null === null`, which would hand over the first
+    // closed lobby on the server.
     const stranger = connect();
-    stranger.send({ type: 'join_lobby', lobbyId });
-    expect(stranger.last('error')?.message).toBe('This lobby is not open to joins');
+    stranger.send({ type: 'join_lobby', inviteCode: null });
+    expect(stranger.last('error')?.message).toBe('Lobby not found');
     expect(getLobby(lobbyId)!.players).toHaveLength(1);
 
     // Watching is still open. A closed lobby is closed to players, not to an audience.
@@ -178,10 +181,11 @@ describe('a lobby nobody was invited to', () => {
     host.send({ type: 'create_lobby', acceptsJoins: true });
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
-    expect(host.last('lobby_state')!.lobby.inviteCode).toBeTruthy();
+    const inviteCode = host.last('lobby_state')!.lobby.inviteCode;
+    expect(inviteCode).toBeTruthy();
 
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode });
     guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
     expect(guest.last('error')).toBeUndefined();
     expect(getLobby(lobbyId)!.players.map((p) => p.name)).toEqual(['Alice', 'Bob']);

@@ -50,9 +50,9 @@ import {
   dropClient,
   findSessionSocket,
   getClient,
+  joinRefusal,
   lobbyMessage,
   matchMessage,
-  usersInLobby,
   send,
 } from './connections';
 import {
@@ -511,28 +511,16 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
 }
 
 function handleJoinLobby(ws: WebSocket, msg: any): void {
-  const lobby = msg.lobbyId
-    ? getLobby(msg.lobbyId)
-    : findLobbyByInviteCode(msg.inviteCode);
+  const lobby = findLobbyByInviteCode(msg.inviteCode);
 
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
     return;
   }
 
-  // Asked before anything about capacity, because a closed lobby is not a lobby you were nearly
-  // admitted to. It is minted without a code, so the only way to be here is by naming its id — and
-  // a lobby id is public: it is the spectate URL.
-  if (!lobby.acceptsJoins) {
-    send(ws, { type: 'error', message: 'This lobby is not open to joins' });
-    return;
-  }
-
-  // A user brings at least one player, so the player cap caps them too: somebody who could never
-  // take a place is refused rather than admitted to sit and watch the Add button stay dead.
-  const max = maxPlayersFor(lobby.settings.mode);
-  if (lobby.players.length >= max || usersInLobby(lobby.id) >= max) {
-    send(ws, { type: 'error', message: 'Lobby is full' });
+  const refusal = joinRefusal(lobby);
+  if (refusal) {
+    send(ws, { type: 'error', message: refusal });
     return;
   }
 

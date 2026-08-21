@@ -36,6 +36,7 @@ export function createLobby(): Lobby {
     acceptsJoins: false,
     maxPlayers: maxPlayersFor(DEFAULT_MODE),
     userCount: 0,
+    admitting: false,
     createdAt: Date.now(),
     expiresAt: Date.now() + IDLE_TTL_MS,
   };
@@ -103,7 +104,16 @@ export function setLobbyInviteCode(lobbyId: string, code: string): Lobby | null 
   return lobby;
 }
 
-export function findLobbyByInviteCode(code: string): Lobby | undefined {
+/**
+ * The lobby holding this code, if any.
+ *
+ * Takes `unknown` because it is handed a value straight off the wire, and a lobby that admits nobody
+ * carries `inviteCode: null` — so a message presenting `null` would otherwise match the first closed
+ * lobby on the server by `null === null`. Absent is not a code, and a lobby without one cannot be
+ * found by one.
+ */
+export function findLobbyByInviteCode(code: unknown): Lobby | undefined {
+  if (typeof code !== 'string' || code.length === 0) return undefined;
   for (const lobby of lobbies.values()) {
     if (lobby.inviteCode === code) return lobby;
   }

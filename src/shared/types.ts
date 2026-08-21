@@ -239,6 +239,11 @@ export interface Lobby {
   maxPlayers: number;
   /** Distinct user connections in this lobby. */
   userCount: number;
+  /**
+   * Whether another user could still take a place — the server's own join rule, answered rather than
+   * described, so the screen cannot come to a different conclusion from the handler that enforces it.
+   */
+  admitting: boolean;
   createdAt: number;
   /** When this lobby is abandoned unless something happens first. Any input pushes it back. */
   expiresAt: number;

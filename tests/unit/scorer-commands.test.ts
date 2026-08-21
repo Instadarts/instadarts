@@ -168,7 +168,7 @@ describe('a device learning whether it is wanted', () => {
     const lobbyId = host.last('lobby_state')!.lobby.id;
     host.send({ type: 'add_local_player', lobbyId, playerName: 'Alice' });
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode: host.last('lobby_state')!.lobby.inviteCode! });
     guest.send({ type: 'add_local_player', lobbyId, playerName: 'Bob' });
     host.send({ type: 'start_match', lobbyId });
     const matchId = host.last('match_started')!.match.id;

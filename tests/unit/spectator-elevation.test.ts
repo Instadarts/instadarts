@@ -92,7 +92,7 @@ function onlineMatch() {
   alice.send({ type: 'add_local_player', playerName: 'Alice' });
 
   const bob = connect();
-  bob.send({ type: 'join_lobby', lobbyId });
+  bob.send({ type: 'join_lobby', inviteCode: alice.last('lobby_state')!.lobby.inviteCode! });
   bob.send({ type: 'add_local_player', playerName: 'Bob' });
 
   alice.send({ type: 'start_match' });
@@ -197,7 +197,7 @@ describe('what watching a match tells you', () => {
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode: host.last('lobby_state')!.lobby.inviteCode! });
     expect(guest.last('lobby_state')!.youAreHost).toBe(false);
 
     // The broadcast that reaches the host when the guest joins settles nothing either way, so the
@@ -492,7 +492,7 @@ describe('the real player reloading their own page', () => {
     host.send({ type: 'add_local_player', playerName: 'Alice' });
 
     const guest = connect();
-    guest.send({ type: 'join_lobby', lobbyId });
+    guest.send({ type: 'join_lobby', inviteCode: host.last('lobby_state')!.lobby.inviteCode! });
     guest.send({ type: 'add_local_player', playerName: 'Bob' });
     const token = guest.last('resume')!.token;
     guest.close();

@@ -135,15 +135,37 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * Omitting `you` is what makes a message a broadcast: it then answers neither question, and a client
  * holding an answer already keeps it.
  */
+/**
+ * Why another user could not take a place in this lobby, or null if one could.
+ *
+ * One statement of the join rule, asked by the two things that need it: `handleJoinLobby`, which
+ * refuses with the reason, and `lobbyMessage`, which sends the yes-or-no on so the lobby screen
+ * stops offering a code exactly when the server would start refusing it. Written out on both sides
+ * instead, the screen and the server drifted apart the moment either changed.
+ */
+export function joinRefusal(lobby: Lobby): string | null {
+  // Asked first, because a lobby that admits nobody is not one you were nearly admitted to.
+  if (!lobby.acceptsJoins) return 'This lobby is not open to joins';
+  // A user brings at least one player, so the player cap caps them too: somebody who could never
+  // take a place is refused rather than admitted to watch the Add button stay dead.
+  const max = maxPlayersFor(lobby.settings.mode);
+  if (lobby.players.length >= max || usersInLobby(lobby.id) >= max) return 'Lobby is full';
+  return null;
+}
+
 export function lobbyMessage(
   lobby: Lobby,
   you?: { playerIds?: string[]; host: boolean; spectator?: boolean },
 ): ServerMessage {
   const maxPlayers = maxPlayersFor(lobby.settings.mode);
   const userCount = usersInLobby(lobby.id);
+  const admitting = joinRefusal(lobby) === null;
   return {
     type: 'lobby_state',
-    lobby: { ...lobby, maxPlayers, userCount, players: publicPlayers(lobby.players), hostSessionId: undefined },
+    lobby: {
+      ...lobby, maxPlayers, userCount, admitting,
+      players: publicPlayers(lobby.players), hostSessionId: undefined,
+    },
     yourPlayerIds: you?.playerIds,
     youAreHost: you?.host,
     youAreSpectator: you ? you.spectator ?? false : undefined,

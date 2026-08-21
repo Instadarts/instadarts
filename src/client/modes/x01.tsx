@@ -12,6 +12,10 @@ import { textOf } from '../../shared/types';
 // It reads two things: the `rows` any mode describes, laid out per player instead of per statistic,
 // and the `custom` payload x01 sends for its own use — recent visit scores, drawn as bars, which is
 // the shape a table cannot express and the reason this file exists.
+//
+// **However many players there are.** The roster is read off the rows rather than assumed, one card
+// is drawn per player, and the cards wrap — so a five-handed match is more of the same rather than a
+// second layout. `leads` compares a player against every other one, not against an opponent.
 
 /** The headline number on each card. The rest of the rows are listed underneath it. */
 const HEADLINE = '3-dart average';

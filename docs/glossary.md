@@ -131,8 +131,9 @@ never the other way round:
 - `server.maxPlayersPerMatch` in the settings file, default 5. The deployment's word, and the only
   one an operator turns ([`config.ts`](../src/server/config.ts)).
 - `GameMode.maxPlayers`, declared by a mode about its own rules and optional to declare — saying
-  nothing means the mode has no limit of its own. x01 and Whac-A-Mole both say 2, because their
-  rules have not been written for more; that is a fact about those modes, not about the app.
+  nothing means the mode has no limit of its own, which is what x01 and count-up say. Whac-A-Mole
+  says 2, because its rules have not been written for more; that is a fact about that mode, not
+  about the app.
 - `effectiveMaxPlayers(serverMax, modeMax)` in [`settings.ts`](../src/shared/settings.ts) is the
   smaller of the two, asked by both sides so the lobby cannot offer a place the server would refuse.
   It **fails open**, like `modeBans`: a mode that said nothing is not an instruction to allow one.

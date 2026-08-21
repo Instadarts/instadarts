@@ -22,6 +22,12 @@ import { IS_DEV } from '../env';
  * Everything here is derived from the leg's visit history. There is deliberately no state: whether a
  * player has doubled in is a question the history already answers, and holding the answer anywhere
  * else is what used to make it outlive the leg it belonged to.
+ *
+ * **Any number of players.** A leg is a race of independent remaining scores: every rule above is
+ * about one player's own history, and none of them reads a second player's to judge the first. So
+ * there is nothing here written for two, and x01 declares no `maxPlayers` — the deployment's cap is
+ * the only one that applies. What the extra players change is the shape of a *round*, and the panel
+ * counts one by dividing visits by the roster rather than by assuming a number.
  */
 
 const MAX_DARTS = 3;
@@ -193,9 +199,6 @@ const STATS_FIELD: SettingsField = {
 export const x01: GameMode = {
   id: 'x01',
   label: 'x01',
-
-  // x01 rules are not yet migrated to n players; capped at 2 for day-one backward compatibility.
-  maxPlayers: 2,
 
   defaults: { startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' },
   fields: [

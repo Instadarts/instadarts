@@ -98,6 +98,26 @@ describe('who throws first', () => {
     expect(starter('AAAA', settings)).toBe(0); // set 5
   });
 
+  it('moves one place down a roster of any size, rather than alternating', () => {
+    // Three players, five legs to a set — so the whole rota happens inside one set.
+    const settings = format(3, 5);
+    const rota = (winners: string) => starterIndex(standingsOf(legs(winners), settings), 3);
+    expect(rota('')).toBe(0);
+    expect(rota('A')).toBe(1);
+    expect(rota('AB')).toBe(2);
+    expect(rota('ABC')).toBe(0); // back to the top
+  });
+
+  it('opens each set one place further along, on a roster of any size', () => {
+    // One leg per set, so every leg closes one and the set count is what moves the throw.
+    const settings = format(9, 1);
+    const rota = (winners: string) => starterIndex(standingsOf(legs(winners), settings), 3);
+    expect(rota('')).toBe(0);    // set 1
+    expect(rota('A')).toBe(1);   // set 2
+    expect(rota('AA')).toBe(2);  // set 3
+    expect(rota('AAA')).toBe(0); // set 4
+  });
+
   it('never leaves a single player waiting for someone else', () => {
     expect(starterIndex(standingsOf(legs('AAA'), format(3, 1)), 1)).toBe(0);
   });

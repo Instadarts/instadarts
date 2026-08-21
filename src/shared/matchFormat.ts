@@ -86,9 +86,11 @@ export function matchWinnerOf(standings: Standings, settings: MatchSettings): st
 /**
  * Who throws first in the leg about to start.
  *
- * The throw alternates every leg, and every set alternates independently of how the last one ended:
- * the first player starts sets 1, 3, 5 and the second starts sets 2, 4, 6, whoever won what. So a
- * player who takes a set 3–1 — winning its last leg — still throws first in the next set.
+ * The throw moves one place down the roster every leg and wraps at the end — with two players that
+ * is the alternation darts expects, and with more of them it is a rota nobody sits out of. Each set
+ * opens one place further along than the last did, whoever won it: sets open on the first player,
+ * the second, the third and so on in turn. So a player who takes a set 3–1 — winning its last leg
+ * — does not thereby throw first in the next one.
  */
 export function starterIndex(standings: Standings, playerCount: number): number {
   if (playerCount <= 0) return 0;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { x01, x01NeedsDoubleIn, x01Remaining } from '../../src/server/modes/x01';
 import { legOf, makeMatch, playVisit, submitVisit, throwDart, undoDart, visitsOf } from '../helpers';
 import type { X01Over } from '../helpers';
+import { textOf } from '../../src/shared/types';
 import type { MatchState } from '../../src/shared/types';
 
 /** What the mode says this player has left. */
@@ -245,6 +246,88 @@ describe('x01', () => {
     it('does not score any points', () => {
       const match = submitVisit(makeMatch({ settings: settings({ startScore: 301 }) }));
       expect(remaining(match, 'p1')).toBe(301);
+    });
+  });
+
+  describe('any number of players', () => {
+    /** A roster of n, named the way the two-player default is. */
+    const roster = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}`, sessionId: `s${i + 1}` }));
+
+    it('passes the board down the roster and back to the top', () => {
+      let match = makeMatch({ players: roster(3), settings: settings() });
+      expect(match.currentPlayerIndex).toBe(0);
+
+      match = playVisit(match, 'p1', ['T20']);
+      expect(match.currentPlayerIndex).toBe(1);
+      match = playVisit(match, 'p2', ['T20']);
+      expect(match.currentPlayerIndex).toBe(2);
+      match = playVisit(match, 'p3', ['T20']);
+      expect(match.currentPlayerIndex).toBe(0);
+    });
+
+    it('is a race of independent scores — a visit touches nobody else', () => {
+      // The whole reason x01 needed no migrating: there is no rule that reads a second player's
+      // history while judging the first, so four of them are four separate countdowns.
+      let match = makeMatch({ players: roster(4), settings: settings({ startScore: 301 }) });
+      match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // 180
+      match = playVisit(match, 'p2', ['T20']);               // 60
+      match = playVisit(match, 'p3', []);                    // nothing
+      match = playVisit(match, 'p4', ['S20', 'S20']);        // 40
+
+      expect(remaining(match, 'p1')).toBe(121);
+      expect(remaining(match, 'p2')).toBe(241);
+      expect(remaining(match, 'p3')).toBe(301);
+      expect(remaining(match, 'p4')).toBe(261);
+    });
+
+    it('lets any player on the roster check out, not only the first two', () => {
+      let match = makeMatch({ players: roster(5), settings: settings({ startScore: 32 }) });
+      for (const id of ['p1', 'p2', 'p3', 'p4']) match = playVisit(match, id, []);
+      expect(match.currentPlayerIndex).toBe(4);
+
+      match = playVisit(match, 'p5', ['D16']);
+      expect(match.status).toBe('finished');
+      expect(match.winnerId).toBe('p5');
+    });
+
+    it('tracks double-in per player rather than per table', () => {
+      let match = makeMatch({ players: roster(3), settings: settings({ doubleIn: true, startScore: 200 }) });
+      match = playVisit(match, 'p1', ['D20']);               // in, and scoring
+      match = playVisit(match, 'p2', ['T20', 'T20', 'T20']); // no double → the visit is void
+      match = playVisit(match, 'p3', ['D20']);               // in
+
+      const leg = legOf(match);
+      expect(x01NeedsDoubleIn(leg, 'p1')).toBe(false);
+      expect(x01NeedsDoubleIn(leg, 'p2')).toBe(true);
+      expect(x01NeedsDoubleIn(leg, 'p3')).toBe(false);
+      expect(remaining(match, 'p2')).toBe(200);
+    });
+
+    it('starts each leg one place further down the roster', () => {
+      let match = makeMatch({
+        players: roster(3),
+        settings: settings({ startScore: 40, doubleOut: false, legsToWinSet: 3 }),
+      });
+      expect(match.currentPlayerIndex).toBe(0);
+
+      match = playVisit(match, 'p1', ['D20']); // takes leg 1
+      expect(match.legs).toHaveLength(1);
+      expect(match.currentPlayerIndex).toBe(1);
+
+      match = playVisit(match, 'p2', ['D20']); // takes leg 2
+      expect(match.currentPlayerIndex).toBe(2);
+    });
+
+    it('names the right thrower in the history of a crowded leg', () => {
+      let match = makeMatch({ players: roster(3), settings: settings() });
+      match = playVisit(match, 'p1', ['T20']);
+      match = playVisit(match, 'p2', ['S20']);
+      match = playVisit(match, 'p3', ['miss']);
+
+      // Newest first, and each line owned by the player who threw it.
+      const history = x01.view(legOf(match)).history.map((line) => textOf(line));
+      expect(history.map((line) => line.split(' ')[0])).toEqual(['P3', 'P2', 'P1']);
     });
   });
 

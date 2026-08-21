@@ -194,6 +194,9 @@ test.describe('Spectator mode', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
+    // "Opponent" is only honest in a lobby that holds two and was only ever going to, so this is
+    // a test about a mode capped at two rather than about online lobbies in general.
+    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 

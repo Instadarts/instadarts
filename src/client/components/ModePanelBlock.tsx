@@ -38,23 +38,28 @@ export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
       {Custom ? (
         <Custom panel={panel} />
       ) : panel.rows.length > 0 && (
-        <table className="text-sm">
-          <tbody>
-            {panel.rows.map((row) => (
-              <tr key={row.label}>
-                <td className="text-left pr-6 py-1 text-gray-500">{row.label}</td>
-                {playerIds.map((playerId) => (
-                  <td
-                    key={playerId}
-                    className={modeTextClasses(row.values[playerId], { size: 'sm' }, 'px-3 py-1 text-center font-mono')}
-                  >
-                    {textOf(row.values[playerId])}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        // One column per player, so the table is as wide as the roster is long. It scrolls inside
+        // its own box rather than widening the column it sits in, which at five players is the
+        // difference between a scrollbar here and the whole page moving sideways.
+        <div className="max-w-full overflow-x-auto">
+          <table className="text-sm">
+            <tbody>
+              {panel.rows.map((row) => (
+                <tr key={row.label}>
+                  <td className="text-left pr-6 py-1 text-gray-500">{row.label}</td>
+                  {playerIds.map((playerId) => (
+                    <td
+                      key={playerId}
+                      className={modeTextClasses(row.values[playerId], { size: 'sm' }, 'px-3 py-1 text-center font-mono')}
+                    >
+                      {textOf(row.values[playerId])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

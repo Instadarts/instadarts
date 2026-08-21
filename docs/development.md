@@ -238,10 +238,12 @@ three, which is the same weight as `home.spec.ts`; `media-link.spec.ts` already 
 are the CPU lever this section is about, so add them for a property that genuinely needs another
 user, and reuse the smallest arrangement that contains it.
 
-The `count-up` mode is what makes those specs possible: x01 and Whac-A-Mole cap themselves at two
-players, and `count-up` is installed only in development builds and under the test runner — see
+The `count-up` mode is what several of those specs use: it has no rules to work around, and it is
+installed only in development builds and under the test runner — see
 [docs/game-modes.md](./game-modes.md#the-development-only-mode). It shows up in the lobby's mode list
-when you `npm run dev`, and not on a deployed server.
+when you `npm run dev`, and not on a deployed server. x01 takes any number of players too, so a spec
+that wants the shape a person actually plays should use it; Whac-A-Mole is the one still capped at
+two, and so the one to reach for when a spec needs a lobby that fills.
 
 **Starving the suite of CPU is how intermittent failures get made, and not hypothetically.** A page
 that misses a heartbeat under load is cut by the server, and a scoring device that reconnects then

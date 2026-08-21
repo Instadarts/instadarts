@@ -50,6 +50,9 @@ test.describe('Home screen', () => {
     // Creator creates online match and adds both players
     await page1.goto('/');
     await page1.click('text=Create Online Match');
+    // Whac-A-Mole is now the mode whose rules are still written for two, so it is the one whose
+    // lobby fills at two players. An x01 lobby takes the deployment's five.
+    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 
@@ -90,6 +93,8 @@ test.describe('Home screen', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
+    // A mode capped at two players caps the lobby at two users, which is the rule under test.
+    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 
@@ -129,6 +134,9 @@ test.describe('Home screen', () => {
 
     await page1.goto('/');
     await page1.click('text=Create Online Match');
+    // Two players fill a Whac-A-Mole lobby, which is what makes the "no second one to add"
+    // half of this test observable at all. An x01 lobby would still have room for three more.
+    await page1.getByLabel('Game').selectOption('whac-a-mole');
     await page1.fill('input[placeholder="New player name"]', 'Alice');
     await page1.click('button:has-text("Add")');
 

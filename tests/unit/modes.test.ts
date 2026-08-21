@@ -42,15 +42,21 @@ describe('installed modes', () => {
     expect(x01.label).toBe('x01');
     expect(x01.defaults).toEqual({ startScore: 501, doubleIn: false, doubleOut: true, stats: 'graphic' });
     expect(x01.fields.map((f) => f.key)).toEqual(['startScore', 'doubleIn', 'doubleOut', 'stats']);
-    expect(x01.maxPlayers).toBe(2);
+    expect(x01.maxPlayers).toBe(null);
   });
 
   it('declares maxPlayers, normalises silence to null, and narrows server cap', async () => {
     await loadModes();
     const described = allModes().map(describeMode);
 
+    // Whac-A-Mole's rules are still written for two, so it says so.
+    const whac = described.find((d) => d.id === 'whac-a-mole')!;
+    expect(whac.maxPlayers).toBe(2);
+
+    // x01's are a race of independent scores with no rule about a second player, so it declares
+    // nothing and takes whatever the deployment allows.
     const x01 = described.find((d) => d.id === 'x01')!;
-    expect(x01.maxPlayers).toBe(2);
+    expect(x01.maxPlayers).toBe(null);
 
     const countUp = described.find((d) => d.id === 'count-up')!;
     expect(countUp.maxPlayers).toBe(null);
@@ -257,6 +263,52 @@ describe('the x01 panel', () => {
 
     // Off is not a hidden panel: there is no panel, so nothing is computed and nothing is sent.
     expect(panelOf(makeMatch({ settings: { stats: 'off' } }))).toBeUndefined();
+  });
+
+  describe('with more than two players', () => {
+    /** A roster of n, in the order the panel is expected to report them. */
+    const roster = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}`, sessionId: `s${i + 1}` }));
+
+    it('gives every player on the roster a value in every row, in roster order', () => {
+      // What x01's own component reads: it derives the cards it draws from these keys, so their
+      // presence and their order are the panel's side of that contract rather than a detail.
+      const match = makeMatch({ players: roster(5), settings: { startScore: 501 } });
+      const panel = panelOf(match)!;
+      const ids = ['p1', 'p2', 'p3', 'p4', 'p5'];
+
+      expect(panel.rows.length).toBeGreaterThan(0);
+      for (const row of panel.rows) expect(Object.keys(row.values)).toEqual(ids);
+
+      // And the bars, which are the half a table cannot draw and the reason that file exists.
+      const { recent } = panel.custom as { recent: Record<string, number[]> };
+      expect(Object.keys(recent)).toEqual(ids);
+    });
+
+    it('counts a round as one visit each, however many players there are', () => {
+      const round = (match: MatchState) => textOf(panelOf(match)!.lines![0]);
+      let match = makeMatch({ players: roster(3), settings: { startScore: 501 } });
+
+      expect(round(match)).toBe('Round 1');
+      match = playVisit(match, 'p1', ['T20']);
+      expect(round(match)).toBe('Round 1');
+      match = playVisit(match, 'p2', ['T20']);
+      expect(round(match)).toBe('Round 1'); // still the first time round the table
+      match = playVisit(match, 'p3', ['T20']);
+      expect(round(match)).toBe('Round 2');
+    });
+
+    it('reports legs won across the whole roster', () => {
+      let match = makeMatch({
+        players: roster(3),
+        settings: { startScore: 40, doubleOut: false, legsToWinSet: 3 },
+      });
+      match = playVisit(match, 'p1', ['D20']); // takes leg 1
+      match = playVisit(match, 'p2', ['D20']); // takes leg 2
+
+      expect(rowsOf(match)['Legs won']).toEqual({ p1: '1', p2: '1', p3: '0' });
+      expect(rowsOf(match)['Best leg (darts)']).toEqual({ p1: '1', p2: '1', p3: '—' });
+    });
   });
 
   it('counts a void visit as thrown, which is what makes an average honest', () => {

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import '../helpers'; // installs the x01 game mode
-// count-up declares no player cap of its own, which is the only way to see the deployment's.
+// count-up declares no player cap of its own, which is the only way to see the deployment's;
+// whac-a-mole still declares two, which is the only way to see a mode narrow it.
 import '../../src/server/modes/count-up';
+import '../../src/server/modes/whac-a-mole';
 import { createLobby, getLobby, deleteLobby, createMatch, getMatch, addPlayerToLobby, removePlayerFromLobby, movePlayerInLobby, findLobbyByInviteCode, setLobbyInviteCode } from '../../src/server/store';
 
 describe('Store', () => {
@@ -37,23 +39,32 @@ describe('Store', () => {
       expect(updated!.players).toHaveLength(2);
     });
 
-    it('refuses a player past the cap, which a new lobby takes from x01', () => {
-      // A lobby starts on x01, and x01 declares two — so the cap a new lobby enforces is the mode's
-      // rather than the deployment's five.
+    it('refuses a player past a cap the mode declares', () => {
+      // Whac-A-Mole declares two, so the cap this lobby enforces is the mode's rather than the
+      // deployment's five.
       const lobby = createLobby();
+      lobby.settings = { ...lobby.settings, mode: 'whac-a-mole' };
       addPlayerToLobby(lobby.id, { id: 'p1', name: 'Alice' });
       addPlayerToLobby(lobby.id, { id: 'p2', name: 'Bob' });
       expect(lobby.players).toHaveLength(2);
       expect(addPlayerToLobby(lobby.id, { id: 'p3', name: 'Charlie' })).toBeNull();
     });
 
-    it('takes the deployment cap where the mode declares none', () => {
+    it('takes the deployment cap where the mode declares none — x01 included', () => {
+      // A new lobby is an x01 lobby, and x01 declares nothing, so a fresh one already takes five.
       const lobby = createLobby();
-      lobby.settings = { ...lobby.settings, mode: 'count-up' };
+      expect(lobby.settings.mode).toBe('x01');
       for (let i = 1; i <= 5; i++) {
         expect(addPlayerToLobby(lobby.id, { id: `p${i}`, name: `P${i}` })).not.toBeNull();
       }
       expect(addPlayerToLobby(lobby.id, { id: 'p6', name: 'P6' })).toBeNull();
+
+      const counted = createLobby();
+      counted.settings = { ...counted.settings, mode: 'count-up' };
+      for (let i = 1; i <= 5; i++) {
+        expect(addPlayerToLobby(counted.id, { id: `c${i}`, name: `C${i}` })).not.toBeNull();
+      }
+      expect(addPlayerToLobby(counted.id, { id: 'c6', name: 'C6' })).toBeNull();
     });
 
     it('moves a player up and down the order, and no further than the ends', () => {

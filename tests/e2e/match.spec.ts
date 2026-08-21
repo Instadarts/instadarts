@@ -2,6 +2,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { clickT20, clickS20, clickD20, clickT19, clickD12, submitVisit, expectDartLabel, expectVisitTotal, setupLocalMatch } from './appHelpers';
+import { CENTER, RADII, SVG_SIZE } from '../../src/client/components/boardGeometry';
 
 test.describe('Local 1-player x01 match', () => {
   test('hold and drag uses the zoomed dart tip as the scoring position', async ({ page }) => {
@@ -12,10 +13,22 @@ test.describe('Local 1-player x01 match', () => {
     if (!box) throw new Error('dartboard bounding box not found');
     await expect(board.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
-    // Start just below the inner edge of T20, in S20. There is enough physical and coordinate space
-    // here for the full preferred 48px × 82px finger-to-tip offset.
+    // Everything below is a pointer put at a place on the board, so the whole board has to be on
+    // screen: at any width the match screen lays out in columns it is, and below that the page
+    // scrolls and a point near the bottom edge is dispatched where the window is showing nothing.
+    // Said here, because the symptom two gestures later is an element that never appears.
+    const viewport = page.viewportSize()!;
+    expect(box.y + box.height, 'the whole board must be in view to aim at it')
+      .toBeLessThanOrEqual(viewport.height);
+
+    /** A radius on the board's vertical axis, as a client y. The drawing is scaled to its box. */
+    const above = (radius: number) => box.y + box.height * ((CENTER - radius) / SVG_SIZE);
+    const below = (radius: number) => box.y + box.height * ((CENTER + radius) / SVG_SIZE);
+
+    // Start an SVG unit below the inner edge of T20, in S20. There is enough physical and
+    // coordinate space here for the full preferred 48px × 82px finger-to-tip offset.
     const x = box.x + box.width * 0.5;
-    const y = box.y + box.height * (1 - 0.704);
+    const y = above(RADII.tripleInner - 1);
     await page.mouse.move(x, y);
     await page.mouse.down();
 
@@ -25,16 +38,28 @@ test.describe('Local 1-player x01 match', () => {
     await expect(dart).toHaveAttribute('data-flight-color', '#a5afbf');
     await expect(board).not.toHaveAttribute('viewBox', '0 0 100 100');
     const offsetView = (await board.getAttribute('viewBox'))!.split(' ').map(Number);
+    // What a pixel of finger travel is worth on the zoomed board. Every distance below is measured
+    // through this rather than written down, because all of them depend on how many pixels of window
+    // the board was given — which is a property of the screen the suite happens to run on.
+    const pxPerUnitX = box.width / offsetView[2];
+    const pxPerUnitY = box.height / offsetView[2];
     const heldX = Number(await dart.getAttribute('data-board-x')) / 10_000;
     const heldY = 100 - Number(await dart.getAttribute('data-board-y')) / 10_000;
     const tipClientX = box.x + ((heldX - offsetView[0]) / offsetView[2]) * box.width;
     const tipClientY = box.y + ((heldY - offsetView[1]) / offsetView[2]) * box.height;
-    expect(tipClientX - x).toBeCloseTo(48, 5);
-    expect(tipClientY - y).toBeCloseTo(82, 5);
+    // Within a board unit of the preferred offset, not within a fixed number of decimal places:
+    // `toBoard` rounds a dart to a whole unit — a ten-thousandth of an SVG unit — so the tip read
+    // back out of the DOM cannot be more exact than that, and what that is worth in pixels is again
+    // the board's size. What this guards against, a contracted offset, is out by whole pixels.
+    expect(Math.abs(tipClientX - x - 48)).toBeLessThan(pxPerUnitX / 10_000);
+    expect(Math.abs(tipClientY - y - 82)).toBeLessThan(pxPerUnitY / 10_000);
 
-    // Under zoom this 24px adjustment is only about 20,000 board units: enough to enter the thin
-    // triple bed without jumping through it. The UI's live label and the submitted slot must agree.
-    await page.mouse.move(x, y - 24);
+    // Up into the middle of the thin triple bed, from wherever the dart actually is: far enough to
+    // enter it, never far enough to jump through. At 1280×720 that is some 24px, and half of it on
+    // a screen that draws the board twice the size. The UI's live label and the submitted slot must
+    // agree.
+    const tripleMiddle = (RADII.tripleInner + RADII.tripleOuter) / 2;
+    await page.mouse.move(x, y - (tripleMiddle - (CENTER - heldY)) * pxPerUnitY);
     await expect(dart).toHaveAttribute('data-score', 'T20');
     await expect(dart).toHaveAttribute('data-flight-color', '#ff335f');
     expect(await dart.locator('[data-flight-surface]').evaluateAll((flights) => (
@@ -49,9 +74,9 @@ test.describe('Local 1-player x01 match', () => {
     await expect(board).toHaveAttribute('viewBox', '0 0 100 100');
     await expectDartLabel(page, 'T20');
 
-    // At D3, adding the full vertical offset would cross the visible SVG edge. Only that component
-    // contracts, keeping the tip visibly inside the zoom.
-    const doubleThreePointerY = box.y + box.height * (1 - 0.134);
+    // At D3 on an ordinary window, adding the full vertical offset would cross the visible SVG edge.
+    // Only that component contracts, keeping the tip visibly inside the zoom.
+    const doubleThreePointerY = below((RADII.doubleInner + RADII.doubleOuter) / 2);
     await page.mouse.move(box.x + box.width * 0.5, doubleThreePointerY);
     await page.mouse.down();
     await expect(dart).toBeVisible({ timeout: 1_000 });
@@ -63,7 +88,19 @@ test.describe('Local 1-player x01 match', () => {
     const doubleThreeClientY = box.y
       + ((doubleThreeY - boundaryView[1]) / boundaryView[2]) * box.height;
     expect(doubleThreeClientY).toBeLessThan(box.y + box.height);
-    expect(doubleThreeClientY - doubleThreePointerY).toBeLessThan(82);
+    // The rule the tip follows: 82px below the finger, unless that would put it within 48px of the
+    // bottom of what can be seen, in which case it sits on that limit and the offset is whatever is
+    // left. Which of the two binds is a question about how many pixels tall the board is — at
+    // 1280×720 the limit does and the offset contracts, while a screen that draws the board a
+    // thousand pixels tall simply gives the dart its preferred 82px — so the test works out which
+    // to expect instead of pinning the one it saw on the screen it was written on.
+    const visibleBottom = Math.min(
+      box.y + box.height,
+      await page.evaluate(() => window.visualViewport?.height ?? window.innerHeight),
+    );
+    const expectedTipY = Math.min(doubleThreePointerY + 82, visibleBottom - 48);
+    expect(Math.abs(doubleThreeClientY - expectedTipY))
+      .toBeLessThan(box.height / boundaryView[2] / 10_000);
     await page.mouse.up();
 
     // Outside the circular board is a miss: every flight switches to orange, never scoring red.

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
-import type { Layout } from 'react-grid-layout';
+import type { Layout, ResponsiveLayouts } from 'react-grid-layout';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
+import type { FrontendBreakpoint } from '../layout/frontendLayout';
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
@@ -12,10 +13,21 @@ interface HomePageProps {
   notice?: string | null;
 }
 
-const HOME_LAYOUT: Layout = [
-  { i: 'welcome', x: 0, y: 0, w: 5, h: 12 },
-  { i: 'actions', x: 5, y: 0, w: 7, h: 16 },
-];
+function homeLayout(x: number, width: number): Layout {
+  return [
+    { i: 'welcome', x, y: 0, w: width, h: 11 },
+    { i: 'actions', x, y: 11, w: width, h: 16 },
+  ];
+}
+
+const HOME_LAYOUT = homeLayout(3, 6);
+const HOME_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
+  lg: HOME_LAYOUT,
+  md: homeLayout(2, 6),
+  sm: homeLayout(1, 4),
+  xs: homeLayout(0, 4),
+  xxs: homeLayout(0, 2),
+};
 
 export function HomePage({
   onCreateLocalMatch,
@@ -32,7 +44,6 @@ export function HomePage({
       <Stack align="center" gap="xs" ta="center" py="xl">
         <Title order={1} c="green.4" fz="3rem">InstaDarts</Title>
         <Text c="dimmed" fz="lg">Dart game tracker</Text>
-        {!connected && <Alert color="yellow" title="Connecting">Waiting for the server…</Alert>}
         {notice && <Alert color="yellow" role="status">{notice}</Alert>}
       </Stack>
     </GridBox>
@@ -74,6 +85,7 @@ export function HomePage({
   return (
     <ResponsiveBoxGrid
       defaultLayout={HOME_LAYOUT}
+      defaultLayouts={HOME_LAYOUTS}
       items={[
         { id: 'welcome', content: welcome, autoHeight: true },
         { id: 'actions', content: actions, autoHeight: true },

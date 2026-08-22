@@ -57,7 +57,9 @@ export function GridBox({
         p={padding}
         style={centered ? { display: 'grid', placeItems: 'center' } : undefined}
       >
-        {children}
+        <Box className="frontend-grid-box__content" data-grid-box-content>
+          {children}
+        </Box>
       </Box>
     </Card>
   );

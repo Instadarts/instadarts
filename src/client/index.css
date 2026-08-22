@@ -27,8 +27,8 @@ html[data-app="frontend"] #root {
   width: 100%;
 }
 
-.frontend-grid-content--fixed,
-.frontend-grid-content--fixed > .frontend-grid-box {
+.frontend-grid-content,
+.frontend-grid-content > .frontend-grid-box {
   height: 100%;
   min-height: 0;
 }
@@ -44,9 +44,20 @@ html[data-app="frontend"] #root {
 }
 
 .frontend-grid-box__body {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+
+.frontend-grid-box__content {
+  min-width: 0;
+  width: 100%;
+}
+
+.frontend-grid-content--auto .frontend-grid-box__body {
+  justify-content: center;
 }
 
 .frontend-grid-content--auto > .frontend-grid-box,

@@ -60,6 +60,7 @@ export function TopBar({
   const editor = useLayoutEditor();
   const scoring = devices.filter((device) => device.active && device.online).length;
   const camerasLabel = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
+  const connectionLabel = connected ? 'Connected' : 'Waiting for server…';
 
   return (
     <>
@@ -68,21 +69,32 @@ export function TopBar({
           <Text fw={800} c="green.4" fz="lg" truncate>InstaDarts</Text>
 
           <Group gap="xs" wrap="nowrap">
-            <Indicator
-              color={connected ? 'green' : 'yellow'}
-              processing={!connected}
-              size={9}
-              position="middle-center"
-              label=""
+            <Group
+              gap={6}
+              wrap="nowrap"
+              role="status"
+              aria-label={connectionLabel}
+              title={connectionLabel}
             >
-              <Box
-                w={10}
-                h={10}
-                role="status"
-                aria-label={connected ? 'Connected' : 'Connecting'}
-                title={connected ? 'Connected' : 'Connecting'}
-              />
-            </Indicator>
+              <Text
+                visibleFrom="sm"
+                w="8.75rem"
+                fz="sm"
+                c={connected ? 'green.4' : 'yellow.4'}
+                ta="right"
+                truncate
+              >
+                {connectionLabel}
+              </Text>
+              <Indicator
+                color={connected ? 'green' : 'yellow'}
+                processing={!connected}
+                size={9}
+                position="middle-center"
+              >
+                <Box w={10} h={10} aria-hidden />
+              </Indicator>
+            </Group>
 
             <FrontendFullscreenButton />
 

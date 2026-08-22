@@ -28,6 +28,7 @@ export interface ResponsiveBoxItem {
 interface ResponsiveBoxGridProps {
   items: ResponsiveBoxItem[];
   defaultLayout: Layout;
+  defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>;
   profile?: MatchLayoutProfile;
   className?: string;
 }
@@ -38,6 +39,36 @@ function sameLayouts(a: ResponsiveLayouts<FrontendBreakpoint>, b: ResponsiveLayo
 
 function rowsForHeight(height: number): number {
   return Math.max(1, Math.ceil((height + GAP) / (ROW_HEIGHT + GAP)));
+}
+
+function pixels(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Natural card height, independent of the grid item height the card is stretched to fill. */
+function intrinsicBoxHeight(host: HTMLElement): number {
+  const card = host.firstElementChild;
+  if (!(card instanceof HTMLElement)) return host.scrollHeight;
+  const body = card.querySelector<HTMLElement>('.frontend-grid-box__body');
+  const content = card.querySelector<HTMLElement>('[data-grid-box-content]');
+  if (!body || !content) return card.scrollHeight;
+
+  const bodyStyle = getComputedStyle(body);
+  const cardStyle = getComputedStyle(card);
+  const chromeHeight = Array.from(card.children).reduce((height, child) => (
+    child === body ? height : height + child.getBoundingClientRect().height
+  ), 0);
+  const contentHeight = Math.max(content.scrollHeight, content.getBoundingClientRect().height);
+
+  return Math.ceil(
+    chromeHeight
+    + contentHeight
+    + pixels(bodyStyle.paddingTop)
+    + pixels(bodyStyle.paddingBottom)
+    + pixels(cardStyle.borderTopWidth)
+    + pixels(cardStyle.borderBottomWidth),
+  );
 }
 
 function MeasuredContent({
@@ -56,11 +87,32 @@ function MeasuredContent({
   useEffect(() => {
     if (!autoHeight || !ref.current) return;
     const element = ref.current;
-    const report = () => onHeight(id, Math.ceil(element.getBoundingClientRect().height));
+    const report = () => onHeight(id, intrinsicBoxHeight(element));
     report();
-    const observer = new ResizeObserver(report);
-    observer.observe(element);
-    return () => observer.disconnect();
+    const resizeObserver = new ResizeObserver(report);
+    resizeObserver.observe(element);
+    const content = element.querySelector('[data-grid-box-content]');
+    if (content) resizeObserver.observe(content);
+
+    // ResizeObserver only sees the observed border box. An item whose content is flex-shrunk to its
+    // current RGL height can gain or lose overflowing children without changing that box at all.
+    // DOM changes therefore need their own signal; reading the geometry in `report` forces the
+    // browser to account for the completed mutation before converting it to grid rows.
+    const mutationObserver = new MutationObserver(report);
+    if (content) {
+      mutationObserver.observe(content, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden'],
+      });
+    }
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
   }, [autoHeight, id, onHeight]);
 
   return (
@@ -70,7 +122,13 @@ function MeasuredContent({
   );
 }
 
-export function ResponsiveBoxGrid({ items, defaultLayout, profile, className = '' }: ResponsiveBoxGridProps) {
+export function ResponsiveBoxGrid({
+  items,
+  defaultLayout,
+  defaultLayouts,
+  profile,
+  className = '',
+}: ResponsiveBoxGridProps) {
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
   const activeKey = items.map((item) => item.id).join('|');
@@ -78,7 +136,7 @@ export function ResponsiveBoxGrid({ items, defaultLayout, profile, className = '
   const initialLayouts = useMemo(
     () => profile
       ? loadMatchLayouts(profile, defaultLayout, activeIds)
-      : mergeResponsiveLayouts(null, defaultLayout, activeIds),
+      : mergeResponsiveLayouts(defaultLayouts, defaultLayout, activeIds),
     // A profile/grid instance owns one canonical item set; callers key the component when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [profile],

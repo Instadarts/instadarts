@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Stack, Text, Title } from '@mantine/core';
-import type { Layout, ResponsiveLayouts } from 'react-grid-layout';
+import { DEFAULT_COLS, type Layout, type ResponsiveLayouts } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
 import { PlayerList } from '../components/PlayerList';
@@ -7,7 +7,7 @@ import { MatchFormatFields, ModeSettingsFields } from '../components/MatchSettin
 import { InvitePanel } from '../components/InvitePanel';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
-import type { FrontendBreakpoint } from '../layout/frontendLayout';
+import { FRONTEND_BREAKPOINTS, type FrontendBreakpoint } from '../layout/frontendLayout';
 
 interface LobbyPageProps {
   lobby: Lobby;
@@ -24,31 +24,41 @@ interface LobbyPageProps {
   onReorderPlayer?: (playerId: string, direction: 'up' | 'down') => void;
 }
 
-const LOBBY_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 9 },
-  { i: 'players', x: 0, y: 0, w: 4, h: 16 },
-  { i: 'match-settings', x: 4, y: 0, w: 4, h: 16 },
-  { i: 'mode-settings', x: 8, y: 0, w: 4, h: 16 },
-  { i: 'invite', x: 0, y: 0, w: 4, h: 11 },
-];
+const LOBBY_BOXES = [
+  { i: 'overview', h: 9, fullWidth: true },
+  { i: 'players', h: 12 },
+  { i: 'match-settings', h: 16 },
+  { i: 'mode-settings', h: 16 },
+  { i: 'invite', h: 11 },
+] as const;
 
-const LOBBY_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
-  lg: LOBBY_LAYOUT,
-  md: [
-    { i: 'overview', x: 0, y: 0, w: 10, h: 9 },
-    { i: 'players', x: 0, y: 0, w: 5, h: 16 },
-    { i: 'match-settings', x: 5, y: 0, w: 5, h: 16 },
-    { i: 'mode-settings', x: 0, y: 0, w: 5, h: 16 },
-    { i: 'invite', x: 5, y: 0, w: 5, h: 11 },
-  ],
-  sm: [
-    { i: 'overview', x: 0, y: 0, w: 6, h: 9 },
-    { i: 'players', x: 1, y: 0, w: 4, h: 16 },
-    { i: 'match-settings', x: 1, y: 0, w: 4, h: 16 },
-    { i: 'mode-settings', x: 1, y: 0, w: 4, h: 16 },
-    { i: 'invite', x: 1, y: 0, w: 4, h: 11 },
-  ],
-};
+/** Bootstrap-style row placement; vertical collision handling derives every y coordinate. */
+export function makeLobbyLayout(cols: number): Layout {
+  const minimumCardWidth = 4;
+  const maximumCardWidth = 5;
+  const cardsPerRow = Math.min(3, Math.max(1, Math.floor(cols / minimumCardWidth)));
+  const cardWidth = cardsPerRow === 1
+    ? Math.min(minimumCardWidth, cols)
+    : Math.min(maximumCardWidth, Math.floor(cols / cardsPerRow));
+  const rowWidth = cardsPerRow * cardWidth;
+  const rowOffset = Math.floor((cols - rowWidth) / 2);
+  let cardIndex = 0;
+
+  return LOBBY_BOXES.map((box) => {
+    if ('fullWidth' in box) return { i: box.i, x: 0, y: 0, w: cols, h: box.h };
+    const x = rowOffset + (cardIndex % cardsPerRow) * cardWidth;
+    cardIndex += 1;
+    return { i: box.i, x, y: 0, w: cardWidth, h: box.h };
+  });
+}
+
+const LOBBY_LAYOUT = makeLobbyLayout(DEFAULT_COLS.lg);
+const LOBBY_LAYOUTS = Object.fromEntries(
+  FRONTEND_BREAKPOINTS.map((breakpoint) => [
+    breakpoint,
+    breakpoint === 'lg' ? LOBBY_LAYOUT : makeLobbyLayout(DEFAULT_COLS[breakpoint]),
+  ]),
+) as ResponsiveLayouts<FrontendBreakpoint>;
 
 export function LobbyPage({
   lobby,

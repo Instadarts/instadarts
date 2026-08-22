@@ -1,5 +1,5 @@
 import { Alert, Button, Group, Stack, Text, Title } from '@mantine/core';
-import type { Layout } from 'react-grid-layout';
+import type { Layout, ResponsiveLayouts } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
 import { PlayerList } from '../components/PlayerList';
@@ -7,6 +7,7 @@ import { MatchFormatFields, ModeSettingsFields } from '../components/MatchSettin
 import { InvitePanel } from '../components/InvitePanel';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
+import type { FrontendBreakpoint } from '../layout/frontendLayout';
 
 interface LobbyPageProps {
   lobby: Lobby;
@@ -24,12 +25,30 @@ interface LobbyPageProps {
 }
 
 const LOBBY_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 10 },
-  { i: 'players', x: 0, y: 10, w: 4, h: 20 },
-  { i: 'match-settings', x: 4, y: 10, w: 4, h: 20 },
-  { i: 'mode-settings', x: 8, y: 10, w: 4, h: 20 },
-  { i: 'invite', x: 0, y: 30, w: 4, h: 12 },
+  { i: 'overview', x: 0, y: 0, w: 12, h: 9 },
+  { i: 'players', x: 0, y: 0, w: 4, h: 16 },
+  { i: 'match-settings', x: 4, y: 0, w: 4, h: 16 },
+  { i: 'mode-settings', x: 8, y: 0, w: 4, h: 16 },
+  { i: 'invite', x: 0, y: 0, w: 4, h: 11 },
 ];
+
+const LOBBY_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
+  lg: LOBBY_LAYOUT,
+  md: [
+    { i: 'overview', x: 0, y: 0, w: 10, h: 9 },
+    { i: 'players', x: 0, y: 0, w: 5, h: 16 },
+    { i: 'match-settings', x: 5, y: 0, w: 5, h: 16 },
+    { i: 'mode-settings', x: 0, y: 0, w: 5, h: 16 },
+    { i: 'invite', x: 5, y: 0, w: 5, h: 11 },
+  ],
+  sm: [
+    { i: 'overview', x: 0, y: 0, w: 6, h: 9 },
+    { i: 'players', x: 1, y: 0, w: 4, h: 16 },
+    { i: 'match-settings', x: 1, y: 0, w: 4, h: 16 },
+    { i: 'mode-settings', x: 1, y: 0, w: 4, h: 16 },
+    { i: 'invite', x: 1, y: 0, w: 4, h: 11 },
+  ],
+};
 
 export function LobbyPage({
   lobby,
@@ -143,5 +162,5 @@ export function LobbyPage({
     });
   }
 
-  return <ResponsiveBoxGrid defaultLayout={LOBBY_LAYOUT} items={items} />;
+  return <ResponsiveBoxGrid defaultLayout={LOBBY_LAYOUT} defaultLayouts={LOBBY_LAYOUTS} items={items} />;
 }

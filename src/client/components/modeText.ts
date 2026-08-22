@@ -1,64 +1,60 @@
-// Turning a mode's text hints into classes.
-//
-// This is the only place in the app that decides what `danger` looks like. A mode names a meaning;
-// the element it lands in supplies the defaults for whatever the mode did not name, and this file
-// resolves the two into classes.
-//
-// Class strings are written out in full rather than composed (`text-red-400`, never
-// `text-${colour}-400`) because Tailwind scans this source for the classes it emits.
-
 import { styleOf } from '../../shared/types';
 import type { TextStyle, TextTone, ViewText } from '../../shared/types';
+import type { CSSProperties } from 'react';
 
 const TONE_TEXT: Record<TextTone, string> = {
-  default: 'text-gray-300',
-  muted: 'text-gray-500',
-  accent: 'text-green-400',
-  positive: 'text-green-300',
-  warning: 'text-yellow-400',
-  danger: 'text-red-400',
+  default: 'gray.3',
+  muted: 'gray.6',
+  accent: 'green.4',
+  positive: 'green.3',
+  warning: 'yellow.4',
+  danger: 'red.4',
 };
 
-/** The same meanings on a filled dart slot, which carries a background as well. */
-const TONE_SLOT: Record<TextTone, string> = {
-  default: 'bg-gray-800 text-gray-300',
-  muted: 'bg-gray-800 text-gray-600',
-  accent: 'bg-green-900 text-green-300',
-  positive: 'bg-green-900 text-green-300',
-  warning: 'bg-yellow-900 text-yellow-300',
-  danger: 'bg-red-900 text-red-300',
+const TONE_SLOT: Record<TextTone, { color: string; background: string }> = {
+  default: { color: 'var(--mantine-color-gray-3)', background: 'var(--mantine-color-dark-6)' },
+  muted: { color: 'var(--mantine-color-gray-6)', background: 'var(--mantine-color-dark-6)' },
+  accent: { color: 'var(--mantine-color-green-3)', background: 'var(--mantine-color-green-9)' },
+  positive: { color: 'var(--mantine-color-green-3)', background: 'var(--mantine-color-green-9)' },
+  warning: { color: 'var(--mantine-color-yellow-3)', background: 'var(--mantine-color-yellow-9)' },
+  danger: { color: 'var(--mantine-color-red-3)', background: 'var(--mantine-color-red-9)' },
 };
 
-const SIZE = {
-  xs: 'text-xs', sm: 'text-sm', base: 'text-base', lg: 'text-lg',
-  xl: 'text-xl', '2xl': 'text-2xl', '3xl': 'text-3xl', '4xl': 'text-4xl',
-} as const;
+const WEIGHT = { normal: 400, medium: 500, semibold: 600, bold: 700 } as const;
+const SIZE: Record<NonNullable<TextStyle['size']>, string> = {
+  xs: '0.75rem',
+  sm: '0.875rem',
+  base: '1rem',
+  lg: '1.125rem',
+  xl: '1.25rem',
+  '2xl': '1.5rem',
+  '3xl': '1.875rem',
+  '4xl': '2.25rem',
+};
 
-const WEIGHT = {
-  normal: 'font-normal', medium: 'font-medium', semibold: 'font-semibold', bold: 'font-bold',
-} as const;
-
-/**
- * Classes for a piece of mode text.
- *
- * @param value    what the mode sent — a bare string takes every default
- * @param base     what this element looks like when the mode says nothing
- * @param extra    the element's own non-negotiable classes (layout, font family)
- */
-export function modeTextClasses(value: ViewText | undefined, base: TextStyle = {}, extra = ''): string {
-  return resolve(styleOf(value), base, TONE_TEXT, extra);
+export interface ModeTextProps {
+  c: string;
+  fz: string;
+  fw: number;
 }
 
-/** As above, for a filled dart slot: the tone brings a background with it. */
-export function slotClasses(value: ViewText | undefined, base: TextStyle = {}, extra = ''): string {
-  return resolve(styleOf(value), base, TONE_SLOT, extra);
+export function modeTextProps(value: ViewText | undefined, base: TextStyle = {}): ModeTextProps {
+  const hint = styleOf(value);
+  return {
+    c: TONE_TEXT[hint.tone ?? base.tone ?? 'default'],
+    fz: SIZE[hint.size ?? base.size ?? 'base'],
+    fw: WEIGHT[hint.weight ?? base.weight ?? 'normal'],
+  };
 }
 
-function resolve(hint: TextStyle, base: TextStyle, tones: Record<TextTone, string>, extra: string): string {
-  return [
-    tones[hint.tone ?? base.tone ?? 'default'],
-    SIZE[hint.size ?? base.size ?? 'base'],
-    WEIGHT[hint.weight ?? base.weight ?? 'normal'],
-    extra,
-  ].filter(Boolean).join(' ');
+export function slotStyle(value: ViewText | undefined, base: TextStyle = {}): CSSProperties {
+  const hint = styleOf(value);
+  const tone = TONE_SLOT[hint.tone ?? base.tone ?? 'default'];
+  const size = hint.size ?? base.size ?? 'base';
+  return {
+    color: tone.color,
+    backgroundColor: tone.background,
+    fontSize: SIZE[size],
+    fontWeight: WEIGHT[hint.weight ?? base.weight ?? 'normal'],
+  };
 }

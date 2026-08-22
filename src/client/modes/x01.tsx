@@ -1,6 +1,7 @@
 import type { ModePanelProps } from './panels';
 import type { ModePanel } from '../../shared/types';
 import { textOf } from '../../shared/types';
+import { Box, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 
 // x01's optional second file.
 //
@@ -49,35 +50,35 @@ export default function X01Panel({ panel }: ModePanelProps) {
   const rest = panel.rows.filter((row) => row.label !== HEADLINE);
 
   return (
-    // Cards share whatever the column gives them and wrap only when even that is too little, so the
-    // panel reads the same in a narrow side column as it does across a phone.
-    <div className="flex flex-wrap justify-center gap-2 w-full">
+    <SimpleGrid minColWidth={130} autoFlow="auto-fit" spacing="sm">
       {playerIds.map((playerId) => (
-        <div key={playerId} className="bg-gray-900 rounded-lg px-4 py-2 flex-1 min-w-[8rem] max-w-[16rem] flex flex-col gap-2">
+        <Paper key={playerId} bg="dark.9" radius="md" px="md" py="sm">
+          <Stack gap="sm">
           {headline && (
-            <div className="text-center">
-              <p className={`text-2xl font-bold font-mono ${leads(headline, playerId, playerIds) ? 'text-green-400' : 'text-gray-300'}`}>
+            <Stack gap={0} ta="center">
+              <Text fz="xl" fw={700} ff="monospace" c={leads(headline, playerId, playerIds) ? 'green.4' : 'gray.3'}>
                 {textOf(headline.values[playerId])}
-              </p>
-              <p className="text-[10px] uppercase text-gray-500">{headline.label}</p>
-            </div>
+              </Text>
+              <Text fz={10} tt="uppercase" c="dimmed">{headline.label}</Text>
+            </Stack>
           )}
 
           <Bars scores={recent[playerId] ?? []} max={max} />
 
-          <dl className="text-xs">
+          <Stack component="dl" gap={2} fz="xs">
             {rest.map((row) => (
-              <div key={row.label} className="flex justify-between gap-3 py-0.5">
-                <dt className="text-gray-500">{row.label}</dt>
-                <dd className={`font-mono ${leads(row, playerId, playerIds) ? 'text-green-400' : 'text-gray-300'}`}>
+              <Group key={row.label} justify="space-between" gap="md" wrap="nowrap">
+                <Text component="dt" c="dimmed">{row.label}</Text>
+                <Text component="dd" ff="monospace" c={leads(row, playerId, playerIds) ? 'green.4' : 'gray.3'}>
                   {textOf(row.values[playerId])}
-                </dd>
-              </div>
+                </Text>
+              </Group>
             ))}
-          </dl>
-        </div>
+          </Stack>
+          </Stack>
+        </Paper>
       ))}
-    </div>
+    </SimpleGrid>
   );
 }
 
@@ -91,19 +92,19 @@ function Bars({ scores, max }: { scores: number[]; max: number }) {
   const slots = [...Array(6)].map((_, i) => scores[scores.length - 6 + i]);
 
   return (
-    <div className="flex items-end gap-1 h-8" aria-hidden>
+    <Group align="flex-end" gap={4} h={32} aria-hidden wrap="nowrap">
       {slots.map((score, i) => (
-        <div key={i} className="flex-1 bg-gray-800 rounded-sm h-full flex items-end">
+        <Box key={i} bg="dark.6" h="100%" style={{ flex: 1, borderRadius: 2, display: 'flex', alignItems: 'flex-end' }}>
           {score !== undefined && (
-            <div
-              className={`w-full rounded-sm ${score >= 100 ? 'bg-green-500' : score > 0 ? 'bg-green-800' : 'bg-red-900'}`}
-              style={{ height: `${Math.max(6, (Math.min(score, max) / max) * 100)}%` }}
+            <Box
+              bg={score >= 100 ? 'green.5' : score > 0 ? 'green.8' : 'red.9'}
+              style={{ height: `${Math.max(6, (Math.min(score, max) / max) * 100)}%`, width: '100%', borderRadius: 2 }}
               title={String(score)}
             />
           )}
-        </div>
+        </Box>
       ))}
-    </div>
+    </Group>
   );
 }
 

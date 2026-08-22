@@ -2,6 +2,7 @@ import type { MatchSettings } from '../../shared/types';
 import type { ModeDescriptor, SettingsValue } from '../../shared/settings';
 import { MATCH_FIELDS } from '../../shared/matchFormat';
 import { SettingsFields } from './SettingsFields';
+import { NativeSelect, Stack } from '@mantine/core';
 
 /**
  * One field's new value, and nothing else.
@@ -32,46 +33,47 @@ interface MatchSettingsPanelProps {
  * from the server, so installing a mode is a server-side act and this file never changes.
  */
 export function MatchSettingsPanel({ settings, modes, canEdit, onChange }: MatchSettingsPanelProps) {
-  const descriptor = modes.find((m) => m.id === settings.mode);
+  return (
+    <Stack gap="xl">
+      <MatchFormatFields settings={settings} modes={modes} canEdit={canEdit} onChange={onChange} />
+      <ModeSettingsFields settings={settings} modes={modes} canEdit={canEdit} onChange={onChange} />
+    </Stack>
+  );
+}
 
+export function MatchFormatFields({ settings, modes, canEdit, onChange }: MatchSettingsPanelProps) {
   const setFormat = (key: string, value: SettingsValue) => onChange({ [key]: value });
-  const setMode = (key: string, value: SettingsValue) => onChange({ modeSettings: { [key]: value } });
 
   return (
-    <>
-      <SettingsFields
-        title="Match"
-        fields={MATCH_FIELDS}
-        values={{ setsToWinMatch: settings.setsToWinMatch, legsToWinSet: settings.legsToWinSet }}
-        canEdit={canEdit}
-        onChange={setFormat}
-      >
-        <div>
-          <label className="text-gray-400 text-sm" htmlFor="game-mode">Game</label>
-          <select
-            id="game-mode"
-            aria-label="Game"
-            value={settings.mode}
-            onChange={(e) => onChange({ mode: e.target.value })}
-            disabled={!canEdit || modes.length === 0}
-            className="w-full mt-1 px-3 py-1 bg-gray-800 border border-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {modes.map((mode) => (
-              <option key={mode.id} value={mode.id}>{mode.label}</option>
-            ))}
-          </select>
-        </div>
-      </SettingsFields>
+    <SettingsFields
+      fields={MATCH_FIELDS}
+      values={{ setsToWinMatch: settings.setsToWinMatch, legsToWinSet: settings.legsToWinSet }}
+      canEdit={canEdit}
+      onChange={setFormat}
+    >
+      <NativeSelect
+        id="game-mode"
+        label="Game"
+        aria-label="Game"
+        value={settings.mode}
+        onChange={(event) => onChange({ mode: event.currentTarget.value })}
+        disabled={!canEdit || modes.length === 0}
+        data={modes.map((mode) => ({ value: mode.id, label: mode.label }))}
+      />
+    </SettingsFields>
+  );
+}
 
-      {descriptor && (
-        <SettingsFields
-          title={`${descriptor.label} settings`}
-          fields={descriptor.fields}
-          values={settings.modeSettings}
-          canEdit={canEdit}
-          onChange={setMode}
-        />
-      )}
-    </>
+export function ModeSettingsFields({ settings, modes, canEdit, onChange }: MatchSettingsPanelProps) {
+  const descriptor = modes.find((mode) => mode.id === settings.mode);
+  if (!descriptor) return null;
+  const setMode = (key: string, value: SettingsValue) => onChange({ modeSettings: { [key]: value } });
+  return (
+    <SettingsFields
+      fields={descriptor.fields}
+      values={settings.modeSettings}
+      canEdit={canEdit}
+      onChange={setMode}
+    />
   );
 }

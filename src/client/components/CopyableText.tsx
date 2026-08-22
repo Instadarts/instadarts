@@ -5,6 +5,7 @@
 // to go and paste it somewhere, which is exactly the trip the button existed to save.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Tooltip, UnstyledButton, VisuallyHidden } from '@mantine/core';
 
 /**
  * Put `text` on the clipboard, by whichever route this browser allows.
@@ -51,18 +52,9 @@ interface CopyableTextProps {
   /** What lands on the clipboard. Also what is shown, unless `children` says otherwise. */
   value: string;
   children?: React.ReactNode;
-  /**
-   * How the clickable text looks, including its hover.
-   *
-   * Deliberately the caller's business rather than this component's: an invite code is already
-   * green and a url is not, so a hover colour baked in here would be wrong for one of them — and
-   * two Tailwind `hover:text-*` utilities on one element do not resolve by the order they are
-   * written in, so a caller could not reliably override it.
-   */
-  className?: string;
 }
 
-export function CopyableText({ value, children, className = '' }: CopyableTextProps) {
+export function CopyableText({ value, children }: CopyableTextProps) {
   const [flash, setFlash] = useState<'copied' | 'failed' | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,34 +69,23 @@ export function CopyableText({ value, children, className = '' }: CopyableTextPr
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   return (
-    <span className="relative inline-block">
-      <button
-        type="button"
+    <Tooltip
+      opened={flash !== null}
+      label={flash === 'failed' ? 'Select it and copy by hand' : 'Copied'}
+      color={flash === 'failed' ? 'yellow' : 'dark'}
+      position="top"
+      withArrow
+    >
+      <UnstyledButton
         onClick={() => { void copyToClipboard(value).then((ok) => announce(ok ? 'copied' : 'failed')); }}
         title="Copy to clipboard"
-        // `select-text` is not decoration: browsers put `user-select: none` on a button, and the
-        // message shown when both copy routes fail asks the reader to select the text by hand.
-        // Without this that advice would be impossible to follow — and hand-selecting is also what
-        // somebody does when they want half of a url, which no copy button will ever offer.
-        className={`cursor-pointer select-text transition-colors ${className}`}
+        style={{ display: 'inline-block', color: 'inherit', font: 'inherit', userSelect: 'text' }}
       >
         {children ?? value}
-      </button>
-
-      {/* Always mounted, so it can fade both ways — a conditionally rendered element appears at full
-          opacity however it is styled. `pointer-events-none` throughout: it sits over the button it
-          belongs to, and must never eat the second click. */}
-      <span
-        aria-live="polite"
-        // `z-10` and a shadow, because this lands on top of whatever label sits above the thing it
-        // belongs to — "Invite Code", in the lobby. Without them it reads as two pieces of text
-        // colliding; with them it reads as what it is, a chip floating over the page for a second.
-        className={`pointer-events-none absolute bottom-full left-1/2 z-10 -translate-x-1/2 mb-1 px-2 py-0.5 rounded shadow-md text-xs whitespace-nowrap transition-all duration-200 ${
-          flash ? 'opacity-100 -translate-y-0.5' : 'opacity-0'
-        } ${flash === 'failed' ? 'bg-yellow-900 text-yellow-200' : 'bg-gray-700 text-gray-100'}`}
-      >
-        {flash === 'failed' ? 'Select it and copy by hand' : flash === 'copied' ? 'Copied' : ''}
-      </span>
-    </span>
+        <VisuallyHidden aria-live="polite">
+          {flash === 'failed' ? 'Copy failed. Select it and copy by hand.' : flash === 'copied' ? 'Copied.' : ''}
+        </VisuallyHidden>
+      </UnstyledButton>
+    </Tooltip>
   );
 }

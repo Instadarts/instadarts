@@ -16,7 +16,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@mantine/core": "^9.5.1",
     "express": "^5.2.1",
+    "react-grid-layout": "^2.2.4",
     "tsx": "^4.23.7",
     "ws": "^8.21.2"
   },

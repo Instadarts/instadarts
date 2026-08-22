@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppShell, Center, Loader, Overlay, Stack, Text } from '@mantine/core';
 import { useMatch } from './hooks/useMatch';
 import { useScoringDevices } from './hooks/useScoringDevices';
 import { useMediaMesh } from './hooks/useMediaMesh';
@@ -219,11 +220,7 @@ export function App() {
   }, [lobby, devices.devices, devices.setCamera]);
 
   return (
-    // The shell is exactly the window, and `main` is what scrolls inside it. That is what lets a
-    // screen ask to fill the height it has been given — the match screen does, so that a board and
-    // a scoreboard behave like an app rather than a document — while pages that are simply long,
-    // like the lobby, still scroll normally.
-    <div className="h-[100dvh] flex flex-col">
+    <AppShell header={{ height: 52 }} padding={0} className="frontend-app-main">
       <TopBar
         connected={connected}
         devices={devices.devices}
@@ -242,7 +239,7 @@ export function App() {
         boardCamera={boardCamera}
         onBoardCameraChange={changeBoardCamera}
       />
-      <main className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+      <AppShell.Main>
       <Routes>
         <Route path="/" element={
           <HomePage
@@ -304,15 +301,17 @@ export function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      </main>
+      </AppShell.Main>
       <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} />
       {mediaSettingUp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950 text-white" data-testid="media-setup-overlay">
-          <div className="text-center">
-            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-600 border-t-white" />
-            <p className="text-lg font-medium">Setting up match…</p>
-          </div>
-        </div>
+        <Overlay fixed zIndex={500} backgroundOpacity={1} color="var(--mantine-color-dark-9)" data-testid="media-setup-overlay">
+          <Center h="100%">
+            <Stack align="center">
+              <Loader color="gray" />
+              <Text fz="lg" fw={500}>Setting up match…</Text>
+            </Stack>
+          </Center>
+        </Overlay>
       )}
       {!mediaSettingUp && pendingVideoOffer && (
         <VideoOfferDialog
@@ -322,7 +321,7 @@ export function App() {
           onDecline={feed.decline}
         />
       )}
-    </div>
+    </AppShell>
   );
 }
 
@@ -346,7 +345,7 @@ interface LobbyWrapperProps {
 function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, reorderPlayer, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
-  if (!lobby) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading lobby...</div>;
+  if (!lobby) return <LoadingRoute label="Loading lobby…" />;
   return (
     <LobbyPage
       lobby={lobby}
@@ -389,7 +388,7 @@ interface MatchWrapperProps {
 function MatchWrapper({ match, view, panel, mediaDisabled, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
-  if (!match || !view) return <div className="flex-1 flex items-center justify-center text-gray-400">Loading match...</div>;
+  if (!match || !view) return <LoadingRoute label="Loading match…" />;
   return (
     <MatchScreen
       match={match}
@@ -490,5 +489,16 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
     );
   }
 
-  return <div className="flex-1 flex items-center justify-center text-gray-400">Loading...</div>;
+  return <LoadingRoute label="Loading…" />;
+}
+
+function LoadingRoute({ label }: { label: string }) {
+  return (
+    <Center mih="calc(100dvh - 52px)">
+      <Stack align="center" gap="sm">
+        <Loader color="green" />
+        <Text c="dimmed">{label}</Text>
+      </Stack>
+    </Center>
+  );
 }

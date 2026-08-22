@@ -1,5 +1,6 @@
 import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
+import { Box, Button, Group, Text } from '@mantine/core';
 
 interface Props {
   feeds: readonly VideoFeedView[];
@@ -15,23 +16,27 @@ export function VideoFeedControls({ feeds, onAccept, onDecline }: Props) {
   if (controls.length === 0) return null;
 
   return (
-    <div className="absolute left-2 top-2 z-20 flex max-w-[calc(100%-1rem)] flex-wrap gap-1">
+    <Box pos="absolute" top={8} left={8} style={{ zIndex: 20, maxWidth: 'calc(100% - 1rem)' }}>
+      <Group gap={4} wrap="wrap">
       {controls.map((feed) => {
         const accepted = feed.choice === 'accepted';
         const label = feed.label ?? 'board video';
         return (
-          <button
+          <Button
             key={feed.feedId}
-            type="button"
             onClick={() => accepted ? onDecline(feed.feedId) : onAccept(feed.feedId)}
             aria-label={`${accepted ? 'Stop' : 'Play'} live video from ${label}`}
-            className="flex max-w-48 items-center gap-1 rounded bg-black/75 px-2 py-1 text-xs text-white shadow hover:bg-black/90"
+            variant="filled"
+            color="dark"
+            size="compact-xs"
+            leftSection={<span aria-hidden="true">{accepted ? '×' : '▶'}</span>}
+            maw="12rem"
           >
-            <span aria-hidden="true">{accepted ? '×' : '▶'}</span>
-            <span className="truncate">{label}</span>
-          </button>
+            <Text span truncate fz="xs">{label}</Text>
+          </Button>
         );
       })}
-    </div>
+      </Group>
+    </Box>
   );
 }

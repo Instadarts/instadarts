@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
+import { Alert, Loader, Stack, Text } from '@mantine/core';
+import type { Layout } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
+import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
+import { GridBox } from '../layout/GridBox';
 
 interface JoinHandlerProps {
   onJoin: (code: string, playerName: string) => void;
@@ -9,6 +13,7 @@ interface JoinHandlerProps {
 }
 
 const JOIN_TIMEOUT_MS = 8000;
+const JOIN_LAYOUT: Layout = [{ i: 'status', x: 3, y: 0, w: 6, h: 10 }];
 
 export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
   const { code } = useParams<{ code: string }>();
@@ -42,9 +47,21 @@ export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
   }, [error, navigate]);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
-      <p>Joining lobby...</p>
-      {error && <p className="text-red-400 text-sm">{error}</p>}
-    </div>
+    <ResponsiveBoxGrid
+      defaultLayout={JOIN_LAYOUT}
+      items={[{
+        id: 'status',
+        autoHeight: true,
+        content: (
+          <GridBox editable={false} centered>
+            <Stack align="center" py="xl">
+              <Loader color="green" />
+              <Text c="dimmed">Joining lobby…</Text>
+              {error && <Alert color="red">{error}</Alert>}
+            </Stack>
+          </GridBox>
+        ),
+      }]}
+    />
   );
 }

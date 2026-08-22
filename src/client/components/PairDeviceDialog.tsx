@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Button, Group, Paper, Stack, Text } from '@mantine/core';
 import type { PairingCode } from '../hooks/useScoringDevices';
 import { QrCode } from './QrCode';
 import { CopyableText } from './CopyableText';
@@ -25,44 +26,39 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
   // Nothing is requested from here. Whoever opened this dialog asked for the code, because minting
   // one invalidates the session's previous one and an effect is not a promise that it runs once.
   if (!code) {
-    return <p className="text-sm text-gray-400">Requesting a code…</p>;
+    return <Text fz="sm" c="dimmed">Requesting a code…</Text>;
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-gray-400">Scan this with the camera device:</p>
-      <div className="flex justify-center">
+    <Stack gap="md">
+      <Text fz="sm" c="dimmed">Scan this with the camera device:</Text>
+      <Group justify="center">
         {/* Padded in white rather than sitting on the dark panel: the quiet zone the encoder draws
             is only a quiet zone if what surrounds it is the same colour as it. */}
-        <div className="rounded-lg bg-white p-2">
+        <Paper radius="md" bg="white" p="xs">
           <QrCode text={pairingUrl(code.code)} size={180} />
-        </div>
-      </div>
-      <p className="text-sm text-gray-400">
+        </Paper>
+      </Group>
+      <Text fz="sm" c="dimmed">
         Or open{' '}
-        <CopyableText
-          value={scorerUrl}
-          className="font-mono text-gray-200 hover:text-green-400 underline decoration-dotted underline-offset-2"
-        />
+        <CopyableText value={scorerUrl}>
+          <Text span ff="monospace" c="gray.2">{scorerUrl}</Text>
+        </CopyableText>
         {' '}there and enter:
-      </p>
-      <p className="text-4xl font-mono font-bold tracking-[0.3em] text-green-400 text-center select-text">
+      </Text>
+      <Text fz="2rem" ff="monospace" fw={700} c="green.4" ta="center" style={{ letterSpacing: '0.3em', userSelect: 'text' }}>
         {code.code}
-      </p>
-      <div className="flex items-center justify-between text-sm">
-        <span className={remaining > 0 ? 'text-gray-500' : 'text-yellow-400'}>
+      </Text>
+      <Group justify="space-between" gap="sm">
+        <Text fz="sm" c={remaining > 0 ? 'dimmed' : 'yellow.4'}>
           {remaining > 0 ? `Expires in ${remaining}s` : 'Expired'}
-        </span>
-        <div className="flex gap-2">
-          <button onClick={onRequest} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
-            New code
-          </button>
-          <button onClick={onCancel} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded transition-colors">
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
+        </Text>
+        <Group gap="xs">
+          <Button size="compact-sm" variant="default" onClick={onRequest}>New code</Button>
+          <Button size="compact-sm" variant="subtle" onClick={onCancel}>Done</Button>
+        </Group>
+      </Group>
+    </Stack>
   );
 }
 

@@ -1,0 +1,185 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Responsive,
+  getCompactor,
+  useContainerWidth,
+  type Layout,
+  type ResponsiveLayouts,
+} from 'react-grid-layout';
+import { useLayoutEditor } from './LayoutEditorContext';
+import {
+  mergeResponsiveLayouts,
+  loadMatchLayouts,
+  resetMatchLayout,
+  saveMatchLayouts,
+  type FrontendBreakpoint,
+  type MatchLayoutProfile,
+} from './frontendLayout';
+
+const ROW_HEIGHT = 8;
+const GAP = 12;
+
+export interface ResponsiveBoxItem {
+  id: string;
+  content: ReactNode;
+  autoHeight?: boolean;
+}
+
+interface ResponsiveBoxGridProps {
+  items: ResponsiveBoxItem[];
+  defaultLayout: Layout;
+  profile?: MatchLayoutProfile;
+  className?: string;
+}
+
+function sameLayouts(a: ResponsiveLayouts<FrontendBreakpoint>, b: ResponsiveLayouts<FrontendBreakpoint>): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function rowsForHeight(height: number): number {
+  return Math.max(1, Math.ceil((height + GAP) / (ROW_HEIGHT + GAP)));
+}
+
+function MeasuredContent({
+  id,
+  autoHeight,
+  onHeight,
+  children,
+}: {
+  id: string;
+  autoHeight: boolean;
+  onHeight: (id: string, height: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!autoHeight || !ref.current) return;
+    const element = ref.current;
+    const report = () => onHeight(id, Math.ceil(element.getBoundingClientRect().height));
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [autoHeight, id, onHeight]);
+
+  return (
+    <div ref={ref} className={autoHeight ? 'frontend-grid-content frontend-grid-content--auto' : 'frontend-grid-content frontend-grid-content--fixed'}>
+      {children}
+    </div>
+  );
+}
+
+export function ResponsiveBoxGrid({ items, defaultLayout, profile, className = '' }: ResponsiveBoxGridProps) {
+  const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
+  const editor = useLayoutEditor();
+  const activeKey = items.map((item) => item.id).join('|');
+  const activeIds = useMemo(() => activeKey.split('|').filter(Boolean), [activeKey]);
+  const initialLayouts = useMemo(
+    () => profile
+      ? loadMatchLayouts(profile, defaultLayout, activeIds)
+      : mergeResponsiveLayouts(null, defaultLayout, activeIds),
+    // A profile/grid instance owns one canonical item set; callers key the component when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [profile],
+  );
+  const [layouts, setLayouts] = useState<ResponsiveLayouts<FrontendBreakpoint>>(initialLayouts);
+  const [breakpoint, setBreakpoint] = useState<FrontendBreakpoint>('lg');
+  const [generation, setGeneration] = useState(0);
+  const measuredHeights = useRef(new Map<string, number>());
+  const editable = profile !== undefined && editor.editing;
+  const compactor = useMemo(() => getCompactor('vertical', false, true), []);
+
+  const applyMeasuredHeights = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {
+    const current = next[breakpoint];
+    if (!current) return next;
+    let changed = false;
+    const adjusted = current.map((item) => {
+      const measured = measuredHeights.current.get(item.i);
+      if (measured === undefined) return item;
+      const h = Math.max(item.minH ?? 1, rowsForHeight(measured));
+      if (h === item.h) return item;
+      changed = true;
+      return { ...item, h };
+    });
+    return changed ? { ...next, [breakpoint]: adjusted } : next;
+  }, [breakpoint]);
+
+  const commitLayouts = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {
+    const merged = mergeResponsiveLayouts(next, defaultLayout, activeIds);
+    const measured = applyMeasuredHeights(merged);
+    setLayouts((current) => sameLayouts(current, measured) ? current : measured);
+    if (profile) saveMatchLayouts(profile, measured);
+  }, [activeKey, activeIds, applyMeasuredHeights, defaultLayout, profile]);
+
+  const reportHeight = useCallback((id: string, height: number) => {
+    if (measuredHeights.current.get(id) === height) return;
+    measuredHeights.current.set(id, height);
+    setLayouts((current) => {
+      const measured = applyMeasuredHeights(current);
+      return sameLayouts(current, measured) ? current : measured;
+    });
+  }, [applyMeasuredHeights]);
+
+  const reset = useCallback(() => {
+    if (!profile) return;
+    resetMatchLayout(profile);
+    measuredHeights.current.clear();
+    setLayouts(mergeResponsiveLayouts(null, defaultLayout, activeIds));
+    setGeneration((value) => value + 1);
+  }, [activeKey, activeIds, defaultLayout, profile]);
+
+  useEffect(() => {
+    setLayouts((current) => {
+      const merged = mergeResponsiveLayouts(current, defaultLayout, activeIds);
+      return sameLayouts(current, merged) ? current : merged;
+    });
+  }, [activeKey, activeIds, defaultLayout]);
+
+  useEffect(() => {
+    setLayouts((current) => {
+      const measured = applyMeasuredHeights(current);
+      return sameLayouts(current, measured) ? current : measured;
+    });
+  }, [applyMeasuredHeights]);
+
+  useEffect(() => {
+    if (!profile) return;
+    return editor.register({ profile, breakpoint, reset });
+  }, [breakpoint, editor.register, profile, reset]);
+
+  return (
+    <div ref={containerRef} className={`frontend-grid-host ${className}`}>
+      {mounted && (
+        <Responsive<FrontendBreakpoint>
+          key={generation}
+          width={width}
+          layouts={layouts}
+          rowHeight={ROW_HEIGHT}
+          margin={[GAP, GAP]}
+          containerPadding={[GAP, GAP]}
+          compactor={compactor}
+          dragConfig={{
+            enabled: editable,
+            bounded: true,
+            handle: '.frontend-grid-drag-handle',
+            cancel: 'button,input,select,textarea,a,[role="button"],[data-no-drag]',
+            threshold: 4,
+          }}
+          resizeConfig={{ enabled: editable, handles: ['se'] }}
+          onBreakpointChange={(next) => setBreakpoint(next)}
+          onLayoutChange={(_, allLayouts) => commitLayouts(allLayouts)}
+          className={editable ? 'frontend-grid frontend-grid--editing' : 'frontend-grid'}
+        >
+          {items.map((item) => (
+            <div key={item.id} data-grid-item={item.id}>
+              <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
+                {item.content}
+              </MeasuredContent>
+            </div>
+          ))}
+        </Responsive>
+      )}
+    </div>
+  );
+}

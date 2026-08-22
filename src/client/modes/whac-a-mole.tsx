@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Badge, Box, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { ModePanelProps } from './panels';
 import { RADII, CENTER, SECTOR_ORDER } from '../components/boardGeometry';
 
@@ -759,95 +760,99 @@ function Banner({ stage }: { stage: 'enraged' | 'frenzy' }) {
 
 function Hud({ run }: { run: RunView }) {
   const stageText = run.stage === 'frenzy' ? 'FRENZY' : run.stage === 'enraged' ? 'ENRAGED' : 'DIGGING';
-  const stageClass = run.stage === 'frenzy'
-    ? 'bg-red-900 text-red-200'
-    : run.stage === 'enraged'
-      ? 'bg-amber-900 text-amber-200'
-      : 'bg-gray-800 text-gray-400';
+  const stageColor = run.stage === 'frenzy' ? 'red' : run.stage === 'enraged' ? 'yellow' : 'gray';
 
   return (
-    <div className="w-full flex flex-col gap-2">
-      <div className="bg-gray-900 rounded-lg px-4 py-2 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-4xl font-bold font-mono text-amber-300 leading-none">{run.team}</p>
-          <p className="text-[10px] uppercase text-gray-500 mt-1">
+    <Stack gap="sm">
+      <Paper bg="dark.9" radius="md" px="md" py="sm">
+        <Group justify="space-between" gap="md" wrap="nowrap">
+        <Box>
+          <Text fz="2.25rem" fw={700} ff="monospace" c="yellow.3" lh={1}>{run.team}</Text>
+          <Text fz={10} tt="uppercase" c="dimmed" mt={4}>
             {run.players.length > 1 ? 'team score' : 'score'}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <p className="text-sm font-mono text-gray-300">
-            Turn <span className="text-gray-100">{run.turn}</span>
-            <span className="text-gray-600"> / {run.turns}</span>
-          </p>
-          <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded ${stageClass}`}>{stageText}</span>
-        </div>
-      </div>
+          </Text>
+        </Box>
+        <Stack align="flex-end" gap={4}>
+          <Text fz="sm" ff="monospace" c="gray.3">
+            Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
+          </Text>
+          <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
+        </Stack>
+        </Group>
+      </Paper>
 
-      <div className="flex flex-col gap-1">
+      <Stack gap={4}>
         {run.players.map((player) => (
-          <div
+          <Paper
             key={player.id}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-              player.isCurrent ? 'bg-green-900 border border-green-600' : 'bg-gray-900'
-            }`}
+            bg={player.isCurrent ? 'green.9' : 'dark.9'}
+            withBorder={player.isCurrent}
+            style={player.isCurrent ? { borderColor: 'var(--mantine-color-green-6)' } : undefined}
+            radius="md"
+            px="sm"
+            py={6}
           >
-            <span className="flex-1 min-w-0 truncate text-sm text-gray-300">
-              {player.out && <span className="mr-1">🪦</span>}
+            <Group gap="xs" wrap="nowrap">
+            <Text style={{ flex: 1 }} miw={0} truncate fz="sm" c="gray.3">
+              {player.out && <Text span mr={4}>🪦</Text>}
               {player.name}
-            </span>
-            <span className="font-mono text-lg text-amber-300 w-8 text-right">{player.score}</span>
-            <span className="font-mono text-xs tracking-tighter w-12 text-right" title="darts per visit">
+            </Text>
+            <Text ff="monospace" fz="lg" c="yellow.3" w={32} ta="right">{player.score}</Text>
+            <Text ff="monospace" fz="xs" w={48} ta="right" title="darts per visit" style={{ letterSpacing: '-0.05em' }}>
               {Array.from({ length: player.darts }).map((_, i) => {
-                if (i < player.allowance) return <span key={i} className="text-green-400">●</span>;
-                if (i < player.allowance + player.returning) return <span key={i} className="text-cyan-300">↺</span>;
-                return <span key={i} className="text-red-800">✖</span>;
+                if (i < player.allowance) return <Text span key={i} c="green.4">●</Text>;
+                if (i < player.allowance + player.returning) return <Text span key={i} c="cyan.3">↺</Text>;
+                return <Text span key={i} c="red.8">✖</Text>;
               })}
-            </span>
-          </div>
+            </Text>
+            </Group>
+          </Paper>
         ))}
-      </div>
+      </Stack>
 
       <Burrow run={run} />
 
       {/* Always as many chips as there are moles in play, so the block keeps its height. */}
-      <div>
-        <p className="text-[10px] uppercase text-gray-500 mb-1">On the board</p>
-        <div className="flex gap-1">
+      <Box>
+        <Text fz={10} tt="uppercase" c="dimmed" mb={4}>On the board</Text>
+        <Group gap={4} wrap="nowrap">
           {run.moles.map((mole) => {
             const left = Math.max(0, mole.digTime - mole.age);
-            const chip = left <= 1
-              ? 'bg-red-950 border-red-700 text-red-200'
-              : left === 2
-                ? 'bg-amber-950 border-amber-800 text-amber-200'
-                : 'bg-gray-900 border-gray-700 text-gray-200';
+            const colour = left <= 1 ? 'red' : left === 2 ? 'yellow' : 'gray';
             return (
-              <div
+              <Paper
                 key={mole.id}
                 data-area={mole.area}
-                className={`flex-1 min-w-0 rounded border px-1 py-1 text-center ${chip}`}
+                withBorder
+                bg={left <= 1 ? 'red.9' : left === 2 ? 'yellow.9' : 'dark.9'}
+                c={`${colour}.2`}
+                px={4}
+                py={4}
+                ta="center"
+                style={{ flex: 1, minWidth: 0 }}
               >
-                <p className="font-mono text-sm truncate">{mole.label}</p>
+                <Text ff="monospace" fz="sm" truncate>{mole.label}</Text>
                 <Pips total={mole.digTime} left={left} />
-              </div>
+              </Paper>
             );
           })}
           {Array.from({ length: Math.max(0, run.moleCount - run.moles.length) }).map((_, i) => (
-            <div key={`gap-${i}`} className="flex-1 min-w-0 rounded border border-gray-800 px-1 py-1 text-center">
-              <p className="font-mono text-sm text-gray-700">—</p>
+            <Paper key={`gap-${i}`} withBorder px={4} py={4} ta="center" style={{ flex: 1, minWidth: 0 }}>
+              <Text ff="monospace" fz="sm" c="gray.7">—</Text>
               <Pips total={0} left={0} />
-            </div>
+            </Paper>
           ))}
-        </div>
-      </div>
+        </Group>
+      </Box>
 
-      <dl className="grid grid-cols-5 gap-1 text-center">
+      <SimpleGrid component="dl" cols={5} spacing={4} ta="center">
         <Stat label="whacked" value={run.stats.whacked} tone="good" />
         <Stat label="holes" value={run.stats.holes} tone="danger" />
         <Stat label="saved" value={run.stats.rescued} tone="info" />
         <Stat label="perfect" value={run.stats.perfectVisits} tone="warn" />
         <Stat label="ppt" value={run.stats.ppt.toFixed(1)} tone="good" />
-      </dl>
-    </div>
+      </SimpleGrid>
+    </Stack>
   );
 }
 
@@ -860,57 +865,64 @@ function Hud({ run }: { run: RunView }) {
 function Burrow({ run }: { run: RunView }) {
   if (run.janitor) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-cyan-600 bg-cyan-950 px-3 py-1.5 wam-flash-soft">
-        <span className="text-lg leading-none">🛠</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-cyan-200">
-          Janitor has <span className="font-semibold">{run.janitor.ownerName}</span>'s dart
-          {run.janitor.queue > 1 && <span className="text-cyan-500"> (+{run.janitor.queue - 1} more)</span>}
-        </span>
-        <span className="shrink-0 rounded bg-cyan-900 px-1.5 py-0.5 font-mono text-[10px] text-cyan-100">HIT BULL</span>
-      </div>
+      <Paper withBorder bg="cyan.9" className="wam-flash-soft" px="sm" py={6}>
+        <Group gap="xs" wrap="nowrap">
+          <Text fz="lg" lh={1}>🛠</Text>
+          <Text miw={0} style={{ flex: 1 }} truncate fz="xs" c="cyan.2">
+            Janitor has <Text span fw={600}>{run.janitor.ownerName}</Text>'s dart
+            {run.janitor.queue > 1 && <Text span c="cyan.5"> (+{run.janitor.queue - 1} more)</Text>}
+          </Text>
+          <Badge color="cyan" variant="light" size="xs">HIT BULL</Badge>
+        </Group>
+      </Paper>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5">
-      <span className="text-lg leading-none opacity-40">🕳</span>
-      <span className="min-w-0 flex-1 truncate text-xs text-gray-500">
+    <Paper withBorder bg="dark.9" px="sm" py={6}>
+      <Group gap="xs" wrap="nowrap">
+      <Text fz="lg" lh={1} opacity={0.4}>🕳</Text>
+      <Text miw={0} style={{ flex: 1 }} truncate fz="xs" c="dimmed">
         {run.lost === 0
           ? 'The burrow is quiet'
           : `${run.lost} dart${run.lost === 1 ? '' : 's'} down the burrow`}
-      </span>
-      <span className="shrink-0 font-mono text-[10px] text-gray-600">{run.lost > 0 ? 'janitor may show up' : '—'}</span>
-    </div>
+      </Text>
+      <Text ff="monospace" fz={10} c="gray.6">{run.lost > 0 ? 'janitor may show up' : '—'}</Text>
+      </Group>
+    </Paper>
   );
 }
 
 /** How many visits this mole has left, as a bar. Kept at one height whether it is full or empty. */
 function Pips({ total, left }: { total: number; left: number }) {
   return (
-    <div className="mt-1 flex h-[3px] gap-1">
+    <Group mt={4} h={3} gap={4} wrap="nowrap">
       {Array.from({ length: Math.max(1, total) }).map((_, i) => (
-        <span
+        <Box
           key={i}
-          className={`flex-1 rounded-full ${total === 0 ? 'bg-gray-800' : i < left ? 'bg-current opacity-90' : 'bg-current opacity-20'}`}
+          h="100%"
+          bg={total === 0 ? 'dark.6' : 'currentColor'}
+          opacity={total === 0 || i < left ? 0.9 : 0.2}
+          style={{ flex: 1, borderRadius: 999 }}
         />
       ))}
-    </div>
+    </Group>
   );
 }
 
 function Stat({ label, value, tone }: { label: string; value: number | string; tone: 'good' | 'warn' | 'danger' | 'info' }) {
   const colour = tone === 'danger'
-    ? 'text-red-400'
+    ? 'red.4'
     : tone === 'warn'
-      ? 'text-amber-400'
+      ? 'yellow.4'
       : tone === 'info'
-        ? 'text-cyan-300'
-        : 'text-green-400';
+        ? 'cyan.3'
+        : 'green.4';
   return (
-    <div className="bg-gray-900 rounded py-1">
-      <dd className={`font-mono text-sm ${colour}`}>{value}</dd>
-      <dt className="text-[9px] uppercase text-gray-600">{label}</dt>
-    </div>
+    <Paper bg="dark.9" py={4}>
+      <Text component="dd" ff="monospace" fz="sm" c={colour}>{value}</Text>
+      <Text component="dt" fz={9} tt="uppercase" c="gray.6">{label}</Text>
+    </Paper>
   );
 }
 
@@ -1053,10 +1065,9 @@ const CSS = `
  * Last, not fourth: a visit holds as many darts as the lobby asked for and the bonus sits after
  * them, so the row is four slots at the default and six if somebody sets five darts.
  *
- * The mode fills that slot itself (see slotsFor) but a slot can only carry text and a tone, and
- * "this one is not like the others" is a border rather than a word. So it is marked out from here,
- * by position: the row is the only min-h-[40px] in VisitInput, and the mode always sends exactly
- * one slot per dart the visit could hold, so the last one is always the bonus.
+ * The mode fills that slot itself (see slotsFor), and VisitInput exposes its text hints as data
+ * attributes. The mode always sends one slot per dart the visit could hold, so the last one is the
+ * bonus.
  *
  * An inset ring rather than a border, so it does not come out a different size from its neighbours.
  * The two states come from what the mode sent, because what it sent is the state: warning is the
@@ -1064,12 +1075,10 @@ const CSS = `
  * ever the placeholder, so it means the slot is still out of reach. Keying the dim on the muted
  * tone instead would have caught a bonus dart that missed, which is spent rather than disabled.
  *
- * If any of those class names ever changes the slot simply stops being decorated, which reads a
- * little flatter rather than breaking.
  */
-.min-h-\[40px\] > div:last-child { box-shadow: inset 0 0 0 1.5px #78350f }
-.min-h-\[40px\] > div:last-child.text-sm { opacity: .55 }
-.min-h-\[40px\] > div:last-child.bg-yellow-900 { animation: wam-bonus 1.1s ease-in-out infinite }
+[data-visit-slots] > div:last-child { box-shadow: inset 0 0 0 1.5px #78350f }
+[data-visit-slots] > div:last-child[data-slot-size="sm"] { opacity: .55 }
+[data-visit-slots] > div:last-child[data-slot-tone="warning"] { animation: wam-bonus 1.1s ease-in-out infinite }
 
 @keyframes wam-bonus {
   0%, 100% { box-shadow: inset 0 0 0 2px #f59e0b }

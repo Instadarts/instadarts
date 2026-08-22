@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Box } from '@mantine/core';
 
 interface LiveBoardFeedProps {
   source: HTMLCanvasElement;
@@ -30,12 +31,14 @@ export function LiveBoardFeed({ source, label }: LiveBoardFeedProps) {
   }, [source]);
 
   return (
-    <div
+    <Box
       ref={target}
       data-testid="live-board-feed"
       role="img"
       aria-label={label ? `Live board video: ${label}` : 'Live board video'}
-      className="absolute inset-0 z-10 w-full h-full pointer-events-none"
+      pos="absolute"
+      inset={0}
+      style={{ zIndex: 10, width: '100%', height: '100%', pointerEvents: 'none' }}
     />
   );
 }

@@ -241,16 +241,10 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
     // of — the column that holds it centres its children, and a centred child is only as wide as
     // its contents, which for an svg means whatever the viewBox happens to imply.
     //
-    // The board is square, so its width is also its height, and it has to be capped by both. It
-    // takes the full width it is offered, up to the height of the box it sits in — `100cqh`, which
-    // resolves against the nearest size container. On the match screen that box is exactly the
-    // space left over once everything else has been laid out, so the board grows until it fills
-    // the window vertically and then stops. With no size container above it, `cqh` falls back to
-    // the viewport, which is the right answer anywhere else. `self-center` is equally important:
-    // the match's flex row is deliberately taller than the board when it reserves room for visit
-    // controls, and the default cross-axis stretch would otherwise make this wrapper rectangular.
-    // The SVG keeps its own ratio in that rectangle, but an absolutely positioned video fills it.
-    <div className="relative aspect-square self-center select-none w-full max-w-[600px] overflow-hidden lg:max-w-[100cqh]">
+    // The board is square, while the grid box supplies both the available width and a stable fixed
+    // height. The small application stylesheet caps the wrapper without coupling it to viewport or
+    // container-query units. The SVG and its video overlay therefore always share the same square.
+    <div className="frontend-dartboard relative aspect-square select-none overflow-hidden">
       <svg
         ref={svgRef}
         data-testid="dartboard"

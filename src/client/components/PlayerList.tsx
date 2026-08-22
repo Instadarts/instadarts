@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ActionIcon, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
 import { storage } from '../lib/storage';
 import type { Player } from '../../shared/types';
 
@@ -7,7 +8,6 @@ interface PlayerListProps {
   maxPlayers: number;
   isCreator: boolean;
   isSpectator: boolean;
-  /** This user's own players — every one of them, in a lobby nobody else joined. */
   ownPlayerIds: string[];
   onAdd: (name: string) => void;
   onRemove: (playerId: string) => void;
@@ -15,9 +15,9 @@ interface PlayerListProps {
 }
 
 function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const value = n % 100;
+  return n + (suffixes[(value - 20) % 10] || suffixes[value] || suffixes[0]);
 }
 
 export function PlayerList({
@@ -32,118 +32,99 @@ export function PlayerList({
 }: PlayerListProps) {
   const [newName, setNewName] = useState('');
   const savedNames = storage.getPlayerNames();
-  const usedNames = new Set(players.map((p) => p.name.toLowerCase()));
-  const availableNames = savedNames.filter((n) => !usedNames.has(n.toLowerCase()));
-
+  const usedNames = new Set(players.map((player) => player.name.toLowerCase()));
+  const availableNames = savedNames.filter((name) => !usedNames.has(name.toLowerCase()));
   const canAdd = players.length < maxPlayers;
-  /** Whether a player is this user's own. In a lobby nobody joined, that is all of them. */
   const isMine = (playerId: string) => ownPlayerIds.includes(playerId);
   const isDuplicate = (name: string) => usedNames.has(name.trim().toLowerCase());
 
-  const handleAdd = () => {
-    const name = newName.trim();
+  const add = (raw: string) => {
+    const name = raw.trim();
     if (!name || isDuplicate(name)) return;
     storage.addPlayerName(name);
     onAdd(name);
     setNewName('');
   };
 
-  const handleQuickAdd = (name: string) => {
-    if (isDuplicate(name)) return;
-    storage.addPlayerName(name);
-    onAdd(name);
-  };
-
   return (
-    <div className="w-full">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-gray-400 text-sm uppercase">Players</h3>
-        <span className="text-xs text-gray-500">
+    <Stack gap="sm">
+      <Group justify="flex-end">
+        <Badge variant="light" color={players.length >= maxPlayers ? 'red' : 'gray'}>
           {players.length >= maxPlayers ? `Full — ${maxPlayers} max` : `${players.length}/${maxPlayers}`}
-        </span>
-      </div>
+        </Badge>
+      </Group>
 
-      {/* The same surface the settings blocks sit on, for the same reason: it is what makes the
-          roster read as one thing beside them once the lobby has more than one column. */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        {players.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-800">
-            <span className="text-gray-500 text-xs w-7">{ordinal(i + 1)}</span>
-            <span className="flex-1 px-2 py-1 text-gray-200 truncate">{p.name}</span>
+      <Stack gap={0}>
+        {players.map((player, index) => (
+          <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+            <Text c="dimmed" fz="xs" w={34}>{ordinal(index + 1)}</Text>
+            <Text style={{ flex: 1 }} truncate>{player.name}</Text>
 
             {!isSpectator && isCreator && onReorder && players.length >= 2 && (
-              <div className="flex items-center gap-0.5">
-                <button
-                  onClick={() => onReorder(p.id, 'up')}
-                  disabled={i === 0}
-                  className="text-gray-400 hover:text-gray-200 disabled:opacity-20 text-xs px-1 py-0.5 rounded hover:bg-gray-800"
+              <Group gap={2} wrap="nowrap">
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => onReorder(player.id, 'up')}
+                  disabled={index === 0}
                   title="Move up"
                 >
                   ▲
-                </button>
-                <button
-                  onClick={() => onReorder(p.id, 'down')}
-                  disabled={i === players.length - 1}
-                  className="text-gray-400 hover:text-gray-200 disabled:opacity-20 text-xs px-1 py-0.5 rounded hover:bg-gray-800"
+                </ActionIcon>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => onReorder(player.id, 'down')}
+                  disabled={index === players.length - 1}
                   title="Move down"
                 >
                   ▼
-                </button>
-              </div>
+                </ActionIcon>
+              </Group>
             )}
 
-            {!isSpectator && (isMine(p.id) || isCreator) && (
-              <button
-                onClick={() => onRemove(p.id)}
-                className="text-red-400 hover:text-red-300 text-sm px-1 ml-1"
-                /* Taking somebody else's player off the roster is a kick, not tidying your own
-                   list, and the two should not read the same. */
-                title={isMine(p.id) ? 'Remove player' : 'Kick player'}
+            {!isSpectator && (isMine(player.id) || isCreator) && (
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="red"
+                onClick={() => onRemove(player.id)}
+                title={isMine(player.id) ? 'Remove player' : 'Kick player'}
               >
                 ✕
-              </button>
+              </ActionIcon>
             )}
-          </div>
+          </Group>
         ))}
+      </Stack>
 
-        {!isSpectator && canAdd && (
-          /* No gap above an empty roster: the card would otherwise open with a blank line. */
-          <div className={`space-y-2 ${players.length > 0 ? 'mt-3' : ''}`}>
-            {availableNames.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {availableNames.map((name) => (
-                  <button
-                    key={name}
-                    onClick={() => handleQuickAdd(name)}
-                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-full text-xs text-gray-300 transition-colors"
-                  >
-                    + {name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="New player name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                className="flex-1 min-w-0 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm focus:outline-none focus:border-blue-500"
-                maxLength={20}
-              />
-              <button
-                onClick={handleAdd}
-                disabled={!newName.trim() || isDuplicate(newName)}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 rounded text-sm font-semibold transition-colors"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      {!isSpectator && canAdd && (
+        <Stack gap="sm">
+          {availableNames.length > 0 && (
+            <Group gap="xs">
+              {availableNames.map((name) => (
+                <Button key={name} size="compact-xs" variant="light" color="gray" onClick={() => add(name)}>
+                  + {name}
+                </Button>
+              ))}
+            </Group>
+          )}
+          <Group gap="xs" align="flex-end" wrap="nowrap">
+            <TextInput
+              label="New player"
+              placeholder="Player name"
+              value={newName}
+              onChange={(event) => setNewName(event.currentTarget.value)}
+              onKeyDown={(event) => event.key === 'Enter' && add(newName)}
+              maxLength={20}
+              style={{ flex: 1 }}
+            />
+            <Button onClick={() => add(newName)} disabled={!newName.trim() || isDuplicate(newName)}>Add</Button>
+          </Group>
+        </Stack>
+      )}
+    </Stack>
   );
 }

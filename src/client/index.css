@@ -1,19 +1,12 @@
 @import "tailwindcss";
 
-/*
- * The interface scales with the window, not just the layout.
- *
- * Type, padding, gaps and every rem-based width come from the root font size, so raising it on a
- * large screen grows all of them together and in proportion. Without this a 4K window gets a bigger
- * dartboard surrounded by the same small scoreboard it had on a laptop, which is what stops it
- * feeling like a fullscreen app. Anything deliberately fixed — the 600px cap on the single-column
- * layout — is written in px and stays put.
- */
+/* Preserve the scorer's existing wide-display scaling; the regular frontend delegates responsive
+ * sizing to React Grid Layout and Mantine. */
 @media (min-width: 1536px) {
-  html { font-size: 22px; }
+  html[data-app="scorer"] { font-size: 22px; }
 }
 @media (min-width: 2000px) {
-  html { font-size: 24px; }
+  html[data-app="scorer"] { font-size: 24px; }
 }
 
 /* Ensure form inputs remain selectable (Tailwind may disable by default) */
@@ -21,4 +14,83 @@ input[type="text"],
 input[type="search"],
 textarea {
   user-select: text;
+}
+
+html[data-app="frontend"],
+html[data-app="frontend"] body,
+html[data-app="frontend"] #root {
+  min-height: 100%;
+}
+
+.frontend-grid-host,
+.frontend-grid {
+  width: 100%;
+}
+
+.frontend-grid-content--fixed,
+.frontend-grid-content--fixed > .frontend-grid-box {
+  height: 100%;
+  min-height: 0;
+}
+
+.frontend-grid-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.frontend-grid-box__header {
+  flex: 0 0 auto;
+}
+
+.frontend-grid-box__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.frontend-grid-content--auto > .frontend-grid-box,
+.frontend-grid-content--auto .frontend-grid-box__body {
+  overflow: visible;
+}
+
+.frontend-grid-drag-handle {
+  cursor: grab;
+  line-height: 1;
+  touch-action: none;
+}
+
+.frontend-grid-drag-handle:active {
+  cursor: grabbing;
+}
+
+.frontend-board-area {
+  display: grid;
+  flex: 0 0 auto;
+  min-height: 0;
+  place-items: center;
+  width: 100%;
+}
+
+.frontend-dartboard {
+  width: min(100%, 37.5rem);
+}
+
+.frontend-grid--editing .react-grid-item:not(.react-grid-placeholder) {
+  outline: 1px dashed var(--mantine-color-green-6);
+  outline-offset: 2px;
+}
+
+.frontend-grid--editing .react-resizable-handle::after {
+  border-color: var(--mantine-color-green-4);
+  border-width: 0 3px 3px 0;
+  height: 10px;
+  width: 10px;
+}
+
+.frontend-app-main {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(22, 101, 52, 0.12), transparent 34rem),
+    var(--mantine-color-dark-9);
 }

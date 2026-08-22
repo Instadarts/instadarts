@@ -1,13 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
+import type { Layout } from 'react-grid-layout';
+import { GridBox } from '../layout/GridBox';
+import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
   onCreateOnlineMatch: () => void;
   connected: boolean;
-  /** Why this tab is here rather than where it was — see `notice` in useMatch. */
   notice?: string | null;
 }
+
+const HOME_LAYOUT: Layout = [
+  { i: 'welcome', x: 0, y: 0, w: 5, h: 12 },
+  { i: 'actions', x: 5, y: 0, w: 7, h: 16 },
+];
 
 export function HomePage({
   onCreateLocalMatch,
@@ -19,76 +27,57 @@ export function HomePage({
   const [joinCode, setJoinCode] = useState('');
   const navigate = useNavigate();
 
-  if (showJoin) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <h1 className="text-5xl font-bold text-green-400 mb-2">InstaDarts</h1>
-        <p className="text-gray-500 mb-8">Join an online match</p>
+  const welcome = (
+    <GridBox editable={false} centered>
+      <Stack align="center" gap="xs" ta="center" py="xl">
+        <Title order={1} c="green.4" fz="3rem">InstaDarts</Title>
+        <Text c="dimmed" fz="lg">Dart game tracker</Text>
+        {!connected && <Alert color="yellow" title="Connecting">Waiting for the server…</Alert>}
+        {notice && <Alert color="yellow" role="status">{notice}</Alert>}
+      </Stack>
+    </GridBox>
+  );
 
-        <div className="flex flex-col gap-4 w-64">
-          <input
-            type="text"
-            placeholder="Invite code"
+  const actions = (
+    <GridBox title={showJoin ? 'Join an online match' : 'Start playing'} editable={false}>
+      {showJoin ? (
+        <Stack maw={360} mx="auto" gap="md">
+          <TextInput
+            label="Invite code"
+            placeholder="ABC123"
             value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-            className="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-center text-xl tracking-widest focus:outline-none focus:border-green-500"
+            onChange={(event) => setJoinCode(event.currentTarget.value.toUpperCase())}
             maxLength={6}
             autoFocus
+            size="lg"
+            styles={{ input: { textAlign: 'center', letterSpacing: '0.2em', fontFamily: 'var(--mantine-font-family-monospace)' } }}
           />
-          <button
+          <Button
+            size="lg"
             onClick={() => navigate(`/lobby/join/${joinCode.trim().toUpperCase()}`)}
             disabled={joinCode.length < 4 || !connected}
-            className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
           >
             Join Match
-          </button>
-          <button
-            onClick={() => setShowJoin(false)}
-            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Back
-          </button>
-        </div>
-      </div>
-    );
-  }
+          </Button>
+          <Button size="lg" variant="default" onClick={() => setShowJoin(false)}>Back</Button>
+        </Stack>
+      ) : (
+        <Stack maw={420} mx="auto" gap="md">
+          <Button size="xl" color="blue" onClick={onCreateLocalMatch} disabled={!connected}>Local Match</Button>
+          <Button size="xl" onClick={onCreateOnlineMatch} disabled={!connected}>Create Online Match</Button>
+          <Button size="xl" variant="default" onClick={() => setShowJoin(true)} disabled={!connected}>Join Online Match</Button>
+        </Stack>
+      )}
+    </GridBox>
+  );
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4">
-      <h1 className="text-5xl font-bold text-green-400 mb-2">InstaDarts</h1>
-      <p className="text-gray-500 mb-8">Dart game tracker</p>
-
-      {notice && (
-        <p role="status" className="text-yellow-400 mb-4 max-w-sm text-center">{notice}</p>
-      )}
-
-      {!connected && (
-        <p className="text-yellow-400 mb-4">Connecting to server...</p>
-      )}
-
-      <div className="flex flex-col gap-4 w-64">
-        <button
-          onClick={onCreateLocalMatch}
-          disabled={!connected}
-          className="px-6 py-4 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 rounded-lg font-semibold text-lg transition-colors"
-        >
-          Local Match
-        </button>
-        <button
-          onClick={onCreateOnlineMatch}
-          disabled={!connected}
-          className="px-6 py-4 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold text-lg transition-colors"
-        >
-          Create Online Match
-        </button>
-        <button
-          onClick={() => setShowJoin(true)}
-          disabled={!connected}
-          className="px-6 py-4 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 rounded-lg font-semibold text-lg transition-colors"
-        >
-          Join Online Match
-        </button>
-      </div>
-    </div>
+    <ResponsiveBoxGrid
+      defaultLayout={HOME_LAYOUT}
+      items={[
+        { id: 'welcome', content: welcome, autoHeight: true },
+        { id: 'actions', content: actions, autoHeight: true },
+      ]}
+    />
   );
 }

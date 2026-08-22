@@ -237,17 +237,14 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
   const viewBox = precisionAim?.viewBox ?? NORMAL_VIEW_BOX;
 
   return (
-    // The size cap lives on the wrapper rather than the svg, so the board is as wide as it is
-    // allowed to be wherever it is put. On the svg alone it would have nothing to be a percentage
-    // of — the column that holds it centres its children, and a centred child is only as wide as
-    // its contents, which for an svg means whatever the viewBox happens to imply.
+    // The board area is a size-query container, so `cqmin` is the smaller of the width and height
+    // its grid box gives it. The wrapper can therefore remain square without overflowing either.
     //
     // The board is square, while the grid box supplies both the available width and a stable fixed
-    // height. The small application stylesheet caps the wrapper without coupling it to viewport or
-    // container-query units. The SVG and its video overlay therefore always share the same square.
+    // height. The SVG and its video overlay therefore always share the same responsive square.
     <Box
-      className="frontend-dartboard"
       pos="relative"
+      w="100cqmin"
       style={{ aspectRatio: '1', overflow: 'hidden', userSelect: 'none' }}
     >
       <svg

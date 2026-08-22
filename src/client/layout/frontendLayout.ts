@@ -164,19 +164,20 @@ export const LOBBY_LAYOUTS = makeResponsiveLayouts((cols) => makeLobbyLayout(col
 export const LOBBY_LAYOUT = LOBBY_LAYOUTS.lg!;
 
 export const LIVE_MATCH_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 6, static: true },
-  { i: 'scores', x: 0, y: 6, w: 3, h: 18, minW: 1, minH: 8, isBounded: true },
-  { i: 'mode-panel', x: 0, y: 24, w: 3, h: 12, minW: 1, minH: 6, isBounded: true },
-  { i: 'board', x: 3, y: 6, w: 6, h: 36, minW: 2, minH: 18, isBounded: true },
-  { i: 'visit', x: 3, y: 42, w: 6, h: 18, minW: 2, minH: 8, isBounded: true },
-  { i: 'history', x: 9, y: 6, w: 3, h: 36, minW: 1, minH: 8, isBounded: true },
+  { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
+  { i: 'scores', x: 0, y: 0, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
+  { i: 'mode-panel', x: 0, y: 2, w: 4, h: 24, minW: 2, minH: 6, isBounded: true },
+  { i: 'board', x: 6, y: 0, w: 6, h: 42, minW: 2, minH: 18, isBounded: true },
+  { i: 'visit', x: 6, y: 1, w: 6, h: 13, minW: 2, minH: 8, isBounded: true },
+  { i: 'history', x: 4, y: 2, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
 ];
 
 export const SUMMARY_MATCH_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 6, static: true },
-  { i: 'result', x: 0, y: 6, w: 7, h: 22, minW: 2, minH: 10, isBounded: true },
-  { i: 'match-history', x: 7, y: 6, w: 5, h: 22, minW: 1, minH: 8, isBounded: true },
-  { i: 'rematch', x: 0, y: 28, w: 12, h: 14, minW: 2, minH: 8, isBounded: true },
+  { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
+  { i: 'result', x: 0, y: 0, w: 7, h: 20, minW: 2, minH: 8, isBounded: true },
+  { i: 'match-history', x: 7, y: 0, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
+  { i: 'rematch', x: 0, y: 1, w: 12, h: 14, isBounded: true },
+
 ];
 
 type JsonRecord = Record<string, unknown>;

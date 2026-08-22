@@ -56,6 +56,11 @@ html[data-app="frontend"] #root {
   width: 100%;
 }
 
+.frontend-grid-content--fixed .frontend-grid-box__content {
+  height: 100%;
+  min-height: 0;
+}
+
 .frontend-grid-content--auto .frontend-grid-box__body {
   justify-content: center;
 }
@@ -76,15 +81,13 @@ html[data-app="frontend"] #root {
 }
 
 .frontend-board-area {
+  container-type: size;
   display: grid;
   flex: 0 0 auto;
+  height: 100%;
   min-height: 0;
   place-items: center;
   width: 100%;
-}
-
-.frontend-dartboard {
-  width: min(100%, 37.5rem);
 }
 
 .frontend-grid--editing .react-grid-item:not(.react-grid-placeholder) {

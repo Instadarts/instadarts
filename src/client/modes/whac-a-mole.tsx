@@ -946,7 +946,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
     // window to say "game over" would hide the button that ends it.
     //
     // Sized in `cqw` against itself, so the whole card scales with the board rather than needing a
-    // breakpoint per width. The board is a square from ~260px on a phone to ~600px on a desktop.
+    // breakpoint per width. The board remains a square at every width its grid box allows.
     <Box
       data-testid="wam-finale"
       className="wam-fade"

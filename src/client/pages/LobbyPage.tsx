@@ -34,14 +34,46 @@ const LOBBY_BOXES = [
 
 /** Bootstrap-style row placement; vertical collision handling derives every y coordinate. */
 export function makeLobbyLayout(cols: number): Layout {
-  const minimumCardWidth = 4;
+  const minimumCardWidth = 3;
   const maximumCardWidth = 5;
-  const cardsPerRow = Math.min(3, Math.max(1, Math.floor(cols / minimumCardWidth)));
-  const cardWidth = cardsPerRow === 1
-    ? Math.min(minimumCardWidth, cols)
-    : Math.min(maximumCardWidth, Math.floor(cols / cardsPerRow));
+  const maximumCardsPerRow = 2;
+  const maximumFittingCards = Math.min(
+    maximumCardsPerRow,
+    Math.max(1, Math.floor(cols / minimumCardWidth)),
+  );
+
+  let cardsPerRow = 1;
+  let cardWidth = Math.min(cols, maximumCardWidth);
+
+  if (cols >= minimumCardWidth) {
+    let found = false;
+
+    // Prefer an equal-width arrangement that consumes the complete row.
+    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
+      const width = cols / count;
+      if (Number.isInteger(width) && width >= minimumCardWidth && width <= maximumCardWidth) {
+        cardsPerRow = count;
+        cardWidth = width;
+        found = true;
+      }
+    }
+
+    // Otherwise accept only an even remainder, so both sides receive the same empty space.
+    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
+      for (let width = maximumCardWidth; width >= minimumCardWidth; width -= 1) {
+        const remainder = cols - count * width;
+        if (remainder >= 0 && remainder % 2 === 0) {
+          cardsPerRow = count;
+          cardWidth = width;
+          found = true;
+          break;
+        }
+      }
+    }
+  }
+
   const rowWidth = cardsPerRow * cardWidth;
-  const rowOffset = Math.floor((cols - rowWidth) / 2);
+  const rowOffset = (cols - rowWidth) / 2;
   let cardIndex = 0;
 
   return LOBBY_BOXES.map((box) => {

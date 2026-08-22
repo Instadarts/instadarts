@@ -23,9 +23,19 @@ describe('generated lobby layouts', () => {
     ]);
     expect(positions(6)).toEqual([
       { i: 'overview', x: 0, w: 6 },
+      { i: 'players', x: 0, w: 3 },
+      { i: 'match-settings', x: 3, w: 3 },
+      { i: 'mode-settings', x: 0, w: 3 },
+      { i: 'invite', x: 3, w: 3 },
+    ]);
+  });
+
+  it('centers equal-width cards when no allowed width fills the row', () => {
+    expect(positions(14)).toEqual([
+      { i: 'overview', x: 0, w: 14 },
       { i: 'players', x: 1, w: 4 },
-      { i: 'match-settings', x: 1, w: 4 },
-      { i: 'mode-settings', x: 1, w: 4 },
+      { i: 'match-settings', x: 5, w: 4 },
+      { i: 'mode-settings', x: 9, w: 4 },
       { i: 'invite', x: 1, w: 4 },
     ]);
   });

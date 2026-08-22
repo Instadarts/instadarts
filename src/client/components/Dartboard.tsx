@@ -28,6 +28,7 @@ import {
 } from './dartboardPrecision';
 import type { DartThrow } from '../../shared/types';
 import { scoreFromBoardCoords } from '../../shared/scoring';
+import { Box, VisuallyHidden } from '@mantine/core';
 
 interface DartboardProps {
   darts: DartThrow[];
@@ -244,12 +245,22 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
     // The board is square, while the grid box supplies both the available width and a stable fixed
     // height. The small application stylesheet caps the wrapper without coupling it to viewport or
     // container-query units. The SVG and its video overlay therefore always share the same square.
-    <div className="frontend-dartboard relative aspect-square select-none overflow-hidden">
+    <Box
+      className="frontend-dartboard"
+      pos="relative"
+      style={{ aspectRatio: '1', overflow: 'hidden', userSelect: 'none' }}
+    >
       <svg
         ref={svgRef}
         data-testid="dartboard"
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.size} ${viewBox.size}`}
-        className={`block h-full w-full touch-none ${precisionAim ? 'cursor-none' : canPlaceDart ? 'cursor-crosshair' : 'cursor-not-allowed'}`}
+        style={{
+          display: 'block',
+          height: '100%',
+          width: '100%',
+          touchAction: 'none',
+          cursor: precisionAim ? 'none' : canPlaceDart ? 'crosshair' : 'not-allowed',
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -371,14 +382,13 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
       </svg>
       {children}
       {precisionThrow && (
-        <div
+        <VisuallyHidden
           data-testid="precision-status"
           role="status"
-          className="sr-only"
         >
           Precision aiming at {precisionThrow.score.label}; release to place
-        </div>
+        </VisuallyHidden>
       )}
-    </div>
+    </Box>
   );
 }

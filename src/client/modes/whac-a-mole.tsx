@@ -294,8 +294,7 @@ function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg
   return createPortal(
     <svg
       viewBox={viewBox}
-      className="absolute inset-0 h-full w-full z-30"
-      style={{ pointerEvents: 'none' }}
+      style={{ position: 'absolute', inset: 0, zIndex: 30, width: '100%', height: '100%', pointerEvents: 'none' }}
       aria-hidden
     >
       <defs>
@@ -948,27 +947,48 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
     //
     // Sized in `cqw` against itself, so the whole card scales with the board rather than needing a
     // breakpoint per width. The board is a square from ~260px on a phone to ~600px on a desktop.
-    <div
+    <Box
       data-testid="wam-finale"
-      className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-[1.5cqw] overflow-hidden border border-amber-700/50 bg-gray-950 p-[5cqw] text-center wam-fade [container-type:size]"
+      className="wam-fade"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 40,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1.5cqw',
+        overflow: 'hidden',
+        border: '1px solid color-mix(in srgb, var(--mantine-color-yellow-7) 50%, transparent)',
+        backgroundColor: 'var(--mantine-color-dark-9)',
+        padding: '5cqw',
+        textAlign: 'center',
+        containerType: 'size',
+      }}
     >
-      <p className="text-[2.6cqw] uppercase tracking-[0.3em] text-amber-500">the colony rests</p>
-      <h2 className="text-[7.5cqw] font-bold leading-none text-amber-300">GAME OVER</h2>
+      <Text fz="2.6cqw" tt="uppercase" c="yellow.5" style={{ letterSpacing: '0.3em' }}>the colony rests</Text>
+      <Text component="h2" fz="7.5cqw" fw={700} lh={1} c="yellow.3">GAME OVER</Text>
 
       {/* The hero number gives up its space to the roster rather than to the prompt at the bottom:
           the card is exactly the board square and cannot grow, so past two players something has to
           be smaller, and a score nobody can miss at 16cqw is the cheapest thing to shrink. */}
-      <p
-        className={`font-mono ${crowded ? 'text-[14cqw]' : 'text-[22cqw]'} font-bold leading-none text-amber-200 wam-pop`}
+      <Text
+        className="wam-pop"
+        ff="monospace"
+        fz={crowded ? '14cqw' : '22cqw'}
+        fw={700}
+        lh={1}
+        c="yellow.2"
       >
         {run.team}
-      </p>
-      <p className="text-[3.2cqw] font-semibold tracking-wide text-amber-400">
+      </Text>
+      <Text fz="3.2cqw" fw={600} c="yellow.4" style={{ letterSpacing: '0.025em' }}>
         {shareOf(run.team, run.maxScore)}% of a perfect {run.maxScore}
-      </p>
-      <p className="text-[2.6cqw] uppercase tracking-wide text-gray-500">
+      </Text>
+      <Text fz="2.6cqw" tt="uppercase" c="gray.5" style={{ letterSpacing: '0.025em' }}>
         {run.players.length > 1 ? 'team score' : 'score'} after {run.turn} of {run.turns} turns
-      </p>
+      </Text>
 
       {/* The one part that grows with the roster, so it is the one that has to give.
           `min-h-0` lets it shrink below its content and scroll, which is the safety net that keeps
@@ -976,36 +996,41 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
           poor answer on the screen whose whole job is reporting the result — at five players it
           hid three of them — so a crowded roster goes into two columns at a smaller size, which
           fits it into the space there is rather than into the space it wanted. */}
-      <div
-        className={`mt-[2cqw] grid w-full min-h-0 gap-[1cqw] overflow-y-auto ${crowded ? 'grid-cols-2' : 'grid-cols-1'}`}
+      <SimpleGrid
+        cols={crowded ? 2 : 1}
+        w="100%"
+        mt="2cqw"
+        spacing="1cqw"
+        style={{ minHeight: 0, overflowY: 'auto' }}
       >
         {run.players.map((player) => (
-          <div
+          <Paper
             key={player.id}
-            className={`flex items-center justify-between rounded bg-gray-900 px-[3cqw] ${crowded ? 'py-[0.8cqw]' : 'py-[1.4cqw]'}`}
+            bg="dark.8"
+            radius="sm"
+            px="3cqw"
+            py={crowded ? '0.8cqw' : '1.4cqw'}
           >
-            <span className={`truncate ${crowded ? 'text-[2.8cqw]' : 'text-[3.4cqw]'} text-gray-300`}>
-              {player.name}
-            </span>
-            <span className={`font-mono ${crowded ? 'text-[3.6cqw]' : 'text-[4.4cqw]'} text-amber-300`}>
-              {player.score}
-            </span>
-          </div>
+            <Group justify="space-between" gap="xs" wrap="nowrap">
+              <Text truncate fz={crowded ? '2.8cqw' : '3.4cqw'} c="gray.3">{player.name}</Text>
+              <Text ff="monospace" fz={crowded ? '3.6cqw' : '4.4cqw'} c="yellow.3">{player.score}</Text>
+            </Group>
+          </Paper>
         ))}
-      </div>
+      </SimpleGrid>
 
-      <dl className="mt-[1cqw] grid w-full grid-cols-5 gap-[1.2cqw]">
-        <FinaleStat label="whacked" value={run.stats.whacked} colour="text-green-400" />
-        <FinaleStat label="holes" value={run.stats.holes} colour="text-red-400" />
-        <FinaleStat label="saved" value={run.stats.rescued} colour="text-cyan-300" />
-        <FinaleStat label="perfect" value={run.stats.perfectVisits} colour="text-amber-400" />
-        <FinaleStat label="ppt" value={run.stats.ppt.toFixed(1)} colour="text-green-400" />
-      </dl>
+      <SimpleGrid component="dl" cols={5} spacing="1.2cqw" mt="1cqw" w="100%">
+        <FinaleStat label="whacked" value={run.stats.whacked} colour="green.4" />
+        <FinaleStat label="holes" value={run.stats.holes} colour="red.4" />
+        <FinaleStat label="saved" value={run.stats.rescued} colour="cyan.3" />
+        <FinaleStat label="perfect" value={run.stats.perfectVisits} colour="yellow.4" />
+        <FinaleStat label="ppt" value={run.stats.ppt.toFixed(1)} colour="green.4" />
+      </SimpleGrid>
 
-      <p className="mt-[1.5cqw] text-[3cqw] text-gray-400">
-        Press <span className="font-semibold text-green-400">Submit Visit</span> to finish
-      </p>
-    </div>,
+      <Text mt="1.5cqw" fz="3cqw" c="gray.4">
+        Press <Text span fw={600} c="green.4">Submit Visit</Text> to finish
+      </Text>
+    </Box>,
     host,
   );
 }
@@ -1013,10 +1038,10 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
 /** The finale's own tiles, which scale with the board rather than with the panel column. */
 function FinaleStat({ label, value, colour }: { label: string; value: number | string; colour: string }) {
   return (
-    <div className="rounded bg-gray-900 py-[1.2cqw]">
-      <dd className={`font-mono text-[4cqw] ${colour}`}>{value}</dd>
-      <dt className="text-[2.2cqw] uppercase text-gray-600">{label}</dt>
-    </div>
+    <Paper bg="dark.8" radius="sm" py="1.2cqw">
+      <Text component="dd" ff="monospace" fz="4cqw" c={colour}>{value}</Text>
+      <Text component="dt" fz="2.2cqw" tt="uppercase" c="gray.6">{label}</Text>
+    </Paper>
   );
 }
 

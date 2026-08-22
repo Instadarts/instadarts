@@ -16,7 +16,7 @@ import {
   Text,
 } from '@mantine/core';
 import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
-import { FullscreenButton } from './FullscreenButton';
+import { FrontendFullscreenButton } from './FrontendFullscreenButton';
 import { PairDeviceDialog } from './PairDeviceDialog';
 import { useLayoutEditor } from '../layout/LayoutEditorContext';
 
@@ -84,7 +84,7 @@ export function TopBar({
               />
             </Indicator>
 
-            <FullscreenButton />
+            <FrontendFullscreenButton />
 
             {editor.active && (
               <Menu position="bottom-end" withinPortal shadow="md">

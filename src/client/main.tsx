@@ -14,6 +14,9 @@ import './index.css';
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const scorer = window.location.pathname.startsWith('/scorer');
 document.documentElement.dataset.app = scorer ? 'scorer' : 'frontend';
+if (scorer) {
+  document.body.classList.add('bg-gray-950', 'text-gray-100', 'min-h-screen', 'select-none');
+}
 
 // The scoring device is a sibling of the gaming frontend, not a route inside it: it must not share
 // App's socket, its match state or its navigation effects (which would bounce it straight home).

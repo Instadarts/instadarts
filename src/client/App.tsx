@@ -302,7 +302,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </AppShell.Main>
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} variant="frontend" />
       {mediaSettingUp && (
         <Overlay fixed zIndex={500} backgroundOpacity={1} color="var(--mantine-color-dark-9)" data-testid="media-setup-overlay">
           <Center h="100%">

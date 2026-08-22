@@ -162,8 +162,8 @@ export function ResponsiveBoxGrid({
   const initialLayouts = useMemo(
     () => completeResponsiveLayouts(
       profile
-        ? loadMatchLayouts(profile, defaultLayout, activeIds)
-        : mergeResponsiveLayouts(defaultLayouts, defaultLayout, activeIds),
+        ? loadMatchLayouts(profile, defaultLayout, activeIds, defaultLayouts)
+        : mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts),
     ),
     // A profile/grid instance owns one canonical item set; callers key the component when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,11 +190,11 @@ export function ResponsiveBoxGrid({
   }, [breakpoint]);
 
   const commitLayouts = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {
-    const merged = completeResponsiveLayouts(mergeResponsiveLayouts(next, defaultLayout, activeIds));
+    const merged = completeResponsiveLayouts(mergeResponsiveLayouts(next, defaultLayout, activeIds, defaultLayouts));
     const measured = applyMeasuredHeights(merged);
     setLayouts((current) => sameLayouts(current, measured) ? current : measured);
     if (profile) saveMatchLayouts(profile, measured);
-  }, [activeKey, activeIds, applyMeasuredHeights, defaultLayout, profile]);
+  }, [activeKey, activeIds, applyMeasuredHeights, defaultLayout, defaultLayouts, profile]);
 
   const reportHeight = useCallback((id: string, height: number) => {
     if (measuredHeights.current.get(id) === height) return;
@@ -209,16 +209,16 @@ export function ResponsiveBoxGrid({
     if (!profile) return;
     resetMatchLayout(profile);
     measuredHeights.current.clear();
-    setLayouts(completeResponsiveLayouts(mergeResponsiveLayouts(null, defaultLayout, activeIds)));
+    setLayouts(completeResponsiveLayouts(mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts)));
     setGeneration((value) => value + 1);
-  }, [activeKey, activeIds, defaultLayout, profile]);
+  }, [activeKey, activeIds, defaultLayout, defaultLayouts, profile]);
 
   useEffect(() => {
     setLayouts((current) => {
-      const merged = completeResponsiveLayouts(mergeResponsiveLayouts(current, defaultLayout, activeIds));
+      const merged = completeResponsiveLayouts(mergeResponsiveLayouts(current, defaultLayout, activeIds, defaultLayouts));
       return sameLayouts(current, merged) ? current : merged;
     });
-  }, [activeKey, activeIds, defaultLayout]);
+  }, [activeKey, activeIds, defaultLayout, defaultLayouts]);
 
   useEffect(() => {
     setLayouts((current) => {

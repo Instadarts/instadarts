@@ -13,7 +13,12 @@ import { modeTextProps } from '../components/modeText';
 import { ModePanelBlock } from '../components/ModePanelBlock';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
-import { LIVE_MATCH_LAYOUT, SUMMARY_MATCH_LAYOUT } from '../layout/frontendLayout';
+import {
+  LIVE_MATCH_LAYOUT,
+  LIVE_MATCH_LAYOUTS,
+  SUMMARY_MATCH_LAYOUT,
+  SUMMARY_MATCH_LAYOUTS,
+} from '../layout/frontendLayout';
 
 interface MatchScreenProps {
   match: MatchState;
@@ -125,6 +130,7 @@ export function MatchScreen({
         key="match-summary"
         profile="match-summary"
         defaultLayout={SUMMARY_MATCH_LAYOUT}
+        defaultLayouts={SUMMARY_MATCH_LAYOUTS}
         items={items}
       />
     );
@@ -177,7 +183,7 @@ export function MatchScreen({
         </GridBox>
       ),
     },
-    {
+    /** currently disabled, do not remove *{
       id: 'history',
       content: (
         <GridBox title="Visit history">
@@ -200,7 +206,7 @@ export function MatchScreen({
           </Stack>
         </GridBox>
       ),
-    },
+    },**/
   ];
 
   if (panel) {
@@ -219,6 +225,7 @@ export function MatchScreen({
       key="match-live"
       profile="match-live"
       defaultLayout={LIVE_MATCH_LAYOUT}
+      defaultLayouts={LIVE_MATCH_LAYOUTS}
       items={items}
     />
   );
@@ -242,18 +249,24 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
             key={player.id}
             data-player={player.name}
             aria-current={isCurrent}
-            p="sm"
+            p="xs"
             radius="md"
             bg={background}
             withBorder
-            style={{ borderColor, opacity: isDeparted ? 0.6 : 1, textAlign: 'center' }}
+            style={{
+              borderColor,
+              display: 'flex',
+              flexDirection: 'column',
+              opacity: isDeparted ? 0.6 : 1,
+              textAlign: 'center',
+            }}
           >
-            <Text fz="sm" c="dimmed" truncate>{player.name}</Text>
+            <Text fz="h1" lh="1em" c="gray.3" truncate>{player.name}</Text>
             {over ? (
               <Verdict match={match} playerId={player.id} />
             ) : (
               <>
-                <Text fz="xs" c="gray.6" ff="monospace">
+                <Text fz="xs" c="gray.3" ff="monospace">
                   {formatStandings(
                     standings.setWins[player.id] ?? 0,
                     standings.legWins[player.id] ?? 0,
@@ -262,16 +275,27 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
                 </Text>
                 <Text
                   ff="monospace"
+                  bdrs="sm"
+                  lh="1.2em"
+                  mt="auto"
                   truncate
-                  {...modeTextProps(score, { tone: isCurrent ? 'accent' : 'default', size: '4xl', weight: 'bold' })}
+                  style={{
+                    'text-shadow': '0px 0px 5px black',
+
+                  }}
+                  {...modeTextProps(score, {
+                    tone: isCurrent ? 'warning' : 'muted',
+                    size: '5xl',
+                    weight: 'bold',
+                  })}
                 >
                   {textOf(score)}
                 </Text>
                 {isDeparted ? (
-                  <Text fz="xs" c="red.4">departed</Text>
+                  <Text fz="xs" c="red.4" mt="auto">departed</Text>
                 ) : isCurrent ? (
-                  <Text fz="xs" c="green.5">▶ throwing</Text>
-                ) : null}
+                  <Text fz="xs" c="green.2" mt="auto">▶ throwing</Text>
+                ) : <Text fz="xs" c="gray.6" mt="auto">waiting</Text>}
               </>
             )}
           </Paper>

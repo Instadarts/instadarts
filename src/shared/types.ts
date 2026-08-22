@@ -109,7 +109,7 @@ export interface MatchSettings {
  * wire — the whole view is JSON.
  */
 export type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
-export type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+export type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
 export type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
 
 export interface TextStyle {

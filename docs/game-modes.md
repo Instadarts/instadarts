@@ -278,7 +278,7 @@ Every piece of text above is a `ViewText`: either a bare string, or a string wit
 type ViewText = string | { text: string; tone?: TextTone; size?: TextSize; weight?: TextWeight };
 
 type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
-type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
 type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
 ```
 

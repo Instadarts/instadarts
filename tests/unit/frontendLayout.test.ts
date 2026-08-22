@@ -4,7 +4,9 @@ import {
   FRONTEND_BREAKPOINTS,
   HOME_LAYOUTS,
   JOIN_LAYOUTS,
+  LIVE_MATCH_LAYOUTS,
   MATCH_LAYOUT_STORAGE_KEY,
+  SUMMARY_MATCH_LAYOUTS,
   loadMatchLayouts,
   mergeResponsiveLayouts,
   parseStoredMatchLayouts,
@@ -50,6 +52,19 @@ describe('generated frontend page layouts', () => {
       }
     }
   });
+
+  it('declares an in-bounds match default for every stock breakpoint', () => {
+    for (const layouts of [LIVE_MATCH_LAYOUTS, SUMMARY_MATCH_LAYOUTS]) {
+      for (const breakpoint of FRONTEND_BREAKPOINTS) {
+        const layout = layouts[breakpoint];
+        expect(layout).toBeDefined();
+        for (const item of layout ?? []) {
+          expect(item.x).toBeGreaterThanOrEqual(0);
+          expect(item.x + item.w).toBeLessThanOrEqual(DEFAULT_COLS[breakpoint]);
+        }
+      }
+    }
+  });
 });
 
 describe('stored frontend match layouts', () => {
@@ -91,6 +106,25 @@ describe('stored frontend match layouts', () => {
     }, defaults, ['alpha', 'beta']);
 
     expect(restored.lg).toEqual(defaults);
+  });
+
+  it('uses explicit defaults for each unsaved breakpoint and newly introduced box', () => {
+    const responsiveDefaults: ResponsiveLayouts<FrontendBreakpoint> = {
+      lg: defaults,
+      sm: [
+        { i: 'alpha', x: 0, y: 2, w: 4, h: 7, minW: 2, minH: 4, static: true },
+        { i: 'beta', x: 4, y: 2, w: 2, h: 7, minW: 2, minH: 3 },
+      ],
+    };
+
+    const fresh = mergeResponsiveLayouts(null, defaults, ['alpha', 'beta'], responsiveDefaults);
+    expect(fresh.sm).toEqual(responsiveDefaults.sm);
+
+    const restored = mergeResponsiveLayouts({
+      sm: [{ i: 'alpha', x: 1, y: 9, w: 3, h: 5 }],
+    }, defaults, ['alpha', 'beta'], responsiveDefaults);
+    expect(restored.sm?.[0]).toMatchObject({ i: 'alpha', x: 1, y: 9, w: 3, h: 5, minH: 4, static: true });
+    expect(restored.sm?.[1]).toEqual(responsiveDefaults.sm?.[1]);
   });
 
   it('preserves independent layouts for every saved breakpoint and profile', () => {

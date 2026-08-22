@@ -163,22 +163,85 @@ export function makeLobbyLayout(cols: number): Layout {
 export const LOBBY_LAYOUTS = makeResponsiveLayouts((cols) => makeLobbyLayout(cols));
 export const LOBBY_LAYOUT = LOBBY_LAYOUTS.lg!;
 
-export const LIVE_MATCH_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
-  { i: 'scores', x: 0, y: 0, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
-  { i: 'mode-panel', x: 0, y: 2, w: 4, h: 24, minW: 2, minH: 6, isBounded: true },
-  { i: 'board', x: 6, y: 0, w: 6, h: 42, minW: 2, minH: 18, isBounded: true },
-  { i: 'visit', x: 6, y: 1, w: 6, h: 13, minW: 2, minH: 8, isBounded: true },
-  { i: 'history', x: 4, y: 2, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
-];
+export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
+  lg: [
+    { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
+    { i: 'scores', x: 0, y: 1, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'mode-panel', x: 0, y: 2, w: 6, h: 19, minW: 2, minH: 6, isBounded: true },
+    { i: 'board', x: 6, y: 1, w: 6, h: 42, minW: 2, minH: 18, isBounded: true },
+    { i: 'visit', x: 0, y: 3, w: 6, h: 21, minW: 2, minH: 8, isBounded: true },
+    { i: 'history', x: 4, y: 2, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
+  ],
+  md: [
+    { i: 'overview', x: 0, y: 0, w: 10, h: 4, static: true },
+    { i: 'scores', x: 0, y: 4, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'mode-panel', x: 0, y: 16, w: 4, h: 24, minW: 2, minH: 6, isBounded: true },
+    { i: 'board', x: 4, y: 16, w: 6, h: 42, minW: 2, minH: 18, isBounded: true },
+    { i: 'visit', x: 4, y: 58, w: 6, h: 13, minW: 2, minH: 8, isBounded: true },
+    { i: 'history', x: 4, y: 71, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
+  ],
+  sm: [
+    { i: 'overview', x: 0, y: 0, w: 6, h: 4, static: true },
+    { i: 'scores', x: 0, y: 4, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'mode-panel', x: 0, y: 16, w: 4, h: 24, minW: 2, minH: 6, isBounded: true },
+    { i: 'board', x: 0, y: 40, w: 6, h: 42, minW: 2, minH: 18, isBounded: true },
+    { i: 'visit', x: 0, y: 82, w: 6, h: 13, minW: 2, minH: 8, isBounded: true },
+    { i: 'history', x: 4, y: 95, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
+  ],
+  xs: [
+    { i: 'overview', x: 0, y: 0, w: 4, h: 4, static: true },
+    { i: 'scores', x: 0, y: 4, w: 4, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'mode-panel', x: 0, y: 16, w: 4, h: 24, minW: 2, minH: 6, isBounded: true },
+    { i: 'board', x: 0, y: 40, w: 4, h: 42, minW: 2, minH: 18, isBounded: true },
+    { i: 'visit', x: 0, y: 82, w: 4, h: 13, minW: 2, minH: 8, isBounded: true },
+    { i: 'history', x: 2, y: 95, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
+  ],
+  xxs: [
+    { i: 'overview', x: 0, y: 0, w: 2, h: 4, static: true },
+    { i: 'scores', x: 0, y: 4, w: 2, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'mode-panel', x: 0, y: 16, w: 2, h: 24, minW: 2, minH: 6, isBounded: true },
+    { i: 'board', x: 0, y: 40, w: 2, h: 42, minW: 2, minH: 18, isBounded: true },
+    { i: 'visit', x: 0, y: 82, w: 2, h: 13, minW: 2, minH: 8, isBounded: true },
+    { i: 'history', x: 0, y: 95, w: 2, h: 24, minW: 2, minH: 8, isBounded: true },
+  ],
+};
 
-export const SUMMARY_MATCH_LAYOUT: Layout = [
-  { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
-  { i: 'result', x: 0, y: 0, w: 7, h: 20, minW: 2, minH: 8, isBounded: true },
-  { i: 'match-history', x: 7, y: 0, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
-  { i: 'rematch', x: 0, y: 1, w: 12, h: 14, isBounded: true },
+export const LIVE_MATCH_LAYOUT = LIVE_MATCH_LAYOUTS.lg!;
 
-];
+export const SUMMARY_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
+  lg: [
+    { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
+    { i: 'result', x: 0, y: 4, w: 7, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'match-history', x: 7, y: 4, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'rematch', x: 0, y: 24, w: 12, h: 14, isBounded: true },
+  ],
+  md: [
+    { i: 'overview', x: 0, y: 0, w: 10, h: 4, static: true },
+    { i: 'result', x: 0, y: 4, w: 7, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'match-history', x: 5, y: 24, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'rematch', x: 0, y: 44, w: 10, h: 14, isBounded: true },
+  ],
+  sm: [
+    { i: 'overview', x: 0, y: 0, w: 6, h: 4, static: true },
+    { i: 'result', x: 0, y: 4, w: 6, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'match-history', x: 1, y: 24, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'rematch', x: 0, y: 44, w: 6, h: 14, isBounded: true },
+  ],
+  xs: [
+    { i: 'overview', x: 0, y: 0, w: 4, h: 4, static: true },
+    { i: 'result', x: 0, y: 4, w: 4, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'match-history', x: 0, y: 24, w: 4, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'rematch', x: 0, y: 44, w: 4, h: 14, isBounded: true },
+  ],
+  xxs: [
+    { i: 'overview', x: 0, y: 0, w: 2, h: 4, static: true },
+    { i: 'result', x: 0, y: 4, w: 2, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'match-history', x: 0, y: 24, w: 2, h: 20, minW: 2, minH: 8, isBounded: true },
+    { i: 'rematch', x: 0, y: 44, w: 2, h: 14, isBounded: true },
+  ],
+};
+
+export const SUMMARY_MATCH_LAYOUT = SUMMARY_MATCH_LAYOUTS.lg!;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -227,6 +290,19 @@ function defaultAtBreakpoint(item: LayoutItem, cols: number): LayoutItem {
   return { ...item, x: Math.max(0, Math.min(cols - w, item.x)), w };
 }
 
+function defaultsAtBreakpoint(
+  defaultLayout: Layout,
+  defaultLayouts: ResponsiveLayouts<FrontendBreakpoint> | undefined,
+  breakpoint: FrontendBreakpoint,
+  cols: number,
+): Layout {
+  const declared = defaultLayouts?.[breakpoint];
+  if (!declared) return defaultLayout.map((item) => defaultAtBreakpoint(item, cols));
+
+  const declaredById = defaultById(declared);
+  return defaultLayout.map((item) => defaultAtBreakpoint(declaredById.get(item.i) ?? item, cols));
+}
+
 /**
  * Restores positions only. Constraints and static/editable flags always come from current code, so
  * a stale browser cannot preserve rules that no longer belong to an item.
@@ -235,16 +311,27 @@ export function mergeResponsiveLayouts(
   rawLayouts: unknown,
   defaultLayout: Layout,
   activeIds: readonly string[],
+  defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>,
 ): ResponsiveLayouts<FrontendBreakpoint> {
   const wanted = new Set(activeIds);
-  const defaults = defaultById(defaultLayout);
   const result: ResponsiveLayouts<FrontendBreakpoint> = {};
   const source = isRecord(rawLayouts) ? rawLayouts : {};
 
   for (const breakpoint of FRONTEND_BREAKPOINTS) {
-    const raw = source[breakpoint];
-    if (!Array.isArray(raw)) continue;
     const cols = DEFAULT_COLS[breakpoint];
+    const breakpointDefaults = defaultsAtBreakpoint(defaultLayout, defaultLayouts, breakpoint, cols);
+    const defaults = defaultById(breakpointDefaults);
+    const raw = source[breakpoint];
+
+    if (!Array.isArray(raw)) {
+      if (breakpoint === 'lg' || defaultLayouts?.[breakpoint]) {
+        result[breakpoint] = breakpointDefaults
+          .filter((item) => wanted.has(item.i))
+          .map((item) => ({ ...item }));
+      }
+      continue;
+    }
+
     const seen = new Set<string>();
     const layout: LayoutItem[] = [];
 
@@ -258,13 +345,13 @@ export function mergeResponsiveLayouts(
       layout.push(restored);
     }
 
-    for (const item of defaultLayout) {
-      if (wanted.has(item.i) && !seen.has(item.i)) layout.push(defaultAtBreakpoint(item, cols));
+    for (const item of breakpointDefaults) {
+      if (wanted.has(item.i) && !seen.has(item.i)) layout.push({ ...item });
     }
     result[breakpoint] = layout;
   }
 
-  // The largest layout is the canonical seed RGL uses to generate any breakpoint not yet saved.
+  // The largest layout remains the canonical seed when no explicit responsive defaults are given.
   if (!result.lg) {
     result.lg = defaultLayout.filter((item) => wanted.has(item.i)).map((item) => ({ ...item }));
   }
@@ -298,12 +385,13 @@ export function loadMatchLayouts(
   profile: MatchLayoutProfile,
   defaultLayout: Layout,
   activeIds: readonly string[],
+  defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>,
 ): ResponsiveLayouts<FrontendBreakpoint> {
   try {
     const stored = parseStoredMatchLayouts(localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY));
-    return mergeResponsiveLayouts(stored?.profiles[profile], defaultLayout, activeIds);
+    return mergeResponsiveLayouts(stored?.profiles[profile], defaultLayout, activeIds, defaultLayouts);
   } catch {
-    return mergeResponsiveLayouts(null, defaultLayout, activeIds);
+    return mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts);
   }
 }
 

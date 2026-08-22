@@ -509,8 +509,8 @@ function verdictFor(ctx: LegContext): StyledText | null {
   if (!cv || !cv.locked || cv.darts.length === 0) return null;
 
   const { visit, legWinnerId } = x01.finalizeVisit(ctx);
-  if (visit.voided) return { text: 'Bust!', tone: 'danger', size: '3xl' };
-  if (legWinnerId) return { text: 'Checkout!', tone: 'warning', size: '2xl' };
+  if (visit.voided) return { text: 'Bust!', tone: 'danger', size: '4xl' };
+  if (legWinnerId) return { text: 'Checkout!', tone: 'warning', size: '3xl' };
   return null;
 }
 

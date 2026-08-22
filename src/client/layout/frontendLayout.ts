@@ -15,6 +15,154 @@ export const MATCH_LAYOUT_PROFILES: readonly MatchLayoutProfile[] = ['match-live
 
 const MAX_SAVED_GRID_VALUE = 10_000;
 
+interface CenteredStackItem {
+  i: string;
+  h: number;
+}
+
+/** Build a complete layout map without repeating RGL's stock breakpoint/column lookup. */
+export function makeResponsiveLayouts(
+  makeLayout: (cols: number, breakpoint: FrontendBreakpoint) => Layout,
+): ResponsiveLayouts<FrontendBreakpoint> {
+  return Object.fromEntries(
+    FRONTEND_BREAKPOINTS.map((breakpoint) => [
+      breakpoint,
+      makeLayout(DEFAULT_COLS[breakpoint], breakpoint),
+    ]),
+  ) as ResponsiveLayouts<FrontendBreakpoint>;
+}
+
+/** Place document-style boxes in one centered column, accumulating their canonical heights. */
+export function makeCenteredStackLayout(
+  cols: number,
+  width: number,
+  items: readonly CenteredStackItem[],
+): Layout {
+  const itemWidth = Math.min(cols, width);
+  const x = Math.floor((cols - itemWidth) / 2);
+  let y = 0;
+
+  return items.map((item) => {
+    const placed = { ...item, x, y, w: itemWidth };
+    y += item.h;
+    return placed;
+  });
+}
+
+const CENTERED_PAGE_WIDTHS: Record<FrontendBreakpoint, number> = {
+  lg: 6,
+  md: 6,
+  sm: 4,
+  xs: 4,
+  xxs: 2,
+};
+
+const HOME_BOXES = [
+  { i: 'welcome', h: 11 },
+  { i: 'actions', h: 16 },
+] as const;
+
+export const HOME_LAYOUTS = makeResponsiveLayouts((cols, breakpoint) => (
+  makeCenteredStackLayout(cols, CENTERED_PAGE_WIDTHS[breakpoint], HOME_BOXES)
+));
+export const HOME_LAYOUT = HOME_LAYOUTS.lg!;
+
+const JOIN_BOXES = [{ i: 'status', h: 10 }] as const;
+
+export const JOIN_LAYOUTS = makeResponsiveLayouts((cols, breakpoint) => (
+  makeCenteredStackLayout(cols, CENTERED_PAGE_WIDTHS[breakpoint], JOIN_BOXES)
+));
+export const JOIN_LAYOUT = JOIN_LAYOUTS.lg!;
+
+const LOBBY_BOXES = [
+  { i: 'overview', h: 9, fullWidth: true },
+  { i: 'players', h: 11 },
+  { i: 'match-settings', h: 16 },
+  { i: 'mode-settings', h: 16 },
+  { i: 'invite', h: 11 },
+] as const;
+
+export interface BalancedCardLayoutOptions {
+  minimumCardWidth: number;
+  maximumCardWidth: number;
+  maximumCardsPerRow: number;
+}
+
+interface BalancedCardLayoutItem {
+  i: string;
+  h: number;
+  fullWidth?: boolean;
+}
+
+/**
+ * Place equal-width cards in centered rows, with optional full-width items outside those rows.
+ * Vertical collision handling derives every y coordinate after the horizontal positions are set.
+ */
+export function makeBalancedCardLayout(
+  cols: number,
+  items: readonly BalancedCardLayoutItem[],
+  { minimumCardWidth, maximumCardWidth, maximumCardsPerRow }: BalancedCardLayoutOptions,
+): Layout {
+  const maximumFittingCards = Math.min(
+    maximumCardsPerRow,
+    Math.max(1, Math.floor(cols / minimumCardWidth)),
+  );
+
+  let cardsPerRow = 1;
+  let cardWidth = Math.min(cols, maximumCardWidth);
+
+  if (cols >= minimumCardWidth) {
+    let found = false;
+
+    // Prefer an equal-width arrangement that consumes the complete row.
+    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
+      const width = cols / count;
+      if (Number.isInteger(width) && width >= minimumCardWidth && width <= maximumCardWidth) {
+        cardsPerRow = count;
+        cardWidth = width;
+        found = true;
+      }
+    }
+
+    // Otherwise accept only an even remainder, so both sides receive the same empty space.
+    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
+      for (let width = maximumCardWidth; width >= minimumCardWidth; width -= 1) {
+        const remainder = cols - count * width;
+        if (remainder >= 0 && remainder % 2 === 0) {
+          cardsPerRow = count;
+          cardWidth = width;
+          found = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const rowWidth = cardsPerRow * cardWidth;
+  const rowOffset = (cols - rowWidth) / 2;
+  let cardIndex = 0;
+
+  return items.map((item) => {
+    if (item.fullWidth) return { i: item.i, x: 0, y: 0, w: cols, h: item.h };
+    const x = rowOffset + (cardIndex % cardsPerRow) * cardWidth;
+    cardIndex += 1;
+    return { i: item.i, x, y: 0, w: cardWidth, h: item.h };
+  });
+}
+
+const LOBBY_CARD_LAYOUT: BalancedCardLayoutOptions = {
+  minimumCardWidth: 3,
+  maximumCardWidth: 5,
+  maximumCardsPerRow: 2,
+};
+
+export function makeLobbyLayout(cols: number): Layout {
+  return makeBalancedCardLayout(cols, LOBBY_BOXES, LOBBY_CARD_LAYOUT);
+}
+
+export const LOBBY_LAYOUTS = makeResponsiveLayouts((cols) => makeLobbyLayout(cols));
+export const LOBBY_LAYOUT = LOBBY_LAYOUTS.lg!;
+
 export const LIVE_MATCH_LAYOUT: Layout = [
   { i: 'overview', x: 0, y: 0, w: 12, h: 6, static: true },
   { i: 'scores', x: 0, y: 6, w: 3, h: 18, minW: 1, minH: 8, isBounded: true },

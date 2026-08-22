@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Layout, ResponsiveLayouts } from 'react-grid-layout';
+import { DEFAULT_COLS, type Layout, type ResponsiveLayouts } from 'react-grid-layout';
 import {
+  FRONTEND_BREAKPOINTS,
+  HOME_LAYOUTS,
+  JOIN_LAYOUTS,
   MATCH_LAYOUT_STORAGE_KEY,
   loadMatchLayouts,
   mergeResponsiveLayouts,
@@ -34,6 +37,19 @@ beforeEach(() => {
 afterEach(() => {
   if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
   else delete (globalThis as { localStorage?: Storage }).localStorage;
+});
+
+describe('generated frontend page layouts', () => {
+  it('centers single-column pages at every stock breakpoint', () => {
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      const cols = DEFAULT_COLS[breakpoint];
+      for (const layouts of [HOME_LAYOUTS, JOIN_LAYOUTS]) {
+        for (const item of layouts[breakpoint] ?? []) {
+          expect(item.x).toBe((cols - item.w) / 2);
+        }
+      }
+    }
+  });
 });
 
 describe('stored frontend match layouts', () => {

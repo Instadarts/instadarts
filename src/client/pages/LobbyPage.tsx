@@ -1,5 +1,4 @@
 import { Alert, Badge, Button, Group, Stack, Text, Title } from '@mantine/core';
-import { DEFAULT_COLS, type Layout, type ResponsiveLayouts } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
 import { PlayerList } from '../components/PlayerList';
@@ -7,7 +6,7 @@ import { MatchFormatFields, ModeSettingsFields } from '../components/MatchSettin
 import { InvitePanel } from '../components/InvitePanel';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
-import { FRONTEND_BREAKPOINTS, type FrontendBreakpoint } from '../layout/frontendLayout';
+import { LOBBY_LAYOUT, LOBBY_LAYOUTS } from '../layout/frontendLayout';
 
 interface LobbyPageProps {
   lobby: Lobby;
@@ -23,74 +22,6 @@ interface LobbyPageProps {
   onRemovePlayer: (playerId: string) => void;
   onReorderPlayer?: (playerId: string, direction: 'up' | 'down') => void;
 }
-
-const LOBBY_BOXES = [
-  { i: 'overview', h: 9, fullWidth: true },
-  { i: 'players', h: 11 },
-  { i: 'match-settings', h: 16 },
-  { i: 'mode-settings', h: 16 },
-  { i: 'invite', h: 11 },
-] as const;
-
-/** Bootstrap-style row placement; vertical collision handling derives every y coordinate. */
-export function makeLobbyLayout(cols: number): Layout {
-  const minimumCardWidth = 3;
-  const maximumCardWidth = 5;
-  const maximumCardsPerRow = 2;
-  const maximumFittingCards = Math.min(
-    maximumCardsPerRow,
-    Math.max(1, Math.floor(cols / minimumCardWidth)),
-  );
-
-  let cardsPerRow = 1;
-  let cardWidth = Math.min(cols, maximumCardWidth);
-
-  if (cols >= minimumCardWidth) {
-    let found = false;
-
-    // Prefer an equal-width arrangement that consumes the complete row.
-    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
-      const width = cols / count;
-      if (Number.isInteger(width) && width >= minimumCardWidth && width <= maximumCardWidth) {
-        cardsPerRow = count;
-        cardWidth = width;
-        found = true;
-      }
-    }
-
-    // Otherwise accept only an even remainder, so both sides receive the same empty space.
-    for (let count = maximumFittingCards; count >= 1 && !found; count -= 1) {
-      for (let width = maximumCardWidth; width >= minimumCardWidth; width -= 1) {
-        const remainder = cols - count * width;
-        if (remainder >= 0 && remainder % 2 === 0) {
-          cardsPerRow = count;
-          cardWidth = width;
-          found = true;
-          break;
-        }
-      }
-    }
-  }
-
-  const rowWidth = cardsPerRow * cardWidth;
-  const rowOffset = (cols - rowWidth) / 2;
-  let cardIndex = 0;
-
-  return LOBBY_BOXES.map((box) => {
-    if ('fullWidth' in box) return { i: box.i, x: 0, y: 0, w: cols, h: box.h };
-    const x = rowOffset + (cardIndex % cardsPerRow) * cardWidth;
-    cardIndex += 1;
-    return { i: box.i, x, y: 0, w: cardWidth, h: box.h };
-  });
-}
-
-const LOBBY_LAYOUT = makeLobbyLayout(DEFAULT_COLS.lg);
-const LOBBY_LAYOUTS = Object.fromEntries(
-  FRONTEND_BREAKPOINTS.map((breakpoint) => [
-    breakpoint,
-    breakpoint === 'lg' ? LOBBY_LAYOUT : makeLobbyLayout(DEFAULT_COLS[breakpoint]),
-  ]),
-) as ResponsiveLayouts<FrontendBreakpoint>;
 
 export function LobbyPage({
   lobby,

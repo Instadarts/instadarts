@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
-import type { Layout, ResponsiveLayouts } from 'react-grid-layout';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
-import type { FrontendBreakpoint } from '../layout/frontendLayout';
+import { HOME_LAYOUT, HOME_LAYOUTS } from '../layout/frontendLayout';
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
@@ -12,22 +11,6 @@ interface HomePageProps {
   connected: boolean;
   notice?: string | null;
 }
-
-function homeLayout(x: number, width: number): Layout {
-  return [
-    { i: 'welcome', x, y: 0, w: width, h: 11 },
-    { i: 'actions', x, y: 11, w: width, h: 16 },
-  ];
-}
-
-const HOME_LAYOUT = homeLayout(3, 6);
-const HOME_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
-  lg: HOME_LAYOUT,
-  md: homeLayout(2, 6),
-  sm: homeLayout(1, 4),
-  xs: homeLayout(0, 4),
-  xxs: homeLayout(0, 2),
-};
 
 export function HomePage({
   onCreateLocalMatch,

@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Alert, Loader, Stack, Text } from '@mantine/core';
-import type { Layout } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
+import { JOIN_LAYOUT, JOIN_LAYOUTS } from '../layout/frontendLayout';
 
 interface JoinHandlerProps {
   onJoin: (code: string, playerName: string) => void;
@@ -13,7 +13,6 @@ interface JoinHandlerProps {
 }
 
 const JOIN_TIMEOUT_MS = 8000;
-const JOIN_LAYOUT: Layout = [{ i: 'status', x: 3, y: 0, w: 6, h: 10 }];
 
 export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
   const { code } = useParams<{ code: string }>();
@@ -49,6 +48,7 @@ export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
   return (
     <ResponsiveBoxGrid
       defaultLayout={JOIN_LAYOUT}
+      defaultLayouts={JOIN_LAYOUTS}
       items={[{
         id: 'status',
         autoHeight: true,

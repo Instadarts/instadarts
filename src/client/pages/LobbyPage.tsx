@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Button, Group, Stack, Text, Title } from '@mantine/core';
 import { DEFAULT_COLS, type Layout, type ResponsiveLayouts } from 'react-grid-layout';
 import type { Lobby } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
@@ -26,7 +26,7 @@ interface LobbyPageProps {
 
 const LOBBY_BOXES = [
   { i: 'overview', h: 9, fullWidth: true },
-  { i: 'players', h: 12 },
+  { i: 'players', h: 11 },
   { i: 'match-settings', h: 16 },
   { i: 'mode-settings', h: 16 },
   { i: 'invite', h: 11 },
@@ -104,13 +104,13 @@ export function LobbyPage({
               <Button variant="default" onClick={onLeave}>Leave</Button>
             </Group>
           </Group>
-          {waiting && (
-            <Alert color="yellow" mt="md">
+          {
+            <Alert color="dark" mt="md">
               {ownPlayerIds.length === 0
-                ? 'Add yourself as a player to get started'
-                : 'Waiting for players to join…'}
+                ? 'Add at least one player to start'
+                : 'Add more players or start the match'}
             </Alert>
-          )}
+          }
         </GridBox>
       ),
     },
@@ -118,7 +118,17 @@ export function LobbyPage({
       id: 'players',
       autoHeight: true,
       content: (
-        <GridBox title="Players" editable={false}>
+        <GridBox
+          title="Players"
+          badge={(
+            <Badge variant="light" color={lobby.players.length >= lobby.maxPlayers ? 'red' : 'gray'}>
+              {lobby.players.length >= lobby.maxPlayers
+                ? `Full — ${lobby.maxPlayers} max`
+                : `${lobby.players.length}/${lobby.maxPlayers}`}
+            </Badge>
+          )}
+          editable={false}
+        >
           <PlayerList
             players={lobby.players}
             maxPlayers={lobby.maxPlayers}

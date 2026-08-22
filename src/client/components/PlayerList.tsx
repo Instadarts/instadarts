@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActionIcon, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Button, Group, Stack, Text, TextInput } from '@mantine/core';
 import { storage } from '../lib/storage';
 import type { Player } from '../../shared/types';
 
@@ -48,12 +48,6 @@ export function PlayerList({
 
   return (
     <Stack gap="sm">
-      <Group justify="flex-end">
-        <Badge variant="light" color={players.length >= maxPlayers ? 'red' : 'gray'}>
-          {players.length >= maxPlayers ? `Full — ${maxPlayers} max` : `${players.length}/${maxPlayers}`}
-        </Badge>
-      </Group>
-
       <Stack gap={0}>
         {players.map((player, index) => (
           <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
@@ -105,7 +99,7 @@ export function PlayerList({
           {availableNames.length > 0 && (
             <Group gap="xs">
               {availableNames.map((name) => (
-                <Button key={name} size="compact-xs" variant="light" color="gray" onClick={() => add(name)}>
+                <Button key={name} variant="light" color="gray" onClick={() => add(name)}>
                   + {name}
                 </Button>
               ))}

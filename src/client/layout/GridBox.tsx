@@ -4,6 +4,7 @@ import { useLayoutEditor } from './LayoutEditorContext';
 
 interface GridBoxProps {
   title?: ReactNode;
+  badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   editable?: boolean;
@@ -13,6 +14,7 @@ interface GridBoxProps {
 
 export function GridBox({
   title,
+  badge,
   actions,
   children,
   editable = true,
@@ -21,7 +23,7 @@ export function GridBox({
 }: GridBoxProps) {
   const editor = useLayoutEditor();
   const showHandle = editable && editor.active !== null && editor.editing;
-  const hasHeader = title !== undefined || actions !== undefined || showHandle;
+  const hasHeader = title !== undefined || badge !== undefined || actions !== undefined || showHandle;
 
   return (
     <Card className="frontend-grid-box" withBorder radius="lg" padding={0} bg="dark.8">
@@ -47,7 +49,12 @@ export function GridBox({
                 </Text>
               )}
             </Group>
-            {actions}
+            {(badge !== undefined || actions !== undefined) && (
+              <Group gap="xs" wrap="nowrap">
+                {badge}
+                {actions}
+              </Group>
+            )}
           </Group>
           <Divider />
         </>

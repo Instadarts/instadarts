@@ -130,6 +130,9 @@ export interface StyledText extends TextStyle {
  */
 export type ViewText = string | StyledText;
 
+/** A player-card score may express meaning through tone; the client fits its size and weight. */
+export type PlayerScoreText = string | { text: string; tone?: TextTone };
+
 /** The text of a `ViewText`, whichever form it came in. */
 export function textOf(value: ViewText | undefined): string {
   if (value === undefined) return '';
@@ -155,9 +158,10 @@ export interface ModeView {
   notice?: ViewText;
   /**
    * Player card score, by player id. Text, not a number: it is what lets x01 put "Bust!" where a
-   * score goes without the screen knowing what a bust is.
+   * score goes without the screen knowing what a bust is. A mode may set its semantic tone; the
+   * card owns its geometry and automatically fits the text to the available space.
    */
-  playerScores: Record<string, ViewText>;
+  playerScores: Record<string, PlayerScoreText>;
   /** The `Visit: <total>` line. Empty text hides the line entirely. */
   visitTotal: ViewText;
   dartsPerVisit: number;

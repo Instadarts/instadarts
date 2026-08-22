@@ -1,5 +1,5 @@
 import type {
-  CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, StyledText, ViewText, Visit,
+  CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, PlayerScoreText, ViewText, Visit,
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { boolOr, numberOr, stringOr } from '../../shared/settings';
@@ -260,7 +260,7 @@ export const x01: GameMode = {
     const { startScore, doubleOut } = read(ctx.settings);
     const cv = ctx.currentVisit;
 
-    const playerScores: Record<string, ViewText> = {};
+    const playerScores: Record<string, PlayerScoreText> = {};
     for (const player of ctx.players) playerScores[player.id] = cardScore(ctx, player.id);
 
     return {
@@ -482,10 +482,10 @@ function legsWon(match: MatchState): Record<string, ViewText> {
  *
  * A visit the rules have already settled shows its verdict instead of a number: a player wants to
  * see "Bust!" the instant it happens, not a score that will be taken back when the visit is
- * submitted. The verdict carries its own tone and size, so the screen does not have to work out
- * that this string is not a score.
+ * submitted. The verdict carries its own tone, while the card fits every score to its available
+ * space without asking the mode to predict screen geometry.
  */
-function cardScore(ctx: LegContext, playerId: string): ViewText {
+function cardScore(ctx: LegContext, playerId: string): PlayerScoreText {
   const cv = ctx.currentVisit;
   if (cv && cv.playerId === playerId) {
     const verdict = verdictFor(ctx);
@@ -504,13 +504,13 @@ function cardScore(ctx: LegContext, playerId: string): ViewText {
  * Asks the rules what submitting would do rather than restating them: `finalizeVisit` is pure, so
  * running it speculatively costs nothing and cannot drift from the real outcome.
  */
-function verdictFor(ctx: LegContext): StyledText | null {
+function verdictFor(ctx: LegContext): PlayerScoreText | null {
   const cv = ctx.currentVisit;
   if (!cv || !cv.locked || cv.darts.length === 0) return null;
 
   const { visit, legWinnerId } = x01.finalizeVisit(ctx);
-  if (visit.voided) return { text: 'Bust!', tone: 'danger', size: '4xl' };
-  if (legWinnerId) return { text: 'Checkout!', tone: 'warning', size: '3xl' };
+  if (visit.voided) return { text: 'Bust!', tone: 'danger' };
+  if (legWinnerId) return { text: 'Checkout!', tone: 'warning' };
   return null;
 }
 

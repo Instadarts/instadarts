@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
-import { textOf } from '../../shared/types';
+import { styleOf, textOf } from '../../shared/types';
 import { standingsOf } from '../../shared/matchFormat';
 import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
@@ -11,6 +11,7 @@ import { RematchPanel } from '../components/RematchPanel';
 import { MatchHistory } from '../components/MatchHistory';
 import { modeTextProps } from '../components/modeText';
 import { ModePanelBlock } from '../components/ModePanelBlock';
+import { AutoFitText } from '../components/AutoFitText';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import {
@@ -78,7 +79,7 @@ export function MatchScreen({
     <GridBox editable={false}>
       <Group justify="space-between" gap="md" wrap="wrap">
         <Group gap="sm" miw={0}>
-          <Title order={2} {...modeTextProps(view.headline, { tone: 'accent', size: '2xl', weight: 'bold' })}>
+          <Title order={2} style={{"line-height": "1em"}} {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>
             {textOf(view.headline)}
           </Title>
           {isSpectator && <Badge color="yellow">spectating</Badge>}
@@ -236,13 +237,15 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
   const standings = standingsOf(match.legs, match.settings);
 
   return (
-    <SimpleGrid minColWidth={120} autoFlow="auto-fit" spacing="sm">
+    <SimpleGrid minColWidth={120} autoFlow="auto-fit" spacing="sm" h={over ? undefined : '100%'}>
       {match.players.map((player, index) => {
         const isCurrent = !over && index === match.currentPlayerIndex;
         const isDeparted = match.departed.includes(player.id);
         const score = scores?.[player.id] ?? '';
         const background = isDeparted ? 'dark.8' : isCurrent ? 'green.9' : 'dark.7';
         const borderColor = isDeparted ? 'var(--mantine-color-red-9)' : isCurrent ? 'var(--mantine-color-green-5)' : undefined;
+        const scoreTone = styleOf(score).tone ?? (isCurrent ? 'warning' : 'muted');
+        const scoreStyle = modeTextProps(undefined, { tone: scoreTone, weight: 'bold' });
 
         return (
           <Paper
@@ -273,29 +276,19 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
                     match.settings.legsToWinSet,
                   )}
                 </Text>
-                <Text
-                  ff="monospace"
-                  bdrs="sm"
-                  lh="1.2em"
-                  mt="auto"
-                  truncate
-                  style={{
-                    'text-shadow': '0px 0px 5px black',
-
-                  }}
-                  {...modeTextProps(score, {
-                    tone: isCurrent ? 'warning' : 'muted',
-                    size: '5xl',
-                    weight: 'bold',
-                  })}
-                >
-                  {textOf(score)}
-                </Text>
+                <AutoFitText
+                  text={textOf(score)}
+                  color={scoreStyle.c}
+                  fontFamily="monospace"
+                  fontWeight={scoreStyle.fw}
+                  lineHeight={1.2}
+                  style={{ textShadow: '0 0 5px black' }}
+                />
                 {isDeparted ? (
-                  <Text fz="xs" c="red.4" mt="auto">departed</Text>
+                  <Text fz="xs" c="red.4">departed</Text>
                 ) : isCurrent ? (
-                  <Text fz="xs" c="green.2" mt="auto">▶ throwing</Text>
-                ) : <Text fz="xs" c="gray.6" mt="auto">waiting</Text>}
+                  <Text fz="xs" c="green.2">▶ throwing</Text>
+                ) : <Text fz="xs" c="gray.6">waiting</Text>}
               </>
             )}
           </Paper>

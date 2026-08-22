@@ -261,7 +261,7 @@ client code — except an optional panel component (below).
 interface ModeView {
   headline: ViewText;                     // x01: "501 — Double Out"
   notice?: ViewText;                      // x01: "Double-In required — hit a double to start scoring"
-  playerScores: Record<string, ViewText>; // playerId → card score. Text, so it need not be a number
+  playerScores: Record<string, PlayerScoreText>; // playerId → automatically fitted card score
   visitTotal: ViewText;                   // empty text hides the line; x01 always returns a number
   dartsPerVisit: number;
   slots?: ViewText[];                     // optional slot contents; omitted → default rendering
@@ -272,10 +272,12 @@ interface ModeView {
 
 ### Text, and what a mode may say about how it looks
 
-Every piece of text above is a `ViewText`: either a bare string, or a string with hints.
+Most text above is a `ViewText`: either a bare string, or a string with hints.
 
 ```ts
 type ViewText = string | { text: string; tone?: TextTone; size?: TextSize; weight?: TextWeight };
+
+type PlayerScoreText = string | { text: string; tone?: TextTone };
 
 type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
 type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
@@ -292,8 +294,10 @@ Three rules make this a hint and not a stylesheet:
    the element's own defaults, which is what keeps the screen looking like one screen. A bare string
    is the normal case and should stay the normal case.
 3. **The screen's own concerns win where they are not the mode's.** The player card colours whoever
-   is throwing; a mode that says nothing about a score inherits that. x01 sends plain strings for
-   scores and only speaks up for `Bust!` and `Checkout!`.
+   is throwing; a mode that says nothing about a score inherits that. A player score may only set a
+   semantic tone. Its weight and font size belong to the card, which continuously fits the score to
+   the available width and height. x01 sends plain strings for scores and only speaks up for `Bust!`
+   and `Checkout!`.
 
 Why hints and not markup: the view is JSON on a WebSocket, and React elements do not survive
 `JSON.stringify`. A mode that needs real markup has the [panel](#the-match-screen) for it.
@@ -360,8 +364,9 @@ empty, and there is nothing left for the mode to describe.
 
 Notes:
 
-- **Player card scores are strings**, not numbers. That is what lets x01 show `"Bust!"` or
-  `"Checkout!"` in place of a score without the screen knowing what a bust is.
+- **Player card scores are text**, not numbers. That is what lets x01 show `"Bust!"` or
+  `"Checkout!"` in place of a score without the screen knowing what a bust is. A mode may attach a
+  semantic tone, while the card automatically chooses the largest font that fits in both axes.
 - **Slot contents default sensibly.** Without `slots`, the screen renders the dart's own label —
   `T20 (60)` — which is the right thing for most modes. A mode overrides it only if it needs to.
 - **The mode panel** (element 3) is the mode's own block, described as data:

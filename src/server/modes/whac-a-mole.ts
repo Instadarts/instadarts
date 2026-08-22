@@ -1,5 +1,5 @@
 import type {
-  DartThrow, MatchState, ModePanel, ModeView, Player, TextTone, ViewText, Visit,
+  DartThrow, MatchState, ModePanel, ModeView, Player, PlayerScoreText, TextTone, ViewText, Visit,
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { numberOr, stringOr } from '../../shared/settings';
@@ -725,7 +725,7 @@ export const whacAMole: GameMode = {
     const whacks = live.events.filter((e) => e.kind === 'whack').length;
     const perfect = live.events.some((e) => e.kind === 'perfect');
 
-    const playerScores: Record<string, ViewText> = {};
+    const playerScores: Record<string, PlayerScoreText> = {};
     for (const player of ctx.players) {
       const out = !over && allowanceOf(start, player.id, cfg) === 0;
       playerScores[player.id] = out

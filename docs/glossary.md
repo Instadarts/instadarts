@@ -592,9 +592,10 @@ Computed by the mode **on the server** (`mode.view(ctx)`) and shipped with every
 text, not numbers — that is what lets x01 put "Bust!" where a score would be without the screen
 knowing what a bust is.
 
-Each piece is a **`ViewText`**: a bare string, or a string with optional hints — `tone` (semantic:
-`danger`, `warning`, `positive`, …), `size`, `weight`. Hints are meanings, not CSS; each element
-supplies the defaults for whatever the mode leaves out, and
+Most pieces are a **`ViewText`**: a bare string, or a string with optional hints — `tone` (semantic:
+`danger`, `warning`, `positive`, …), `size`, `weight`. Player card scores are the narrower
+`PlayerScoreText`: modes can set only their tone, while the card automatically fits their size in
+both axes. Hints are meanings, not CSS; each element supplies the defaults for whatever the mode leaves out, and
 [`modeText.ts`](../src/client/components/modeText.ts) is the only place that decides what a tone
 looks like. See [game-modes.md](./game-modes.md).
 

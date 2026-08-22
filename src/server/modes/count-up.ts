@@ -1,6 +1,6 @@
 import type { FinalizedVisit, GameMode, LegContext } from './types';
 import { registerMode } from './types';
-import type { DartThrow, ModePanel, ModeView, ViewText, Visit } from '../../shared/types';
+import type { DartThrow, ModePanel, ModeView, PlayerScoreText, ViewText, Visit } from '../../shared/types';
 import type { ModeSettings } from '../../shared/settings';
 import { numberOr } from '../../shared/settings';
 import { IS_DEV } from '../env';
@@ -103,7 +103,7 @@ export const countUp: GameMode = {
     const { targetScore } = read(ctx.settings);
     const cv = ctx.currentVisit;
 
-    const playerScores: Record<string, ViewText> = {};
+    const playerScores: Record<string, PlayerScoreText> = {};
     for (const player of ctx.players) {
       playerScores[player.id] = String(liveScoreFor(ctx, player.id));
     }

@@ -36,13 +36,13 @@ describe('x01 view', () => {
     const bust = throwDart(makeMatch({ settings: { startScore: 40 } }), 'p1', 'T20');
     const busted = viewOf(bust.match).playerScores.p1;
     expect(textOf(busted)).toBe('Bust!');
-    expect(styleOf(busted)).toMatchObject({ tone: 'danger', size: '3xl' });
+    expect(styleOf(busted)).toEqual({ text: 'Bust!', tone: 'danger' });
 
     // Checkout: D16 from 32.
     const out = throwDart(makeMatch({ settings: { startScore: 32 } }), 'p1', 'D16');
     const won = viewOf(out.match).playerScores.p1;
     expect(textOf(won)).toBe('Checkout!');
-    expect(styleOf(won)).toMatchObject({ tone: 'warning' });
+    expect(styleOf(won)).toEqual({ text: 'Checkout!', tone: 'warning' });
   });
 
   it('keeps the visit total visible before the first dart', () => {

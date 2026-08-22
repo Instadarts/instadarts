@@ -608,6 +608,7 @@ describe('whac-a-mole: what the screen is told', () => {
     const match = makeMatch();
     const panel = whacAMole.panel!(match)!;
 
+    expect(panel.title).toBe('Whac-A-Mole');
     expect(panel.rows.map((row) => row.label)).toEqual(['Score', 'Darts left', 'Holes hit']);
     expect(panel.rows[1].values.p1).toBe('3');
 

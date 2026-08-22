@@ -789,6 +789,7 @@ export const whacAMole: GameMode = {
       Object.fromEntries(match.players.map((p) => [p.id, of(p.id)] as const));
 
     return {
+      title: 'Whac-A-Mole',
       render: 'auto',
       rows: [
         { label: 'Score', values: values((id) => String(live.score[id] ?? 0)) },

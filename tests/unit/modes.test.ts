@@ -123,6 +123,10 @@ describe('the x01 panel', () => {
     return match;
   }
 
+  it('identifies itself as statistics', () => {
+    expect(panelOf(makeMatch())?.title).toBe('Statistics');
+  });
+
   const rowsOf = (match: MatchState) => {
     const panel = panelOf(match)!;
     return Object.fromEntries(

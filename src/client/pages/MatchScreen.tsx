@@ -6,6 +6,7 @@ import { standingsOf } from '../../shared/matchFormat';
 import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
 import { VisitInput } from '../components/VisitInput';
+import { VirtualBoard } from '../components/VirtualBoard';
 import { RematchPanel } from '../components/RematchPanel';
 import { MatchHistory } from '../components/MatchHistory';
 import { modeTextProps } from '../components/modeText';
@@ -135,8 +136,25 @@ export function MatchScreen({
     {
       id: 'board',
       content: (
-        <GridBox title="Board and visit" padding="sm">
-          <Stack gap="sm" h="100%" align="stretch">
+        <GridBox title="Board" padding="sm">
+          <VirtualBoard
+            darts={currentDarts}
+            dartsPerVisit={view.dartsPerVisit}
+            onAddDart={isSpectator ? () => {} : handleAddDart}
+            disabled={!canAddDart}
+            liveBoard={liveBoard}
+            videoOffers={videoOffers}
+            onAcceptVideo={onAcceptVideo}
+            onDeclineVideo={onDeclineVideo}
+          />
+        </GridBox>
+      ),
+    },
+    {
+      id: 'visit',
+      content: (
+        <GridBox title="Visit" padding="sm">
+          <Stack gap="sm" align="stretch">
             <Text
               ta="center"
               mih="1.55em"
@@ -150,17 +168,10 @@ export function MatchScreen({
               dartsPerVisit={view.dartsPerVisit}
               slots={view.slots}
               visitTotal={view.visitTotal}
-              onAddDart={isSpectator ? () => {} : handleAddDart}
               onUndoDart={isSpectator ? () => {} : handleUndo}
               onSubmit={isSpectator ? () => {} : handleSubmit}
-              disabled={!canAddDart}
-              locked={visitLocked}
               readOnly={!isMyTurn || isSpectator}
               hideActions={isSpectator}
-              liveBoard={liveBoard}
-              videoOffers={videoOffers}
-              onAcceptVideo={onAcceptVideo}
-              onDeclineVideo={onDeclineVideo}
             />
           </Stack>
         </GridBox>
@@ -196,7 +207,7 @@ export function MatchScreen({
     items.push({
       id: 'mode-panel',
       content: (
-        <GridBox title={panel.title ?? 'Game panel'}>
+        <GridBox title={panel.title?.trim() || 'Game panel'}>
           <ModePanelBlock modeId={match.settings.mode} panel={panel} />
         </GridBox>
       ),

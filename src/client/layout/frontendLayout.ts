@@ -20,6 +20,7 @@ export const LIVE_MATCH_LAYOUT: Layout = [
   { i: 'scores', x: 0, y: 6, w: 3, h: 18, minW: 1, minH: 8, isBounded: true },
   { i: 'mode-panel', x: 0, y: 24, w: 3, h: 12, minW: 1, minH: 6, isBounded: true },
   { i: 'board', x: 3, y: 6, w: 6, h: 36, minW: 2, minH: 18, isBounded: true },
+  { i: 'visit', x: 3, y: 42, w: 6, h: 18, minW: 2, minH: 8, isBounded: true },
   { i: 'history', x: 9, y: 6, w: 3, h: 36, minW: 1, minH: 8, isBounded: true },
 ];
 

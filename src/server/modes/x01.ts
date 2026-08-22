@@ -306,7 +306,7 @@ export const x01: GameMode = {
     const playing = match.status === 'in_progress';
 
     return {
-      title: '',
+      title: 'Statistics',
       lines: playing ? [`Round ${roundNumber(match)}`] : undefined,
       // x01 ships a component, so `auto` draws the cards. Text asks for the plain table instead —
       // the same rows, without the bars a table cannot hold.

@@ -76,7 +76,7 @@ export function MatchScreen({
   } : null;
 
   const overview = (
-    <GridBox editable={false}>
+    <GridBox editable={true}>
       <Group justify="space-between" gap="md" wrap="wrap">
         <Group gap="sm" miw={0}>
           <Title order={2} style={{"line-height": "1em"}} {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>

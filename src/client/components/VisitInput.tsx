@@ -33,7 +33,7 @@ export function VisitInput({
   const empty = Math.max(0, dartsPerVisit - filled.length);
 
   return (
-    <Stack gap="sm" h="100%" align="stretch">
+    <Stack gap="sm" h="100%" align="stretch" justify="center">
       <SimpleGrid cols={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} data-visit-slots>
         {filled.map((slot, index) => (
           <Paper

@@ -11,6 +11,18 @@
 
 import { useEffect, useState } from 'react';
 import {
+  Box,
+  Button,
+  Center,
+  Collapse,
+  Group,
+  Stack,
+  Table,
+  Text,
+  Title,
+  UnstyledButton,
+} from '@mantine/core';
+import {
   DNF,
   runOnboarding,
   type ChosenSettings,
@@ -29,6 +41,8 @@ import { AimStep } from './AimStep';
 import { BoardOverlay } from './BoardOverlay';
 import { CameraStep } from './CameraStep';
 import { NameStep } from './NameStep';
+import { AppCard } from '../../components/AppCard';
+import { SquareCameraPreview } from './SquareCameraViewport';
 
 interface OnboardingViewProps {
   settings: ScorerSettings;
@@ -53,9 +67,9 @@ const STEP_LABEL: Record<Step, string> = {
 };
 
 const VERDICT_COLOUR: Record<Verdict, string> = {
-  good: 'text-green-400',
-  okay: 'text-yellow-400',
-  bad: 'text-red-400',
+  good: 'green.4',
+  okay: 'yellow.4',
+  bad: 'red.4',
 };
 
 const STAGE_LABEL: Record<StageOutcome['stage'], string> = {
@@ -122,13 +136,14 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
   }
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-3 p-4">
-      <header>
-        <h2 className="text-lg font-semibold text-green-400">Setting up this camera</h2>
+    <AppCard>
+      <Stack gap="md">
+        <Box component="header">
+          <Title order={2} fz="lg" c="green.4">Setting up this camera</Title>
         {/* A counter, so somebody can see there is an end to this — and so the day a third step
             arrives it is a line to edit rather than a screen to rethink. */}
-        <p className="text-xs text-gray-500">{STEP_LABEL[step]}</p>
-      </header>
+          <Text fz="xs" c="dimmed">{STEP_LABEL[step]}</Text>
+        </Box>
 
       {step === 'name' && (
         <NameStep
@@ -155,24 +170,22 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
           every time the model change re-opened it at 1280. Real cameras may return landscape; the
           square box's centred cover crop is exactly the square every vision consumer uses. */}
       {step !== 'name' && (
-        <div className="relative w-full aspect-square rounded overflow-hidden bg-gray-950 border border-gray-800">
-          <video
-            ref={camera.videoRef}
-            playsInline
-            muted
-            autoPlay
-            data-testid="onboarding-preview"
-            className="absolute inset-0 w-full h-full object-cover object-center"
-          />
+        <SquareCameraPreview
+          videoRef={camera.videoRef}
+          testId="onboarding-preview"
+          background="dark.9"
+          withBorder
+          radius="var(--mantine-radius-md)"
+        >
           {camera.phase !== 'ready' && (
-            <span className="absolute inset-0 flex items-center justify-center text-sm text-gray-600">
-              Camera preview
-            </span>
+            <Center pos="absolute" inset={0}>
+              <Text fz="sm" c="gray.6">Camera preview</Text>
+            </Center>
           )}
           {/* Over the video and inside the same square box, which is the whole reason the geometry
               needs no scaling — see `BoardOverlay`. */}
           {step === 'aim' && <BoardOverlay spider={reading?.spider ?? null} tips={reading?.tips ?? []} />}
-        </div>
+        </SquareCameraPreview>
       )}
 
       {step === 'camera' && <CameraStep camera={camera} onContinue={() => void start()} />}
@@ -182,7 +195,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
           {/* Which model row is in bold is read from the live settings rather than carried on the
               stage, because it is not knowable when a stage finishes: the 960 px row is the choice
               right up until the 1280 px one beats it, and then it is not. */}
-          <ol className="flex flex-col gap-1" data-testid="onboarding-stages">
+          <Stack component="ol" gap={6} m={0} p={0} style={{ listStyle: 'none' }} data-testid="onboarding-stages">
             {stages.map((stage) => (
               <StageRow
                 key={stage.stage}
@@ -190,34 +203,34 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
                 chosen={stage.stage === (settings.model === 's_1280' ? 'model1280' : 'model960')}
               />
             ))}
-          </ol>
+          </Stack>
 
           {/* Two lines' worth of fixed height, and clamped to two: most of these messages wrap on a
               phone, and a taller one used to run underneath the button below rather than move it.
               Fixed rather than automatic so the panel does not jump every time the message changes,
               and cleared once there is a verdict — "Checking the results…" sitting under "Ready"
               reads as a screen that has lost track of itself. */}
-          <p className="text-sm text-gray-400 h-10 line-clamp-2" data-testid="onboarding-log">
+          <Text fz="sm" c="gray.4" h="2.5rem" lineClamp={2} data-testid="onboarding-log">
             {step === 'running' ? log : ''}
-          </p>
+          </Text>
 
           {step === 'finished' && (
-            <p className={`text-sm ${failure ? 'text-red-400' : 'text-green-400'}`} data-testid="onboarding-verdict">
+            <Text fz="sm" c={failure ? 'red.4' : 'green.4'} data-testid="onboarding-verdict">
               {failure ?? `Ready. Using the ${settings.model === 's_1280' ? '1280' : '960'} px model${describeOverrides(settings)}.`}
-            </p>
+            </Text>
           )}
 
           {/* The one optional step, offered rather than imposed: the phone is already usable, and
               this is for somebody standing next to a board who wants to see it work. Not offered
               when the checks found nothing that works — there would be no configuration to show. */}
           {step === 'finished' && !failure && (
-            <button
+            <Button
               onClick={() => setStep('aim')}
               data-testid="onboarding-try-board"
-              className="self-start px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
+              style={{ alignSelf: 'flex-start' }}
             >
               Test on a board
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -234,14 +247,16 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
           It is one element because the run can finish while a finger is on the way down. Two buttons
           meant the one being reached for was removed mid-tap and the tap landed on nothing, which is
           also what made this flaky to test. */}
-      <button
+      <Button
+        variant="default"
         onClick={onDone}
         data-testid="onboarding-leave"
-        className="self-start px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+        style={{ alignSelf: 'flex-start' }}
       >
         {step === 'finished' || step === 'aim' ? 'Done' : 'Skip'}
-      </button>
-    </div>
+      </Button>
+      </Stack>
+    </AppCard>
   );
 }
 
@@ -257,40 +272,44 @@ function StageRow({ stage, chosen }: { stage: StageOutcome; chosen: boolean }) {
   const colour = stage.ok
     ? stage.verdict
       ? VERDICT_COLOUR[stage.verdict]
-      : 'text-green-400'
-    : 'text-red-400';
+      : 'green.4'
+    : 'red.4';
 
   const headline = headlineOf(stage);
   const details = stage.paths ?? stage.matrix;
 
   return (
-    <li data-testid={`stage-${stage.stage}`}>
-      <button
+    <Box component="li" data-testid={`stage-${stage.stage}`}>
+      <UnstyledButton
         type="button"
         onClick={() => setOpen(!open)}
         // Validation has nothing behind it: one line is the whole result.
         disabled={!details}
         aria-expanded={details ? open : undefined}
-        className="w-full flex items-baseline justify-between gap-2 text-sm text-left"
+        w="100%"
       >
-        <span className={chosen ? 'font-bold text-gray-200' : 'text-gray-300'}>
-          {details && <span className="text-gray-600">{open ? '▾ ' : '▸ '}</span>}
-          {STAGE_LABEL[stage.stage]}
-        </span>
-        <span className={`font-mono text-xs ${colour}`}>
-          {headline ? textFor(headline) : stage.ok ? 'ok' : 'failed'}
-        </span>
-      </button>
+        <Group justify="space-between" gap="sm" align="baseline" wrap="nowrap">
+          <Text fz="sm" fw={chosen ? 700 : 400} c={chosen ? 'gray.2' : 'gray.3'}>
+            {details && <Text span c="gray.6">{open ? '▾ ' : '▸ '}</Text>}
+            {STAGE_LABEL[stage.stage]}
+          </Text>
+          <Text fz="xs" ff="monospace" c={colour}>
+            {headline ? textFor(headline) : stage.ok ? 'ok' : 'failed'}
+          </Text>
+        </Group>
+      </UnstyledButton>
 
-      {open && stage.paths && (
-        <p className="ml-3 mt-0.5 font-mono text-xs">
-          <Timing label="cpu" result={stage.paths.cpu} selected={stage.paths.selected === 'cpu'} colour={colour} />
-          <span className="text-gray-600"> | </span>
-          <Timing label="gpu" result={stage.paths.gpu} selected={stage.paths.selected === 'gpu'} colour={colour} />
-        </p>
-      )}
-      {open && stage.matrix && <Matrix cells={stage.matrix.cells} selected={stage.matrix.selected} colour={colour} />}
-    </li>
+      <Collapse expanded={open} keepMounted={false}>
+        {stage.paths && (
+          <Text ml="md" mt={2} ff="monospace" fz="xs">
+            <Timing label="cpu" result={stage.paths.cpu} selected={stage.paths.selected === 'cpu'} colour={colour} />
+            <Text span c="gray.6"> | </Text>
+            <Timing label="gpu" result={stage.paths.gpu} selected={stage.paths.selected === 'gpu'} colour={colour} />
+          </Text>
+        )}
+        {stage.matrix && <Matrix cells={stage.matrix.cells} selected={stage.matrix.selected} colour={colour} />}
+      </Collapse>
+    </Box>
   );
 }
 
@@ -317,23 +336,33 @@ const textFor = (result: PathResult) => (result.kind === 'ms' ? `${Math.round(re
  */
 function Matrix({ cells, selected, colour }: { cells: ModelMatrix; selected: ComboKey | null; colour: string }) {
   const row = (pre: 'cpu' | 'gpu') => (
-    <>
-      <span className="text-gray-500">pre {pre}</span>
+    <Table.Tr>
+      <Table.Td c="dimmed">pre {pre}</Table.Td>
       {(['cpu', 'gpu'] as const).map((inf) => {
         const key = `${pre}-${inf}` as ComboKey;
-        return <Timing key={key} result={cells[key]} selected={selected === key} colour={colour} align="text-right" />;
+        return (
+          <Table.Td key={key} ta="right">
+            <Timing result={cells[key]} selected={selected === key} colour={colour} />
+          </Table.Td>
+        );
       })}
-    </>
+    </Table.Tr>
   );
 
   return (
-    <div className="ml-3 mt-0.5 grid grid-cols-[1fr_4rem_4rem] gap-x-2 text-xs font-mono" data-testid="stage-matrix">
-      <span />
-      <span className="text-right text-gray-500">inf cpu</span>
-      <span className="text-right text-gray-500">inf gpu</span>
-      {row('cpu')}
-      {row('gpu')}
-    </div>
+    <Table mt={2} fz="xs" ff="monospace" withRowBorders={false} data-testid="stage-matrix">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th />
+          <Table.Th ta="right" c="dimmed">inf cpu</Table.Th>
+          <Table.Th ta="right" c="dimmed">inf gpu</Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {row('cpu')}
+        {row('gpu')}
+      </Table.Tbody>
+    </Table>
   );
 }
 
@@ -344,21 +373,22 @@ function Matrix({ cells, selected, colour }: { cells: ModelMatrix; selected: Com
  * context rather than the answer. All of them are always shown: a stage that reported only its
  * winner is exactly what left somebody unable to tell a broken GPU from one that lost a fair race.
  */
-function Timing({ label, result, selected, colour, align = '' }: {
+function Timing({ label, result, selected, colour }: {
   label?: string;
   result: PathResult;
   selected: boolean;
   colour: string;
-  align?: string;
 }) {
   return (
-    <span
-      className={`${align} ${selected ? `font-bold ${colour}` : 'text-gray-500'}`}
+    <Text
+      span
+      fw={selected ? 700 : 400}
+      c={selected ? colour : 'dimmed'}
       title={result.kind === 'dnf' ? 'did not finish — this path was tried and failed' : undefined}
     >
       {label ? `${label}: ` : ''}
       {textFor(result)}
-    </span>
+    </Text>
   );
 }
 

@@ -5,7 +5,7 @@ import { MantineProvider } from '@mantine/core';
 import { App } from './App';
 import { ScorerApp } from './ScorerApp';
 import { LayoutEditorProvider } from './layout/LayoutEditorContext';
-import { frontendTheme } from './layout/frontendTheme';
+import { appTheme } from './layout/appTheme';
 import { applyFrontendZoom, loadFrontendZoom } from './layout/frontendZoom';
 import '@mantine/core/styles.css';
 import 'react-grid-layout/css/styles.css';
@@ -15,9 +15,7 @@ import './index.css';
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const scorer = window.location.pathname.startsWith('/scorer');
 document.documentElement.dataset.app = scorer ? 'scorer' : 'frontend';
-if (scorer) {
-  document.body.classList.add('bg-gray-950', 'text-gray-100', 'min-h-screen', 'select-none');
-} else {
+if (!scorer) {
   applyFrontendZoom(loadFrontendZoom());
 }
 
@@ -26,17 +24,21 @@ if (scorer) {
 // It is also mounted outside StrictMode, because the vision runtime it grows in phase 5 owns a
 // camera stream and a motion detector, and a double mount would start two of each.
 if (scorer) {
-  root.render(<ScorerApp />);
+  root.render(
+    <MantineProvider theme={appTheme} forceColorScheme="dark">
+      <ScorerApp />
+    </MantineProvider>,
+  );
 } else {
   root.render(
-    <React.StrictMode>
-      <MantineProvider theme={frontendTheme} forceColorScheme="dark">
+    <MantineProvider theme={appTheme} forceColorScheme="dark">
+      <React.StrictMode>
         <LayoutEditorProvider>
           <BrowserRouter>
             <App />
           </BrowserRouter>
         </LayoutEditorProvider>
-      </MantineProvider>
-    </React.StrictMode>,
+      </React.StrictMode>
+    </MantineProvider>,
   );
 }

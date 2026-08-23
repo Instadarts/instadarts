@@ -1,4 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActionIcon,
+  Alert,
+  AppShell,
+  Box,
+  Code,
+  Container,
+  Group,
+  Indicator,
+  Stack,
+  Text,
+  TextInput,
+} from '@mantine/core';
 import { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { useScorerPower } from '../../hooks/useScorerPower';
 import type { PendingCommand, ScorerLinkStatus } from '../../hooks/useScorerLink';
@@ -18,6 +31,7 @@ import { FullscreenButton } from '../../components/FullscreenButton';
 import { Screensaver } from './Screensaver';
 import { SettingsPanel } from './SettingsPanel';
 import { LatencyMeter, type LatencySnapshot } from '../../lib/latencyMeter';
+import { SettingsIcon } from '../../components/AppIcons';
 
 interface ScorerPageProps {
   status: ScorerLinkStatus;
@@ -212,71 +226,85 @@ export function ScorerPage({
   }, [command, noteActivity, powerOff, startCamera, stopCamera]);
 
   return (
-    <div className="flex-1 flex flex-col items-center p-4 gap-2">
+    <AppShell header={onboarding ? undefined : { height: 52 }} padding={0} className="app-main">
       {/* No top bar during setup. Every control on it belongs to a phone that is already working —
           a link status somebody has not finished establishing, a name for a device not yet set up,
           and a Settings button that would drop straight to scoring with a model the self-test has
           unloaded. Setup is one screen with one thing to do on it. */}
       {!onboarding && (
-        <div className="w-full max-w-md flex items-center justify-between gap-2">
-          <StatusBadge status={status} scoring={scoring} stage={power.stage} />
-          <div className="flex items-center gap-2">
-            <input
+        <AppShell.Header bg="dark.8" withBorder>
+          <Group h="100%" px="md" justify="space-between" gap="sm" wrap="nowrap">
+            <StatusBadge status={status} scoring={scoring} stage={power.stage} />
+            <Group gap="xs" wrap="nowrap" miw={0}>
+              <TextInput
               type="text"
               value={name}
-              onChange={(e) => onRename(e.target.value.slice(0, 20))}
+              onChange={(event) => onRename(event.currentTarget.value.slice(0, 20))}
               onBlur={onNameSettled}
-              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
               placeholder="Name this device"
-              className="w-32 px-2 py-1 text-sm text-right bg-transparent border-b border-gray-800 focus:border-green-500 focus:outline-none"
-            />
-            <FullscreenButton />
-            <button
+              variant="unstyled"
+              w="8rem"
+              size="sm"
+              styles={{ input: { borderBottom: '1px solid var(--mantine-color-dark-5)', textAlign: 'right' } }}
+              />
+              <FullscreenButton />
+              <ActionIcon
+                variant="default"
+                size="lg"
+                title={view === 'scoring' ? 'Settings' : 'Done'}
+                aria-label={view === 'scoring' ? 'Settings' : 'Done'}
               onClick={() => setView((v) => (v === 'scoring' ? 'settings' : 'scoring'))}
-              className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-            >
-              {view === 'scoring' ? 'Settings' : 'Done'}
-            </button>
-          </div>
-        </div>
+              >
+                <SettingsIcon />
+              </ActionIcon>
+            </Group>
+          </Group>
+        </AppShell.Header>
       )}
 
-      {!window.isSecureContext && <InsecureContextHint />}
+      <AppShell.Main>
+        <Container size={448} px="sm" py="md">
+          <Stack gap="md">
+            {!window.isSecureContext && <InsecureContextHint />}
 
-      {/* The camera panel is never unmounted: the motion detector binds its controls once, and the
-          vision runtime owns a camera stream and a compiled model that must survive a settings trip. */}
-      <div className={view === 'scoring' ? 'contents' : 'hidden'}>
-        <CameraPanel vision={vision} poweredDown={power.stage !== 'awake'} motionAnimations={settings.motionAnimations} />
-      </div>
+            {/* The camera panel is never unmounted: the motion detector binds its controls once, and the
+                vision runtime owns a camera stream and a compiled model that must survive a settings trip. */}
+            <Box display={view === 'scoring' ? 'block' : 'none'}>
+              <CameraPanel vision={vision} poweredDown={power.stage !== 'awake'} motionAnimations={settings.motionAnimations} />
+            </Box>
 
-      {view === 'settings' && (
-        <SettingsPanel
-          vision={vision}
-          onCalibrate={() => setView('calibration')}
-          settings={settings}
-          onSettingsChange={setSettings}
-          onUnpair={onUnpair}
-          onMediaChange={onMediaChange}
-        />
-      )}
+            {view === 'settings' && (
+              <SettingsPanel
+                vision={vision}
+                onCalibrate={() => setView('calibration')}
+                settings={settings}
+                onSettingsChange={setSettings}
+                onUnpair={onUnpair}
+                onMediaChange={onMediaChange}
+              />
+            )}
 
-      {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
+            {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
 
-      {view === 'onboarding' && (
-        <OnboardingView
-          settings={settings}
-          onSettingsChange={setSettings}
-          name={name}
-          onRename={onRename}
-          onNameSettled={onNameSettled}
-          onDone={leaveOnboarding}
-        />
-      )}
+            {view === 'onboarding' && (
+              <OnboardingView
+                settings={settings}
+                onSettingsChange={setSettings}
+                name={name}
+                onRename={onRename}
+                onNameSettled={onNameSettled}
+                onDone={leaveOnboarding}
+              />
+            )}
+          </Stack>
+        </Container>
+      </AppShell.Main>
 
       <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} />
 
       {import.meta.env.DEV && <LatencyDisplay snapshot={meterSnapshot} />}
-    </div>
+    </AppShell>
   );
 }
 
@@ -284,19 +312,19 @@ export function ScorerPage({
 function LatencyDisplay({ snapshot }: { snapshot: LatencySnapshot }) {
   if (snapshot.count === 0) return null;
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
-      <div className="bg-black/70 text-green-400 text-xs font-mono px-4 py-1.5 rounded-t-md">
-      M2E |  Min: <span className="text-white">{snapshot.min}ms</span>
+    <Box pos="fixed" bottom={0} left={0} right={0} style={{ zIndex: 50, pointerEvents: 'none', textAlign: 'center' }}>
+      <Text component="span" display="inline-block" bg="rgba(0, 0, 0, 0.7)" c="green.4" fz="xs" ff="monospace" px="md" py={6} style={{ borderRadius: 'var(--mantine-radius-md) var(--mantine-radius-md) 0 0' }}>
+      M2E |  Min: <Text component="span" c="white">{snapshot.min}ms</Text>
         {' | '}
-        Max: <span className="text-white">{snapshot.max}ms</span>
+        Max: <Text component="span" c="white">{snapshot.max}ms</Text>
         {' | '}
-        Avg: <span className="text-white">{snapshot.avg}ms</span>
+        Avg: <Text component="span" c="white">{snapshot.avg}ms</Text>
         {' | '}
-        Last: <span className="text-white">{snapshot.last}ms</span>
+        Last: <Text component="span" c="white">{snapshot.last}ms</Text>
         {' | '}
-        N: <span className="text-white">{snapshot.count}</span>
-      </div>
-    </div>
+        N: <Text component="span" c="white">{snapshot.count}</Text>
+      </Text>
+    </Box>
   );
 }
 
@@ -306,14 +334,11 @@ function LatencyDisplay({ snapshot }: { snapshot: LatencySnapshot }) {
  */
 function InsecureContextHint() {
   return (
-    <div className="w-full max-w-md p-3 text-sm bg-yellow-950 border border-yellow-800 rounded">
-      <p className="text-yellow-300 font-semibold">The camera needs a secure context.</p>
-      <p className="text-yellow-200/80 mt-1">
-        Add <span className="font-mono select-text">{window.location.origin}</span> to
-        <span className="font-mono select-text"> chrome://flags/#unsafely-treat-insecure-origin-as-secure</span>,
-        or serve this over https.
-      </p>
-    </div>
+    <Alert color="yellow" title="The camera needs a secure context.">
+      Add <Code style={{ userSelect: 'text' }}>{window.location.origin}</Code> to{' '}
+      <Code style={{ userSelect: 'text' }}>chrome://flags/#unsafely-treat-insecure-origin-as-secure</Code>,
+      or serve this over https.
+    </Alert>
   );
 }
 
@@ -326,10 +351,14 @@ interface StatusBadgeProps {
 function StatusBadge({ status, scoring, stage }: StatusBadgeProps) {
   const [label, color] = describe(status, scoring, stage);
   return (
-    <div className="flex items-center gap-2">
-      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${color}`} />
-      <span className="text-sm text-gray-300 hidden" data-testid="scorer-status">{label}</span>
-    </div>
+    <Group gap={6} wrap="nowrap" role="status" aria-label={label} title={label}>
+      <Text visibleFrom="sm" fz="sm" c={color} truncate data-testid="scorer-status">
+        {label}
+      </Text>
+      <Indicator color={color} processing={status === 'connecting'} size={9} position="middle-center">
+        <Box w={10} h={10} aria-hidden />
+      </Indicator>
+    </Group>
   );
 }
 
@@ -341,20 +370,20 @@ function StatusBadge({ status, scoring, stage }: StatusBadgeProps) {
  * frontend had merely claimed it, which was a lie for most of an evening.
  */
 function describe(status: ScorerLinkStatus, scoring: boolean, stage: PowerStage): [string, string] {
-  if (stage === 'standby') return ['Asleep — tap to wake', 'bg-gray-600'];
-  if (scoring) return ['Scoring for a player', 'bg-green-500'];
-  if (stage === 'camera-off') return ['Idle — camera off', 'bg-gray-500'];
+  if (stage === 'standby') return ['Asleep — tap to wake', 'gray'];
+  if (scoring) return ['Scoring for a player', 'green'];
+  if (stage === 'camera-off') return ['Idle — camera off', 'gray'];
 
   switch (status) {
     case 'active':
-      return ['Ready — no match running', 'bg-blue-500'];
+      return ['Ready — no match running', 'blue'];
     case 'waiting':
-      return ['Paired — not in use', 'bg-blue-500'];
+      return ['Paired — not in use', 'blue'];
     case 'connecting':
-      return ['Connecting…', 'bg-yellow-500'];
+      return ['Connecting…', 'yellow'];
     case 'full':
-      return ['Server is full — try again shortly', 'bg-yellow-500'];
+      return ['Server is full — try again shortly', 'yellow'];
     default:
-      return ['Not paired', 'bg-gray-600'];
+      return ['Not paired', 'gray'];
   }
 }

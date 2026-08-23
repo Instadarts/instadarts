@@ -29,7 +29,7 @@ export function BoardOverlay({ spider, tips }: BoardOverlayProps) {
     <svg
       viewBox="0 0 1 1"
       preserveAspectRatio="none"
-      className="absolute inset-0 w-full h-full pointer-events-none"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
       data-testid="aim-overlay"
     >
       {/* One filter for the whole drawing rather than one per shape. There are twenty-six polylines

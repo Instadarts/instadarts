@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Button, SimpleGrid, Stack, Text } from '@mantine/core';
 import { computeDistortionCorrectedSpider, type SpiderProjection } from '../../vision/lensGeometry';
 import { sliderValueToLensK1 } from '../../../shared/vision/lensDistortion';
 import type { Keypoint } from '../../../shared/vision/types';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { Slider } from './Slider';
+import { AppCard } from '../../components/AppCard';
+import { SquareViewport } from './SquareCameraViewport';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -104,37 +107,37 @@ export function CalibrationView({ vision, onClose }: CalibrationViewProps) {
   };
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-3">
-      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-black">
-        <div ref={layer} onClick={handleTap} className="absolute inset-0 cursor-zoom-in">
-          <canvas ref={canvas} width={STILL_SIZE} height={STILL_SIZE} className="w-full h-full" />
+    <AppCard title="Lens calibration" padding={0}>
+      <Stack gap={0}>
+        <SquareViewport>
+          <Box ref={layer} onClick={handleTap} pos="absolute" inset={0} style={{ cursor: 'zoom-in' }}>
+          <canvas ref={canvas} width={STILL_SIZE} height={STILL_SIZE} style={{ display: 'block', width: '100%', height: '100%' }} />
           <Spider keypoints={keypoints} projection={projection} />
-        </div>
-      </div>
+          </Box>
+        </SquareViewport>
 
-      <p className="text-sm text-gray-400 h-5">{message}</p>
+        <Stack gap="md" p="md">
+          <Text fz="sm" c="gray.4" mih="1.25rem">{message || ' '}</Text>
 
-      <Slider
-        label="Lens correction"
-        value={lensValue}
-        min={-100}
-        max={100}
-        step={1}
-        format={(v) => (v > 0 ? `+${v}` : String(v))}
-        onChange={(v) => vision.setLens(v)}
-        disabled={!hasBoard}
-        hint={hasBoard ? undefined : 'Capture a frame the board is visible in to enable this.'}
-      />
+          <Slider
+            label="Lens correction"
+            value={lensValue}
+            min={-100}
+            max={100}
+            step={1}
+            format={(v) => (v > 0 ? `+${v}` : String(v))}
+            onChange={(v) => vision.setLens(v)}
+            disabled={!hasBoard}
+            hint={hasBoard ? undefined : 'Capture a frame the board is visible in to enable this.'}
+          />
 
-      <div className="flex gap-2">
-        <button onClick={() => void capture()} className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors">
-          New frame
-        </button>
-        <button onClick={onClose} className="flex-1 px-3 py-2 bg-green-700 hover:bg-green-600 rounded transition-colors">
-          Done
-        </button>
-      </div>
-    </div>
+          <SimpleGrid cols={2} spacing="xs">
+            <Button variant="default" onClick={() => void capture()}>New frame</Button>
+            <Button onClick={onClose}>Done</Button>
+          </SimpleGrid>
+        </Stack>
+      </Stack>
+    </AppCard>
   );
 }
 
@@ -149,7 +152,11 @@ function Spider({ keypoints, projection }: { keypoints: Keypoint[]; projection: 
     points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(' ');
 
   return (
-    <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+    <svg
+      viewBox="0 0 1 1"
+      preserveAspectRatio="none"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+    >
       {projection?.canCompute && (
         <g fill="none" stroke="#38bdf8" strokeWidth={0.002} vectorEffect="non-scaling-stroke">
           {projection.rings.map((ring, i) => <path key={`r${i}`} d={path(ring)} />)}

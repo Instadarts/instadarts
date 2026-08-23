@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ActionIcon } from '@mantine/core';
 
 /**
  * Take the browser's chrome off, for the two screens that want the whole display: a phone mounted
@@ -11,7 +12,7 @@ import { useEffect, useState } from 'react';
  * The label follows `document.fullscreenElement` rather than its own memory of what was pressed,
  * because Android's back gesture and the Escape key both leave fullscreen without telling anyone.
  */
-export function FullscreenButton({ className = '' }: { className?: string }) {
+export function FullscreenButton() {
   const [full, setFull] = useState(false);
   const [supported] = useState(
     () => typeof document !== 'undefined' && typeof document.documentElement.requestFullscreen === 'function',
@@ -36,21 +37,31 @@ export function FullscreenButton({ className = '' }: { className?: string }) {
     void action.catch(() => {});
   };
 
+  const label = full ? 'Leave full screen' : 'Full screen';
   return (
-    <button
+    <ActionIcon
+      variant="default"
+      size="lg"
       onClick={toggle}
-      title={full ? 'Leave full screen' : 'Full screen'}
-      aria-label={full ? 'Leave full screen' : 'Full screen'}
+      title={label}
+      aria-label={label}
       data-testid="fullscreen"
-      className={`px-2 py-1 text-sm bg-gray-800 hover:bg-gray-700 rounded transition-colors ${className}`}
     >
-      <svg viewBox="0 0 16 16" className="w-4 h-4 fill-none stroke-current stroke-[1.5]" aria-hidden="true">
+      <svg
+        viewBox="0 0 16 16"
+        width={20}
+        height={20}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
         {full ? (
           <path d="M6 1v5H1M10 15v-5h5" strokeLinecap="round" strokeLinejoin="round" />
         ) : (
           <path d="M1 6V1h5M15 10v5h-5" strokeLinecap="round" strokeLinejoin="round" />
         )}
       </svg>
-    </button>
+    </ActionIcon>
   );
 }

@@ -9,6 +9,7 @@
 // what anybody hit.
 
 import { useOnboardingCamera } from '../../hooks/useOnboardingCamera';
+import { List, Progress, Stack, Text } from '@mantine/core';
 import { BOARD_POINTS, qualityOf, type AimQuality, type AimReading } from '../../hooks/useAimPreview';
 import { Slider } from './Slider';
 
@@ -18,15 +19,15 @@ interface AimStepProps {
 }
 
 const QUALITY_BAR: Record<AimQuality, string> = {
-  none: 'bg-red-500',
-  partial: 'bg-orange-400',
-  full: 'bg-green-500',
+  none: 'red',
+  partial: 'orange',
+  full: 'green',
 };
 
 const QUALITY_TEXT: Record<AimQuality, string> = {
-  none: 'text-red-400',
-  partial: 'text-orange-300',
-  full: 'text-green-400',
+  none: 'red.4',
+  partial: 'orange.3',
+  full: 'green.4',
 };
 
 export function AimStep({ reading, camera }: AimStepProps) {
@@ -35,36 +36,31 @@ export function AimStep({ reading, camera }: AimStepProps) {
 
   return (
     <>
-      <div className="flex flex-col gap-1" data-testid="aim-quality" data-points={points} data-quality={quality}>
+      <Stack gap={6} data-testid="aim-quality" data-points={points} data-quality={quality}>
         {/* A bar rather than a number, because it is read while holding a phone at arm's length and
             moving it: which way it is going matters more than what it says. */}
-        <div className="h-2 w-full rounded-full bg-gray-800 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-[width] duration-300 ${QUALITY_BAR[quality]}`}
-            style={{ width: `${(points / BOARD_POINTS) * 100}%` }}
-          />
-        </div>
-        <p className={`text-sm ${QUALITY_TEXT[quality]}`}>
+        <Progress value={(points / BOARD_POINTS) * 100} color={QUALITY_BAR[quality]} size="sm" radius="xl" />
+        <Text fz="sm" c={QUALITY_TEXT[quality]}>
           {quality === 'none'
             ? 'Not enough of the board yet.'
             : quality === 'full'
               ? 'All 8 board points — this is what it wants.'
               : `${points} of ${BOARD_POINTS} board points.`}
-        </p>
-      </div>
+        </Text>
+      </Stack>
 
       {/* Where to stand it. The first two lines are requirements rather than preferences — a camera
           square-on to the board is the one view this reads badly — so they are written as what to do
           and not as what is allowed. The rest are without numbers on purpose: a tolerance invented to
           sound precise is worse than a sentence somebody can judge for themselves. */}
-      <p className="text-sm text-gray-400">It needs to see the board from an angle — across and from above or below.</p>
-      <ul className="flex flex-col gap-1 text-sm text-gray-400 list-disc pl-5">
-        <li>Off to one side, not straight in front of the board.</li>
-        <li>Above or below the bull, not level with it.</li>
-        <li>Out of the way of the throw.</li>
-        <li>Somewhere a bounced dart cannot reach it.</li>
-        <li>Zoom in until the top and bottom of the board touch the edges of the frame, rather more than less.</li>
-      </ul>
+      <Text fz="sm" c="gray.4">It needs to see the board from an angle — across and from above or below.</Text>
+      <List fz="sm" c="gray.4" spacing={4} pl="md">
+        <List.Item>Off to one side, not straight in front of the board.</List.Item>
+        <List.Item>Above or below the bull, not level with it.</List.Item>
+        <List.Item>Out of the way of the throw.</List.Item>
+        <List.Item>Somewhere a bounced dart cannot reach it.</List.Item>
+        <List.Item>Zoom in until the top and bottom of the board touch the edges of the frame, rather more than less.</List.Item>
+      </List>
 
       {/* Here as well as on the camera step, because one of those lines is about zoom and there is
           no way back. Absent where the platform does not expose it, as before. */}

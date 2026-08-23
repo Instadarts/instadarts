@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Alert, Button, Center, Stack, Text, TextInput, Title } from '@mantine/core';
+import { AppCard } from '../../components/AppCard';
 
 interface JoinViewProps {
   onPair: (code: string) => void;
@@ -38,39 +40,41 @@ export function JoinView({ onPair, pairing, badCode, serverFull, connected }: Jo
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 gap-5">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold text-green-400">Scoring device</h1>
-        <p className="text-gray-500 mt-1">Automated darts scoring.</p>
-      </div>
+    <Center mih="100dvh" p="md" className="app-main">
+      <AppCard padding="lg" centered className="scorer-column">
+        <Stack align="center" gap="lg" ta="center">
+          <Stack gap={2}>
+            <Title order={1} c="green.4">Scoring device</Title>
+            <Text c="dimmed">Automated darts scoring.</Text>
+          </Stack>
 
-      <p className="text-gray-400 text-sm text-center max-w-xs">
-        In InstaDarts, open the top bar and choose <em>Pair scoring device</em>.
-      </p>
+          <Text c="gray.4" fz="sm" maw="20rem">
+            In InstaDarts, open the top bar and choose <em>Pair scoring device</em>.
+          </Text>
 
-      <input
-        type="text"
-        inputMode="text"
-        autoCapitalize="characters"
-        autoComplete="off"
-        value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH))}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        placeholder="CODE"
-        className="w-56 px-4 py-3 text-center text-3xl font-mono tracking-[0.3em] bg-gray-900 border border-gray-700 rounded-lg focus:border-green-500 focus:outline-none"
-      />
+          <TextInput
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            autoComplete="off"
+            value={code}
+            onChange={(event) => setCode(event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH))}
+            onKeyDown={(event) => event.key === 'Enter' && submit()}
+            placeholder="CODE"
+            w="14rem"
+            size="xl"
+            styles={{ input: { textAlign: 'center', fontFamily: 'var(--mantine-font-family-monospace)', letterSpacing: '0.3em' } }}
+          />
 
-      {badCode && <p className="text-red-400 text-sm">That code was not accepted. Ask for a new one.</p>}
-      {serverFull && <p className="text-yellow-400 text-sm">The server is full. Try again in a moment.</p>}
-      {!connected && <p className="text-yellow-400 text-sm">Connecting to server…</p>}
+          {badCode && <Alert color="red">That code was not accepted. Ask for a new one.</Alert>}
+          {serverFull && <Alert color="yellow">The server is full. Try again in a moment.</Alert>}
+          {!connected && <Alert color="yellow">Connecting to server…</Alert>}
 
-      <button
-        onClick={submit}
-        disabled={!ready}
-        className="px-8 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
-      >
-        {pairing ? 'Pairing…' : 'Pair'}
-      </button>
-    </div>
+          <Button size="lg" onClick={submit} disabled={!ready} loading={pairing}>
+            {pairing ? 'Pairing…' : 'Pair'}
+          </Button>
+        </Stack>
+      </AppCard>
+    </Center>
   );
 }

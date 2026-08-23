@@ -1,7 +1,7 @@
 import type { MantineThemeOverride } from '@mantine/core';
 
-/** One small theme replaces repeated colour, radius and font decisions throughout the frontend. */
-export const frontendTheme: MantineThemeOverride = {
+/** Shared application theme for the frontend and scoring device. */
+export const appTheme: MantineThemeOverride = {
   primaryColor: 'green',
   primaryShade: 6,
   defaultRadius: 'md',

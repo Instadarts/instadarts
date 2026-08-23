@@ -5,6 +5,7 @@
 // still through a benchmark. What this step settles is which lens the rest of setup measures.
 
 import type { useOnboardingCamera } from '../../hooks/useOnboardingCamera';
+import { Button, NativeSelect, Text } from '@mantine/core';
 import { Slider } from './Slider';
 
 interface CameraStepProps {
@@ -16,36 +17,37 @@ interface CameraStepProps {
 export function CameraStep({ camera, onContinue }: CameraStepProps) {
   return (
     <>
-      {camera.phase === 'checking' && <p className="text-sm text-gray-500">Looking for a camera…</p>}
+      {camera.phase === 'checking' && <Text fz="sm" c="dimmed">Looking for a camera…</Text>}
 
       {camera.phase === 'ask' && (
         <>
-          <p className="text-sm text-gray-400">
+          <Text fz="sm" c="gray.4">
             This device scores by watching the board, so it needs its camera. Your browser will ask
             you to allow it.
-          </p>
-          <button
+          </Text>
+          <Button
             onClick={() => void camera.ask()}
-            className="self-start px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
+            style={{ alignSelf: 'flex-start' }}
           >
             Allow camera
-          </button>
+          </Button>
         </>
       )}
 
-      {camera.phase === 'opening' && <p className="text-sm text-gray-500">Starting the camera…</p>}
+      {camera.phase === 'opening' && <Text fz="sm" c="dimmed">Starting the camera…</Text>}
 
       {camera.phase === 'failed' && (
         <>
-          <p className="text-sm text-red-400" data-testid="onboarding-camera-error">{camera.error}</p>
+          <Text fz="sm" c="red.4" data-testid="onboarding-camera-error">{camera.error}</Text>
           {/* Worth offering even after a refusal: the fix is in browser settings, and somebody who
               has just made it wants to come straight back here rather than start again. */}
-          <button
+          <Button
+            variant="default"
             onClick={() => void camera.ask()}
-            className="self-start px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+            style={{ alignSelf: 'flex-start' }}
           >
             Try again
-          </button>
+          </Button>
         </>
       )}
 
@@ -54,18 +56,12 @@ export function CameraStep({ camera, onContinue }: CameraStepProps) {
           {/* Only worth a control where there is a choice to make. A phone with one camera is not
               asked which one. */}
           {camera.cameras.length > 1 && (
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Camera</span>
-              <select
+            <NativeSelect
+              label="Camera"
                 value={camera.selected}
-                onChange={(e) => void camera.choose(e.target.value)}
-                className="px-3 py-2 bg-gray-950 border border-gray-700 rounded"
-              >
-                {camera.cameras.map((choice) => (
-                  <option key={choice.deviceId} value={choice.deviceId}>{choice.label}</option>
-                ))}
-              </select>
-            </label>
+              onChange={(event) => void camera.choose(event.currentTarget.value)}
+              data={camera.cameras.map((choice) => ({ value: choice.deviceId, label: choice.label }))}
+            />
           )}
 
           {/* Optional, and absent entirely where the platform does not expose zoom — iOS mostly
@@ -82,16 +78,16 @@ export function CameraStep({ camera, onContinue }: CameraStepProps) {
             />
           )}
 
-          <p className="text-sm text-gray-400">
+          <Text fz="sm" c="gray.4">
             Next, we measure the performance of this device, pick the right settings, and tell you if the device works. It takes about half a minute.
-          </p>
-          <button
+          </Text>
+          <Button
             onClick={onContinue}
             data-testid="onboarding-start-checks"
-            className="self-start px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
+            style={{ alignSelf: 'flex-start' }}
           >
             Start checks
-          </button>
+          </Button>
         </>
       )}
     </>

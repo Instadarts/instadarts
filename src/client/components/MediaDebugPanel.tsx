@@ -41,8 +41,6 @@ interface Props {
   publisherOffer?: () => VideoOfferStats | null;
   /** The feeds this frontend is watching. */
   feed?: VideoFeed;
-  /** The scorer retains its existing Tailwind presentation; the regular frontend uses Mantine. */
-  variant?: 'scorer' | 'frontend';
 }
 
 /** Median and worst of a set of measurements. The spread is the interesting half. */
@@ -52,7 +50,7 @@ function summarise(values: number[]): string {
   return `${sorted[Math.floor(sorted.length / 2)]}/${sorted[sorted.length - 1]}ms`;
 }
 
-export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed, variant = 'scorer' }: Props) {
+export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publisherStats, publisherOffer, feed }: Props) {
   // Read once and kept. `e2eEnabled()` reads the query string, and react-router's `navigate()`
   // drops it the moment the app moves off "/" — so asking again later would answer no.
   const [visible] = useState(() => e2eEnabled());
@@ -153,8 +151,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
 
   if (!visible) return null;
 
-  if (variant === 'frontend') {
-    return (
+  return (
       <Box
         pos="fixed"
         bottom={32}
@@ -201,7 +198,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                 </Text>
               )}
 
-              <PublisherRow stats={publisherStats} offer={publisherOffer} open={open} frontend />
+              <PublisherRow stats={publisherStats} offer={publisherOffer} open={open} />
               {feed?.feeds.map(({ peerId, feedId, label, status, choice }) => (
                 <ReceiverRow
                   key={feedId}
@@ -212,7 +209,6 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                   choice={choice}
                   feed={feed}
                   open={open}
-                  frontend
                 />
               ))}
 
@@ -244,102 +240,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
           </Paper>
         )}
       </Box>
-    );
-  }
-
-  return (
-    <div className="fixed bottom-8 left-0 z-50 m-2 text-xs font-mono" data-testid="media-debug">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded border border-gray-700 text-gray-300"
-      >
-        media · {links.filter((l) => l.state === 'connected').length}/{links.length}
-        {!active && ' · off'}
-      </button>
-
-      {open && (
-        <div className="mt-1 p-2 bg-gray-900 border border-gray-700 rounded max-w-[90vw] overflow-x-auto">
-          <p className="text-gray-500">
-            self {selfId?.slice(0, 8) ?? '—'} ·{' '}
-            {/* Hover for the urls themselves: `internal` has been resolved against this page's own
-                host by now, so this is the only place to see what it became — or that it was
-                dropped because the server had nothing listening. */}
-            <span title={config?.iceServers.map((s) => s.urls).join('\n') || 'host candidates only'}>
-              ice {config?.iceServers.length ?? 0}
-            </span>
-            {' '}· {config?.enabled ? 'allowed' : 'disabled'}
-          </p>
-          {links.length === 0 && <p className="text-gray-600 mt-1">no peers offered</p>}
-
-          {/* Stills, median/worst. The spread is what says whether a capture is waiting on something
-              else rather than simply being expensive. */}
-          {(stillTimings?.current?.length ?? 0) > 0 && (
-            <p className="mt-1 text-gray-500">
-              capture ·
-              {' '}wait {summarise(stillTimings!.current.map((t) => t.waitMs))}
-              {' '}draw {summarise(stillTimings!.current.map((t) => t.drawMs))}
-              {' '}encode {summarise(stillTimings!.current.map((t) => t.encodeMs))}
-              {' '}· {Math.round(stillTimings!.current[stillTimings!.current.length - 1].bytes / 1024)}kB
-            </p>
-          )}
-          {(evidenceTimings?.current?.length ?? 0) > 0 && (
-            <p className="mt-1 text-gray-500">
-              evidence · round trip {summarise(evidenceTimings!.current.map((t) => t.roundTripMs))}
-            </p>
-          )}
-
-          {/* Video statistics only. The production match surface owns the picture. */}
-          <PublisherRow stats={publisherStats} offer={publisherOffer} open={open} />
-          {feed?.feeds.map(({ peerId, feedId, label, status, choice }) => (
-            <ReceiverRow
-              key={feedId}
-              peerId={peerId}
-              feedId={feedId}
-              label={label}
-              status={status}
-              choice={choice}
-              feed={feed}
-              open={open}
-            />
-          ))}
-          {links.map((l) => {
-            const s = stats[l.peer.peerId] ?? {};
-            return (
-              <div key={l.peer.peerId} className="mt-1 flex gap-2 whitespace-nowrap">
-                <span className={stateColor(l.state)}>{l.state}</span>
-                <span className="text-gray-400">{l.peer.kind}</span>
-                <span className="text-gray-600">{l.peer.role}</span>
-                <span className="text-gray-300">{l.peer.peerId.slice(0, 8)}</span>
-                <span className="text-gray-600">{l.peer.polite ? 'polite' : 'impolite'}</span>
-                <span className="text-gray-600">{l.peer.send ? '↓' : ''}{l.peer.recv ? '↑' : ''}</span>
-                {s.localCandidateType && (
-                  <span className="text-gray-500">{s.localCandidateType}→{s.remoteCandidateType}</span>
-                )}
-                {s.currentRoundTripTime !== undefined && (
-                  <span className="text-gray-500">{Math.round(s.currentRoundTripTime * 1000)}ms</span>
-                )}
-                {/* An ICE server that answered and refused. Not the same as one that is unreachable,
-                    which raises nothing at all and shows up as a link that took two seconds to
-                    negotiate. The link may well still say `connected` either way: host candidates
-                    carry a LAN pair whether or not anything else worked. */}
-                {s.lastIceError && (
-                  <span className="text-amber-600" title={`${s.iceErrors} ICE server errors`}>
-                    ice {s.lastIceError}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
-}
-
-function stateColor(state: string): string {
-  if (state === 'connected') return 'text-green-400';
-  if (state === 'failed' || state === 'closed') return 'text-red-400';
-  return 'text-yellow-400';
 }
 
 function stateMantineColor(state: string): string {
@@ -359,7 +260,7 @@ function stateMantineColor(state: string): string {
  * the one to be alarmed by: those are frames no link would take at all, nearly always keyframes, and
  * a picture whose keyframes are not arriving is a picture that comes apart on its own.
  */
-function PublisherRow({ stats, offer, open, frontend = false }: { stats?: () => PublisherStats | null; offer?: () => VideoOfferStats | null; open: boolean; frontend?: boolean }) {
+function PublisherRow({ stats, offer, open }: { stats?: () => PublisherStats | null; offer?: () => VideoOfferStats | null; open: boolean }) {
   const [shown, setShown] = useState<{ stats: PublisherStats | null; offer: VideoOfferStats | null } | null>(null);
   useEffect(() => {
     if (!open || (!stats && !offer)) return;
@@ -373,34 +274,21 @@ function PublisherRow({ stats, offer, open, frontend = false }: { stats?: () => 
   const counters = shown.stats;
   const camCanvas = getCameraCanvas();
   const canvasLabel = camCanvas instanceof HTMLCanvasElement ? 'html' : camCanvas ? 'offscreen' : null;
-  if (frontend) {
-    return (
-      <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-        offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
-        {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
-        {canvasLabel && <Text span c="gray.6"> · {canvasLabel}</Text>}
-        {counters && counters.dropped > 0 && <Text span c="yellow.5"> · {counters.dropped} dropped</Text>}
-        {counters && counters.oversize > 0 && <Text span c="red.4"> · {counters.oversize} oversize</Text>}
-        {counters && counters.missed > 0 && <Text span c="gray.6"> · {counters.missed} missed</Text>}
-        {counters?.error && <Text span c="red.4"> · {counters.error}</Text>}
-      </Text>
-    );
-  }
   return (
-    <p className="mt-1 text-gray-500">
+    <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
       {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
-      {canvasLabel && <span className="text-gray-600"> · {canvasLabel}</span>}
-      {counters && counters.dropped > 0 && <span className="text-yellow-500"> · {counters.dropped} dropped</span>}
-      {counters && counters.oversize > 0 && <span className="text-red-400"> · {counters.oversize} oversize</span>}
-      {counters && counters.missed > 0 && <span className="text-gray-600"> · {counters.missed} missed</span>}
-      {counters?.error && <span className="text-red-400"> · {counters.error}</span>}
-    </p>
+      {canvasLabel && <Text span c="gray.6"> · {canvasLabel}</Text>}
+      {counters && counters.dropped > 0 && <Text span c="yellow.5"> · {counters.dropped} dropped</Text>}
+      {counters && counters.oversize > 0 && <Text span c="red.4"> · {counters.oversize} oversize</Text>}
+      {counters && counters.missed > 0 && <Text span c="gray.6"> · {counters.missed} missed</Text>}
+      {counters?.error && <Text span c="red.4"> · {counters.error}</Text>}
+    </Text>
   );
 }
 
 /** One receiver's counters, polled only while the diagnostics panel is open. */
-function ReceiverRow({ peerId, feedId, label, status, choice, feed, open, frontend = false }: {
+function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
   peerId: string;
   feedId: string;
   label?: string;
@@ -408,7 +296,6 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open, fronte
   choice: string;
   feed: VideoFeed;
   open: boolean;
-  frontend?: boolean;
 }) {
   const [shown, setShown] = useState<{ decoded: number; dropped: number; gaps: number } | null>(null);
 
@@ -424,23 +311,12 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open, fronte
     return () => clearInterval(handle);
   }, [open, feed, peerId]);
 
-  if (frontend) {
-    return (
-      <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-        offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
-        {shown && ` · ${shown.decoded}f`}
-        {shown && shown.gaps > 0 && <Text span c="yellow.5"> · {shown.gaps} gaps</Text>}
-        {shown && shown.dropped > 0 && <Text span c="gray.6"> · {shown.dropped} dropped</Text>}
-      </Text>
-    );
-  }
-
   return (
-    <p className="mt-1 text-gray-500">
+    <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
       {shown && ` · ${shown.decoded}f`}
-      {shown && shown.gaps > 0 && <span className="text-yellow-500"> · {shown.gaps} gaps</span>}
-      {shown && shown.dropped > 0 && <span className="text-gray-600"> · {shown.dropped} dropped</span>}
-    </p>
+      {shown && shown.gaps > 0 && <Text span c="yellow.5"> · {shown.gaps} gaps</Text>}
+      {shown && shown.dropped > 0 && <Text span c="gray.6"> · {shown.dropped} dropped</Text>}
+    </Text>
   );
 }

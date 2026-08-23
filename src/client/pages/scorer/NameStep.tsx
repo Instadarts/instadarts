@@ -8,6 +8,8 @@
 // Nothing here is required. A phone left nameless is listed by its position, which is a worse answer
 // than a name and a perfectly good one.
 
+import { Button, Text, TextInput } from '@mantine/core';
+
 interface NameStepProps {
   name: string;
   /** Per keystroke: this is what saves it. Same path the scoring screen's field uses. */
@@ -22,29 +24,28 @@ const MAX_LENGTH = 20;
 export function NameStep({ name, onRename, onContinue }: NameStepProps) {
   return (
     <>
-      <p className="text-sm text-gray-400">
+      <Text fz="sm" c="gray.4">
         Give this scoring device a name.
-      </p>
+      </Text>
 
-      <input
+      <TextInput
         type="text"
         value={name}
-        onChange={(e) => onRename(e.target.value.slice(0, MAX_LENGTH))}
+        onChange={(event) => onRename(event.currentTarget.value.slice(0, MAX_LENGTH))}
         // Enter is what a phone keyboard offers instead of reaching for the button below it.
-        onKeyDown={(e) => e.key === 'Enter' && onContinue()}
+        onKeyDown={(event) => event.key === 'Enter' && onContinue()}
         placeholder="Board camera"
         autoFocus
         data-testid="onboarding-name"
-        className="w-full px-3 py-2 bg-gray-950 border border-gray-700 rounded focus:border-green-500 focus:outline-none"
       />
 
-      <button
+      <Button
         onClick={onContinue}
         data-testid="onboarding-name-continue"
-        className="self-start px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold transition-colors"
+        style={{ alignSelf: 'flex-start' }}
       >
         Continue
-      </button>
+      </Button>
     </>
   );
 }

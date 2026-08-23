@@ -1,3 +1,5 @@
+import { Group, Slider as MantineSlider, Stack, Text } from '@mantine/core';
+
 interface SliderProps {
   label: string;
   value: number;
@@ -13,22 +15,22 @@ interface SliderProps {
 /** A labelled range with its value read out beside it. */
 export function Slider({ label, value, min, max, step, format, onChange, disabled, hint }: SliderProps) {
   return (
-    <label className={`flex flex-col gap-1 text-sm ${disabled ? 'opacity-50' : ''}`}>
-      <span className="flex justify-between">
-        <span>{label}</span>
-        <span className="font-mono text-gray-400">{format(value)}</span>
-      </span>
-      <input
-        type="range"
+    <Stack gap={6} opacity={disabled ? 0.5 : 1}>
+      <Group justify="space-between" gap="sm">
+        <Text fz="sm">{label}</Text>
+        <Text fz="sm" ff="monospace" c="gray.4">{format(value)}</Text>
+      </Group>
+      <MantineSlider
+        aria-label={label}
         min={min}
         max={max}
         step={step}
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full"
+        onChange={onChange}
+        thumbSize={20}
       />
-      {hint && <span className="text-xs text-gray-500">{hint}</span>}
-    </label>
+      {hint && <Text fz="xs" c="dimmed">{hint}</Text>}
+    </Stack>
   );
 }

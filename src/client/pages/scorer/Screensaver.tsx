@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Box, Text } from '@mantine/core';
 import { e2eNumber } from '../../lib/e2e';
 
 /** The reference's numbers, field-worn, and there is no reason to differ. */
@@ -105,26 +106,34 @@ export function Screensaver({ enabled, suppressed }: ScreensaverProps) {
   if (!asleep) return null;
 
   return (
-    <div
+    <Box
       // Still covering the screen once revealed, and still opaque to pointers — it just stopped
       // being visible. That gap is the whole trick: the screen responds at once, and the press that
       // woke it has nowhere else to go.
       data-testid="screensaver"
-      className={`fixed inset-0 z-50 ${revealed ? 'bg-transparent' : 'bg-black'}`}
+      pos="fixed"
+      inset={0}
+      style={{ zIndex: 50, background: revealed ? 'transparent' : '#000' }}
       onPointerDown={() => setRevealed(true)}
       onPointerUp={dismiss}
       // A press that turns into a scroll or is taken over by the browser never gets its `pointerup`.
       onPointerCancel={dismiss}
     >
       {!revealed && (
-        <div
-          className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-1000 text-center"
-          style={{ left: `${drift.x}%`, top: `${drift.y}%` }}
+        <Box
+          pos="absolute"
+          style={{
+            left: `${drift.x}%`,
+            top: `${drift.y}%`,
+            transform: 'translate(-50%, -50%)',
+            transition: 'all 1s',
+            textAlign: 'center',
+          }}
         >
-          <p className="text-gray-800">InstaDarts</p>
-        </div>
+          <Text c="dark.5">InstaDarts</Text>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }
 

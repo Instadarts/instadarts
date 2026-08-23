@@ -220,7 +220,7 @@ export function App() {
   }, [lobby, devices.devices, devices.setCamera]);
 
   return (
-    <AppShell header={{ height: 52 }} padding={0} className="frontend-app-main">
+    <AppShell header={{ height: 52 }} padding={0} className="app-main">
       <TopBar
         connected={connected}
         devices={devices.devices}
@@ -302,7 +302,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </AppShell.Main>
-      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} variant="frontend" />
+      <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} />
       {mediaSettingUp && (
         <Overlay fixed zIndex={500} backgroundOpacity={1} color="var(--mantine-color-dark-9)" data-testid="media-setup-overlay">
           <Center h="100%">

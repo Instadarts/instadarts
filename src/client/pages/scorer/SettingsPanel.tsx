@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { Button, Divider, Group, NativeSelect, NumberInput, Stack, Switch, Text } from '@mantine/core';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { MediaTier } from '../../../shared/media';
 import { resetSettings, saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
 import { GRACE_MINUTES, STANDBY_MINUTES, type MinuteBounds } from '../../lib/scorerPower';
-import { Slider } from './Slider';
+import { AppCard } from '../../components/AppCard';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -36,149 +37,105 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
   };
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-2 p-4 bg-gray-900 rounded-lg">
-      <label className="flex flex-col gap-1 text-sm">
-        <span>Detection model</span>
-        <select
+    <Stack gap="md">
+      <AppCard title="Vision">
+        <Stack gap="md">
+          <NativeSelect
+            label="Detection model"
           value={vision.settings.model}
-          onChange={(e) => void vision.setModel(e.target.value)}
-          className="px-3 py-2 bg-gray-950 border border-gray-700 rounded"
-        >
-          {Object.entries(MODEL_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
-      </label>
+            onChange={(event) => void vision.setModel(event.currentTarget.value)}
+            data={Object.entries(MODEL_LABELS).map(([value, label]) => ({ value, label }))}
+          />
 
-      {vision.cameraActive && !vision.zoomRange && (
-        <p className="text-sm text-gray-500">This camera does not expose a zoom control.</p>
-      )}
+          {vision.cameraActive && !vision.zoomRange && (
+            <Text fz="sm" c="dimmed">This camera does not expose a zoom control.</Text>
+          )}
 
-      <div className="hidden">
-        <Slider
-          label="Board keypoint confidence"
-          value={vision.settings.boardThreshold}
-          min={0.3}
-          max={0.95}
-          step={0.05}
-          format={(v) => v.toFixed(2)}
-          onChange={(v) => vision.setThresholds({ board: v })}
-        />
-      </div>
+          <Group justify="space-between" gap="sm" wrap="nowrap">
+            <Text fz="sm">
+              Lens correction{' '}
+              <Text span ff="monospace" c="gray.4">{lensValue > 0 ? `+${lensValue}` : lensValue}</Text>
+            </Text>
+            <Button variant="default" size="compact-sm" onClick={onCalibrate} disabled={!vision.cameraActive}>
+              Calibrate lens
+            </Button>
+          </Group>
 
-      <div className="hidden">
-        <Slider
-          label="Dart tip confidence"
-          value={vision.settings.tipThreshold}
-          min={0.3}
-          max={0.95}
-          step={0.05}
-          format={(v) => v.toFixed(2)}
-          onChange={(v) => vision.setThresholds({ tip: v })}
-        />
-      </div>
+          <Switch
+            label="Motion overlay"
+            description="Highlights tiles the motion detector sees changing. Turn off on slower devices."
+            checked={settings.motionAnimations}
+            onChange={(event) => update({ motionAnimations: event.currentTarget.checked })}
+          />
+        </Stack>
+      </AppCard>
 
-      <div className="flex items-center justify-between text-sm">
-        <span>
-          Lens correction
-          <span className="ml-2 font-mono text-gray-400">{lensValue > 0 ? `+${lensValue}` : lensValue}</span>
-        </span>
-        <button
-          onClick={onCalibrate}
-          disabled={!vision.cameraActive}
-          className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 rounded transition-colors"
-        >
-          Calibrate lens
-        </button>
-      </div>
+      <AppCard title="Compute diagnostics">
+        <Stack gap="sm">
+          <Text fz="sm" c="dimmed">Override WebGPU paths independently on this device.</Text>
+          <CpuToggle
+            label="Motion detector"
+            checked={settings.forceCpuMotion}
+            onChange={(forceCpuMotion) => updateCompute({ forceCpuMotion })}
+          />
+          <CpuToggle
+            label="Preprocessing"
+            checked={settings.forceCpuPreprocessing}
+            onChange={(forceCpuPreprocessing) => updateCompute({ forceCpuPreprocessing })}
+          />
+          <CpuToggle
+            label="Inference"
+            checked={settings.forceCpuInference}
+            onChange={(forceCpuInference) => updateCompute({ forceCpuInference })}
+          />
+        </Stack>
+      </AppCard>
 
-      <label className="flex items-center justify-between text-sm">
-        <span>
-          Screensaver
-          <span className="block text-xs text-gray-500">Dims after 30s. Scoring carries on underneath.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.screensaver}
-          onChange={(e) => update({ screensaver: e.target.checked })}
-          className="w-5 h-5"
-        />
-      </label>
+      <AppCard title="Sharing and power">
+        <Stack gap="md">
+          <Switch
+            label="Screensaver"
+            description="Dims after 30s. Scoring carries on underneath."
+            checked={settings.screensaver}
+            onChange={(event) => update({ screensaver: event.currentTarget.checked })}
+          />
 
-      <div className="py-2 border-y border-gray-800 flex flex-col gap-2">
-        <span className="text-sm font-medium">
-          CPU diagnostics
-          <span className="block text-xs font-normal text-gray-500">Override WebGPU paths independently on this device.</span>
-        </span>
-        <CpuToggle
-          label="Motion detector"
-          checked={settings.forceCpuMotion}
-          onChange={(forceCpuMotion) => updateCompute({ forceCpuMotion })}
-        />
-        <CpuToggle
-          label="Preprocessing"
-          checked={settings.forceCpuPreprocessing}
-          onChange={(forceCpuPreprocessing) => updateCompute({ forceCpuPreprocessing })}
-        />
-        <CpuToggle
-          label="Inference"
-          checked={settings.forceCpuInference}
-          onChange={(forceCpuInference) => updateCompute({ forceCpuInference })}
-        />
-      </div>
+          <NativeSelect
+            label="Share this view"
+            description="The most this device will send. Whether anyone watches is decided on the paired frontend."
+            value={settings.media}
+            onChange={(event) => {
+              const media = event.currentTarget.value as MediaTier;
+              update({ media });
+              onMediaChange(media);
+            }}
+            data={[
+              { value: 'disabled', label: 'Nothing — this camera is not shared' },
+              { value: 'stills', label: 'Stills only' },
+              { value: 'video', label: 'Live video' },
+            ]}
+          />
 
-      <label className="flex items-center justify-between text-sm">
-        <span>
-          Motion overlay
-          <span className="block text-xs text-gray-500">Highlights tiles the motion detector sees changing. Turn off on slower devices.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.motionAnimations}
-          onChange={(e) => update({ motionAnimations: e.target.checked })}
-          className="w-5 h-5"
-        />
-      </label>
+          <Minutes
+            label="Camera off after"
+            hint="Idle time outside a match. A match starting turns it back on."
+            value={settings.cameraOffAfterMinutes}
+            bounds={GRACE_MINUTES}
+            onChange={(v) => update({ cameraOffAfterMinutes: v })}
+          />
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span>
-          Share this view
-          <span className="block text-xs text-gray-500">
-            The most this device will send. Whether anyone actually watches is decided on the
-            frontend that paired it.
-          </span>
-        </span>
-        <select
-          value={settings.media}
-          onChange={(e) => {
-            const media = e.target.value as MediaTier;
-            update({ media });
-            onMediaChange(media);
-          }}
-          className="px-3 py-2 bg-gray-950 border border-gray-700 rounded"
-        >
-          <option value="disabled">Nothing — this camera is not shared</option>
-          <option value="stills">Stills only</option>
-          <option value="video">Live video</option>
-        </select>
-      </label>
+          <Minutes
+            label="Sleep after"
+            hint="Releases the screen and disconnects. Only a tap on this phone brings it back."
+            value={settings.standbyAfterMinutes}
+            bounds={STANDBY_MINUTES}
+            onChange={(v) => update({ standbyAfterMinutes: v })}
+          />
+        </Stack>
+      </AppCard>
 
-      <Minutes
-        label="Camera off after"
-        hint="Idle time outside a match. A match starting turns it back on."
-        value={settings.cameraOffAfterMinutes}
-        bounds={GRACE_MINUTES}
-        onChange={(v) => update({ cameraOffAfterMinutes: v })}
-      />
-
-      <Minutes
-        label="Sleep after"
-        hint="Releases the screen and disconnects. Only a tap on this phone brings it back."
-        value={settings.standbyAfterMinutes}
-        bounds={STANDBY_MINUTES}
-        onChange={(v) => update({ standbyAfterMinutes: v })}
-      />
-
+      <AppCard title="Device">
+        <Stack gap="md">
       {/* Start over: `resetSettings` keeps the name, the screensaver, both timers and what this
           phone is willing to share, and puts back everything the self-test is about to work out for
           itself. Then a reload, which is what makes it safe — a fresh page rebuilds the vision
@@ -196,6 +153,8 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         }}
       />
 
+          <Divider />
+
       {/* Letting go of the browser this device is paired to, so it can be paired to another one.
           There is no undo: the old browser is not told and cannot give the pairing back, so a
           mis-tap costs a trip to the other screen for a fresh code. Everything else on this panel
@@ -209,7 +168,9 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
         danger
         onConfirm={onUnpair}
       />
-    </div>
+        </Stack>
+      </AppCard>
+    </Stack>
   );
 }
 
@@ -230,52 +191,35 @@ function ConfirmRow({ label, hint, confirmHint, action, danger, onConfirm }: Con
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <div className="pt-3 border-t border-gray-800 flex items-center justify-between gap-3 text-sm">
-      <span>
-        {label}
-        <span className="block text-xs text-gray-500">{confirming ? confirmHint : hint}</span>
-      </span>
+    <Group justify="space-between" gap="md" align="center" wrap="nowrap">
+      <Stack gap={2}>
+        <Text fz="sm">{label}</Text>
+        <Text fz="xs" c="dimmed">{confirming ? confirmHint : hint}</Text>
+      </Stack>
       {confirming ? (
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => setConfirming(false)}
-            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`px-3 py-1 rounded transition-colors ${danger ? 'bg-red-700 hover:bg-red-600' : 'bg-green-700 hover:bg-green-600'}`}
-          >
+        <Group gap="xs" wrap="nowrap">
+          <Button variant="default" size="compact-sm" onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button size="compact-sm" color={danger ? 'red' : 'green'} onClick={onConfirm}>
             {action}
-          </button>
-        </div>
+          </Button>
+        </Group>
       ) : (
-        <button
-          onClick={() => setConfirming(true)}
-          className="px-3 py-1 shrink-0 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-        >
+        <Button variant="default" size="compact-sm" onClick={() => setConfirming(true)}>
           {action}
-        </button>
+        </Button>
       )}
-    </div>
+    </Group>
   );
 }
 
 function CpuToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex items-center justify-between text-sm">
-      <span>{label}</span>
-      <span className="flex items-center gap-2 text-xs text-gray-500">
-        Force CPU
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          className="w-5 h-5"
-        />
-      </span>
-    </label>
+    <Switch
+      label={label}
+      description="Force CPU"
+      checked={checked}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+    />
   );
 }
 
@@ -296,27 +240,21 @@ interface MinutesProps {
  */
 function Minutes({ label, hint, value, bounds, onChange }: MinutesProps) {
   return (
-    <label className="flex items-center justify-between gap-3 text-sm">
-      <span>
-        {label}
-        <span className="block text-xs text-gray-500">{hint}</span>
-      </span>
-      <span className="flex items-center gap-1 shrink-0">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={bounds.min}
-          max={bounds.max}
-          value={value}
-          aria-label={label}
-          // Committed on blur, not per keystroke: clamping mid-typing turns "30" into "3" and then
-          // into the floor before the second digit lands.
-          onChange={(e) => onChange(Number(e.target.value))}
-          onBlur={(e) => onChange(Math.min(Math.max(Math.round(Number(e.target.value)) || bounds.default, bounds.min), bounds.max))}
-          className="w-16 px-2 py-1 text-right bg-gray-950 border border-gray-700 rounded"
-        />
-        <span className="text-gray-500">min</span>
-      </span>
-    </label>
+    <NumberInput
+      label={label}
+      description={hint}
+      inputMode="numeric"
+      min={bounds.min}
+      max={bounds.max}
+      value={value}
+      aria-label={label}
+      allowDecimal={false}
+      clampBehavior="blur"
+      suffix=" min"
+      // Committed on blur, not per keystroke: clamping mid-typing turns "30" into "3" and then
+      // into the floor before the second digit lands.
+      onChange={(next) => onChange(Number(next))}
+      onBlur={(event) => onChange(Math.min(Math.max(Math.round(Number(event.currentTarget.value)) || bounds.default, bounds.min), bounds.max))}
+    />
   );
 }

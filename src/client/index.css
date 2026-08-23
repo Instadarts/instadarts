@@ -21,10 +21,14 @@ textarea {
   user-select: text;
 }
 
-html[data-app="frontend"],
-html[data-app="frontend"] body,
-html[data-app="frontend"] #root {
+html,
+body,
+#root {
   min-height: 100%;
+}
+
+body {
+  margin: 0;
 }
 
 .frontend-grid-host,
@@ -107,11 +111,16 @@ html[data-app="frontend"] #root {
   width: 10px;
 }
 
-.frontend-app-main {
+.app-main {
   min-height: 100dvh;
   background:
     radial-gradient(circle at 15% 0%, rgba(22, 101, 52, 0.12), transparent 34rem),
     var(--mantine-color-dark-9);
+}
+
+.scorer-column {
+  width: 100%;
+  max-width: 28rem;
 }
 
 html[data-app="frontend"] #root {

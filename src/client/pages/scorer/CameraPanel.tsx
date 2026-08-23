@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Alert, Box, Button, Group, NativeSelect, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { MOTION_GRID_COLS, MOTION_GRID_ROWS } from '../../vision/motion';
+import { AppCard } from '../../components/AppCard';
 import { Slider } from './Slider';
+import { SquareCameraPreview } from './SquareCameraViewport';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -39,174 +42,159 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
   }, [vision.cameraActive, vision.cameraLabel, vision.cameras]);
 
   return (
-    <div className="w-full max-w-md flex flex-col gap-3">
-      <div className="relative aspect-square w-full bg-black rounded-lg overflow-hidden">
-        <video
-          ref={refs.video}
-          id="preview"
-          playsInline
-          muted
-          autoPlay
-          className="w-full h-full object-cover object-center"
-        />
+    <AppCard title="Camera" padding={0}>
+      <Stack gap={0}>
+        <SquareCameraPreview videoRef={refs.video} id="preview">
         {/* Where the gate saw movement, one fading square per tile. The grid is pre-rendered once —
             CSS toggles opacity; no DOM is created or destroyed after mount. */}
         {motionAnimations && (
-        <div className="absolute inset-0 pointer-events-none">
-          {Array.from({ length: MOTION_GRID_ROWS * MOTION_GRID_COLS }, (_, i) => {
-            const row = Math.floor(i / MOTION_GRID_COLS);
-            const col = i % MOTION_GRID_COLS;
-            const active = vision.activeTiles.has(i);
-            return (
-              <div
-                key={i}
-                className={`absolute border border-green-400/70 bg-green-400/10 rounded-sm ${
-                  active ? 'opacity-100' : 'opacity-0 transition-opacity duration-[450ms]'
-                }`}
-                style={{
-                  left: `${(col / MOTION_GRID_COLS) * 100}%`,
-                  top: `${(row / MOTION_GRID_ROWS) * 100}%`,
-                  width: `${100 / MOTION_GRID_COLS}%`,
-                  height: `${100 / MOTION_GRID_ROWS}%`,
-                }}
-              />
-            );
-          })}
-        </div>
+          <Box pos="absolute" inset={0} style={{ pointerEvents: 'none' }}>
+            {Array.from({ length: MOTION_GRID_ROWS * MOTION_GRID_COLS }, (_, i) => {
+              const row = Math.floor(i / MOTION_GRID_COLS);
+              const col = i % MOTION_GRID_COLS;
+              const active = vision.activeTiles.has(i);
+              return (
+                <Box
+                  key={i}
+                  pos="absolute"
+                  style={{
+                    left: `${(col / MOTION_GRID_COLS) * 100}%`,
+                    top: `${(row / MOTION_GRID_ROWS) * 100}%`,
+                    width: `${100 / MOTION_GRID_COLS}%`,
+                    height: `${100 / MOTION_GRID_ROWS}%`,
+                    border: '1px solid rgba(74, 222, 128, 0.7)',
+                    borderRadius: 2,
+                    background: 'rgba(74, 222, 128, 0.1)',
+                    opacity: active ? 1 : 0,
+                    transition: active ? undefined : 'opacity 450ms',
+                  }}
+                />
+              );
+            })}
+          </Box>
         )}
         {vision.motion.fps !== null && (
-          <div className="absolute top-2 left-2 px-2 py-1 text-xs font-mono bg-black/60 rounded pointer-events-none flex items-center gap-1.5">
-            <span className="relative w-2 h-2 shrink-0">
+          <Group pos="absolute" top={8} left={8} gap={6} wrap="nowrap" px="xs" py={4} bg="rgba(0, 0, 0, 0.6)" style={{ borderRadius: 'var(--mantine-radius-sm)', pointerEvents: 'none' }}>
+            <Box pos="relative" w={8} h={8} style={{ flexShrink: 0 }}>
               {/* Bottom: gray when idle or triggered, yellow/amber when motion is pending. */}
-              <span className={`absolute inset-0 rounded-full ${
-                vision.motion.dot === 'pending' ? 'bg-yellow-300' :
-                vision.motion.dot === 'pendingLarge' ? 'bg-amber-600' :
-                'bg-gray-500'
-              }`} />
+              <Box pos="absolute" inset={0} bg={
+                vision.motion.dot === 'pending' ? 'yellow.3'
+                  : vision.motion.dot === 'pendingLarge' ? 'orange.7'
+                    : 'gray.6'
+              } style={{ borderRadius: '50%' }} />
               {/* Top: green when inference fired, fades out over 1s. */}
-              <span className={`absolute inset-0 rounded-full bg-green-400 ${
-                vision.motion.dot === 'triggered' ? 'opacity-100' :
-                vision.motion.dot === 'idle' || vision.motion.dot === 'pending' || vision.motion.dot === 'pendingLarge'
-                  ? 'opacity-0 transition-opacity duration-1000'
-                  : 'opacity-0'
-              }`} />
-            </span>
-            {vision.motion.mode === 'gpu-bitmap' ? 'gpu' : vision.motion.mode}-detector: {vision.motion.fps.toFixed(1)}fps
-          </div>
+              <Box
+                pos="absolute"
+                inset={0}
+                bg="green.4"
+                style={{
+                  borderRadius: '50%',
+                  opacity: vision.motion.dot === 'triggered' ? 1 : 0,
+                  transition: vision.motion.dot === 'triggered' ? undefined : 'opacity 1s',
+                }}
+              />
+            </Box>
+            <Text fz="xs" ff="monospace">
+              {vision.motion.mode === 'gpu-bitmap' ? 'gpu' : vision.motion.mode}-detector: {vision.motion.fps.toFixed(1)}fps
+            </Text>
+          </Group>
         )}
         {vision.cameraResolution && (
-          <div className="absolute top-2 right-2 px-2 py-1 text-xs font-mono bg-black/60 rounded pointer-events-none">
+          <Text pos="absolute" top={8} right={8} px="xs" py={4} fz="xs" ff="monospace" bg="rgba(0, 0, 0, 0.6)" style={{ borderRadius: 'var(--mantine-radius-sm)', pointerEvents: 'none' }}>
             {vision.cameraResolution}
-          </div>
+          </Text>
         )}
         {!vision.cameraActive && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <Stack pos="absolute" inset={0} align="center" justify="center" gap="sm" p="md">
             {/* A camera that was switched off on purpose is not a camera that failed, and the
                 difference is the whole answer to "why is this thing not working". */}
             {poweredDown && (
-              <p className="text-sm text-gray-400" data-testid="powered-down">
+              <Text fz="sm" c="gray.4" data-testid="powered-down">
                 Camera off to save battery
-              </p>
+              </Text>
             )}
-            <button
+            <Button
               onClick={() => void vision.startPreferred()}
               disabled={!vision.ready}
-              className="px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 rounded-lg font-semibold transition-colors"
+              size="lg"
             >
               {!vision.ready ? 'Loading model…' : poweredDown ? 'Resume' : 'Start camera'}
-            </button>
-          </div>
+            </Button>
+          </Stack>
         )}
-      </div>
+        </SquareCameraPreview>
 
-      {/* Zoom lives here rather than in the settings: framing the board is the first thing anyone
-          does at a mount, and it is judged against the picture directly above it. */}
-      {vision.cameraActive && vision.zoomRange && (
-        <Slider
-          label="Zoom"
-          value={vision.zoom}
-          min={vision.zoomRange.min}
-          max={vision.zoomRange.max}
-          step={vision.zoomRange.step}
-          format={(v) => `${v.toFixed(1)}×`}
-          onChange={(v) => void vision.applyZoom(v)}
-          hint="Zoom in until the board fills the frame. Calibrate the lens afterwards — zoom changes the distortion it is correcting."
-        />
-      )}
+        <Stack gap="md" p="md">
+          {/* Zoom lives here rather than in the settings: framing the board is the first thing anyone
+              does at a mount, and it is judged against the picture directly above it. */}
+          {vision.cameraActive && vision.zoomRange && (
+            <Slider
+              label="Zoom"
+              value={vision.zoom}
+              min={vision.zoomRange.min}
+              max={vision.zoomRange.max}
+              step={vision.zoomRange.step}
+              format={(v) => `${v.toFixed(1)}×`}
+              onChange={(v) => void vision.applyZoom(v)}
+              hint="Zoom in until the board fills the frame. Calibrate the lens afterwards — zoom changes the distortion it is correcting."
+            />
+          )}
 
-      {vision.cameras.length > 1 && (
-        <select
-          value={selected}
-          onChange={(e) => {
-            setSelected(e.target.value);
-            void vision.start(e.target.value);
-          }}
-          className="px-3 py-2 bg-gray-900 border border-gray-700 rounded"
-        >
-          {vision.cameras.map((camera) => (
-            <option key={camera.deviceId} value={camera.deviceId}>
-              {camera.label}
-            </option>
-          ))}
-        </select>
-      )}
+          {vision.cameras.length > 1 && (
+            <NativeSelect
+              label="Camera"
+              value={selected}
+              onChange={(event) => {
+                setSelected(event.currentTarget.value);
+                void vision.start(event.currentTarget.value);
+              }}
+              data={vision.cameras.map((camera) => ({ value: camera.deviceId, label: camera.label }))}
+            />
+          )}
 
-      <div className="flex gap-2">
-        {/* "Watch board" described how it works — a motion detector — to somebody who has no reason
-            to know there is one. What it means to whoever mounted the phone is that scanning either
-            happens by itself or only when they ask, so these two say exactly that. */}
-        {vision.motion.armed ? (
-          <button
-            onClick={() => vision.runtimeRef.current?.motion.disarm()}
-            className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
-          >
-            Stop scanning
-          </button>
-        ) : (
-          <button
-            onClick={() => vision.runtimeRef.current?.motion.arm()}
-            disabled={!vision.motion.canArm}
-            className="flex-1 px-3 py-2 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
-          >
-            Scan automatically
-          </button>
-        )}
-        <button
-          onClick={() => void vision.runtimeRef.current?.infer()}
-          disabled={!vision.motion.canTrigger}
-          className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded transition-colors"
-        >
-          Scan now
-        </button>
-        {vision.cameraActive && (
-          <button
-            onClick={() => void vision.stop()}
-            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
-          >
-            Off
-          </button>
-        )}
-      </div>
+          <SimpleGrid minColWidth={140} spacing="xs">
+            {/* "Watch board" described how it works — a motion detector — to somebody who has no reason
+                to know there is one. What it means to whoever mounted the phone is that scanning either
+                happens by itself or only when they ask, so these two say exactly that. */}
+            {vision.motion.armed ? (
+              <Button variant="default" onClick={() => vision.runtimeRef.current?.motion.disarm()}>
+                Stop scanning
+              </Button>
+            ) : (
+              <Button onClick={() => vision.runtimeRef.current?.motion.arm()} disabled={!vision.motion.canArm}>
+                Scan automatically
+              </Button>
+            )}
+            <Button variant="default" onClick={() => void vision.runtimeRef.current?.infer()} disabled={!vision.motion.canTrigger}>
+              Scan now
+            </Button>
+            {vision.cameraActive && (
+              <Button variant="subtle" color="gray" onClick={() => void vision.stop()}>
+                Off
+              </Button>
+            )}
+          </SimpleGrid>
 
-      <FrameInfo vision={vision} />
-      {vision.error && <p className="text-sm text-red-400">{vision.error}</p>}
-    </div>
+          <FrameInfo vision={vision} />
+          {vision.error && <Alert color="red">{vision.error}</Alert>}
+        </Stack>
+      </Stack>
+    </AppCard>
   );
 }
 
 function FrameInfo({ vision }: { vision: Vision }) {
   const frame = vision.frame;
   return (
-    <div>
-      <p className="text-sm text-gray-500 h-5 hidden">{vision.status?.text ?? ''}</p>
-      {frame && (
-        <p className="text-sm text-gray-400 h-5" data-testid="frame-info">
+    <Text fz="sm" c="gray.4" mih="1.25rem" data-testid="frame-info">
+      {frame ? (
+        <>
           {frame.result
             ? `${frame.result.boardKeypoints} board points, ${frame.result.tips.length} tips`
             : 'board not found'}
           {` · ${Math.round(frame.ms)}ms · inference ${frame.accelerator} · preprocessing ${frame.preprocessMode}`}
-        </p>
-      )}
-    </div>
+        </>
+      ) : vision.status?.text ?? ' '}
+    </Text>
   );
 }

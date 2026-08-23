@@ -81,20 +81,18 @@ export function ScorerApp() {
 
   if (!link.identity) {
     return (
-      <div className="min-h-screen flex flex-col">
-        <JoinView
-          onPair={link.pair}
-          pairing={link.status === 'pairing'}
-          badCode={link.refusal === 'bad_code'}
-          serverFull={link.refusal === 'server_full'}
-          connected={link.connected}
-        />
-      </div>
+      <JoinView
+        onPair={link.pair}
+        pairing={link.status === 'pairing'}
+        badCode={link.refusal === 'bad_code'}
+        serverFull={link.refusal === 'server_full'}
+        connected={link.connected}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <>
       <ScorerPage
         status={link.status}
         scoring={link.scoring}
@@ -114,6 +112,6 @@ export function ScorerApp() {
         latencyMeterRef={latencyMeterRef}
       />
       <MediaDebugPanel media={mesh} stillTimings={stills.timings} publisherStats={video.stats} publisherOffer={video.offer} />
-    </div>
+    </>
   );
 }

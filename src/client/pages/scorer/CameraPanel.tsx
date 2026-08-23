@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Group, NativeSelect, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Box, Button, Group, NativeSelect, SimpleGrid, Stack, Switch, Text } from '@mantine/core';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { MOTION_GRID_COLS, MOTION_GRID_ROWS } from '../../vision/motion';
 import { AppCard } from '../../components/AppCard';
@@ -10,6 +10,7 @@ type Vision = ReturnType<typeof useVisionRuntime>;
 
 interface CameraPanelProps {
   vision: Vision;
+  name: string;
   /** The device switched the camera off to save battery, rather than the camera failing. */
   poweredDown: boolean;
   /** Render the motion-tile overlay. Defaults to true; turn off on slower phones. */
@@ -23,9 +24,16 @@ interface CameraPanelProps {
  * rate, these tiles just changed — and this decides what that looks like. Nothing outside this file
  * writes to these nodes.
  */
-export function CameraPanel({ vision, poweredDown, motionAnimations = true }: CameraPanelProps) {
+export function CameraPanel({ vision, name, poweredDown, motionAnimations = true }: CameraPanelProps) {
   const { refs } = vision;
   const [selected, setSelected] = useState('');
+  const cameraToggleLabel = vision.cameraActive
+    ? 'Turn camera off'
+    : poweredDown
+      ? 'Resume camera'
+      : vision.ready
+        ? 'Start camera'
+        : 'Loading model…';
 
   // Once a camera list arrives, pre-select the one this device used last.
   useEffect(() => {
@@ -42,7 +50,31 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
   }, [vision.cameraActive, vision.cameraLabel, vision.cameras]);
 
   return (
-    <AppCard title="Camera" padding={0}>
+    <AppCard
+      title={(
+        <>
+          Camera
+          {name && <Text span tt="none" fw={500}> · {name}</Text>}
+        </>
+      )}
+      padding={0}
+      actions={(
+        <Switch
+          size="md"
+          color="green"
+          checked={vision.cameraActive}
+          disabled={!vision.cameraActive && !vision.ready}
+          onLabel="On"
+          offLabel="Off"
+          aria-label={cameraToggleLabel}
+          title={cameraToggleLabel}
+          onChange={(event) => {
+            if (event.currentTarget.checked) void vision.startPreferred();
+            else void vision.stop();
+          }}
+        />
+      )}
+    >
       <Stack gap={0}>
         <SquareCameraPreview videoRef={refs.video} id="preview">
         {/* Where the gate saw movement, one fading square per tile. The grid is pre-rendered once —
@@ -108,18 +140,13 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
           <Stack pos="absolute" inset={0} align="center" justify="center" gap="sm" p="md">
             {/* A camera that was switched off on purpose is not a camera that failed, and the
                 difference is the whole answer to "why is this thing not working". */}
-            {poweredDown && (
-              <Text fz="sm" c="gray.4" data-testid="powered-down">
-                Camera off to save battery
-              </Text>
-            )}
-            <Button
-              onClick={() => void vision.startPreferred()}
-              disabled={!vision.ready}
-              size="lg"
+            <Text
+              fz="sm"
+              c="gray.4"
+              data-testid={poweredDown ? 'powered-down' : undefined}
             >
-              {!vision.ready ? 'Loading model…' : poweredDown ? 'Resume' : 'Start camera'}
-            </Button>
+              {!vision.ready ? 'Loading model…' : poweredDown ? 'Camera off to save battery' : 'Camera off'}
+            </Text>
           </Stack>
         )}
         </SquareCameraPreview>
@@ -168,11 +195,6 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
             <Button variant="default" onClick={() => void vision.runtimeRef.current?.infer()} disabled={!vision.motion.canTrigger}>
               Scan now
             </Button>
-            {vision.cameraActive && (
-              <Button variant="subtle" color="gray" onClick={() => void vision.stop()}>
-                Off
-              </Button>
-            )}
           </SimpleGrid>
 
           <FrameInfo vision={vision} />
@@ -186,13 +208,13 @@ export function CameraPanel({ vision, poweredDown, motionAnimations = true }: Ca
 function FrameInfo({ vision }: { vision: Vision }) {
   const frame = vision.frame;
   return (
-    <Text fz="sm" c="gray.4" mih="1.25rem" data-testid="frame-info">
+    <Text fz="sm" c="dimmed" mih="1.25rem" data-testid="frame-info">
       {frame ? (
         <>
           {frame.result
             ? `${frame.result.boardKeypoints} board points, ${frame.result.tips.length} tips`
             : 'board not found'}
-          {` · ${Math.round(frame.ms)}ms · inference ${frame.accelerator} · preprocessing ${frame.preprocessMode}`}
+          {` · ${Math.round(frame.ms)}ms [${frame.preprocessMode}/${frame.accelerator}]`}
         </>
       ) : vision.status?.text ?? ' '}
     </Text>

@@ -10,7 +10,6 @@ import {
   Indicator,
   Stack,
   Text,
-  TextInput,
 } from '@mantine/core';
 import { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import { useScorerPower } from '../../hooks/useScorerPower';
@@ -234,20 +233,9 @@ export function ScorerPage({
       {!onboarding && (
         <AppShell.Header bg="dark.8" withBorder>
           <Group h="100%" px="md" justify="space-between" gap="sm" wrap="nowrap">
-            <StatusBadge status={status} scoring={scoring} stage={power.stage} />
+            <Text fw={800} c="green.4" fz="lg" truncate>InstaDarts</Text>
             <Group gap="xs" wrap="nowrap" miw={0}>
-              <TextInput
-              type="text"
-              value={name}
-              onChange={(event) => onRename(event.currentTarget.value.slice(0, 20))}
-              onBlur={onNameSettled}
-              onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
-              placeholder="Name this device"
-              variant="unstyled"
-              w="8rem"
-              size="sm"
-              styles={{ input: { borderBottom: '1px solid var(--mantine-color-dark-5)', textAlign: 'right' } }}
-              />
+              <StatusBadge status={status} scoring={scoring} stage={power.stage} />
               <FullscreenButton />
               <ActionIcon
                 variant="default"
@@ -271,7 +259,12 @@ export function ScorerPage({
             {/* The camera panel is never unmounted: the motion detector binds its controls once, and the
                 vision runtime owns a camera stream and a compiled model that must survive a settings trip. */}
             <Box display={view === 'scoring' ? 'block' : 'none'}>
-              <CameraPanel vision={vision} poweredDown={power.stage !== 'awake'} motionAnimations={settings.motionAnimations} />
+              <CameraPanel
+                vision={vision}
+                name={name}
+                poweredDown={power.stage !== 'awake'}
+                motionAnimations={settings.motionAnimations}
+              />
             </Box>
 
             {view === 'settings' && (
@@ -280,6 +273,9 @@ export function ScorerPage({
                 onCalibrate={() => setView('calibration')}
                 settings={settings}
                 onSettingsChange={setSettings}
+                name={name}
+                onRename={onRename}
+                onNameSettled={onNameSettled}
                 onUnpair={onUnpair}
                 onMediaChange={onMediaChange}
               />

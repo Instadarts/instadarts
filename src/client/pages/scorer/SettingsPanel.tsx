@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Divider, Group, NativeSelect, NumberInput, Stack, Switch, Text } from '@mantine/core';
+import { Button, Divider, Group, NativeSelect, NumberInput, Stack, Switch, Text, TextInput } from '@mantine/core';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { MediaTier } from '../../../shared/media';
 import { resetSettings, saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
@@ -13,6 +13,9 @@ interface SettingsPanelProps {
   onCalibrate: () => void;
   settings: ScorerSettings;
   onSettingsChange: (settings: ScorerSettings) => void;
+  name: string;
+  onRename: (name: string) => void;
+  onNameSettled: () => void;
   onUnpair: () => void;
   /** Also told live, since narrowing this should stop a stream somebody is watching right now. */
   onMediaChange: (tier: MediaTier) => void;
@@ -28,7 +31,17 @@ const MODEL_LABELS: Record<string, string> = {
  * confident a detection has to be, the zoom, the lens, and what the screen does when nobody is
  * looking. It sits behind a toggle because the scoring screen should be the board, not a console.
  */
-export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange, onUnpair, onMediaChange }: SettingsPanelProps) {
+export function SettingsPanel({
+  vision,
+  onCalibrate,
+  settings,
+  onSettingsChange,
+  name,
+  onRename,
+  onNameSettled,
+  onUnpair,
+  onMediaChange,
+}: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
   const update = (patch: Partial<ScorerSettings>) => onSettingsChange(saveSettings(patch));
   const updateCompute = (patch: Partial<Pick<ScorerSettings,
@@ -38,11 +51,11 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
 
   return (
     <Stack gap="md">
-      <AppCard title="Vision">
+      <AppCard title="Camera and AI">
         <Stack gap="md">
           <NativeSelect
             label="Detection model"
-          value={vision.settings.model}
+            value={vision.settings.model}
             onChange={(event) => void vision.setModel(event.currentTarget.value)}
             data={Object.entries(MODEL_LABELS).map(([value, label]) => ({ value, label }))}
           />
@@ -67,11 +80,9 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
             checked={settings.motionAnimations}
             onChange={(event) => update({ motionAnimations: event.currentTarget.checked })}
           />
-        </Stack>
-      </AppCard>
 
-      <AppCard title="Compute diagnostics">
-        <Stack gap="sm">
+          <Divider />
+
           <Text fz="sm" c="dimmed">Override WebGPU paths independently on this device.</Text>
           <CpuToggle
             label="Motion detector"
@@ -136,6 +147,19 @@ export function SettingsPanel({ vision, onCalibrate, settings, onSettingsChange,
 
       <AppCard title="Device">
         <Stack gap="md">
+          <TextInput
+            label="Device name"
+            description="Shown to browsers paired with this scoring device."
+            value={name}
+            placeholder="Board camera"
+            maxLength={20}
+            onChange={(event) => onRename(event.currentTarget.value.slice(0, 20))}
+            onBlur={onNameSettled}
+            onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
+          />
+
+          <Divider />
+
       {/* Start over: `resetSettings` keeps the name, the screensaver, both timers and what this
           phone is willing to share, and puts back everything the self-test is about to work out for
           itself. Then a reload, which is what makes it safe — a fresh page rebuilds the vision
@@ -216,7 +240,7 @@ function CpuToggle({ label, checked, onChange }: { label: string; checked: boole
   return (
     <Switch
       label={label}
-      description="Force CPU"
+      description={checked ? 'Force CPU' : 'Try WebGPU first'}
       checked={checked}
       onChange={(event) => onChange(event.currentTarget.checked)}
     />

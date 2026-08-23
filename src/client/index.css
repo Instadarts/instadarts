@@ -1,14 +1,3 @@
-@import "tailwindcss";
-
-/* Preserve the scorer's existing wide-display scaling; the regular frontend delegates responsive
- * sizing to React Grid Layout and Mantine. */
-@media (min-width: 1536px) {
-  html[data-app="scorer"] { font-size: 22px; }
-}
-@media (min-width: 2000px) {
-  html[data-app="scorer"] { font-size: 24px; }
-}
-
 /* disable user select */
 body {
   user-select: none;

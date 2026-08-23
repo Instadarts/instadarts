@@ -2,7 +2,6 @@ import { cpSync, createReadStream, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
 
 // LiteRT loads its WASM runtime from /wasm/ at runtime (src/client/vision/model.js). Those files
 // ship inside the npm package, so rather than committing a copy into public/ they are served
@@ -65,7 +64,7 @@ const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), litertWasm(), quietWsProxyErrors()],
+  plugins: [react(), litertWasm(), quietWsProxyErrors()],
   resolve: {
     alias: {
       '@shared': new URL('./src/shared', import.meta.url).pathname,

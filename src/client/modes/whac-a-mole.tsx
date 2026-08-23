@@ -1122,13 +1122,11 @@ const CSS = `
  * the crosshair's arm tips land, so moving or resizing either means working the bounds out again
  * rather than hoping the old box still covers it.
  *
- * It replaces the board's cursor-crosshair and only that. The board turns the cursor off entirely
- * while a hold is aiming, because the oversized dart is the pointer then, and shows not-allowed
- * when the visit will take no more darts; a mallet over either of those would be lying. Both are
- * excluded by name rather than by luck: this rule and Tailwind's carry the same specificity, so
- * without the :not()s whichever stylesheet came last would win.
+ * It replaces the board's active cursor and only that. The board still turns the cursor off while a
+ * hold is aiming and shows not-allowed when the visit will take no more darts; a mallet over either
+ * of those would be lying.
  */
-[data-testid="dartboard"]:not(.cursor-none):not(.cursor-not-allowed) { cursor: url("data:image/svg+xml;utf8,\
+[data-testid="dartboard"] { --dartboard-active-cursor: url("data:image/svg+xml;utf8,\
 <svg xmlns='http://www.w3.org/2000/svg' width='50' height='66' viewBox='0 0 50 66'>\
 <g transform='translate(31 23) rotate(135) scale(1.5)'>\
 <rect x='-2.1' y='-14' width='4.2' height='15' rx='2' fill='%23a16207' stroke='%23422006' stroke-width='1'/>\

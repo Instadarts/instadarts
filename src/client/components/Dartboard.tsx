@@ -256,7 +256,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
           height: '100%',
           width: '100%',
           touchAction: 'none',
-          cursor: precisionAim ? 'none' : canPlaceDart ? 'crosshair' : 'not-allowed',
+          cursor: precisionAim ? 'none' : canPlaceDart ? 'var(--dartboard-active-cursor, crosshair)' : 'not-allowed',
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

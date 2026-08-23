@@ -4,6 +4,7 @@ import { useLayoutEditor } from './LayoutEditorContext';
 
 interface GridBoxProps {
   title?: ReactNode;
+  headerCenter?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -14,6 +15,7 @@ interface GridBoxProps {
 
 export function GridBox({
   title,
+  headerCenter,
   badge,
   actions,
   children,
@@ -23,14 +25,14 @@ export function GridBox({
 }: GridBoxProps) {
   const editor = useLayoutEditor();
   const showHandle = editable && editor.active !== null && editor.editing;
-  const hasHeader = title !== undefined || badge !== undefined || actions !== undefined || showHandle;
+  const hasHeader = title !== undefined || headerCenter !== undefined || badge !== undefined || actions !== undefined || showHandle;
 
   return (
     <Card className="frontend-grid-box" withBorder radius="lg" padding={0} bg="dark.8">
       {hasHeader && (
         <>
-          <Group className="frontend-grid-box__header" justify="space-between" gap="sm" px="md" py="sm" wrap="nowrap">
-            <Group gap="xs" wrap="nowrap" miw={0}>
+          <Group className="frontend-grid-box__header" gap="sm" px="md" py="sm" wrap="nowrap">
+            <Group gap="xs" wrap="nowrap" miw={0} style={{ flex: '0 1 auto' }}>
               {showHandle && (
                 <Text
                   component="span"
@@ -49,8 +51,13 @@ export function GridBox({
                 </Text>
               )}
             </Group>
+            {headerCenter !== undefined && (
+              <Box miw={0} style={{ flex: '1 1 0', textAlign: 'center' }}>
+                {headerCenter}
+              </Box>
+            )}
             {(badge !== undefined || actions !== undefined) && (
-              <Group gap="xs" wrap="nowrap">
+              <Group gap="xs" wrap="nowrap" ml={headerCenter === undefined ? 'auto' : undefined}>
                 {badge}
                 {actions}
               </Group>

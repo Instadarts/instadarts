@@ -160,27 +160,32 @@ export function MatchScreen({
     {
       id: 'visit',
       content: (
-        <GridBox title="Visit" padding="sm">
-          <Stack gap="sm" align="stretch">
+        <GridBox
+          title="Visit"
+          padding="sm"
+          headerCenter={view.notice ? (
             <Text
               ta="center"
-              mih="1.55em"
+              lh={1}
+              tt="uppercase"
+              truncate
               {...modeTextProps(view.notice, { tone: 'warning', weight: 'semibold' })}
             >
-              {view.notice && isMyTurn ? textOf(view.notice) : ' '}
+              {textOf(view.notice)}
             </Text>
-            <VisitInput
-              evidence={evidence}
-              darts={currentDarts}
-              dartsPerVisit={view.dartsPerVisit}
-              slots={view.slots}
-              visitTotal={view.visitTotal}
-              onUndoDart={isSpectator ? () => {} : handleUndo}
-              onSubmit={isSpectator ? () => {} : handleSubmit}
-              readOnly={!isMyTurn || isSpectator}
-              hideActions={isSpectator}
-            />
-          </Stack>
+          ) : undefined}
+        >
+          <VisitInput
+            evidence={evidence}
+            darts={currentDarts}
+            dartsPerVisit={view.dartsPerVisit}
+            slots={view.slots}
+            visitTotal={view.visitTotal}
+            onUndoDart={isSpectator ? () => {} : handleUndo}
+            onSubmit={isSpectator ? () => {} : handleSubmit}
+            readOnly={!isMyTurn || isSpectator}
+            hideActions={isSpectator}
+          />
         </GridBox>
       ),
     },

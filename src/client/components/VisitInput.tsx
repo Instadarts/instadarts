@@ -16,6 +16,8 @@ interface VisitInputProps {
   evidence: (string | undefined)[] | null;
 }
 
+const VISIT_COLUMN_SPACING = 12;
+
 export function VisitInput({
   darts,
   dartsPerVisit,
@@ -32,7 +34,7 @@ export function VisitInput({
 
   return (
     <Stack gap="sm" h="100%" align="stretch">
-      <SimpleGrid cols={dartsPerVisit} spacing="sm" data-visit-slots>
+      <SimpleGrid cols={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} data-visit-slots>
         {filled.map((slot, index) => (
           <Paper
             key={index}
@@ -55,7 +57,9 @@ export function VisitInput({
         ))}
       </SimpleGrid>
 
-      {evidence && <DartEvidence images={evidence} slots={dartsPerVisit} />}
+      {evidence && (
+        <DartEvidence images={evidence} slots={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} />
+      )}
 
       {textOf(visitTotal) !== '' && (
         <Text ta="center" {...modeTextProps(visitTotal, { tone: 'warning', size: 'xl', weight: 'bold' })}>

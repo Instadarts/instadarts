@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
-import { skipOnboarding } from './appHelpers';
+import { closeScorerSettings, pairingCode, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
 
 // The two reference photographs: the same board, with three darts in the 20 bed and then empty.
 const SCENES = {
@@ -11,35 +11,6 @@ const SCENES = {
 
 /** Loading a 2.4MB model and running it is slower than clicking a button. */
 test.setTimeout(120_000);
-
-/**
- * What the model finds in the three-dart photo: two darts in the treble 20 and one in the single,
- * totalling 140.
- */
-const EXPECTED_DARTS = ['S20', 'T20', 'T20'];
-
-function sortedLabels(text: string | null): string[] {
-  return (text ?? '').trim().split(/\s+/).filter(Boolean).sort();
-}
-
-/**
- * Every committed visit in the player's history, as `{darts, total}`.
- *
- * The rows are strings the game mode produced (`ModeView.history`), so this parses x01's format:
- * `<player>   <labels> = <total|Bust>`.
- */
-async function visitHistory(player: Page): Promise<{ darts: string[]; total: string }[]> {
-  const rows = await player.locator(':has(> h3:text("Visit History")) div.font-mono').allTextContents();
-  // The history draws a fixed number of rows and leaves the spare ones blank, so that a landing
-  // visit resizes nothing. Only the ones with a total in them are visits.
-  const lines = rows.filter((row) => row.includes(' = '));
-  return lines.map((line) => {
-    const [thrown, total] = line.split(' = ');
-    // Drop the thrower's name, which x01 puts in front of the darts.
-    const labels = sortedLabels(thrown).filter((label) => /^(miss|[SDT]\d+|SB|DB)$/.test(label));
-    return { darts: labels, total: total.trim() };
-  });
-}
 
 async function openScorer(browser: Browser) {
   const context = await browser.newContext({ permissions: ['camera'] });
@@ -53,7 +24,7 @@ async function openScorer(browser: Browser) {
 async function startLocalMatch(page: Page) {
   await page.goto('/');
   await page.click('button:has-text("Local Match")');
-  await page.fill('input[placeholder="New player name"]', 'Alice');
+  await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await page.click('button:has-text("Add")');
   await page.click('button:has-text("Start Match")');
   await expect(page.locator('text=Submit Visit')).toBeVisible();
@@ -62,7 +33,7 @@ async function startLocalMatch(page: Page) {
 async function pairCamera(player: Page, scorer: Page, scoring = true) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
@@ -76,18 +47,6 @@ async function pairCamera(player: Page, scorer: Page, scoring = true) {
   }
 }
 
-async function startCamera(page: Page) {
-  const startButton = page.getByRole('button', { name: 'Start camera' });
-  if (await startButton.isVisible().catch(() => false)) {
-    await startButton.click().catch(() => {});
-  }
-  // The model is fetched and compiled on the first start; give it room.
-  await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
-  // Motion stays disarmed: frame differencing over a captured canvas is not deterministic, and the
-  // gate is not what this test is about. Inference is triggered explicitly instead.
-  await page.evaluate(() => (window as unknown as { __scorer: { motion: { disarm: () => void } } }).__scorer.motion.disarm());
-}
-
 test.describe('camera scoring, end to end', () => {
   test('can force each vision stage onto its CPU path independently', async ({ browser }) => {
     const frontend = await browser.newContext();
@@ -99,16 +58,15 @@ test.describe('camera scoring, end to end', () => {
     await pairCamera(player, scorer.page, false);
 
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
-    await scorer.page.getByRole('checkbox', { name: /Motion detector/ }).check();
-    await scorer.page.getByRole('checkbox', { name: /Preprocessing/ }).check();
-    await scorer.page.getByRole('checkbox', { name: /Inference/ }).check();
-    await scorer.page.getByRole('button', { name: 'Done' }).click();
+    await setSwitch(scorer.page.getByRole('switch', { name: /^Motion detector\b/ }), true);
+    await setSwitch(scorer.page.getByRole('switch', { name: /^Preprocessing\b/ }), true);
+    await setSwitch(scorer.page.getByRole('switch', { name: /^Inference\b/ }), true);
+    await closeScorerSettings(scorer.page);
 
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);
-    await expect(scorer.page.getByTestId('frame-info')).toContainText('inference wasm');
-    await expect(scorer.page.getByTestId('frame-info')).toContainText('preprocessing cpu');
+    await expect(scorer.page.getByTestId('frame-info')).toContainText('[cpu/wasm]');
 
     // Re-arm after startCamera's deterministic-test disarm. The analyzer badge is its live report,
     // so this verifies the toggle reaches the motion gate rather than only persisting in the UI.
@@ -130,7 +88,7 @@ test.describe('camera scoring, end to end', () => {
 
     await startLocalMatch(player);
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
 
     // The fake camera opens on the three-dart photograph. Nothing below asks for an inference: a
     // successful camera start includes exactly one forced cold pass after model, frame, motion gate,
@@ -149,7 +107,7 @@ test.describe('camera scoring, end to end', () => {
     // misread third dart gets fixed.
     await scan(scorer.page);
     await expect(player.getByText('Visit: 140')).toBeVisible();
-    expect(await visitHistory(player)).toEqual([]);
+    await expect(player.locator('[data-player="Alice"]').getByText('361', { exact: true })).toBeVisible();
 
     // --- the darts come out ---
     await showScene(scorer.page, 'empty');
@@ -157,8 +115,7 @@ test.describe('camera scoring, end to end', () => {
 
     // An empty board that every camera agrees on ends the visit: 501 - 140 = 361.
     await expect(player.getByText('Visit: 0')).toBeVisible({ timeout: 15_000 });
-    expect(await visitHistory(player)).toEqual([{ darts: EXPECTED_DARTS, total: '140' }]);
-    await expect(player.getByText('361', { exact: true })).toBeVisible();
+    await expect(player.locator('[data-player="Alice"]').getByText('361', { exact: true })).toBeVisible();
 
     await frontend.close();
     await scorer.context.close();
@@ -171,31 +128,34 @@ test.describe('camera scoring, end to end', () => {
 
     await player.goto('/');
     await player.click('button:has-text("Local Match")');
-    await player.fill('input[placeholder="New player name"]', 'Alice');
+    await player.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await player.click('button:has-text("Add")');
-    await player.fill('input[placeholder="New player name"]', 'Bob');
+    await player.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await player.click('button:has-text("Add")');
     await player.click('button:has-text("Start Match")');
     await expect(player.locator('text=Submit Visit')).toBeVisible();
 
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });
 
-    // Alice sends the visit herself rather than waiting for the takeout. Polled, because the visit
-    // only reaches the history when the server's reply does — the client commits nothing on its own.
+    // Alice sends the visit herself rather than waiting for the takeout. The committed score and
+    // turn change arrive in the server's reply; the client commits nothing on its own.
     await player.click('button:has-text("Submit Visit")');
-    await expect.poll(() => visitHistory(player)).toEqual([{ darts: EXPECTED_DARTS, total: '140' }]);
+    await expect(player.locator('[data-player="Alice"]').getByText('361', { exact: true }))
+      .toBeVisible({ timeout: 15_000 });
+    await expect(player.locator('[data-player="Bob"]')).toHaveAttribute('aria-current', 'true');
+    await expect(player.locator('[data-player="Bob"]').getByText('501', { exact: true })).toBeVisible();
 
     // Tracking is per-visit: Bob's throw into the very same treble is his own, not a re-sighting
     // of Alice's darts.
     await scan(scorer.page);
     await expect(player.getByText('Visit: 140')).toBeVisible({ timeout: 15_000 });
-    // Still one committed visit, with a second now in flight — so both players read 361.
-    expect(await visitHistory(player)).toHaveLength(1);
-    await expect(player.getByText('361', { exact: true })).toHaveCount(2);
+    // Alice's visit remains committed while Bob has a second visit in flight.
+    await expect(player.locator('[data-player="Alice"]').getByText('361', { exact: true })).toBeVisible();
+    await expect(player.locator('[data-player="Bob"]').getByText('361', { exact: true })).toBeVisible();
 
     await frontend.close();
     await scorer.context.close();
@@ -208,7 +168,7 @@ test.describe('camera scoring, end to end', () => {
 
     await startLocalMatch(player);
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await showScene(scorer.page, 'darts');
 
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
@@ -221,13 +181,13 @@ test.describe('camera scoring, end to end', () => {
     await expect(scorer.page.getByText('Slide until the lines sit on the wires')).toBeVisible({ timeout: 30_000 });
 
     // Eight keypoints and a solved projection: rings, sector boundaries and the detections.
-    const svg = scorer.page.locator('svg').filter({ has: scorer.page.locator('circle') });
+    const svg = scorer.page.locator('svg[viewBox="0 0 1 1"]');
     await expect(svg.locator('circle')).toHaveCount(11); // 8 board keypoints + 3 dart tips
     expect(await svg.locator('path').count()).toBeGreaterThan(10);
 
     // The slider moves the drawn board, which is the whole point of it.
     const before = await svg.locator('path').first().getAttribute('d');
-    await scorer.page.locator('input[type="range"]').fill('60');
+    await scorer.page.getByRole('slider', { name: 'Lens correction' }).press('End');
     await expect(svg.locator('path').first()).not.toHaveAttribute('d', before!);
 
     await frontend.close();
@@ -250,11 +210,7 @@ test.describe('camera scoring, end to end', () => {
 
     // Deliberately NOT disarmed: this is the path a real throw takes. Starting the camera arms the
     // detector, so nothing below asks for an inference — the darts appearing is the assertion.
-    const startButton = scorer.page.getByRole('button', { name: 'Start camera' });
-    if (await startButton.isVisible().catch(() => false)) {
-      await startButton.click().catch(() => {});
-    }
-    await expect(scorer.page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
+    await startScorerCamera(scorer.page, { disarmMotion: false });
     await expect.poll(() => scorer.page.evaluate(() =>
       (window as unknown as { __scorer: { motion: { completedAnalyses: number } } })
         .__scorer.motion.completedAnalyses)).toBeGreaterThan(0);

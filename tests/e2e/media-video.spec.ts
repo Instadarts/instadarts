@@ -15,7 +15,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { clickT20, setSwitch, skipOnboarding, submitVisit } from './appHelpers';
+import { clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
 // feed that starts by showing a board nobody has thrown at is the honest starting state.
@@ -40,24 +40,14 @@ async function openScorer(browser: Browser) {
 async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
-  await scorer.getByPlaceholder('Name this device').fill(name);
-  await scorer.getByPlaceholder('Name this device').blur();
+  await renameScorerDevice(scorer, name);
 
-  await setSwitch(player.getByRole('switch', { name: `Board camera: ${name}` }), true);
+  await setSwitch(scoringDeviceControls(player, name).getByRole('switch', { name: 'Board camera' }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
-}
-
-async function startCamera(page: Page) {
-  const startButton = page.getByRole('button', { name: 'Start camera' });
-  if (await startButton.isVisible().catch(() => false)) {
-    await startButton.click().catch(() => {});
-  }
-  await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
-  await page.evaluate(() => (window as unknown as { __scorer: { motion: { disarm: () => void } } }).__scorer.motion.disarm());
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -211,14 +201,14 @@ async function onlineMatch(browser: Browser, guestDiagnostics = true) {
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
   await host.click('text=Create Online Match');
-  await host.fill('input[placeholder="New player name"]', 'Alice');
+  await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.click('button:has-text("Add")');
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
   const bob = await browser.newContext();
   const guest = await bob.newPage();
   await guest.goto(`/lobby/join/${code.trim()}${guestDiagnostics ? '?e2e=1' : ''}`);
-  await guest.fill('input[placeholder="New player name"]', 'Bob');
+  await guest.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
   await guest.click('button:has-text("Add")');
   await expect(host.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 
@@ -235,7 +225,7 @@ test.describe('board video', () => {
 
     // A nominated, running camera in an online lobby must still publish nothing.
     expect(await cameraPeer(host)).toBeFalsy();
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     expect(await published(scorer.page)).toBeNull();
     expect(await sourceOffer(scorer.page)).toBeNull();
 
@@ -331,7 +321,7 @@ test.describe('board video', () => {
     expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0, { timeout: 5000 });
     await expect(guest.getByRole('button', { name: 'Stop live video from Alice' })).toBeVisible();
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 30_000 })
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
@@ -361,12 +351,12 @@ test.describe('board video', () => {
     // Switching the nominated device off is how "no board camera" is said now: there is no control
     // of its own for it, because there is nothing left to select once every switch is off.
     await host.getByRole('button', { name: /Cameras/ }).first().click();
-    await setSwitch(host.getByRole('switch', { name: 'Board camera: Alice board' }), false);
+    await setSwitch(scoringDeviceControls(host, 'Alice board').getByRole('switch', { name: 'Board camera' }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(watching.page.getByTestId('live-board-feed')).toHaveCount(0);
 
-    await setSwitch(host.getByRole('switch', { name: 'Board camera: Alice board' }), true);
+    await setSwitch(scoringDeviceControls(host, 'Alice board').getByRole('switch', { name: 'Board camera' }), true);
     await declineOffer(guest);
     await acceptOffer(watching.page);
     await guest.getByRole('button', { name: 'Play live video from Alice' }).click();
@@ -374,7 +364,7 @@ test.describe('board video', () => {
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).feedId).not.toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toBeVisible();
-    await setSwitch(host.getByRole('switch', { name: 'Share and watch live video during a match' }), false);
+    await setSwitch(host.getByRole('switch', { name: 'Live video' }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(guest.getByTestId('dartboard')).toBeVisible();
@@ -393,7 +383,7 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await acceptOffer(guest);
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
 
@@ -466,8 +456,8 @@ test.describe('board video', () => {
     await pairAndNominate(guest, bobScorer.page, 'Bob board');
     const watching = await spectator(browser, host);
 
-    await startCamera(aliceScorer.page);
-    await startCamera(bobScorer.page);
+    await startScorerCamera(aliceScorer.page);
+    await startScorerCamera(bobScorer.page);
     expect(await published(aliceScorer.page)).toBeNull();
     expect(await published(bobScorer.page)).toBeNull();
 
@@ -518,7 +508,7 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await acceptOffer(guest);
     // Watched through the opponent after its explicit consent.
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -579,7 +569,7 @@ test.describe('board video', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await acceptOffer(guest);
     // Watched through Bob, who accepted Alice's board but has no authority over her camera.
     await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -662,11 +652,11 @@ test.describe('board video', () => {
     // phone's own answer and its owner is the one who gives it.
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
     await scorer.page.getByRole('combobox', { name: 'Share this view' }).selectOption('stills');
-    await scorer.page.getByRole('button', { name: 'Done' }).click();
+    await closeScorerSettings(scorer.page);
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
 
     // The frontend will not have asked — it can see the tier in the roster — so ask by hand, which
     // is what tests the device's own gate rather than the frontend's politeness.
@@ -700,14 +690,14 @@ test.describe('board video', () => {
     const player = await local.newPage();
     await player.goto('/?e2e=1');
     await player.click('text=Local Match');
-    await player.fill('input[placeholder="New player name"]', 'Alice');
+    await player.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await player.click('button:has-text("Add")');
-    await player.fill('input[placeholder="New player name"]', 'Bob');
+    await player.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await player.click('button:has-text("Add")');
 
     const scorer = await openScorer(browser);
     await pairAndNominate(player, scorer.page, 'Local board');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     expect(await published(scorer.page)).toBeNull();
 
     await player.click('text=Start Match');

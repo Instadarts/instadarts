@@ -17,12 +17,12 @@ test.describe('two tabs of one browser', () => {
 
     await tabA.goto('/');
     await tabA.click('text=Create Online Match');
-    await tabA.fill('input[placeholder="New player name"]', 'Alice');
+    await tabA.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await tabA.click('button:has-text("Add")');
 
     const code = await tabA.locator('text=Invite Code').locator('..').locator('code').textContent();
     await tabB.goto(`/lobby/join/${code!.trim()}`);
-    await tabB.fill('input[placeholder="New player name"]', 'Bob');
+    await tabB.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await tabB.click('button:has-text("Add")');
     await expect(tabA.locator('text=Bob')).toBeVisible({ timeout: 10000 });
 
@@ -37,8 +37,10 @@ test.describe('two tabs of one browser', () => {
 
     await tabA.reload();
     await tabB.reload();
-    await expect(tabA.locator('text=Visit History')).toBeVisible({ timeout: 10000 });
-    await expect(tabB.locator('text=Visit History')).toBeVisible({ timeout: 10000 });
+    await expect(tabA.getByTestId('dartboard')).toBeVisible({ timeout: 10000 });
+    await expect(tabB.getByTestId('dartboard')).toBeVisible({ timeout: 10000 });
+    await expect(tabA.locator('[data-player="Alice"]').getByText('321', { exact: true })).toBeVisible();
+    await expect(tabB.locator('[data-player="Bob"]')).toHaveAttribute('aria-current', 'true');
 
     await clickT20(tabB); await clickT20(tabB); await clickT20(tabB);
     await submitVisit(tabB);

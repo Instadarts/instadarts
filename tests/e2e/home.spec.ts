@@ -2,7 +2,7 @@
 // and what survives a page reload.
 
 import { test, expect } from '@playwright/test';
-import { clickT20, submitVisit, expectVisitTotal, setupLocalMatch } from './appHelpers';
+import { clickT20, submitVisit, setupLocalMatch } from './appHelpers';
 
 test.describe('Home screen', () => {
   test('shows three match options', async ({ page }) => {
@@ -16,7 +16,7 @@ test.describe('Home screen', () => {
   test('join online match shows invite code input', async ({ page }) => {
     await page.goto('/');
     await page.click('text=Join Online Match');
-    await expect(page.locator('input[placeholder="Invite code"]')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Invite code', exact: true })).toBeVisible();
     await page.click('text=Back');
     await expect(page.locator('text=Local Match')).toBeVisible();
   });
@@ -54,7 +54,7 @@ test.describe('Home screen', () => {
 
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
     // Read before filling: a full lobby has nothing left to sell, so the code comes off the screen.
@@ -62,7 +62,7 @@ test.describe('Home screen', () => {
     expect(code).toBeTruthy();
 
     for (const name of ['Bob', 'Carol', 'Dave', 'Eve']) {
-      await page1.fill('input[placeholder="New player name"]', name);
+      await page1.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page1.click('button:has-text("Add")');
       await expect(page1.getByText(name, { exact: true })).toBeVisible();
     }
@@ -90,13 +90,13 @@ test.describe('Home screen', () => {
     // Four from the host and one from the joiner fills the lobby at five, which is what makes the
     // "no second one to add" half of this test observable at all.
     for (const name of ['Alice', 'Carol', 'Dave', 'Eve']) {
-      await page1.fill('input[placeholder="New player name"]', name);
+      await page1.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page1.click('button:has-text("Add")');
     }
 
     const code = await page1.locator('code').textContent();
     await page2.goto(`/lobby/join/${code!.trim()}`);
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
     await expect(page2.getByText('Alice', { exact: true })).toBeVisible({ timeout: 10000 });
 
@@ -105,15 +105,15 @@ test.describe('Home screen', () => {
     await expect(page1.locator('button[title="Kick player"]')).toHaveCount(1);
     await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
     await expect(page2.locator('button[title="Kick player"]')).toHaveCount(0);
-    await expect(page1.locator('input[placeholder="New player name"]')).toHaveCount(0);
-    await expect(page2.locator('input[placeholder="New player name"]')).toHaveCount(0);
+    await expect(page1.getByRole('textbox', { name: 'New player', exact: true })).toHaveCount(0);
+    await expect(page2.getByRole('textbox', { name: 'New player', exact: true })).toHaveCount(0);
 
     // And it really is their own: the host's ✕ takes one of theirs off, on both screens.
     await page1.locator('button[title="Remove player"]').first().click();
     await expect(page2.locator('text=5th')).toHaveCount(0, { timeout: 5000 });
     await expect(page2.locator('button[title="Remove player"]')).toHaveCount(1);
     await expect(page1.locator('button[title="Remove player"]')).toHaveCount(3);
-    await expect(page1.locator('input[placeholder="New player name"]')).toBeVisible();
+    await expect(page1.getByRole('textbox', { name: 'New player', exact: true })).toBeVisible();
 
     await ctx1.close();
     await ctx2.close();
@@ -124,9 +124,9 @@ test.describe('Home screen', () => {
     await page.click('text=Local Match');
 
     // Add two players
-    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page.click('button:has-text("Add")');
-    await page.fill('input[placeholder="New player name"]', 'Bob');
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page.click('button:has-text("Add")');
 
     // Alice should be 1st
@@ -149,7 +149,7 @@ test.describe('Home screen', () => {
     await page.click('text=Local Match');
 
     // Add a player
-    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page.click('button:has-text("Add")');
     await expect(page.locator('text=Alice')).toBeVisible();
     await page.waitForTimeout(300);
@@ -179,7 +179,7 @@ test.describe('Home screen', () => {
     // Should still be in the empty lobby
     await expect(page.locator('h2')).toContainText('Local Match', { timeout: 10000 });
     // Should be able to add a player after reload
-    await page.fill('input[placeholder="New player name"]', 'Alice');
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page.click('button:has-text("Add")');
     await expect(page.locator('text=Alice')).toBeVisible({ timeout: 5000 });
   });
@@ -190,16 +190,16 @@ test.describe('Home screen', () => {
     // Alice throws one visit
     await clickT20(page); await clickT20(page); await clickT20(page);
     await submitVisit(page);
-    await expectVisitTotal(page, 180);
+    await expect(page.locator('[data-player="Alice"]').getByText('321', { exact: true })).toBeVisible();
 
     // Reload
     await page.reload();
     await page.waitForTimeout(3000);
 
-    // Back in the match — still being played, with the visit history intact.
-    await expect(page.locator('text=Visit History')).toBeVisible({ timeout: 10000 });
+    // Back in the match — still being played, with Alice's committed visit intact.
+    await expect(page.getByTestId('dartboard')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Match cancelled')).toHaveCount(0);
-    await expect(page.getByText('321', { exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('= 180').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-player="Alice"]').getByText('321', { exact: true }))
+      .toBeVisible({ timeout: 5000 });
   });
 });

@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { setSwitch, skipOnboarding, winLegAt501 } from './appHelpers';
+import { pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, winLegAt501 } from './appHelpers';
 
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(120_000);
@@ -20,14 +20,14 @@ async function onlineRoom(browser: Browser): Promise<OnlineRoom> {
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
   await host.getByText('Create Online Match').click();
-  await host.getByPlaceholder('New player name').fill('Alice');
+  await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.getByRole('button', { name: 'Add' }).click();
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!.trim();
 
   const bob = await browser.newContext();
   const guest = await bob.newPage();
   await guest.goto(`/lobby/join/${code}?e2e=1`);
-  await guest.getByPlaceholder('New player name').fill('Bob');
+  await guest.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
   await guest.getByRole('button', { name: 'Add' }).click();
   await expect(host.getByText('Bob')).toBeVisible();
   return { alice, bob, host, guest };
@@ -36,7 +36,7 @@ async function onlineRoom(browser: Browser): Promise<OnlineRoom> {
 async function pairScorer(browser: Browser, frontend: Page) {
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   await frontend.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await frontend.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(frontend).textContent())!.trim();
   const context = await browser.newContext();
   await skipOnboarding(context);
   const page = await context.newPage();
@@ -44,9 +44,8 @@ async function pairScorer(browser: Browser, frontend: Page) {
   await page.getByPlaceholder('CODE').fill(code);
   await page.getByRole('button', { name: 'Pair' }).click();
   await expect(page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
-  await page.getByPlaceholder('Name this device').fill('Recovery board');
-  await page.getByPlaceholder('Name this device').blur();
-  await setSwitch(frontend.getByRole('switch', { name: 'Board camera: Recovery board' }), true);
+  await renameScorerDevice(page, 'Recovery board');
+  await setSwitch(scoringDeviceControls(frontend, 'Recovery board').getByRole('switch', { name: 'Board camera' }), true);
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   return { context, page };
 }
@@ -191,7 +190,7 @@ test('the setup overlay settles, bypasses local opt-out, times out, and never ga
 
   const optedOut = await onlineRoom(browser);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
-  await setSwitch(optedOut.host.getByRole('switch', { name: 'Share and watch live video during a match' }), false);
+  await setSwitch(optedOut.host.getByRole('switch', { name: 'Live video' }), false);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
   await optedOut.host.getByRole('button', { name: /Start Match/i }).click();
   await optedOut.host.waitForURL('**/match/**');
@@ -434,7 +433,7 @@ test('local shared-board recovery preserves same-peer consent and rebuilds on re
   await player.goto('/?e2e=1');
   await player.getByText('Local Match').click();
   for (const name of ['Alice', 'Bob']) {
-    await player.getByPlaceholder('New player name').fill(name);
+    await player.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
     await player.getByRole('button', { name: 'Add' }).click();
   }
   const scorer = await pairScorer(browser, player);

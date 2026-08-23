@@ -12,7 +12,7 @@ test.describe('N-players matches', () => {
 
     // Add 3 players
     for (const name of ['Alice', 'Bob', 'Carol']) {
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
       await expect(page.locator(`text=${name}`)).toBeVisible();
     }
@@ -53,7 +53,7 @@ test.describe('N-players matches', () => {
 
     const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
     for (const name of names) {
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
       await expect(page.getByText(name, { exact: true })).toBeVisible();
     }
@@ -124,7 +124,7 @@ test.describe('N-players matches', () => {
 
     const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
     for (const name of names) {
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
       await expect(page.getByText(name, { exact: true })).toBeVisible();
     }
@@ -177,13 +177,13 @@ test.describe('N-players matches', () => {
     await host.goto('/');
     await host.click('text=Online Match');
     await host.getByLabel('Game').selectOption('count-up');
-    await host.fill('input[placeholder="New player name"]', 'Alice');
+    await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await host.click('button:has-text("Add")');
 
     const code = (await host.locator('code').textContent())!.trim();
     for (const [page, name] of [[second, 'Bob'], [third, 'Carol']] as const) {
       await page.goto(`/lobby/join/${code}`);
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
       await expect(page.getByText(name, { exact: true })).toBeVisible();
     }
@@ -197,7 +197,7 @@ test.describe('N-players matches', () => {
       await expect(page.locator('[data-player="Alice"]')).toBeVisible();
       await expect(page.locator('[data-player="Bob"]')).toBeVisible();
       await expect(page.locator('[data-player="Carol"]')).toBeVisible();
-      await expect(page.locator('text=video off — more than two boards')).toBeVisible();
+      await expect(page.getByText(/video off.*more than two boards/i)).toBeVisible();
     }
 
     await Promise.all(contexts.map((ctx) => ctx.close()));
@@ -218,9 +218,9 @@ test.describe('N-players matches', () => {
     await selector.selectOption('count-up');
 
     // Host adds Alice and Carol
-    await host.fill('input[placeholder="New player name"]', 'Alice');
+    await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await host.click('button:has-text("Add")');
-    await host.fill('input[placeholder="New player name"]', 'Carol');
+    await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Carol');
     await host.click('button:has-text("Add")');
 
     // Get invite code
@@ -229,7 +229,7 @@ test.describe('N-players matches', () => {
 
     // Guest joins
     await guest.goto(`/lobby/join/${code}`);
-    await guest.fill('input[placeholder="New player name"]', 'Bob');
+    await guest.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await guest.click('button:has-text("Add")');
 
     // Host starts match

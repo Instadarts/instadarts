@@ -34,17 +34,88 @@ export async function skipOnboarding(context: BrowserContext) {
   });
 }
 
-/**
- * Put a `role="switch"` control into a given state.
- *
- * The switches in the top bar are buttons, so `click()` toggles rather than sets — asking for the
- * state a spec wants, instead of counting on the state it is in, is what `check()`/`uncheck()` gave
- * for the checkboxes and radios these replaced.
- */
+/** The short code shown inside the frontend's scoring-device pairing dialog. */
+export function pairingCode(page: Page): Locator {
+  return page
+    .getByRole('dialog', { name: 'Pair scoring device' })
+    .getByText(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+}
+
+/** The device-name field inside the paired scorer's settings menu. */
+export function scorerDeviceName(page: Page): Locator {
+  return page.getByRole('textbox', { name: 'Device name' });
+}
+
+/** Open the paired scorer's settings menu and return its device-name field. */
+export async function openScorerSettings(page: Page): Promise<Locator> {
+  const name = scorerDeviceName(page);
+  if (await name.isVisible().catch(() => false)) return name;
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(name).toBeVisible();
+  return name;
+}
+
+/** Close the paired scorer's settings menu when it is open. */
+export async function closeScorerSettings(page: Page): Promise<void> {
+  const name = scorerDeviceName(page);
+  if (!await name.isVisible().catch(() => false)) return;
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(name).toHaveCount(0);
+}
+
+/** Rename a paired scorer through its settings menu, then return to the scoring view. */
+export async function renameScorerDevice(page: Page, value: string): Promise<void> {
+  const name = await openScorerSettings(page);
+  await name.fill(value);
+  await name.blur();
+  await expect(name).toHaveValue(value);
+  await closeScorerSettings(page);
+}
+
+/** Frontend controls for one named scoring device in the camera menu. */
+export function scoringDeviceControls(page: Page, name: string): Locator {
+  return page.getByRole('group', { name: `Scoring device: ${name}` });
+}
+
+/** Put either a native or ARIA `role="switch"` control into a given state. */
 export async function setSwitch(target: Locator, on: boolean): Promise<void> {
+  const native = await target.evaluate((element) => (
+    element instanceof HTMLInputElement && ['checkbox', 'radio'].includes(element.type)
+  ));
+  if (native) {
+    await target.setChecked(on, { force: true });
+    if (on) await expect(target).toBeChecked();
+    else await expect(target).not.toBeChecked();
+    return;
+  }
+
   if ((await target.getAttribute('aria-checked')) === String(on)) return;
   await target.click();
   await expect(target).toHaveAttribute('aria-checked', String(on));
+}
+
+/** Start the scorer camera through its header switch and wait until inference can run. */
+export async function startScorerCamera(
+  page: Page,
+  { disarmMotion = true }: { disarmMotion?: boolean } = {},
+): Promise<void> {
+  const toggle = page.getByRole('switch', {
+    name: /^(?:Start camera|Resume camera|Turn camera off)$/,
+  });
+  await expect(toggle).toBeEnabled({ timeout: 90_000 });
+  if (!await toggle.isChecked()) {
+    await toggle.evaluate((element) => (element as HTMLInputElement).click());
+  }
+  await expect(toggle).toBeChecked({ timeout: 90_000 });
+
+  if (disarmMotion) {
+    await page.evaluate(() => (
+      window as unknown as { __scorer: { motion: { disarm: () => void } } }
+    ).__scorer.motion.disarm());
+    await expect(page.getByRole('button', { name: 'Scan now' })).toBeEnabled({ timeout: 90_000 });
+  } else {
+    await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
+  }
 }
 
 /**
@@ -98,16 +169,6 @@ export async function clickD12(page: Page) {
   await clickBoard(page, Math.round(500_000 + r * Math.sin(angle)), Math.round(500_000 + r * Math.cos(angle)));
 }
 
-/**
- * The rows of the visit history that hold a visit.
- *
- * The screen draws a fixed number of rows and leaves the spare ones blank, so that landing a visit
- * does not resize anything; "no visits yet" is therefore about text, not about how many rows exist.
- */
-export function visitHistoryRows(page: Page): Locator {
-  return page.locator('text=Visit History').locator('..').locator('div.font-mono').filter({ hasText: '=' });
-}
-
 /** Submit the current visit. */
 export async function submitVisit(page: Page) {
   await expect(page.locator('button:has-text("Submit Visit")')).toBeEnabled({ timeout: 5000 });
@@ -119,11 +180,6 @@ export async function submitVisit(page: Page) {
 /** Verify a dart label is visible in the current darts row. */
 export async function expectDartLabel(page: Page, label: string) {
   await expect(page.locator(`text=${label}`).first()).toBeVisible();
-}
-
-/** Verify visit total appears in history. */
-export async function expectVisitTotal(page: Page, total: number) {
-  await expect(page.getByText(`= ${total}`).first()).toBeVisible();
 }
 
 /** Hand the board to Alice if it is not already hers. The rota decides who starts each leg. */
@@ -164,7 +220,7 @@ export async function setupLocalMatch(page: Page, players: string[], startScore 
 
   // Add players
   for (const name of players) {
-    await page.fill('input[placeholder="New player name"]', name);
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
     await page.click('button:has-text("Add")');
     await expect(page.locator(`text=${name}`)).toBeVisible();
   }
@@ -172,8 +228,8 @@ export async function setupLocalMatch(page: Page, players: string[], startScore 
   // Configure settings
   await page.getByLabel('Starting Score').selectOption(String(startScore));
   // Uncheck double-in (default off), ensure double-out is checked
-  const diCheckbox = page.locator('text=Double In').locator('..').locator('input[type="checkbox"]');
-  const doCheckbox = page.locator('text=Double Out').locator('..').locator('input[type="checkbox"]');
+  const diCheckbox = page.getByRole('checkbox', { name: 'Double In' });
+  const doCheckbox = page.getByRole('checkbox', { name: 'Double Out' });
   if (await diCheckbox.isChecked()) await diCheckbox.uncheck();
   if (!await doCheckbox.isChecked()) await doCheckbox.check();
 

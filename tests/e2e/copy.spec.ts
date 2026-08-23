@@ -27,12 +27,12 @@ test.describe('copying the scoring page address', () => {
     await expect(address).toBeVisible();
     await address.click();
 
-    await expect(player.getByText('Copied')).toBeVisible();
+    await expect(player.getByRole('tooltip', { name: 'Copied' })).toBeVisible();
     expect(await player.evaluate(() => navigator.clipboard.readText()))
       .toBe(`${new URL(player.url()).origin}/scorer`);
 
     // The acknowledgement is a flash, not a state: it goes away on its own.
-    await expect(player.getByText('Copied')).not.toBeVisible({ timeout: 5000 });
+    await expect(player.getByRole('tooltip', { name: 'Copied' })).not.toBeVisible({ timeout: 5000 });
 
     await context.close();
   });
@@ -54,7 +54,7 @@ test.describe('copying the scoring page address', () => {
     await player.getByRole('button', { name: /\/scorer$/ }).click();
 
     // Copied, not "Select it and copy by hand" — the fallback did the work.
-    await expect(player.getByText('Copied')).toBeVisible();
+    await expect(player.getByRole('tooltip', { name: 'Copied' })).toBeVisible();
 
     await context.close();
   });
@@ -72,13 +72,13 @@ test.describe('copying the invite code', () => {
 
     // The code and the clipboard glyph are one target, so clicking the code itself copies.
     await host.getByRole('button', { name: new RegExp(`^${code}`) }).click();
-    await expect(host.getByText('Copied')).toBeVisible();
+    await expect(host.getByRole('tooltip', { name: 'Copied' })).toBeVisible();
     expect(await host.evaluate(() => navigator.clipboard.readText())).toBe(code);
-    await expect(host.getByText('Copied')).not.toBeVisible({ timeout: 5000 });
+    await expect(host.getByRole('tooltip', { name: 'Copied' })).not.toBeVisible({ timeout: 5000 });
 
     // The share link copies the whole address, not the path it displays.
     await host.getByRole('button', { name: `/lobby/join/${code}` }).click();
-    await expect(host.getByText('Copied')).toBeVisible();
+    await expect(host.getByRole('tooltip', { name: 'Copied' })).toBeVisible();
     expect(await host.evaluate(() => navigator.clipboard.readText()))
       .toBe(`${new URL(host.url()).origin}/lobby/join/${code}`);
 

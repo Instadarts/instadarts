@@ -14,7 +14,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { setSwitch, skipOnboarding } from './appHelpers';
+import { pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
 
 const SCENES = {
   // Camera startup now performs a real cold inference. Begin where the test's prose always said it
@@ -40,26 +40,14 @@ async function openScorer(browser: Browser) {
 async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
-  await scorer.getByPlaceholder('Name this device').fill(name);
-  await scorer.getByPlaceholder('Name this device').blur();
+  await renameScorerDevice(scorer, name);
 
-  await setSwitch(player.getByRole('switch', { name: `Board camera: ${name}` }), true);
+  await setSwitch(scoringDeviceControls(player, name).getByRole('switch', { name: 'Board camera' }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
-}
-
-async function startCamera(page: Page) {
-  const startButton = page.getByRole('button', { name: 'Start camera' });
-  if (await startButton.isVisible().catch(() => false)) {
-    await startButton.click().catch(() => {});
-  }
-  await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
-  // Motion stays disarmed: frame differencing over a captured canvas is not deterministic, and the
-  // gate is not what this test is about.
-  await page.evaluate(() => (window as unknown as { __scorer: { motion: { disarm: () => void } } }).__scorer.motion.disarm());
 }
 
 /** The evidence thumbnails, as `<img>` elements — only the slots that actually hold a picture. */
@@ -98,14 +86,14 @@ async function onlineMatch(browser: Browser) {
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
   await host.click('text=Create Online Match');
-  await host.fill('input[placeholder="New player name"]', 'Alice');
+  await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.click('button:has-text("Add")');
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
   const bob = await browser.newContext();
   const guest = await bob.newPage();
   await guest.goto(`/lobby/join/${code.trim()}?e2e=1`);
-  await guest.fill('input[placeholder="New player name"]', 'Bob');
+  await guest.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
   await guest.click('button:has-text("Add")');
   await expect(host.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 
@@ -130,7 +118,7 @@ test.describe('dart evidence', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
 
     // Every viewer linked before a dart lands. A still is sent once, at the moment it is taken, and
     // there is no retry for a peer whose link was still being negotiated — so a spectator who joins
@@ -206,7 +194,7 @@ test.describe('dart evidence', () => {
 
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
 
     await showScene(scorer.page, 'darts');
@@ -239,7 +227,7 @@ test.describe('dart evidence', () => {
     await expect(host.getByText('Whac-A-Mole settings')).toBeVisible();
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
 
     await showScene(scorer.page, 'darts');
@@ -271,7 +259,7 @@ test.describe('dart evidence', () => {
     await host.click('text=Start Match');
     await host.waitForURL('**/match/**');
     await guest.waitForURL('**/match/**');
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page);
     await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);

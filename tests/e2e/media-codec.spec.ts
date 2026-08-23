@@ -35,12 +35,12 @@ test.describe('encoded video over a link', () => {
     // Nothing to do with darts: two frontends in one running match are the shortest route to a link.
     await alice.goto('/?e2e=1');
     await alice.click('text=Create Online Match');
-    await alice.fill('input[placeholder="New player name"]', 'Alice');
+    await alice.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await alice.click('button:has-text("Add")');
     const code = (await alice.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
     await bob.goto(`/lobby/join/${code.trim()}?e2e=1`);
-    await bob.fill('input[placeholder="New player name"]', 'Bob');
+    await bob.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await bob.click('button:has-text("Add")');
     await expect(alice.locator('text=Bob')).toBeVisible({ timeout: 5000 });
     await alice.getByRole('button', { name: /Start Match/i }).click();

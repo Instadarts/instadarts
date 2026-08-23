@@ -11,7 +11,7 @@
 // nothing at all in a shipped bundle.
 
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { setSwitch, skipOnboarding } from './appHelpers';
+import { pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding } from './appHelpers';
 
 // ============================================================
 // Reaching into a page's mesh
@@ -73,7 +73,7 @@ async function roundTrip(page: Page, peerId: string, seq: number): Promise<void>
 async function pairScorer(browser: Browser, frontend: Page, name: string) {
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   await frontend.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await frontend.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(frontend).textContent())!.trim();
 
   const context = await browser.newContext();
   await skipOnboarding(context);
@@ -83,10 +83,9 @@ async function pairScorer(browser: Browser, frontend: Page, name: string) {
   await page.getByRole('button', { name: 'Pair' }).click();
   await expect(page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
 
-  await page.getByPlaceholder('Name this device').fill(name);
-  await page.getByPlaceholder('Name this device').blur();
+  await renameScorerDevice(page, name);
 
-  await setSwitch(frontend.getByRole('switch', { name: `Board camera: ${name}` }), true);
+  await setSwitch(scoringDeviceControls(frontend, name).getByRole('switch', { name: 'Board camera' }), true);
   // Close the panel again so the next pairing starts from the same place.
   await frontend.getByRole('button', { name: 'Cameras' }).first().click();
   return { context, page };
@@ -98,14 +97,14 @@ async function onlineLobby(browser: Browser) {
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
   await host.click('text=Create Online Match');
-  await host.fill('input[placeholder="New player name"]', 'Alice');
+  await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.click('button:has-text("Add")');
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
   const bob = await browser.newContext();
   const guest = await bob.newPage();
   await guest.goto(`/lobby/join/${code.trim()}?e2e=1`);
-  await guest.fill('input[placeholder="New player name"]', 'Bob');
+  await guest.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
   await guest.click('button:has-text("Add")');
   await expect(host.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 

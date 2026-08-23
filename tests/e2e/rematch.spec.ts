@@ -1,7 +1,7 @@
 // Playing again: the three-way vote, and the fresh match it starts.
 
 import { test, expect, type Page } from '@playwright/test';
-import { visitHistoryRows, winLegAt501, setupLocalMatch } from './appHelpers';
+import { winLegAt501, setupLocalMatch } from './appHelpers';
 
 test.describe('Re-match', () => {
   /** One leg at 501 is the whole match at the default format. */
@@ -15,8 +15,8 @@ test.describe('Re-match', () => {
     const firstMatch = page.url();
     await playToAWin(page);
 
-    await expect(page.locator('text=Play again?')).toBeVisible();
     const yes = (name: string) => page.getByRole('button', { name: `${name}: accept re-match` });
+    await expect(yes('Alice')).toBeVisible();
     await yes('Alice').click();
     await expect(yes('Alice')).toHaveAttribute('aria-pressed', 'true');
     expect(page.url()).toBe(firstMatch); // one player is not enough
@@ -26,10 +26,9 @@ test.describe('Re-match', () => {
 
     // A new match, from scratch, with Bob leading off.
     await expect(page.locator('text=Play again?')).toHaveCount(0);
-    await expect(visitHistoryRows(page)).toHaveCount(0);
-    await expect(page.locator('text=501').first()).toBeVisible();
-    const cards = page.locator('p.text-sm.text-gray-400');
-    await expect(cards.first()).toHaveText('Bob');
+    await expect(page.locator('[data-player="Alice"]').getByText('501', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-player="Bob"]').getByText('501', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-player="Bob"]')).toHaveAttribute('aria-current', 'true');
 
     // The mode's panel is up before the first dart here too. It once was not: a re-match arrives on
     // a broadcast of its own, and that one left the panel out, so the block appeared only after
@@ -44,12 +43,12 @@ test.describe('Re-match', () => {
 
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
     const code = (await page1.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
     await page2.goto(`/lobby/join/${code.trim()}`);
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
     await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 
@@ -109,7 +108,8 @@ test.describe('Re-match', () => {
 
     // Dragged along to the new match, still spectating.
     await watcher.waitForURL((url) => url.href.includes('/spectate/') && !url.href.endsWith(firstMatch));
-    await expect(visitHistoryRows(watcher)).toHaveCount(0);
+    await expect(watcher.locator('[data-player="Alice"]').getByText('501', { exact: true })).toBeVisible();
+    await expect(watcher.locator('[data-player="Bob"]').getByText('501', { exact: true })).toBeVisible();
     await expect(watcher.locator('text=Submit Visit')).toHaveCount(0); // still read-only
   });
 
@@ -135,12 +135,12 @@ test.describe('Re-match', () => {
 
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
     const code = (await page1.locator('text=Invite Code').locator('..').locator('code').textContent())!;
 
     await page2.goto(`/lobby/join/${code.trim()}`);
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
     await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
     await page1.click('text=Start Match');

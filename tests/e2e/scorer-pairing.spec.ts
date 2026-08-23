@@ -1,5 +1,12 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { skipOnboarding } from './appHelpers';
+import {
+  closeScorerSettings,
+  openScorerSettings,
+  pairingCode,
+  renameScorerDevice,
+  scorerDeviceName,
+  skipOnboarding,
+} from './appHelpers';
 
 // ============================================================
 // Helpers
@@ -9,7 +16,7 @@ import { skipOnboarding } from './appHelpers';
 async function requestPairingCode(page: Page): Promise<string> {
   await page.getByRole('button', { name: 'Cameras' }).first().click();
   await page.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = page.locator('p.font-mono.tracking-\\[0\\.3em\\]');
+  const code = pairingCode(page);
   await expect(code).toBeVisible();
   const text = await code.textContent();
   return (text ?? '').trim();
@@ -45,18 +52,18 @@ test.describe('scoring device pairing', () => {
     await pairScorer(scorer.page, code);
 
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
 
     // A code pairs one device, so pairing one ends the exercise: the dialog closes rather than
     // sitting on "Requesting a code…" or minting a second code nobody asked for. Another device
     // means pressing the button again.
     await expect(player.getByText('Requesting a code…')).toHaveCount(0);
-    await expect(player.locator('p.font-mono.tracking-\\[0\\.3em\\]')).toHaveCount(0);
+    await expect(pairingCode(player)).toHaveCount(0);
     await expect(player.getByRole('button', { name: 'Pair scoring device' })).toBeVisible();
 
     // And it still works a second time, from the panel it left open.
     await player.getByRole('button', { name: 'Pair scoring device' }).click();
-    await expect(player.locator('p.font-mono.tracking-\\[0\\.3em\\]')).toBeVisible();
+    await expect(pairingCode(player)).toBeVisible();
 
     // The scoring screen is the one that spends a whole evening mounted, so it is the one that most
     // wants the browser's chrome out of the way.
@@ -85,7 +92,7 @@ test.describe('scoring device pairing', () => {
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
 
     await player.getByRole('button', { name: 'Cameras' }).first().click();
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
 
     await frontend.close();
     await scorer.context.close();
@@ -102,8 +109,7 @@ test.describe('scoring device pairing', () => {
     // Until it says otherwise, the browser calls it by the placeholder it assigned at pairing.
     await expect(player.getByTestId('device-name')).toHaveText('Camera 1');
 
-    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
-    await scorer.page.getByPlaceholder('Name this device').blur();
+    await renameScorerDevice(scorer.page, 'Board camera');
 
     await expect(player.getByTestId('device-name')).toHaveText('Board camera');
 
@@ -124,13 +130,13 @@ test.describe('scoring device pairing', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, await requestPairingCode(player));
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
 
     // Named first, to show that unpairing takes the identity and leaves everything describing the
     // phone itself.
-    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
-    await scorer.page.getByPlaceholder('Name this device').blur();
-    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    const deviceName = await openScorerSettings(scorer.page);
+    await deviceName.fill('Board camera');
+    await deviceName.blur();
     await scorer.page.getByLabel('Screensaver').uncheck();
 
     await scorer.page.getByRole('button', { name: 'Unpair' }).click();
@@ -143,21 +149,21 @@ test.describe('scoring device pairing', () => {
     await newOwner.goto('/');
     await pairScorer(scorer.page, await requestPairingCode(newOwner));
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
-    await expect(newOwner.getByText('connected')).toBeVisible();
+    await expect(newOwner.getByTestId('device-status')).toHaveText('connected');
 
     // The name and the settings both survived: they describe this phone on this mount, and none of
     // that changed by it being handed to somebody else. The new owner is told the name at once,
     // rather than being left with the placeholder it invented.
-    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('Board camera');
+    await openScorerSettings(scorer.page);
+    await expect(scorerDeviceName(scorer.page)).toHaveValue('Board camera');
     await expect(newOwner.getByTestId('device-name')).toHaveText('Board camera');
 
-    await scorer.page.getByRole('button', { name: 'Settings' }).click();
     await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
 
     // And the browser it left holds a device that will never come back: it is told nothing about
     // the unpairing, so what it sees is a phone that went offline and stayed there. Its device
     // panel has been open since it showed the code, so there is nothing to open here.
-    await expect(player.getByText('offline')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('offline');
 
     await frontend.close();
     await other.close();
@@ -179,7 +185,7 @@ test.describe('scoring device pairing', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
-    await expect(tabA.getByText('connected')).toBeVisible();
+    await expect(tabA.getByTestId('device-status')).toHaveText('connected');
 
     // A second tab of the same browser: paired already (localStorage), not active (sessionStorage).
     const tabB = await frontend.newPage();
@@ -188,7 +194,7 @@ test.describe('scoring device pairing', () => {
     await expect(tabB.getByText('not in use here')).toBeVisible();
 
     await tabB.getByRole('button', { name: 'Use here' }).click();
-    await expect(tabB.getByText('connected')).toBeVisible();
+    await expect(tabB.getByTestId('device-status')).toHaveText('connected');
     await expect(tabA.getByText('not in use here')).toBeVisible();
 
     await frontend.close();
@@ -203,7 +209,7 @@ test.describe('scoring device pairing', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, code);
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
 
     const stranger = await browser.newContext();
     const strangerPage = await stranger.newPage();
@@ -212,7 +218,7 @@ test.describe('scoring device pairing', () => {
     await expect(strangerPage.getByText('No scoring devices paired to this browser yet.')).toBeVisible();
 
     // And the real owner still has it.
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
 
     await frontend.close();
     await scorer.context.close();
@@ -248,7 +254,7 @@ test.describe('pairing by scanning', () => {
 
     // No code field, no Pair button — it is already somebody's camera.
     await expect(scorer.getByTestId('scorer-status')).toHaveText('Ready — no match running');
-    await expect(player.getByText('connected')).toBeVisible();
+    await expect(player.getByTestId('device-status')).toHaveText('connected');
     await expect(scorer.getByPlaceholder('CODE')).toHaveCount(0);
 
     // And the code is out of the address bar. It is single-use, so a phone that restores this tab
@@ -280,14 +286,14 @@ test.describe('pairing by scanning', () => {
 
     const scorer = await openScorer(browser);
     await pairScorer(scorer.page, await requestPairingCode(owner));
-    await expect(owner.getByText('connected')).toBeVisible();
+    await expect(owner.getByTestId('device-status')).toHaveText('connected');
 
     // Everything that describes this phone rather than who it answers to.
-    await scorer.page.getByPlaceholder('Name this device').fill('Board camera');
-    await scorer.page.getByPlaceholder('Name this device').blur();
-    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    const deviceName = await openScorerSettings(scorer.page);
+    await deviceName.fill('Board camera');
+    await deviceName.blur();
     await scorer.page.getByLabel('Screensaver').uncheck();
-    await scorer.page.getByRole('button', { name: 'Done' }).click();
+    await closeScorerSettings(scorer.page);
 
     // Somebody else's screen, somebody else's code — and no unpairing first. Scanning is the whole
     // interaction: a phone on a wall should not have to be talked out of its last pairing before it
@@ -299,18 +305,18 @@ test.describe('pairing by scanning', () => {
     await scorer.page.goto(`/scorer?code=${code}`);
 
     await expect(scorer.page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
-    await expect(newOwner.getByText('connected')).toBeVisible();
+    await expect(newOwner.getByTestId('device-status')).toHaveText('connected');
     await expect(newOwner.getByTestId('device-name')).toHaveText('Board camera');
 
     // The settings are untouched: they describe this camera on this mount, and none of that changed
     // by it being handed to somebody else.
-    await expect(scorer.page.getByPlaceholder('Name this device')).toHaveValue('Board camera');
-    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await openScorerSettings(scorer.page);
+    await expect(scorerDeviceName(scorer.page)).toHaveValue('Board camera');
     await expect(scorer.page.getByLabel('Screensaver')).not.toBeChecked();
 
     // The browser it left is told, rather than being left holding a camera that is simply never
     // heard from again. Its device panel has been open since it showed its code.
-    await expect(owner.getByText('offline')).toBeVisible();
+    await expect(owner.getByTestId('device-status')).toHaveText('offline');
 
     await first.close();
     await second.close();

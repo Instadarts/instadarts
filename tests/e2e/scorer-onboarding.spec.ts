@@ -24,6 +24,7 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera } from './fakeCamera';
+import { openScorerSettings, pairingCode, scorerDeviceName } from './appHelpers';
 
 /** The self-test loads two models and runs a dozen inferences on a CPU; it is not quick. */
 const RUN_TIMEOUT = 180_000;
@@ -40,7 +41,7 @@ async function pairedScorer(browser: Browser, { camera = true } = {}) {
   await player.goto('/');
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   // Deliberately *not* seeding didOnboard — a device arriving here for the first time is the case.
   // `camera: false` is a phone with none, or one whose owner refused: no permission, no fake.
@@ -111,7 +112,7 @@ test.describe('setting up a scoring device', () => {
     // no second button to press. The preview carrying frames is the proof it really opened.
     await expect(scorer.getByText('Step 2 of 4 · Choosing a camera')).toBeVisible();
     // Setup is one screen with one thing to do on it: no status badge, no name field, no Settings.
-    await expect(scorer.getByPlaceholder('Name this device')).toHaveCount(0);
+    await expect(scorerDeviceName(scorer)).toHaveCount(0);
     await expect(scorer.getByRole('button', { name: 'Settings' })).toHaveCount(0);
     await expect(scorer.getByTestId('onboarding-start-checks')).toBeVisible();
     expect(await previewSize(scorer)).toEqual({ width: 960, height: 720 });
@@ -285,11 +286,11 @@ test.describe('setting up a scoring device', () => {
 
     // Something of each kind: a name and a screensaver preference to keep, a lens calibration, a
     // camera choice with its zoom and a CPU override to throw away.
-    await scorer.getByPlaceholder('Name this device').fill('Board camera');
-    await scorer.getByPlaceholder('Name this device').blur();
-    await scorer.getByRole('button', { name: 'Settings' }).click();
+    const deviceName = await openScorerSettings(scorer);
+    await deviceName.fill('Board camera');
+    await deviceName.blur();
     await scorer.getByLabel('Screensaver').uncheck();
-    await scorer.getByRole('checkbox', { name: /Inference/ }).check();
+    await scorer.getByRole('switch', { name: /^Inference\b/ }).check();
     await scorer.evaluate(() => {
       const KEY = 'instadarts_scorer_settings';
       const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');

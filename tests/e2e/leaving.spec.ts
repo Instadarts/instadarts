@@ -13,7 +13,7 @@ test.describe('Lobby leave scenarios', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
     const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
@@ -23,13 +23,13 @@ test.describe('Lobby leave scenarios', () => {
     await page2.goto('/');
     await page2.waitForTimeout(1000);
     await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.getByRole('textbox', { name: 'Invite code', exact: true }).fill(code!.trim());
     await page2.click('button:has-text("Join Match")');
     await page2.waitForTimeout(1000);
     await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
 
     // Joiner adds themselves
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
 
     // Creator leaves
@@ -53,7 +53,7 @@ test.describe('Lobby leave scenarios', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
     const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
@@ -63,13 +63,13 @@ test.describe('Lobby leave scenarios', () => {
     await page2.goto('/');
     await page2.waitForTimeout(1000);
     await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.getByRole('textbox', { name: 'Invite code', exact: true }).fill(code!.trim());
     await page2.click('button:has-text("Join Match")');
     await page2.waitForTimeout(1000);
     await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
 
     // Joiner adds themselves
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
     await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 
@@ -95,7 +95,7 @@ test.describe('Lobby leave scenarios', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
     const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
@@ -105,13 +105,13 @@ test.describe('Lobby leave scenarios', () => {
     await page2.goto('/');
     await page2.waitForTimeout(1000);
     await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.getByRole('textbox', { name: 'Invite code', exact: true }).fill(code!.trim());
     await page2.click('button:has-text("Join Match")');
     await page2.waitForTimeout(1000);
     await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
 
     // Joiner adds themselves
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
 
     // Joiner leaves — should go to home
@@ -138,7 +138,7 @@ test.describe('In-match leave scenarios', () => {
     // Creator creates online match and adds self
     await page1.goto('/');
     await page1.click('text=Create Online Match');
-    await page1.fill('input[placeholder="New player name"]', 'Alice');
+    await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
     const code = await page1.locator('text=Invite Code').locator('..').locator('code').textContent();
@@ -148,11 +148,11 @@ test.describe('In-match leave scenarios', () => {
     await page2.goto('/');
     await page2.waitForTimeout(1000);
     await page2.click('text=Join Online Match');
-    await page2.fill('input[placeholder="Invite code"]', code!.trim());
+    await page2.getByRole('textbox', { name: 'Invite code', exact: true }).fill(code!.trim());
     await page2.click('button:has-text("Join Match")');
     await page2.waitForTimeout(1000);
     await expect(page2.locator('text=Online Match')).toBeVisible({ timeout: 10000 });
-    await page2.fill('input[placeholder="New player name"]', 'Bob');
+    await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');
     await expect(page1.locator('text=Bob')).toBeVisible({ timeout: 5000 });
 

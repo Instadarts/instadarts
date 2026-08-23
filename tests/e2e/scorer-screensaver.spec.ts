@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { skipOnboarding } from './appHelpers';
+import { pairingCode, skipOnboarding } from './appHelpers';
 
 /**
  * Waking a blacked-out phone, without also pressing what the black was covering.
@@ -27,7 +27,7 @@ async function pair(player: Page, scorer: Page) {
   await player.goto('/');
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();

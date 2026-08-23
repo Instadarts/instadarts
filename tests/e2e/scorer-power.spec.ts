@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
-import { skipOnboarding } from './appHelpers';
+import { pairingCode, skipOnboarding, startScorerCamera } from './appHelpers';
 
 /**
  * A scoring device deciding for itself when to stop costing battery, and an owner reaching one from
@@ -42,16 +42,11 @@ async function openScorer(browser: Browser, { standbyMs = STANDBY_MS } = {}) {
 async function pairCamera(player: Page, scorer: Page) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
-  const code = (await player.locator('p.font-mono.tracking-\\[0\\.3em\\]').textContent())!.trim();
+  const code = (await pairingCode(player).textContent())!.trim();
 
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
   await expect(scorer.getByPlaceholder('CODE')).toHaveCount(0);
-}
-
-async function startCamera(page: Page) {
-  await page.getByRole('button', { name: /Start camera|Resume/ }).click();
-  await expect(page.getByRole('button', { name: 'Stop scanning' })).toBeEnabled({ timeout: 90_000 });
 }
 
 /** Whether a camera is actually open, asked of the runtime rather than of the picture. */
@@ -86,7 +81,7 @@ async function pendingScorerMessages(page: Page): Promise<number> {
 }
 
 async function addPlayersAndStart(player: Page) {
-  await player.fill('input[placeholder="New player name"]', 'Alice');
+  await player.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await player.click('button:has-text("Add")');
   await player.click('button:has-text("Start Match")');
   await expect(player.locator('text=Submit Visit')).toBeVisible();
@@ -105,7 +100,7 @@ test.describe('a scoring device managing its own power', () => {
 
     const scorer = await openScorer(browser, { standbyMs: 600_000 });
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page, { disarmMotion: false });
     expect(await cameraOn(scorer.page)).toBe(true);
 
     // Framing the board and calibrating the lens are both a finger on the screen every few seconds.
@@ -144,7 +139,7 @@ test.describe('a scoring device managing its own power', () => {
 
     const scorer = await openScorer(browser);
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page, { disarmMotion: false });
     await expect(scorer.page.getByTestId('powered-down')).toBeVisible({ timeout: GRACE_MS + ROUND_TRIP_MS });
 
     await addPlayersAndStart(player);
@@ -192,7 +187,7 @@ test.describe('a scoring device managing its own power', () => {
 
     const scorer = await openScorer(browser, { standbyMs: 600_000 });
     await pairCamera(player, scorer.page);
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page, { disarmMotion: false });
     await showScene(scorer.page, 'darts');
     await scan(scorer.page);
 
@@ -241,7 +236,7 @@ test.describe('an owner reaching a device from the frontend', () => {
     await addPlayersAndStart(player);
     // Starting the match meant clicking the page behind the device menu, which closes it. Back in.
     await player.getByRole('button', { name: 'Cameras' }).first().click();
-    await startCamera(scorer.page);
+    await startScorerCamera(scorer.page, { disarmMotion: false });
     await expect(player.getByTestId('device-status')).toHaveText('camera on', { timeout: ROUND_TRIP_MS });
 
     // Off. Asserted on the device first, then on the row, so a failure says which half broke — a

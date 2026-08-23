@@ -8,7 +8,7 @@ test.describe('Sets and legs', () => {
     await page.goto('/');
     await page.click('text=Local Match');
     for (const name of ['Alice', 'Bob']) {
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
     }
     await setFormat(page, 'Legs to win a set', 3);
@@ -37,7 +37,7 @@ test.describe('Sets and legs', () => {
     await page.goto('/');
     await page.click('text=Local Match');
     for (const name of ['Alice', 'Bob']) {
-      await page.fill('input[placeholder="New player name"]', name);
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
       await page.click('button:has-text("Add")');
     }
     await setFormat(page, 'Sets to win the match', 2);

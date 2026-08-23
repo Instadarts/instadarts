@@ -285,7 +285,13 @@ function DeviceBox({
   const offered = device.media !== 'disabled';
 
   return (
-    <Card withBorder bg="dark.9" padding="sm">
+    <Card
+      withBorder
+      bg="dark.9"
+      padding="sm"
+      role="group"
+      aria-label={`Scoring device: ${device.name}`}
+    >
       <Stack gap="xs">
         <Group justify="space-between" gap="xs" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" miw={0}>

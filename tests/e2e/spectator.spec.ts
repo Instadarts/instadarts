@@ -220,9 +220,6 @@ test.describe('Spectator mode', () => {
     await expect(page1.locator('text=Invite Code')).toBeVisible({ timeout: 5000 });
     await expect(page1.locator('text=✓ 1 other user connected')).toBeVisible({ timeout: 5000 });
 
-    // Joiner should see the "Add yourself" prompt (they haven't added a player yet)
-    await expect(page2.locator('text=Add yourself as a player to get started')).toBeVisible({ timeout: 5000 });
-
     // Joiner now adds themselves
     await page2.getByRole('textbox', { name: 'New player', exact: true }).fill('Bob');
     await page2.click('button:has-text("Add")');

@@ -55,12 +55,10 @@ function evidenceImages(page: Page) {
   return page.getByTestId('dart-evidence').locator('img');
 }
 
-/** Where the dart slots sit, for asking whether the screen moved. */
-async function slotRowTop(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const strip = document.querySelector('[data-testid="dart-evidence"]');
-    return strip ? Math.round(strip.getBoundingClientRect().top) : -1;
-  });
+/** Where a grid item sits, for asking whether dynamic content moved the match around. */
+async function gridItemTop(page: Page, id: string): Promise<number> {
+  return page.locator(`[data-grid-item="${id}"]`).evaluate((item) =>
+    Math.round(item.getBoundingClientRect().top));
 }
 
 /** Ordered control-channel barrier: every message sent before this ping has reached the peer. */
@@ -129,7 +127,7 @@ test.describe('dart evidence', () => {
     // height, and it is asserted before a dart is thrown rather than after.
     await expect(host.getByTestId('dart-evidence')).toBeVisible({ timeout: 20_000 });
     expect(await evidenceImages(host).count()).toBe(0);
-    const before = await slotRowTop(host);
+    const boardTop = await gridItemTop(host, 'board');
 
     // A real inference on the board photograph: three darts land in Alice's visit at once, which is
     // also the burst the device's request queue exists for.
@@ -151,9 +149,9 @@ test.describe('dart evidence', () => {
       img.decode().then(() => ({ w: img.naturalWidth, h: img.naturalHeight })));
     expect(decoded).toEqual({ w: CONFIG_DEFAULTS.media.still.size, h: CONFIG_DEFAULTS.media.still.size });
 
-    // And the screen did not move when the pictures arrived, which is the rule the fixed height is
-    // there to keep.
-    expect(await slotRowTop(host)).toBe(before);
+    // And the board did not move when the pictures arrived, which is the rule the fixed match-grid
+    // height is there to keep. The Visit card may recenter its own contents within that fixed box.
+    expect(await gridItemTop(host, 'board')).toBe(boardTop);
 
     // Three darts, three different squares of the board — so three different pictures.
     //

@@ -66,7 +66,7 @@ test.describe('two tabs of one browser', () => {
 
     // The original is out of the match, told why, and holding nothing to come back with.
     await expect(original).toHaveURL(/\/$/, { timeout: 10000 });
-    await expect(original.getByRole('status')).toContainText('opened in another tab');
+    await expect(original.getByRole('status').filter({ hasText: 'opened in another tab' })).toBeVisible();
     expect(await original.evaluate((key) => sessionStorage.getItem(key), RECONNECT_KEY)).toBeNull();
 
     // And it stays that way: nothing sends the original back to take the place off the copy.

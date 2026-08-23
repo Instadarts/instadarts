@@ -122,7 +122,7 @@ async function acceptOffersInAnyOrder(page: Page, sources: string[]) {
   while (remaining.size > 0) {
     const dialog = page.getByRole('dialog', { name: 'Live board video' });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
-    const description = await dialog.locator('#video-offer-description').textContent();
+    const description = await dialog.textContent();
     const source = [...remaining].find((candidate) =>
       description?.includes(`${candidate} is offering a live video feed.`));
     expect(source, `unexpected or duplicate video offer: ${description}`).toBeDefined();
@@ -316,7 +316,9 @@ test.describe('board video', () => {
 
     // Camera shutdown pauses the encoder, not the offer or the recipient's choice. The virtual board
     // takes over and the same UUID resumes without another prompt.
-    await scorer.page.getByRole('button', { name: 'Off' }).click();
+    await setSwitch(scorer.page.getByRole('switch', {
+      name: /^(?:Start camera|Resume camera|Turn camera off)$/,
+    }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     expect((await sourceOffer(scorer.page)).feedId).toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0, { timeout: 5000 });

@@ -9,22 +9,22 @@ describe('generated lobby layouts', () => {
   it('preserves the validated stock breakpoint geometry', () => {
     expect(positions(12)).toEqual([
       { i: 'overview', x: 0, w: 12 },
-      { i: 'players', x: 1, w: 5 },
-      { i: 'match-settings', x: 6, w: 5 },
-      { i: 'mode-settings', x: 1, w: 5 },
-      { i: 'invite', x: 6, w: 5 },
+      { i: 'match-settings', x: 2, w: 4 },
+      { i: 'players', x: 6, w: 4 },
+      { i: 'mode-settings', x: 2, w: 4 },
+      { i: 'invite', x: 6, w: 4 },
     ]);
     expect(positions(10)).toEqual([
       { i: 'overview', x: 0, w: 10 },
-      { i: 'players', x: 0, w: 5 },
-      { i: 'match-settings', x: 5, w: 5 },
-      { i: 'mode-settings', x: 0, w: 5 },
-      { i: 'invite', x: 5, w: 5 },
+      { i: 'match-settings', x: 1, w: 4 },
+      { i: 'players', x: 5, w: 4 },
+      { i: 'mode-settings', x: 1, w: 4 },
+      { i: 'invite', x: 5, w: 4 },
     ]);
     expect(positions(6)).toEqual([
       { i: 'overview', x: 0, w: 6 },
-      { i: 'players', x: 0, w: 3 },
-      { i: 'match-settings', x: 3, w: 3 },
+      { i: 'match-settings', x: 0, w: 3 },
+      { i: 'players', x: 3, w: 3 },
       { i: 'mode-settings', x: 0, w: 3 },
       { i: 'invite', x: 3, w: 3 },
     ]);
@@ -33,10 +33,10 @@ describe('generated lobby layouts', () => {
   it('centers equal-width cards when no allowed width fills the row', () => {
     expect(positions(14)).toEqual([
       { i: 'overview', x: 0, w: 14 },
-      { i: 'players', x: 2, w: 5 },
-      { i: 'match-settings', x: 7, w: 5 },
-      { i: 'mode-settings', x: 2, w: 5 },
-      { i: 'invite', x: 7, w: 5 },
+      { i: 'match-settings', x: 3, w: 4 },
+      { i: 'players', x: 7, w: 4 },
+      { i: 'mode-settings', x: 3, w: 4 },
+      { i: 'invite', x: 7, w: 4 },
     ]);
   });
 

@@ -7,6 +7,7 @@ import {
   getBreakpointFromWidth,
   getCompactor,
   useContainerWidth,
+  type Compactor,
   type Layout,
   type ResponsiveLayouts,
 } from 'react-grid-layout';
@@ -23,7 +24,8 @@ import {
 
 const ROW_HEIGHT = 8;
 const GAP = 12;
-const COMPACTOR = getCompactor('vertical', false, true);
+const DOCUMENT_COMPACTOR = getCompactor('vertical', false, true);
+const MATCH_COMPACTOR = getCompactor('vertical', true, false);
 
 export interface ResponsiveBoxItem {
   id: string;
@@ -46,6 +48,7 @@ function sameLayouts(a: ResponsiveLayouts<FrontendBreakpoint>, b: ResponsiveLayo
 /** Materialize RGL's automatically generated layouts so auto-height can update them immediately. */
 function completeResponsiveLayouts(
   layouts: ResponsiveLayouts<FrontendBreakpoint>,
+  compactor: Compactor,
 ): ResponsiveLayouts<FrontendBreakpoint> {
   const complete = { ...layouts };
   for (const breakpoint of FRONTEND_BREAKPOINTS) {
@@ -56,7 +59,7 @@ function completeResponsiveLayouts(
       breakpoint,
       breakpoint,
       DEFAULT_COLS[breakpoint],
-      COMPACTOR,
+      compactor,
     );
   }
   return complete;
@@ -157,6 +160,7 @@ export function ResponsiveBoxGrid({
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
   const breakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
+  const compactor = profile ? MATCH_COMPACTOR : DOCUMENT_COMPACTOR;
   const activeKey = items.map((item) => item.id).join('|');
   const activeIds = useMemo(() => activeKey.split('|').filter(Boolean), [activeKey]);
   const initialLayouts = useMemo(
@@ -164,6 +168,7 @@ export function ResponsiveBoxGrid({
       profile
         ? loadMatchLayouts(profile, defaultLayout, activeIds, defaultLayouts)
         : mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts),
+      compactor,
     ),
     // A profile/grid instance owns one canonical item set; callers key the component when it changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,11 +195,14 @@ export function ResponsiveBoxGrid({
   }, [breakpoint]);
 
   const commitLayouts = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {
-    const merged = completeResponsiveLayouts(mergeResponsiveLayouts(next, defaultLayout, activeIds, defaultLayouts));
+    const merged = completeResponsiveLayouts(
+      mergeResponsiveLayouts(next, defaultLayout, activeIds, defaultLayouts),
+      compactor,
+    );
     const measured = applyMeasuredHeights(merged);
     setLayouts((current) => sameLayouts(current, measured) ? current : measured);
     if (profile) saveMatchLayouts(profile, measured);
-  }, [activeKey, activeIds, applyMeasuredHeights, defaultLayout, defaultLayouts, profile]);
+  }, [activeKey, activeIds, applyMeasuredHeights, compactor, defaultLayout, defaultLayouts, profile]);
 
   const reportHeight = useCallback((id: string, height: number) => {
     if (measuredHeights.current.get(id) === height) return;
@@ -209,16 +217,22 @@ export function ResponsiveBoxGrid({
     if (!profile) return;
     resetMatchLayout(profile);
     measuredHeights.current.clear();
-    setLayouts(completeResponsiveLayouts(mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts)));
+    setLayouts(completeResponsiveLayouts(
+      mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts),
+      compactor,
+    ));
     setGeneration((value) => value + 1);
-  }, [activeKey, activeIds, defaultLayout, defaultLayouts, profile]);
+  }, [activeKey, activeIds, compactor, defaultLayout, defaultLayouts, profile]);
 
   useEffect(() => {
     setLayouts((current) => {
-      const merged = completeResponsiveLayouts(mergeResponsiveLayouts(current, defaultLayout, activeIds, defaultLayouts));
+      const merged = completeResponsiveLayouts(
+        mergeResponsiveLayouts(current, defaultLayout, activeIds, defaultLayouts),
+        compactor,
+      );
       return sameLayouts(current, merged) ? current : merged;
     });
-  }, [activeKey, activeIds, defaultLayout, defaultLayouts]);
+  }, [activeKey, activeIds, compactor, defaultLayout, defaultLayouts]);
 
   useEffect(() => {
     setLayouts((current) => {
@@ -242,7 +256,7 @@ export function ResponsiveBoxGrid({
           rowHeight={ROW_HEIGHT}
           margin={[GAP, GAP]}
           containerPadding={[GAP, GAP]}
-          compactor={COMPACTOR}
+          compactor={compactor}
           dragConfig={{
             enabled: editable,
             bounded: true,

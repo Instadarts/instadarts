@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  ActionIcon,
   AppShell,
   Badge,
   Box,
@@ -19,6 +20,14 @@ import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
 import { FrontendFullscreenButton } from './FrontendFullscreenButton';
 import { PairDeviceDialog } from './PairDeviceDialog';
 import { useLayoutEditor } from '../layout/LayoutEditorContext';
+import {
+  applyFrontendZoom,
+  FRONTEND_ZOOM_STEP,
+  loadFrontendZoom,
+  MAX_FRONTEND_ZOOM,
+  MIN_FRONTEND_ZOOM,
+  saveFrontendZoom,
+} from '../layout/frontendZoom';
 
 interface TopBarProps {
   connected: boolean;
@@ -58,9 +67,17 @@ export function TopBar({
   onBoardCameraChange,
 }: TopBarProps) {
   const editor = useLayoutEditor();
+  const [frontendZoom, setFrontendZoom] = useState(loadFrontendZoom);
   const scoring = devices.filter((device) => device.active && device.online).length;
   const camerasLabel = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
   const connectionLabel = connected ? 'Connected' : 'Waiting for server…';
+  const changeFrontendZoom = (change: number) => {
+    setFrontendZoom((current) => {
+      const next = saveFrontendZoom(current + change);
+      applyFrontendZoom(next);
+      return next;
+    });
+  };
 
   return (
     <>
@@ -98,39 +115,17 @@ export function TopBar({
 
             <FrontendFullscreenButton />
 
-            {editor.active && (
-              <Menu position="bottom-end" withinPortal shadow="md">
-                <Menu.Target>
-                  <Button variant={editor.editing ? 'light' : 'subtle'} size="compact-sm">
-                    Layout
-                  </Button>
-                </Menu.Target>
-                <Menu.Dropdown miw={230}>
-                  <Menu.Label>
-                    <Group justify="space-between" gap="md">
-                      Match layout
-                      <Badge variant="light" size="sm">{editor.active.breakpoint}</Badge>
-                    </Group>
-                  </Menu.Label>
-                  <Box px="sm" py="xs">
-                    <Switch
-                      label="Edit layout"
-                      description="Drag box headers and resize corners"
-                      checked={editor.editing}
-                      onChange={(event) => editor.setEditing(event.currentTarget.checked)}
-                    />
-                  </Box>
-                  <Menu.Divider />
-                  <Menu.Item color="red" onClick={editor.reset}>Reset layout</Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            )}
-
             <Menu position="bottom-end" withinPortal shadow="xl" closeOnItemClick={false}>
               <Menu.Target>
-                <Button variant={scoring > 0 ? 'light' : 'subtle'} color="green" size="compact-sm">
-                  {camerasLabel}
-                </Button>
+                <ActionIcon
+                  variant={scoring > 0 ? 'light' : 'default'}
+                  color="green"
+                  size="lg"
+                  title={camerasLabel}
+                  aria-label={camerasLabel}
+                >
+                  <CameraIcon />
+                </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown
                 w="min(30rem, calc(100vw - 1rem))"
@@ -174,6 +169,82 @@ export function TopBar({
                 </Stack>
               </Menu.Dropdown>
             </Menu>
+
+            <Menu position="bottom-end" withinPortal shadow="md">
+              <Menu.Target>
+                <ActionIcon
+                  variant={editor.editing ? 'light' : 'default'}
+                  color={editor.editing ? 'green' : 'gray'}
+                  size="lg"
+                  title="Settings"
+                  aria-label="Settings"
+                >
+                  <SettingsIcon />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown miw={230}>
+                <Menu.Label>
+                  Layout
+                </Menu.Label>
+                <Box px="sm" py="xs">
+                  <Stack gap="sm">
+                    <Group justify="space-between" gap="md" wrap="nowrap">
+                      <Text fz="sm">Zoom</Text>
+                      <Group gap={6} wrap="nowrap">
+                        <ActionIcon
+                          variant="default"
+                          size="sm"
+                          aria-label="Increase zoom"
+                          title="Increase zoom"
+                          disabled={frontendZoom >= MAX_FRONTEND_ZOOM}
+                          onClick={() => changeFrontendZoom(FRONTEND_ZOOM_STEP)}
+                        >
+                          +
+                        </ActionIcon>
+                        <Text fz="sm" fw={600} ta="center" w="3rem" ff="monospace">
+                          {frontendZoom}%
+                        </Text>
+                        <ActionIcon
+                          variant="default"
+                          size="sm"
+                          aria-label="Decrease zoom"
+                          title="Decrease zoom"
+                          disabled={frontendZoom <= MIN_FRONTEND_ZOOM}
+                          onClick={() => changeFrontendZoom(-FRONTEND_ZOOM_STEP)}
+                        >
+                          −
+                        </ActionIcon>
+                      </Group>
+                    </Group>
+                    {editor.active && (
+                      <Group justify="space-between" gap="sm" align="flex-start" wrap="nowrap">
+                        <Switch
+                          label="Edit Match Layout"
+                          description="Drag box headers and resize corners"
+                          checked={editor.editing}
+                          onChange={(event) => editor.setEditing(event.currentTarget.checked)}
+                          style={{ flex: 1 }}
+                        />
+                        <Badge variant="light" size="sm" mt={2}>{editor.active.breakpoint}</Badge>
+                      </Group>
+                    )}
+                  </Stack>
+                </Box>
+                {editor.active && (
+                  <Menu.Item color="red" onClick={editor.reset}>Reset layout</Menu.Item>
+                )}
+                <Menu.Divider />
+                <Menu.Label>Links</Menu.Label>
+                <Menu.Item
+                  component="a"
+                  href="https://github.com/Instadarts"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Source code
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
           </Group>
         </Group>
       </AppShell.Header>
@@ -182,6 +253,44 @@ export function TopBar({
         <PairDeviceDialog code={pairingCode} onRequest={onRequestPairingCode} onCancel={onCancelPairing} />
       </Modal>
     </>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={20}
+      height={20}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 4.75h2.1l1-1.5h5.8l1 1.5H14v8H2z" />
+      <circle cx="8" cy="8.75" r="2.4" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={20}
+      height={20}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
   );
 }
 

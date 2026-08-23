@@ -165,11 +165,11 @@ export const LOBBY_LAYOUT = LOBBY_LAYOUTS.lg!;
 
 export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   lg: [
-    { i: 'overview', x: 0, y: 0, w: 12, h: 4, isBounded: true },
-    { i: 'scores', x: 0, y: 1, w: 6, h: 12, minW: 2, minH: 12, isBounded: true },
-    { i: 'board', x: 6, y: 1, w: 6, h: 52, minW: 2, minH: 18, isBounded: true },
-    { i: 'visit', x: 0, y: 2, w: 6, h: 20, minW: 2, minH: 8, isBounded: true },
-    { i: 'mode-panel', x: 0, y: 3, w: 6, h: 20, minW: 2, minH: 6, isBounded: true },
+    { i: 'overview', x: 0, y: 0, w: 12, h: 4, isBounded: false },
+    { i: 'scores', x: 0, y: 1, w: 6, h: 12, minW: 2, minH: 12, isBounded: false },
+    { i: 'board', x: 6, y: 1, w: 6, h: 52, minW: 2, minH: 18, isBounded: false },
+    { i: 'visit', x: 0, y: 2, w: 6, h: 20, minW: 2, minH: 8, isBounded: false },
+    { i: 'mode-panel', x: 0, y: 3, w: 6, h: 20, minW: 2, minH: 6, isBounded: false },
   ],
   md: [
     { i: 'overview', x: 0, y: 0, w: 10, h: 4, isBounded: true },

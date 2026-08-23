@@ -6,6 +6,7 @@ import { App } from './App';
 import { ScorerApp } from './ScorerApp';
 import { LayoutEditorProvider } from './layout/LayoutEditorContext';
 import { frontendTheme } from './layout/frontendTheme';
+import { applyFrontendZoom, loadFrontendZoom } from './layout/frontendZoom';
 import '@mantine/core/styles.css';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -16,6 +17,8 @@ const scorer = window.location.pathname.startsWith('/scorer');
 document.documentElement.dataset.app = scorer ? 'scorer' : 'frontend';
 if (scorer) {
   document.body.classList.add('bg-gray-950', 'text-gray-100', 'min-h-screen', 'select-none');
+} else {
+  applyFrontendZoom(loadFrontendZoom());
 }
 
 // The scoring device is a sibling of the gaming frontend, not a route inside it: it must not share

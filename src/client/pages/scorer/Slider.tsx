@@ -21,7 +21,7 @@ export function Slider({ label, value, min, max, step, format, onChange, disable
         <Text fz="sm" ff="monospace" c="gray.4">{format(value)}</Text>
       </Group>
       <MantineSlider
-        aria-label={label}
+        thumbLabel={label}
         min={min}
         max={max}
         step={step}

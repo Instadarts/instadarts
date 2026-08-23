@@ -8,6 +8,8 @@ import {
   Container,
   Group,
   Indicator,
+  Menu,
+  ScrollArea,
   Stack,
   Text,
 } from '@mantine/core';
@@ -76,7 +78,7 @@ interface ScorerPageProps {
   latencyMeterRef?: React.MutableRefObject<{ onStillRequest: () => void } | null>;
 }
 
-type View = 'scoring' | 'settings' | 'calibration' | 'onboarding';
+type View = 'scoring' | 'calibration' | 'onboarding';
 
 /** The scoring screen: what this device is looking at, and what the match it feeds looks like. */
 export function ScorerPage({
@@ -158,6 +160,7 @@ export function ScorerPage({
   // Read once at mount: `didOnboard` only changes on the way out of that screen, and on that path
   // the page reloads anyway.
   const [view, setView] = useState<View>(() => (settings.didOnboard ? 'scoring' : 'onboarding'));
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Setup runs a camera and a model of its own, so the runtime must not open either underneath it —
   // a second stream off one device, and a second claim on the model singleton it is loading and
@@ -237,15 +240,52 @@ export function ScorerPage({
             <Group gap="xs" wrap="nowrap" miw={0}>
               <StatusBadge status={status} scoring={scoring} stage={power.stage} />
               <FullscreenButton />
-              <ActionIcon
-                variant="default"
-                size="lg"
-                title={view === 'scoring' ? 'Settings' : 'Done'}
-                aria-label={view === 'scoring' ? 'Settings' : 'Done'}
-              onClick={() => setView((v) => (v === 'scoring' ? 'settings' : 'scoring'))}
+              <Menu
+                opened={settingsOpen}
+                onChange={setSettingsOpen}
+                position="bottom-end"
+                withinPortal
+                shadow="xl"
+                closeOnItemClick={false}
               >
-                <SettingsIcon />
-              </ActionIcon>
+                <Menu.Target>
+                  <ActionIcon
+                    variant={settingsOpen ? 'light' : 'default'}
+                    color={settingsOpen ? 'green' : 'gray'}
+                    size="lg"
+                    title="Settings"
+                    aria-label="Settings"
+                  >
+                    <SettingsIcon />
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown
+                  w="min(28rem, calc(100vw - 1rem))"
+                  p={0}
+                >
+                  <ScrollArea.Autosize
+                    mah="calc(100dvh - 5rem)"
+                    type="auto"
+                    scrollbarSize={8}
+                    styles={{ viewport: { overscrollBehavior: 'contain' } }}
+                  >
+                    <SettingsPanel
+                      vision={vision}
+                      onCalibrate={() => {
+                        setSettingsOpen(false);
+                        setView('calibration');
+                      }}
+                      settings={settings}
+                      onSettingsChange={setSettings}
+                      name={name}
+                      onRename={onRename}
+                      onNameSettled={onNameSettled}
+                      onUnpair={onUnpair}
+                      onMediaChange={onMediaChange}
+                    />
+                  </ScrollArea.Autosize>
+                </Menu.Dropdown>
+              </Menu>
             </Group>
           </Group>
         </AppShell.Header>
@@ -267,21 +307,7 @@ export function ScorerPage({
               />
             </Box>
 
-            {view === 'settings' && (
-              <SettingsPanel
-                vision={vision}
-                onCalibrate={() => setView('calibration')}
-                settings={settings}
-                onSettingsChange={setSettings}
-                name={name}
-                onRename={onRename}
-                onNameSettled={onNameSettled}
-                onUnpair={onUnpair}
-                onMediaChange={onMediaChange}
-              />
-            )}
-
-            {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('settings')} />}
+            {view === 'calibration' && <CalibrationView vision={vision} onClose={() => setView('scoring')} />}
 
             {view === 'onboarding' && (
               <OnboardingView
@@ -297,7 +323,7 @@ export function ScorerPage({
         </Container>
       </AppShell.Main>
 
-      <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring'} />
+      <Screensaver enabled={settings.screensaver} suppressed={view !== 'scoring' || settingsOpen} />
 
       {import.meta.env.DEV && <LatencyDisplay snapshot={meterSnapshot} />}
     </AppShell>

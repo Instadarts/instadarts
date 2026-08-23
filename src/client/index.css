@@ -126,3 +126,7 @@ body {
 html[data-app="frontend"] #root {
   zoom: var(--instadarts-frontend-zoom, 100%);
 }
+
+html[data-app="scorer"] #root {
+  zoom: var(--instadarts-scorer-zoom, 100%);
+}

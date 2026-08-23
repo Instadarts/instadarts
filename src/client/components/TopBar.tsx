@@ -22,13 +22,13 @@ import { CameraIcon, SettingsIcon } from './AppIcons';
 import { PairDeviceDialog } from './PairDeviceDialog';
 import { useLayoutEditor } from '../layout/LayoutEditorContext';
 import {
-  applyFrontendZoom,
-  FRONTEND_ZOOM_STEP,
-  loadFrontendZoom,
-  MAX_FRONTEND_ZOOM,
-  MIN_FRONTEND_ZOOM,
-  saveFrontendZoom,
-} from '../layout/frontendZoom';
+  applyAppZoom,
+  APP_ZOOM_STEP,
+  loadAppZoom,
+  MAX_APP_ZOOM,
+  MIN_APP_ZOOM,
+  saveAppZoom,
+} from '../layout/appZoom';
 
 interface TopBarProps {
   connected: boolean;
@@ -68,14 +68,14 @@ export function TopBar({
   onBoardCameraChange,
 }: TopBarProps) {
   const editor = useLayoutEditor();
-  const [frontendZoom, setFrontendZoom] = useState(loadFrontendZoom);
+  const [frontendZoom, setFrontendZoom] = useState(() => loadAppZoom('frontend'));
   const scoring = devices.filter((device) => device.active && device.online).length;
   const camerasLabel = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
   const connectionLabel = connected ? 'Connected' : 'Waiting for server…';
   const changeFrontendZoom = (change: number) => {
     setFrontendZoom((current) => {
-      const next = saveFrontendZoom(current + change);
-      applyFrontendZoom(next);
+      const next = saveAppZoom('frontend', current + change);
+      applyAppZoom('frontend', next);
       return next;
     });
   };
@@ -197,8 +197,8 @@ export function TopBar({
                           size="sm"
                           aria-label="Increase zoom"
                           title="Increase zoom"
-                          disabled={frontendZoom >= MAX_FRONTEND_ZOOM}
-                          onClick={() => changeFrontendZoom(FRONTEND_ZOOM_STEP)}
+                          disabled={frontendZoom >= MAX_APP_ZOOM}
+                          onClick={() => changeFrontendZoom(APP_ZOOM_STEP)}
                         >
                           +
                         </ActionIcon>
@@ -210,8 +210,8 @@ export function TopBar({
                           size="sm"
                           aria-label="Decrease zoom"
                           title="Decrease zoom"
-                          disabled={frontendZoom <= MIN_FRONTEND_ZOOM}
-                          onClick={() => changeFrontendZoom(-FRONTEND_ZOOM_STEP)}
+                          disabled={frontendZoom <= MIN_APP_ZOOM}
+                          onClick={() => changeFrontendZoom(-APP_ZOOM_STEP)}
                         >
                           −
                         </ActionIcon>

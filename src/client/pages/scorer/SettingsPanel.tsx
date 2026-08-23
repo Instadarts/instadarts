@@ -1,10 +1,30 @@
 import { useState } from 'react';
-import { Button, Divider, Group, NativeSelect, NumberInput, Stack, Switch, Text, TextInput } from '@mantine/core';
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Divider,
+  Group,
+  Menu,
+  NativeSelect,
+  NumberInput,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+} from '@mantine/core';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { MediaTier } from '../../../shared/media';
 import { resetSettings, saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
 import { GRACE_MINUTES, STANDBY_MINUTES, type MinuteBounds } from '../../lib/scorerPower';
-import { AppCard } from '../../components/AppCard';
+import {
+  applyAppZoom,
+  APP_ZOOM_STEP,
+  loadAppZoom,
+  MAX_APP_ZOOM,
+  MIN_APP_ZOOM,
+  saveAppZoom,
+} from '../../layout/appZoom';
 
 type Vision = ReturnType<typeof useVisionRuntime>;
 
@@ -29,7 +49,7 @@ const MODEL_LABELS: Record<string, string> = {
 /**
  * Everything about this device that is mount-time setup rather than scoring: which model, how
  * confident a detection has to be, the zoom, the lens, and what the screen does when nobody is
- * looking. It sits behind a toggle because the scoring screen should be the board, not a console.
+ * looking. It sits in the header menu because the scoring screen should be the board, not a console.
  */
 export function SettingsPanel({
   vision,
@@ -43,15 +63,57 @@ export function SettingsPanel({
   onMediaChange,
 }: SettingsPanelProps) {
   const lensValue = vision.settings.lensByCamera[vision.cameraLabel] ?? 0;
+  const [scorerZoom, setScorerZoom] = useState(() => loadAppZoom('scorer'));
   const update = (patch: Partial<ScorerSettings>) => onSettingsChange(saveSettings(patch));
   const updateCompute = (patch: Partial<Pick<ScorerSettings,
     'forceCpuMotion' | 'forceCpuPreprocessing' | 'forceCpuInference'>>) => {
     onSettingsChange(vision.setComputeOptions(patch));
   };
+  const changeScorerZoom = (change: number) => {
+    setScorerZoom((current) => {
+      const next = saveAppZoom('scorer', current + change);
+      applyAppZoom('scorer', next);
+      return next;
+    });
+  };
 
   return (
-    <Stack gap="md">
-      <AppCard title="Camera and AI">
+    <Stack gap={0}>
+      <Menu.Label>Layout</Menu.Label>
+      <Box px="sm" py="xs">
+        <Group justify="space-between" gap="md" wrap="nowrap">
+          <Text fz="sm">Zoom</Text>
+          <Group gap={6} wrap="nowrap">
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="Increase zoom"
+              title="Increase zoom"
+              disabled={scorerZoom >= MAX_APP_ZOOM}
+              onClick={() => changeScorerZoom(APP_ZOOM_STEP)}
+            >
+              +
+            </ActionIcon>
+            <Text fz="sm" fw={600} ta="center" w="3rem" ff="monospace">
+              {scorerZoom}%
+            </Text>
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="Decrease zoom"
+              title="Decrease zoom"
+              disabled={scorerZoom <= MIN_APP_ZOOM}
+              onClick={() => changeScorerZoom(-APP_ZOOM_STEP)}
+            >
+              −
+            </ActionIcon>
+          </Group>
+        </Group>
+      </Box>
+
+      <Menu.Divider />
+      <Menu.Label>Camera and AI</Menu.Label>
+      <Box px="sm" py="xs">
         <Stack gap="md">
           <NativeSelect
             label="Detection model"
@@ -100,9 +162,11 @@ export function SettingsPanel({
             onChange={(forceCpuInference) => updateCompute({ forceCpuInference })}
           />
         </Stack>
-      </AppCard>
+      </Box>
 
-      <AppCard title="Sharing and power">
+      <Menu.Divider />
+      <Menu.Label>Sharing and power</Menu.Label>
+      <Box px="sm" py="xs">
         <Stack gap="md">
           <Switch
             label="Screensaver"
@@ -143,9 +207,11 @@ export function SettingsPanel({
             onChange={(v) => update({ standbyAfterMinutes: v })}
           />
         </Stack>
-      </AppCard>
+      </Box>
 
-      <AppCard title="Device">
+      <Menu.Divider />
+      <Menu.Label>Device</Menu.Label>
+      <Box px="sm" py="xs">
         <Stack gap="md">
           <TextInput
             label="Device name"
@@ -160,40 +226,40 @@ export function SettingsPanel({
 
           <Divider />
 
-      {/* Start over: `resetSettings` keeps the name, the screensaver, both timers and what this
-          phone is willing to share, and puts back everything the self-test is about to work out for
-          itself. Then a reload, which is what makes it safe — a fresh page rebuilds the vision
-          runtime and opens on onboarding, rather than unpicking a loaded model and a running camera
-          in place. Confirmed first, because it throws away a lens calibration somebody may have
-          spent a while on. */}
-      <ConfirmRow
-        label="Set up again"
-        hint="Run the setup checks again from the start."
-        confirmHint="Re-measures this device. The lens calibration and the model choice are reset; the name and the timers are kept."
-        action="Set up"
-        onConfirm={() => {
-          resetSettings();
-          window.location.reload();
-        }}
-      />
+          {/* Start over: `resetSettings` keeps the name, the screensaver, both timers and what this
+              phone is willing to share, and puts back everything the self-test is about to work out
+              for itself. Then a reload, which is what makes it safe — a fresh page rebuilds the
+              vision runtime and opens on onboarding, rather than unpicking a loaded model and a
+              running camera in place. Confirmed first, because it throws away a lens calibration
+              somebody may have spent a while on. */}
+          <ConfirmRow
+            label="Set up again"
+            hint="Run the setup checks again from the start."
+            confirmHint="Re-measures this device. The lens calibration and the model choice are reset; the name and the timers are kept."
+            action="Set up"
+            onConfirm={() => {
+              resetSettings();
+              window.location.reload();
+            }}
+          />
 
           <Divider />
 
-      {/* Letting go of the browser this device is paired to, so it can be paired to another one.
-          There is no undo: the old browser is not told and cannot give the pairing back, so a
-          mis-tap costs a trip to the other screen for a fresh code. Everything else on this panel
-          survives it — the model, the thresholds and the lens describe this camera, not whoever it
-          was scoring for. */}
-      <ConfirmRow
-        label="Pairing"
-        hint="Un-pair this device."
-        confirmHint="You will need a new pairing code."
-        action="Unpair"
-        danger
-        onConfirm={onUnpair}
-      />
+          {/* Letting go of the browser this device is paired to, so it can be paired to another one.
+              There is no undo: the old browser is not told and cannot give the pairing back, so a
+              mis-tap costs a trip to the other screen for a fresh code. Everything else on this
+              panel survives it — the model, the thresholds and the lens describe this camera, not
+              whoever it was scoring for. */}
+          <ConfirmRow
+            label="Pairing"
+            hint="Un-pair this device."
+            confirmHint="You will need a new pairing code."
+            action="Unpair"
+            danger
+            onConfirm={onUnpair}
+          />
         </Stack>
-      </AppCard>
+      </Box>
     </Stack>
   );
 }

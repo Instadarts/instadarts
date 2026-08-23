@@ -6,7 +6,7 @@ import { App } from './App';
 import { ScorerApp } from './ScorerApp';
 import { LayoutEditorProvider } from './layout/LayoutEditorContext';
 import { appTheme } from './layout/appTheme';
-import { applyFrontendZoom, loadFrontendZoom } from './layout/frontendZoom';
+import { applyAppZoom, loadAppZoom } from './layout/appZoom';
 import '@mantine/core/styles.css';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -15,9 +15,8 @@ import './index.css';
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const scorer = window.location.pathname.startsWith('/scorer');
 document.documentElement.dataset.app = scorer ? 'scorer' : 'frontend';
-if (!scorer) {
-  applyFrontendZoom(loadFrontendZoom());
-}
+const zoomTarget = scorer ? 'scorer' : 'frontend';
+applyAppZoom(zoomTarget, loadAppZoom(zoomTarget));
 
 // The scoring device is a sibling of the gaming frontend, not a route inside it: it must not share
 // App's socket, its match state or its navigation effects (which would bounce it straight home).

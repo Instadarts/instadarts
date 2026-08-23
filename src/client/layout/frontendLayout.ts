@@ -65,14 +65,12 @@ const HOME_BOXES = [
 export const HOME_LAYOUTS = makeResponsiveLayouts((cols, breakpoint) => (
   makeCenteredStackLayout(cols, CENTERED_PAGE_WIDTHS[breakpoint], HOME_BOXES)
 ));
-export const HOME_LAYOUT = HOME_LAYOUTS.lg!;
 
 const JOIN_BOXES = [{ i: 'status', h: 10 }] as const;
 
 export const JOIN_LAYOUTS = makeResponsiveLayouts((cols, breakpoint) => (
   makeCenteredStackLayout(cols, CENTERED_PAGE_WIDTHS[breakpoint], JOIN_BOXES)
 ));
-export const JOIN_LAYOUT = JOIN_LAYOUTS.lg!;
 
 const LOBBY_BOXES = [
   { i: 'overview', h: 9, fullWidth: true },
@@ -161,7 +159,6 @@ export function makeLobbyLayout(cols: number): Layout {
 }
 
 export const LOBBY_LAYOUTS = makeResponsiveLayouts((cols) => makeLobbyLayout(cols));
-export const LOBBY_LAYOUT = LOBBY_LAYOUTS.lg!;
 
 export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   lg: [
@@ -201,8 +198,6 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   ],
 };
 
-export const LIVE_MATCH_LAYOUT = LIVE_MATCH_LAYOUTS.lg!;
-
 export const SUMMARY_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   lg: [
     { i: 'overview', x: 0, y: 0, w: 12, h: 4, static: true },
@@ -235,8 +230,6 @@ export const SUMMARY_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'rematch', x: 0, y: 44, w: 2, h: 14, isBounded: true },
   ],
 };
-
-export const SUMMARY_MATCH_LAYOUT = SUMMARY_MATCH_LAYOUTS.lg!;
 
 type JsonRecord = Record<string, unknown>;
 

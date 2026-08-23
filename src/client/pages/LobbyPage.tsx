@@ -6,7 +6,7 @@ import { MatchFormatFields, ModeSettingsFields } from '../components/MatchSettin
 import { InvitePanel } from '../components/InvitePanel';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
-import { LOBBY_LAYOUT, LOBBY_LAYOUTS } from '../layout/frontendLayout';
+import { LOBBY_LAYOUTS } from '../layout/frontendLayout';
 
 interface LobbyPageProps {
   lobby: Lobby;
@@ -40,8 +40,6 @@ export function LobbyPage({
   const canStart = lobby.players.length >= 1;
   const canEdit = !isSpectator && isCreator;
   const descriptor = modes.find((candidate) => candidate.id === lobby.settings.mode);
-  const waiting = mode === 'online' && !isSpectator && (ownPlayerIds.length === 0 || lobby.userCount === 1);
-
   const items: ResponsiveBoxItem[] = [
     {
       id: 'overview',
@@ -67,13 +65,11 @@ export function LobbyPage({
               <Button variant="default" onClick={onLeave}>Leave</Button>
             </Group>
           </Group>
-          {
-            <Alert color="dark" mt="md">
-              {ownPlayerIds.length === 0
-                ? 'Add at least one player to start'
-                : 'Add more players or start the match'}
-            </Alert>
-          }
+          <Alert color="dark" mt="md">
+            {ownPlayerIds.length === 0
+              ? 'Add at least one player to start'
+              : 'Add more players or start the match'}
+          </Alert>
         </GridBox>
       ),
     },
@@ -145,5 +141,5 @@ export function LobbyPage({
     });
   }
 
-  return <ResponsiveBoxGrid defaultLayout={LOBBY_LAYOUT} defaultLayouts={LOBBY_LAYOUTS} items={items} />;
+  return <ResponsiveBoxGrid defaultLayouts={LOBBY_LAYOUTS} items={items} />;
 }

@@ -4,7 +4,7 @@ import { Alert, Loader, Stack, Text } from '@mantine/core';
 import type { Lobby } from '../../shared/types';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
 import { GridBox } from '../layout/GridBox';
-import { JOIN_LAYOUT, JOIN_LAYOUTS } from '../layout/frontendLayout';
+import { JOIN_LAYOUTS } from '../layout/frontendLayout';
 
 interface JoinHandlerProps {
   onJoin: (code: string, playerName: string) => void;
@@ -47,7 +47,6 @@ export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
 
   return (
     <ResponsiveBoxGrid
-      defaultLayout={JOIN_LAYOUT}
       defaultLayouts={JOIN_LAYOUTS}
       items={[{
         id: 'status',

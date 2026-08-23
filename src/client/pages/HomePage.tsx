@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
-import { HOME_LAYOUT, HOME_LAYOUTS } from '../layout/frontendLayout';
+import { HOME_LAYOUTS } from '../layout/frontendLayout';
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
@@ -67,7 +67,6 @@ export function HomePage({
 
   return (
     <ResponsiveBoxGrid
-      defaultLayout={HOME_LAYOUT}
       defaultLayouts={HOME_LAYOUTS}
       items={[
         { id: 'welcome', content: welcome, autoHeight: true },

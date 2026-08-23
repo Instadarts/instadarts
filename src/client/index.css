@@ -14,7 +14,7 @@ body {
   user-select: none;
 }
 
-/* Ensure form inputs remain selectable (Tailwind may disable by default) */
+/* Restore text selection inside fields after the app-wide interaction default. */
 input[type="text"],
 input[type="search"],
 textarea {

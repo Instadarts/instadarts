@@ -15,9 +15,7 @@ import { AutoFitText } from '../components/AutoFitText';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveBoxGrid';
 import {
-  LIVE_MATCH_LAYOUT,
   LIVE_MATCH_LAYOUTS,
-  SUMMARY_MATCH_LAYOUT,
   SUMMARY_MATCH_LAYOUTS,
 } from '../layout/frontendLayout';
 
@@ -79,7 +77,7 @@ export function MatchScreen({
     <GridBox editable={true}>
       <Group justify="space-between" gap="md" wrap="wrap">
         <Group gap="sm" miw={0}>
-          <Title order={2} style={{"line-height": "1em"}} {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>
+          <Title order={2} lh="1em" {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>
             {textOf(view.headline)}
           </Title>
           {isSpectator && <Badge color="yellow">spectating</Badge>}
@@ -130,7 +128,6 @@ export function MatchScreen({
       <ResponsiveBoxGrid
         key="match-summary"
         profile="match-summary"
-        defaultLayout={SUMMARY_MATCH_LAYOUT}
         defaultLayouts={SUMMARY_MATCH_LAYOUTS}
         items={items}
       />
@@ -230,7 +227,6 @@ export function MatchScreen({
     <ResponsiveBoxGrid
       key="match-live"
       profile="match-live"
-      defaultLayout={LIVE_MATCH_LAYOUT}
       defaultLayouts={LIVE_MATCH_LAYOUTS}
       items={items}
     />

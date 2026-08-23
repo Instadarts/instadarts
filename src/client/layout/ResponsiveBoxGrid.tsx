@@ -8,7 +8,6 @@ import {
   getCompactor,
   useContainerWidth,
   type Compactor,
-  type Layout,
   type ResponsiveLayouts,
 } from 'react-grid-layout';
 import { useLayoutEditor } from './LayoutEditorContext';
@@ -35,10 +34,8 @@ export interface ResponsiveBoxItem {
 
 interface ResponsiveBoxGridProps {
   items: ResponsiveBoxItem[];
-  defaultLayout: Layout;
-  defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>;
+  defaultLayouts: ResponsiveLayouts<FrontendBreakpoint>;
   profile?: MatchLayoutProfile;
-  className?: string;
 }
 
 function sameLayouts(a: ResponsiveLayouts<FrontendBreakpoint>, b: ResponsiveLayouts<FrontendBreakpoint>): boolean {
@@ -152,11 +149,12 @@ function MeasuredContent({
 
 export function ResponsiveBoxGrid({
   items,
-  defaultLayout,
   defaultLayouts,
   profile,
-  className = '',
 }: ResponsiveBoxGridProps) {
+  const defaultLayout = defaultLayouts.lg;
+  if (!defaultLayout) throw new Error('ResponsiveBoxGrid requires an lg default layout');
+
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
   const breakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
@@ -247,7 +245,7 @@ export function ResponsiveBoxGrid({
   }, [breakpoint, editor.register, profile, reset]);
 
   return (
-    <div ref={containerRef} className={`frontend-grid-host ${className}`}>
+    <div ref={containerRef} className="frontend-grid-host">
       {mounted && (
         <Responsive<FrontendBreakpoint>
           key={generation}

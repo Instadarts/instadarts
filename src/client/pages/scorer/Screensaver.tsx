@@ -113,7 +113,9 @@ export function Screensaver({ enabled, suppressed }: ScreensaverProps) {
       data-testid="screensaver"
       pos="fixed"
       inset={0}
-      style={{ zIndex: 50, background: revealed ? 'transparent' : '#000' }}
+      // Mantine's AppShell header uses its own stacking layer. The screensaver must sit above it or
+      // a wake gesture aimed at a header action bypasses this pointer shield.
+      style={{ zIndex: 1000, background: revealed ? 'transparent' : '#000' }}
       onPointerDown={() => setRevealed(true)}
       onPointerUp={dismiss}
       // A press that turns into a scroll or is taken over by the browser never gets its `pointerup`.

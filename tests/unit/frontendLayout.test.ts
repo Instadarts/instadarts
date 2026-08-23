@@ -65,6 +65,45 @@ describe('generated frontend page layouts', () => {
       }
     }
   });
+
+  it('keeps summary framing full-width and canonical boxes non-overlapping', () => {
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      const cols = DEFAULT_COLS[breakpoint];
+      const layout = SUMMARY_MATCH_LAYOUTS[breakpoint] ?? [];
+      expect(layout.map((item) => item.i)).toEqual(['overview', 'result', 'match-history', 'rematch']);
+
+      const overview = layout.find((item) => item.i === 'overview');
+      const rematch = layout.find((item) => item.i === 'rematch');
+      expect(overview).toMatchObject({ x: 0, y: 0, w: cols, static: true });
+      expect(rematch).toMatchObject({ x: 0, w: cols, minW: 2, minH: 8 });
+
+      for (const [index, item] of layout.entries()) {
+        for (const other of layout.slice(index + 1)) {
+          const separated = item.x + item.w <= other.x
+            || other.x + other.w <= item.x
+            || item.y + item.h <= other.y
+            || other.y + other.h <= item.y;
+          expect(separated, `${breakpoint}: ${item.i} overlaps ${other.i}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('uses balanced result columns through sm and a full-width stack below it', () => {
+    for (const breakpoint of ['lg', 'md', 'sm'] as const) {
+      const cols = DEFAULT_COLS[breakpoint];
+      const layout = SUMMARY_MATCH_LAYOUTS[breakpoint] ?? [];
+      expect(layout.find((item) => item.i === 'result')).toMatchObject({ x: 0, w: cols / 2, y: 4, h: 12 });
+      expect(layout.find((item) => item.i === 'match-history')).toMatchObject({ x: cols / 2, w: cols / 2, y: 4, h: 12 });
+    }
+
+    for (const breakpoint of ['xs', 'xxs'] as const) {
+      const cols = DEFAULT_COLS[breakpoint];
+      for (const item of SUMMARY_MATCH_LAYOUTS[breakpoint] ?? []) {
+        expect(item).toMatchObject({ x: 0, w: cols });
+      }
+    }
+  });
 });
 
 describe('stored frontend match layouts', () => {

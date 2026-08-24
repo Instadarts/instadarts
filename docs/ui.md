@@ -164,13 +164,19 @@ the match-layout controls — **Edit Match Layout**, the active breakpoint badge
 
 The settings menu exposes **Edit Match Layout** only while a live or finished match grid is
 registered. Edit mode is transient and off by default. It reveals a drag handle in each box header,
-the south-east resize handle, and an **Optional cards** switch list when that profile declares any.
-The badge and optional-card switches describe the current RGL breakpoint: showing a card at `lg`
-does not also show it at `sm`.
+an adjacent title-bar switch, the south-east resize handle, and an **Optional cards** switch list
+when that profile declares any. The badge and controls describe the current RGL breakpoint: showing
+a card or its title bar at `lg` does not also show it at `sm`.
 
-Boxes without a configured header still receive a grip while editing. That temporary header overlays
-the body with a translucent background instead of consuming grid-box height, so entering edit mode
-does not move or shrink the content being used to judge the box size.
+Every match card's title bar may be hidden. A hidden bar returns temporarily while editing and
+overlays the body with a translucent background instead of consuming grid-box height, so entering
+edit mode does not move or shrink the content being used to judge the box size. Overview defaults
+to hidden; other current cards default to visible.
+
+Title bars are presentation, not a guaranteed game surface. Titles, centred notices, badges and
+header actions must therefore remain supplemental: hiding one must not remove an instruction,
+state or control required to play. For example, Whac-A-Mole remains fully understandable from its
+overview and mode-panel content when the mode panel's title is hidden.
 
 **Dragging is handle-only.** RGL is given `handle: '.frontend-grid-drag-handle'`, so the header grip
 is the one place a drag can begin and everything else in the box — the dartboard, the visit buttons,
@@ -184,18 +190,19 @@ RGL reports layouts for all five breakpoints. They are stored locally under the 
 - `match-live` for the playing screen;
 - `match-summary` for the finished screen.
 
-Each breakpoint keeps its own arrangement and optional-card state. Active layouts remain in the
-profile map; an additive inactive map keeps the complete geometry of disabled optional cards so
-re-enabling one restores its last position and size at that breakpoint. Loading accepts only the
-current schema version, known profiles, known breakpoints and known box ids; inactive entries must
-also name a card declared optional. Numeric positions are bounded, current constraints are
-reapplied, mandatory cards are repaired into the active layout, and newly introduced boxes use
-their canonical enabled default. Malformed or unavailable local storage falls back to the defaults,
-and editing still works in memory for the current page.
+Each breakpoint keeps its own arrangement, optional-card state and title-bar visibility. Active
+layouts remain in the profile map; an additive inactive map keeps the complete geometry of disabled
+optional cards so re-enabling one restores its last position and size at that breakpoint. Loading
+accepts only the current schema version, known profiles, known breakpoints and known box ids;
+inactive entries must also name a card declared optional, and title-bar entries must be boolean.
+Numeric positions are bounded, current constraints are reapplied, mandatory cards are repaired into
+the active layout, and newly introduced boxes use their canonical enabled and title-bar defaults.
+Malformed or unavailable local storage falls back to the defaults, and editing still works in
+memory for the current page.
 
-**Reset layout** removes every saved breakpoint and inactive-card entry for the active profile only,
-restores that profile's canonical geometry and optional-card defaults, and exits edit mode. It does
-not reset the other match profile, application zoom, camera settings or match state.
+**Reset layout** removes every saved breakpoint, inactive-card entry and title-bar choice for the
+active profile only, restores that profile's canonical geometry and card defaults, and exits edit
+mode. It does not reset the other match profile, application zoom, camera settings or match state.
 
 [`LayoutEditorContext`](../src/client/layout/LayoutEditorContext.tsx) is only the bridge from the
 active match grid to the global header. Layout data does not belong to the server, protocol or match

@@ -17,6 +17,7 @@ import {
   type FrontendBreakpoint,
   type MatchLayoutProfile,
 } from './frontendLayout';
+import { GridItemChromeProvider } from './GridItemChromeContext';
 import { useMatchLayoutState } from './useMatchLayoutState';
 
 const ROW_HEIGHT = 8;
@@ -28,6 +29,7 @@ export interface ResponsiveBoxItem {
   id: string;
   content: ReactNode;
   autoHeight?: boolean;
+  defaultTitleBarVisible?: boolean;
   optional?: {
     label: string;
     defaultEnabled: boolean;
@@ -167,17 +169,29 @@ export function ResponsiveBoxGrid({
     item.id,
     item.optional?.label ?? null,
     item.optional?.defaultEnabled ?? null,
+    item.defaultTitleBarVisible ?? true,
   ]));
   const { itemPreferences, availableIds, optionalCatalog } = useMemo(() => {
     const configuration = JSON.parse(itemConfigurationKey) as Array<[
       id: string,
       label: string | null,
       defaultEnabled: boolean | null,
+      defaultTitleBarVisible: boolean,
     ]>;
     return {
-      itemPreferences: configuration.map(([id, label, defaultEnabled]) => label === null
-        ? { id, optional: false as const }
-        : { id, optional: true as const, defaultEnabled: defaultEnabled ?? true }),
+      itemPreferences: configuration.map(([
+        id,
+        label,
+        defaultEnabled,
+        defaultTitleBarVisible,
+      ]) => label === null
+        ? { id, optional: false as const, defaultTitleBarVisible }
+        : {
+            id,
+            optional: true as const,
+            defaultEnabled: defaultEnabled ?? true,
+            defaultTitleBarVisible,
+          }),
       availableIds: configuration.map(([id]) => id),
       optionalCatalog: configuration.flatMap(([id, label]) => (
         label === null ? [] : [{ id, label }]
@@ -208,6 +222,7 @@ export function ResponsiveBoxGrid({
     commitLayouts: commitMatchLayouts,
     reset: resetMatchLayoutState,
     setItemEnabled: setMatchItemEnabled,
+    setTitleBarVisible: setMatchTitleBarVisible,
     updateLayouts: updateMatchLayouts,
   } = useMatchLayoutState({
     profile,
@@ -336,13 +351,27 @@ export function ResponsiveBoxGrid({
           onLayoutChange={(_, allLayouts) => commitLayouts(allLayouts)}
           className={editable ? 'frontend-grid frontend-grid--editing' : 'frontend-grid'}
         >
-          {renderedItems.map((item) => (
-            <div key={item.id} data-grid-item={item.id}>
-              <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
-                {item.content}
-              </MeasuredContent>
-            </div>
-          ))}
+          {renderedItems.map((item) => {
+            const titleBarVisible = matchLayoutState?.titleBars[breakpoint]?.[item.id]
+              ?? item.defaultTitleBarVisible
+              ?? true;
+            return (
+              <div key={item.id} data-grid-item={item.id}>
+                <GridItemChromeProvider
+                  titleBarVisible={titleBarVisible}
+                  {...(profile ? {
+                    setTitleBarVisible: (visible: boolean) => (
+                      setMatchTitleBarVisible(breakpoint, item.id, visible)
+                    ),
+                  } : {})}
+                >
+                  <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
+                    {item.content}
+                  </MeasuredContent>
+                </GridItemChromeProvider>
+              </div>
+            );
+          })}
         </Responsive>
       )}
     </div>

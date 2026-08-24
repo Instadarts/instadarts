@@ -15,6 +15,7 @@ import {
   resetMatchLayout,
   saveMatchLayoutState,
   setMatchLayoutItemEnabled,
+  setMatchTitleBarVisible,
   type FrontendBreakpoint,
   type MatchLayoutItemPreference,
 } from '../../src/client/layout/frontendLayout';
@@ -25,8 +26,8 @@ const defaults: Layout = [
 ];
 
 const optionalItems: MatchLayoutItemPreference[] = [
-  { id: 'alpha', optional: false },
-  { id: 'beta', optional: true, defaultEnabled: false },
+  { id: 'alpha', optional: false, defaultTitleBarVisible: false },
+  { id: 'beta', optional: true, defaultEnabled: false, defaultTitleBarVisible: true },
 ];
 
 let values: Record<string, string>;
@@ -192,6 +193,39 @@ describe('optional match cards', () => {
   });
 });
 
+describe('match card title bars', () => {
+  it('uses each card default independently at every breakpoint', () => {
+    const state = reconcileMatchLayoutState(null, null, defaults, optionalItems);
+
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      expect(state.titleBars[breakpoint]).toEqual({ alpha: false, beta: true });
+    }
+  });
+
+  it('changes one breakpoint without affecting geometry or other breakpoints', () => {
+    const initial = reconcileMatchLayoutState(null, null, defaults, optionalItems);
+    const updated = setMatchTitleBarVisible(initial, 'lg', 'alpha', true);
+
+    expect(updated.layouts).toEqual(initial.layouts);
+    expect(updated.inactive).toEqual(initial.inactive);
+    expect(updated.titleBars.lg?.alpha).toBe(true);
+    expect(updated.titleBars.sm?.alpha).toBe(false);
+  });
+
+  it('accepts only boolean values for currently available cards', () => {
+    const state = reconcileMatchLayoutState(
+      null,
+      null,
+      defaults,
+      optionalItems,
+      undefined,
+      { lg: { alpha: 'hidden', beta: false, unknown: true } },
+    );
+
+    expect(state.titleBars.lg).toEqual({ alpha: false, beta: false });
+  });
+});
+
 describe('stored frontend match layouts', () => {
   it('rejects invalid JSON and old schema versions', () => {
     expect(parseStoredMatchLayouts(null)).toBeNull();
@@ -292,12 +326,19 @@ describe('stored frontend match layouts', () => {
     const loaded = loadMatchLayoutState('match-live', defaults, optionalItems);
     expect(loaded.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
     expect(loaded.inactive.lg?.map((item) => item.i)).toEqual(['beta']);
+    expect(loaded.titleBars.lg).toEqual({ alpha: false, beta: true });
 
-    const enabled = setMatchLayoutItemEnabled(loaded, 'lg', 'beta', true);
+    const enabled = setMatchTitleBarVisible(
+      setMatchLayoutItemEnabled(loaded, 'lg', 'beta', true),
+      'lg',
+      'alpha',
+      true,
+    );
     saveMatchLayoutState('match-live', enabled);
     const stored = parseStoredMatchLayouts(values[MATCH_LAYOUT_STORAGE_KEY] ?? null);
     expect(stored?.profiles['match-live']?.lg?.map((item) => item.i)).toEqual(['alpha', 'beta']);
     expect(stored?.inactive?.['match-live']?.lg).toEqual([]);
+    expect(stored?.titleBars?.['match-live']?.lg).toEqual({ alpha: true, beta: true });
   });
 
   it('resets only the active profile, including all of its breakpoints', () => {
@@ -311,8 +352,10 @@ describe('stored frontend match layouts', () => {
     const stored = parseStoredMatchLayouts(values[MATCH_LAYOUT_STORAGE_KEY] ?? null);
     expect(stored?.profiles['match-live']).toBeUndefined();
     expect(stored?.inactive?.['match-live']).toBeUndefined();
+    expect(stored?.titleBars?.['match-live']).toBeUndefined();
     expect(stored?.profiles['match-summary']?.xs?.[0]?.y).toBe(6);
     expect(stored?.inactive?.['match-summary']?.xs?.map((item) => item.i)).toEqual(['beta']);
+    expect(stored?.titleBars?.['match-summary']?.xs).toEqual({ alpha: false, beta: true });
     expect(loadMatchLayoutState('match-live', defaults, optionalItems).layouts.lg?.[0]?.y).toBe(0);
   });
 

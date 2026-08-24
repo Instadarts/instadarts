@@ -316,6 +316,12 @@ The page-level boxes are arranged by the responsive match grid rather than a fix
 | 5 | **Mode panel** | the responsive box | rendered from `panel`; nothing shown when `panel` is absent |
 | 6 | Visit history | optional live card, disabled by default at every breakpoint | `history`, newest first |
 
+Every match-card title bar is user-hideable at each responsive breakpoint. A mode must therefore
+treat `notice`, `panel.title`, and any future header badge or action as supplemental presentation,
+never as the only place for information or a control required to play. Whac-A-Mole satisfies this:
+removing its mode-panel title loses no rules or state, all of which remain in the overview and the
+panel's own HUD.
+
 ### A screen that does not jump
 
 **An element should be its final size from the first frame, not the size of what it currently has to

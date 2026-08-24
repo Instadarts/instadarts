@@ -7,6 +7,7 @@ import {
   resetMatchLayout,
   saveMatchLayoutState,
   setMatchLayoutItemEnabled,
+  setMatchTitleBarVisible,
   type FrontendBreakpoint,
   type MatchLayoutItemPreference,
   type MatchLayoutProfile,
@@ -21,7 +22,9 @@ function sameLayouts(
 }
 
 function sameMatchLayoutState(a: MatchLayoutState, b: MatchLayoutState): boolean {
-  return sameLayouts(a.layouts, b.layouts) && sameLayouts(a.inactive, b.inactive);
+  return sameLayouts(a.layouts, b.layouts)
+    && sameLayouts(a.inactive, b.inactive)
+    && JSON.stringify(a.titleBars) === JSON.stringify(b.titleBars);
 }
 
 /** RGL owns active-item geometry; only the optional-card controls own active-item membership. */
@@ -113,6 +116,7 @@ export function useMatchLayoutState({
         defaultLayout,
         itemPreferences,
         defaultLayouts,
+        current.titleBars,
       ),
     });
   }, [defaultLayout, defaultLayouts, itemPreferences, profile]);
@@ -129,6 +133,7 @@ export function useMatchLayoutState({
           defaultLayout,
           itemPreferences,
           defaultLayouts,
+          current.titleBars,
         );
         return { ...reconciled, layouts: normalizeLayouts(reconciled.layouts) };
       },
@@ -159,6 +164,18 @@ export function useMatchLayoutState({
     });
   }, [optionalIds, profile]);
 
+  const setTitleBarVisible = useCallback((
+    breakpoint: FrontendBreakpoint,
+    id: string,
+    visible: boolean,
+  ) => {
+    if (!profile) return;
+    dispatch({
+      persist: true,
+      update: (current) => setMatchTitleBarVisible(current, breakpoint, id, visible),
+    });
+  }, [profile]);
+
   const reset = useCallback(() => {
     if (!profile) return;
     resetMatchLayout(profile);
@@ -179,6 +196,7 @@ export function useMatchLayoutState({
     commitLayouts,
     reset,
     setItemEnabled,
+    setTitleBarVisible,
     updateLayouts,
   };
 }

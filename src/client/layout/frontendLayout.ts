@@ -8,24 +8,31 @@ export const MATCH_LAYOUT_STORAGE_KEY = 'instadarts_frontend_layout_v1';
 /** Incrementing this invalidates the complete browser-local match layout catalog. */
 export const MATCH_LAYOUT_VERSION = 1;
 
+export type MatchTitleBarVisibility = Partial<Record<FrontendBreakpoint, Record<string, boolean>>>;
+
 interface StoredMatchLayouts {
   version: typeof MATCH_LAYOUT_VERSION;
   profiles: Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>>;
   inactive?: Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>>;
+  titleBars?: Partial<Record<MatchLayoutProfile, MatchTitleBarVisibility>>;
 }
 
-export type MatchLayoutItemPreference = {
+interface MatchLayoutItemBasePreference {
   id: string;
+  defaultTitleBarVisible: boolean;
+}
+
+export type MatchLayoutItemPreference = MatchLayoutItemBasePreference & ({
   optional: false;
 } | {
-  id: string;
   optional: true;
   defaultEnabled: boolean;
-};
+});
 
 export interface MatchLayoutState {
   layouts: ResponsiveLayouts<FrontendBreakpoint>;
   inactive: ResponsiveLayouts<FrontendBreakpoint>;
+  titleBars: MatchTitleBarVisibility;
 }
 
 export const FRONTEND_BREAKPOINTS: readonly FrontendBreakpoint[] = ['lg', 'md', 'sm', 'xs', 'xxs'];
@@ -403,12 +410,15 @@ export function reconcileMatchLayoutState(
   defaultLayout: Layout,
   items: readonly MatchLayoutItemPreference[],
   defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>,
+  rawTitleBars?: unknown,
 ): MatchLayoutState {
   const preferences = new Map(items.map((item) => [item.id, item]));
   const activeSource = isRecord(rawLayouts) ? rawLayouts : {};
   const inactiveSource = isRecord(rawInactive) ? rawInactive : {};
+  const titleBarSource = isRecord(rawTitleBars) ? rawTitleBars : {};
   const layouts: ResponsiveLayouts<FrontendBreakpoint> = {};
   const inactive: ResponsiveLayouts<FrontendBreakpoint> = {};
+  const titleBars: MatchTitleBarVisibility = {};
 
   for (const breakpoint of FRONTEND_BREAKPOINTS) {
     const cols = DEFAULT_COLS[breakpoint];
@@ -458,9 +468,21 @@ export function reconcileMatchLayoutState(
 
     layouts[breakpoint] = activeItems;
     inactive[breakpoint] = inactiveItems;
+    const storedTitleBars = isRecord(titleBarSource[breakpoint])
+      ? titleBarSource[breakpoint]
+      : {};
+    titleBars[breakpoint] = Object.fromEntries(canonical.map((item) => {
+      const stored = storedTitleBars[item.i];
+      return [
+        item.i,
+        typeof stored === 'boolean'
+          ? stored
+          : preferences.get(item.i)!.defaultTitleBarVisible,
+      ];
+    }));
   }
 
-  return { layouts, inactive };
+  return { layouts, inactive, titleBars };
 }
 
 /** Move one optional card between the active layout and its breakpoint-local inactive pool. */
@@ -489,7 +511,25 @@ export function setMatchLayoutItemEnabled(
       item,
     ];
   }
-  return { layouts, inactive };
+  return { ...state, layouts, inactive };
+}
+
+/** Set one card's title-bar visibility without changing its geometry or optional-card state. */
+export function setMatchTitleBarVisible(
+  state: MatchLayoutState,
+  breakpoint: FrontendBreakpoint,
+  id: string,
+  visible: boolean,
+): MatchLayoutState {
+  const current = state.titleBars[breakpoint];
+  if (!current || !(id in current) || current[id] === visible) return state;
+  return {
+    ...state,
+    titleBars: {
+      ...state.titleBars,
+      [breakpoint]: { ...current, [id]: visible },
+    },
+  };
 }
 
 function parseStoredProfiles(
@@ -511,6 +551,30 @@ function parseStoredProfiles(
   return profiles;
 }
 
+function parseStoredTitleBars(
+  raw: unknown,
+): Partial<Record<MatchLayoutProfile, MatchTitleBarVisibility>> {
+  const profiles: Partial<Record<MatchLayoutProfile, MatchTitleBarVisibility>> = {};
+  if (!isRecord(raw)) return profiles;
+
+  for (const profile of MATCH_LAYOUT_PROFILES) {
+    const candidate = raw[profile];
+    if (!isRecord(candidate)) continue;
+    const breakpoints: MatchTitleBarVisibility = {};
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      const stored = candidate[breakpoint];
+      if (!isRecord(stored)) continue;
+      breakpoints[breakpoint] = Object.fromEntries(
+        Object.entries(stored).filter((entry): entry is [string, boolean] => (
+          typeof entry[1] === 'boolean'
+        )),
+      );
+    }
+    profiles[profile] = breakpoints;
+  }
+  return profiles;
+}
+
 export function parseStoredMatchLayouts(raw: string | null): StoredMatchLayouts | null {
   if (!raw) return null;
   try {
@@ -519,9 +583,13 @@ export function parseStoredMatchLayouts(raw: string | null): StoredMatchLayouts 
 
     const profiles = parseStoredProfiles(value.profiles);
     const inactive = parseStoredProfiles(value.inactive);
-    return Object.keys(inactive).length > 0
-      ? { version: MATCH_LAYOUT_VERSION, profiles, inactive }
-      : { version: MATCH_LAYOUT_VERSION, profiles };
+    const titleBars = parseStoredTitleBars(value.titleBars);
+    return {
+      version: MATCH_LAYOUT_VERSION,
+      profiles,
+      ...(Object.keys(inactive).length > 0 ? { inactive } : {}),
+      ...(Object.keys(titleBars).length > 0 ? { titleBars } : {}),
+    };
   } catch {
     return null;
   }
@@ -562,6 +630,7 @@ export function loadMatchLayoutState(
       defaultLayout,
       items,
       defaultLayouts,
+      stored?.titleBars?.[profile],
     );
   } catch {
     return reconcileMatchLayoutState(null, null, defaultLayout, items, defaultLayouts);
@@ -575,6 +644,7 @@ export function saveMatchLayoutState(profile: MatchLayoutProfile, state: MatchLa
       version: MATCH_LAYOUT_VERSION,
       profiles: { ...previous?.profiles, [profile]: state.layouts },
       inactive: { ...previous?.inactive, [profile]: state.inactive },
+      titleBars: { ...previous?.titleBars, [profile]: state.titleBars },
     };
     localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify(stored));
   } catch {
@@ -588,12 +658,15 @@ export function resetMatchLayout(profile: MatchLayoutProfile): void {
     if (!previous) return;
     const profiles = { ...previous.profiles };
     const inactive = { ...previous.inactive };
+    const titleBars = { ...previous.titleBars };
     delete profiles[profile];
     delete inactive[profile];
+    delete titleBars[profile];
     localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify({
       version: MATCH_LAYOUT_VERSION,
       profiles,
       ...(Object.keys(inactive).length > 0 ? { inactive } : {}),
+      ...(Object.keys(titleBars).length > 0 ? { titleBars } : {}),
     }));
   } catch {
     // The in-memory layout is reset by the caller either way.

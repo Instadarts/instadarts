@@ -41,7 +41,7 @@ body {
   flex: 0 0 auto;
 }
 
-/* A titleless grid box gets a grip-only header in edit mode. Keep its body geometry unchanged. */
+/* A hidden title bar returns as an edit overlay without changing the box's body geometry. */
 .frontend-grid-box--edit-header-overlay {
   position: relative;
 }
@@ -54,7 +54,8 @@ body {
   z-index: 1;
 }
 
-.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-drag-handle {
+.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-drag-handle,
+.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-title-bar-toggle {
   pointer-events: auto;
 }
 

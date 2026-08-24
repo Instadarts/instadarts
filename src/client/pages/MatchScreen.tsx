@@ -74,7 +74,7 @@ export function MatchScreen({
   } : null;
 
   const overview = (
-    <GridBox editable={true}>
+    <GridBox title="Overview" editable={true}>
       <Group justify="space-between" gap="md" wrap="wrap">
         <Group gap="sm" miw={0}>
           <Title order={2} lh="1em" {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>
@@ -90,7 +90,7 @@ export function MatchScreen({
 
   if (over) {
     const items: ResponsiveBoxItem[] = [
-      { id: 'overview', content: overview },
+      { id: 'overview', defaultTitleBarVisible: false, content: overview },
       {
         id: 'result',
         content: (
@@ -135,7 +135,7 @@ export function MatchScreen({
   }
 
   const items: ResponsiveBoxItem[] = [
-    { id: 'overview', content: overview },
+    { id: 'overview', defaultTitleBarVisible: false, content: overview },
     { id: 'scores', content: <GridBox title="Scores"><PlayerCards match={match} scores={view.playerScores} /></GridBox> },
     {
       id: 'board',

@@ -140,6 +140,15 @@ async function setOptionalCard(menu: Locator, label: string, enabled: boolean): 
   else await expect(control).not.toBeChecked();
 }
 
+async function setCardTitleBar(page: Page, id: string, visible: boolean): Promise<void> {
+  const control = page.locator(`[data-grid-item="${id}"]`)
+    .getByRole('switch', { name: 'Show title bar' });
+  if (await control.isChecked() === visible) return;
+  await control.click({ force: true });
+  if (visible) await expect(control).toBeChecked();
+  else await expect(control).not.toBeChecked();
+}
+
 async function openCameraMenu(page: Page): Promise<Locator> {
   const menu = page.getByRole('menu', { name: /^Cameras(?: · \d+)?$/ });
   if (!await menu.isVisible().catch(() => false)) {
@@ -448,6 +457,52 @@ test.describe('responsive UI branch features', () => {
       x: boardBefore!.x,
       y: boardBefore!.y,
     });
+  });
+
+  test('card title bars persist independently by breakpoint and reset to card defaults', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    const overview = page.locator('[data-grid-item="overview"]');
+    const board = page.locator('[data-grid-item="board"]');
+    await expect(overview.locator('.frontend-grid-box__header')).toHaveCount(0);
+    await expect(board.locator('.frontend-grid-box__header')).toContainText('Board');
+
+    let menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+
+    await expect(overview.getByRole('switch', { name: 'Show title bar' })).not.toBeChecked();
+    await expect(board.getByRole('switch', { name: 'Show title bar' })).toBeChecked();
+    await expect(page.locator('[data-grid-item="visit"]')
+      .getByRole('switch', { name: 'Show title bar' })).toBeChecked();
+    await setCardTitleBar(page, 'overview', true);
+    await setCardTitleBar(page, 'board', false);
+    await expect(overview.locator('.frontend-grid-box__header')).toContainText('Overview');
+    await expect(board.locator('.frontend-grid-box')).toHaveClass(/frontend-grid-box--edit-header-overlay/);
+
+    menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), false);
+    await expect(overview.locator('.frontend-grid-box__header')).toContainText('Overview');
+    await expect(board.locator('.frontend-grid-box__header')).toHaveCount(0);
+
+    await page.reload();
+    await expect(overview.locator('.frontend-grid-box__header')).toContainText('Overview');
+    await expect(board.locator('.frontend-grid-box__header')).toHaveCount(0);
+
+    await page.setViewportSize({ width: 900, height: 900 });
+    await expect(overview.locator('.frontend-grid-box__header')).toHaveCount(0);
+    await expect(board.locator('.frontend-grid-box__header')).toContainText('Board');
+
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await expect(overview.locator('.frontend-grid-box__header')).toContainText('Overview');
+    await expect(board.locator('.frontend-grid-box__header')).toHaveCount(0);
+
+    menu = await openFrontendSettings(page);
+    await menu.getByText('Reset layout', { exact: true }).click();
+    await expect(overview.locator('.frontend-grid-box__header')).toHaveCount(0);
+    await expect(board.locator('.frontend-grid-box__header')).toContainText('Board');
   });
 
   test('optional cards persist their enabled state and geometry independently by breakpoint', async ({ page }) => {

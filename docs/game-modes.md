@@ -298,6 +298,15 @@ Three rules keep this a semantic hint rather than a stylesheet:
    overview fits its headline in the available width. x01 therefore sends plain strings for scores
    and only speaks up with tones for `Bust!` and `Checkout!`.
 
+A mode that wants more than a colour can have it, without the shared components learning anything
+about the mode. `VisitInput` reflects each slot's tone as `data-slot-tone`, so a mode's own
+stylesheet can select on what it said. Whac-A-Mole uses this for its bonus throw: `warning` is the
+one tone nothing else in its slot row sends, so `[data-visit-slots] > div:last-child[data-slot-tone="warning"]`
+is unambiguously "the bonus is live", and the pulsing ring that draws it lives in
+[`client/modes/whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) where the rest of that mode's
+presentation lives. Note what this depends on: a tone used as a flag must actually be unique within
+that row, and it is the mode's job to keep it so.
+
 Why hints and not markup: the view is JSON on a WebSocket, and React elements do not survive
 `JSON.stringify`. A mode that needs real markup has the [panel](#the-match-screen) for it.
 

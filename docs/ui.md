@@ -66,11 +66,25 @@ breakpoints for the regular frontend.
 
 [`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) is the other one. A mode that animates needs
 keyframes, and keyframes cannot be expressed as inline style, so it portals a `<style>` element into
-`document.head` holding its own animations and their `prefers-reduced-motion` override. That block
-also sets the board's active cursor through `[data-testid="dartboard"]` — a second way this mode
-reaches outside its own panel, alongside the DOM reach recorded in
-[the glossary's remaining leaks](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). A
-new mode needing animation should follow the same pattern rather than adding to `index.css`.
+`document.head` holding its own animations and their `prefers-reduced-motion` override. A new mode
+needing animation should follow the same pattern rather than adding to `index.css`.
+
+That block reaches two surfaces outside the mode's own panel, and the two are not the same kind of
+thing. It sets the board's active cursor through `[data-testid="dartboard"]` — a genuine reach,
+alongside the DOM lookup recorded in
+[the glossary's remaining leaks](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). It
+also decorates the visit row's last slot through `[data-visit-slots]`, which is **the sanctioned
+route**: `VisitInput` reflects each slot's semantic tone as `data-slot-tone`, so a mode styles its
+own contributed content by what it said about that content. The generic component knows about no
+mode; the mode-specific half is the selector, and it lives in the mode's file. A mode wanting to
+decorate what it sends should do it this way.
+
+That stylesheet is rendered, not static, so a rule can be **added and removed with the state it
+describes** — Whac-A-Mole appends one only while this visit's bonus throw is in play. It is the way
+to express what the slot's own tone cannot: several states send the same tone, and they are one rule
+apart if the mode's panel already knows them apart. It usually does, because a mode's panel is drawing
+that state anyway. Prefer it to reaching into the DOM, and prefer it to re-deriving a rule the server
+has already decided — reuse the fact you are already painting from, not the reasoning behind it.
 
 Everything else visual outside that mode-specific stylesheet is inline style plus Mantine props: the
 square camera viewport, the SVG board and its overlays, precision aiming, the canvas and video

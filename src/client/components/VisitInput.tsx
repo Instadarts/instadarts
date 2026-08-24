@@ -1,6 +1,6 @@
 import { Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, ViewText } from '../../shared/types';
-import { textOf } from '../../shared/types';
+import { textOf, toneOf } from '../../shared/types';
 import { DartEvidence } from './DartEvidence';
 import { modeTextProps, slotStyle } from './modeText';
 
@@ -43,6 +43,9 @@ export function VisitInput({
             radius="sm"
             ta="center"
             ff="monospace"
+            // The slot's semantic tone, reflected so a mode's own stylesheet can decorate on it.
+            // Generic on purpose: this says what the mode said, and knows about no mode.
+            data-slot-tone={toneOf(slot) ?? 'default'}
             style={slotStyle(slot, { size: 'lg' })}
           >
             {textOf(slot)}

@@ -116,7 +116,8 @@ export default function WhacAMolePanel({ panel }: ModePanelProps) {
 
   return (
     <>
-      <Styles />
+      {/* The two facts that paint the janitor and its GOT IT! also light the bonus slot: see BONUS_CSS. */}
+      <Styles bonusInPlay={run.janitor !== null || run.events.some((e) => e.kind === 'rescue')} />
       {host && <BoardOverlay run={run} host={host} svg={svg} />}
       <Hud run={run} />
       {host && run.phase === 'finale' && <Finale run={run} host={host} />}
@@ -1140,12 +1141,30 @@ const CSS = `
  * Last, not fourth: a visit holds as many darts as the lobby asked for and the bonus sits after
  * them, so the row is four slots at the default and six if somebody sets five darts.
  *
- * The mode always sends one slot per dart the visit could hold, so the last one is the bonus. An
- * inset ring rather than a border keeps it the same size as its neighbours. Its ordinary semantic
- * tone is enough to distinguish unavailable, available and thrown states.
+ * The mode fills that slot itself (see slotsFor), and VisitInput reflects each slot's semantic tone
+ * as data-slot-tone. The mode always sends one slot per dart the visit could hold, so the last one
+ * is the bonus.
  *
+ * An inset ring rather than a border, so it does not come out a different size from its neighbours.
+ *
+ * Dimmed by default, because most of the time this slot is a throw the player does not have. It is
+ * BONUS_CSS that lifts the dim, for every state in which the bonus is in play at all — up for grabs,
+ * won and waiting, or already thrown, hit or missed. One condition rather than a tone per outcome,
+ * because "is there a bonus this visit" is one question and the slot's tone answers a different one.
+ *
+ * The pulse is the tone's, and only the won-and-waiting state sends warning. It carries its own
+ * opacity so the ring can never be caught pulsing on a faded slot.
  */
-[data-visit-slots] > div:last-child { box-shadow: inset 0 0 0 1.5px #78350f }
+[data-visit-slots] > div:last-child { opacity: 0.25 }
+[data-visit-slots] > div:last-child[data-slot-tone="warning"] {
+  animation: wam-bonus 1.1s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes wam-bonus {
+  0%, 100% { box-shadow: inset 0 0 0 2px #f59e0b }
+  50% { box-shadow: inset 0 0 0 2px #fde68a, 0 0 12px rgba(245, 158, 11, .55) }
+}
 
 /*
  * A mallet, since that is what this is — but the mallet is not the cursor.
@@ -1176,12 +1195,32 @@ const CSS = `
 </g></svg>") 15 50, crosshair }
 
 @media (prefers-reduced-motion: reduce) {
-  .wam-rise, .wam-bob, .wam-glow, .wam-glow-hot, .wam-edge, .wam-flash, .wam-flash-soft, .wam-bonk, .wam-pop, .wam-dug, .wam-steam, .wam-banner, .wam-fade {
+  /* The bonus pulse is addressed by attribute rather than by class, so it needs naming separately —
+     it is the one animation here that runs forever, which is exactly what this override is for. */
+  .wam-rise, .wam-bob, .wam-glow, .wam-glow-hot, .wam-edge, .wam-flash, .wam-flash-soft, .wam-bonk, .wam-pop, .wam-dug, .wam-steam, .wam-banner, .wam-fade,
+  [data-visit-slots] > div:last-child[data-slot-tone="warning"] {
     animation-duration: .01ms; animation-iteration-count: 1;
   }
 }
 `;
 
-function Styles() {
-  return createPortal(<style>{CSS}</style>, document.head);
+/**
+ * Only while this visit's bonus is in play: the janitor is up, or it has been whacked.
+ *
+ * The slot's states are "nothing to earn", "something to earn", "earned", and then whatever the
+ * bonus dart did. Only "earned and unthrown" says so on the wire, through the `warning` tone. The
+ * rest are all the same muted placeholder or the same muted miss, so the tone alone cannot separate
+ * a bonus nobody can have from one already spent.
+ *
+ * Neither fact needs deriving, because this file already draws both: `run.janitor` is what paints
+ * the janitor, and a `rescue` in `run.events` is what paints its GOT IT!. `run.events` is emptied at
+ * the top of every visit, so a rescue in it is always this visit's. The rule is added and removed
+ * with them, which keeps the rule that *grants* the bonus where it belongs — on the server.
+ */
+const BONUS_CSS = `
+[data-visit-slots] > div:last-child { opacity: 1 }
+`;
+
+function Styles({ bonusInPlay }: { bonusInPlay: boolean }) {
+  return createPortal(<style>{CSS}{bonusInPlay ? BONUS_CSS : ''}</style>, document.head);
 }

@@ -48,7 +48,6 @@ export function GridBox({
           </Text>
           {chrome?.setTitleBarVisible && (
             <Switch
-              className="frontend-grid-title-bar-toggle"
               size="xs"
               checked={titleBarVisible}
               onChange={(event) => chrome.setTitleBarVisible?.(event.currentTarget.checked)}

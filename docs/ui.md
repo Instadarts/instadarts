@@ -173,16 +173,23 @@ overlays the body with a translucent background instead of consuming grid-box he
 edit mode does not move or shrink the content being used to judge the box size. Overview defaults
 to hidden; other current cards default to visible.
 
+**That overlay takes its own pointer events**, so the body pixels beneath it are inert until edit
+mode is switched off — visible through the translucent strip, but not clickable. It has to be that
+way: Overview hides its title bar by default and is four rows tall, so the strip covers most of its
+**Leave** button, and a click meant for the title bar would otherwise end the match. Leaving is
+final. Treat what shows through the strip as context, not as a target.
+
 Title bars are presentation, not a guaranteed game surface. Titles, centred notices, badges and
 header actions must therefore remain supplemental: hiding one must not remove an instruction,
 state or control required to play. For example, Whac-A-Mole remains fully understandable from its
 overview and mode-panel content when the mode panel's title is hidden.
 
 **Dragging is handle-only.** RGL is given `handle: '.frontend-grid-drag-handle'`, so the header grip
-is the one place a drag can begin and everything else in the box — the dartboard, the visit buttons,
-a scrolling body — keeps behaving normally while the layout is being edited. The `cancel` selector
-alongside it is a second line of defence for ordinary controls, not the thing that protects the
-board. Leaving the match or switching between the live and summary profiles turns editing off.
+is the one place a drag can begin, and the rest of the box — the dartboard, the visit buttons, a
+scrolling body — keeps behaving normally while the layout is being edited, except where a title-bar
+overlay covers it. The `cancel` selector alongside it is a second line of defence for ordinary
+controls, not the thing that protects the board. Leaving the match or switching between the live and
+summary profiles turns editing off.
 
 RGL reports layouts for all five breakpoints. They are stored locally under the versioned key
 `instadarts_frontend_layout_v1` in two independent profiles:

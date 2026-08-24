@@ -46,17 +46,21 @@ body {
   position: relative;
 }
 
+/*
+ * The strip takes its own pointer events rather than letting them through.
+ *
+ * It is translucent, so the body stays readable underneath — and that is the whole reason it must
+ * not be transparent to the pointer. Overview hides its title bar by default and is only four rows
+ * tall, which put this overlay across 30 of the Leave button's 36 pixels: a click meant for the
+ * title bar landed on Leave and ended the match, and leaving is final. What shows through the strip
+ * while editing is context, not a target, so those top pixels are deliberately inert until edit
+ * mode is switched off.
+ */
 .frontend-grid-box--edit-header-overlay > .frontend-grid-box__header {
   background: color-mix(in srgb, var(--mantine-color-dark-8) 76%, transparent);
   inset: 0 0 auto;
-  pointer-events: none;
   position: absolute;
   z-index: 1;
-}
-
-.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-drag-handle,
-.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-title-bar-toggle {
-  pointer-events: auto;
 }
 
 .frontend-grid-box--edit-header-overlay > [data-app-card-header-divider] {

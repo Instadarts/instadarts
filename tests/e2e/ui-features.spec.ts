@@ -539,6 +539,53 @@ test.describe('responsive UI branch features', () => {
     await expect(board.locator('.frontend-grid-box__header')).toContainText('Board');
   });
 
+  test('the edit-mode title bar overlay swallows clicks aimed at the body beneath it', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 501);
+    const matchUrl = page.url();
+
+    const menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+    // The dropdown covers the same top-right corner as Leave, so measuring before it has gone
+    // reports the menu's geometry instead of the card's.
+    await expect(page.getByRole('menu', { name: 'Settings' })).toBeHidden();
+
+    // Overview hides its title bar by default, so entering edit mode lays the overlay across a card
+    // whose body holds Leave. A point inside both is what a mis-aimed title-bar click looks like.
+    const overview = page.locator('[data-grid-item="overview"]');
+    await expect(overview.locator('.frontend-grid-box'))
+      .toHaveClass(/frontend-grid-box--edit-header-overlay/);
+
+    const point = await overview.evaluate((box) => {
+      const header = box.querySelector('.frontend-grid-box__header')!.getBoundingClientRect();
+      const leave = Array.from(box.querySelectorAll('button'))
+        .find((button) => /^(Leave|Exit)$/.test(button.textContent?.trim() ?? ''))!
+        .getBoundingClientRect();
+      const overlap = Math.min(header.bottom, leave.bottom) - Math.max(header.top, leave.top);
+      return {
+        overlap,
+        x: leave.left + leave.width / 2,
+        y: (Math.max(header.top, leave.top) + Math.min(header.bottom, leave.bottom)) / 2,
+      };
+    });
+    // Guard the premise: without a real overlap the click below would prove nothing.
+    expect(point.overlap).toBeGreaterThan(0);
+
+    await page.mouse.click(point.x, point.y);
+    await expect(page).toHaveURL(matchUrl);
+    await expect(overview).toBeVisible();
+
+    // And the button is reachable again once editing is off, so the shield is scoped to edit mode.
+    const settings = await openFrontendSettings(page);
+    await setSwitch(settings.getByRole('switch', { name: 'Edit Match Layout' }), false);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu', { name: 'Settings' })).toBeHidden();
+    await page.getByRole('button', { name: /^(Leave|Exit)$/ }).click();
+    await expect(page).not.toHaveURL(matchUrl);
+  });
+
   test('optional cards persist their enabled state and geometry independently by breakpoint', async ({ page }) => {
     await clearUiPreferences(page);
     await page.setViewportSize({ width: 1360, height: 900 });

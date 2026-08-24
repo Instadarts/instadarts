@@ -35,7 +35,7 @@ test.describe('Local 1-player x01 match', () => {
     const dart = page.getByTestId('precision-dart');
     await expect(dart).toBeVisible({ timeout: 1_000 });
     await expect(dart).toHaveAttribute('data-score', 'S20');
-    await expect(dart).toHaveAttribute('data-flight-color', '#a5afbf');
+    await expect(dart).toHaveAttribute('data-flight-color', '#363a41');
     await expect(board).not.toHaveAttribute('viewBox', '0 0 100 100');
     const offsetView = (await board.getAttribute('viewBox'))!.split(' ').map(Number);
     // What a pixel of finger travel is worth on the zoomed board. Every distance below is measured

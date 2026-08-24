@@ -85,7 +85,7 @@ export interface GameMode {
   view(ctx: LegContext): ModeView;
 
   /**
-   * The mode's own block on the match screen, across the **whole match**.
+   * The mode's own block on the live match screen, derived across the **whole match**.
    *
    * Handed the match itself — every leg played, the one in progress, the settings — because a
    * statistic is about the match, not about a leg. It is safe to show it everything precisely

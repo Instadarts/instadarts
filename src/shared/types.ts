@@ -154,7 +154,7 @@ export function styleOf(value: ViewText | undefined): TextStyle {
 export interface ModeView {
   /** Headline text. x01: "501 — Double Out". */
   headline: ViewText;
-  /** Optional line under the headline. x01 uses it for the double-in prompt. */
+  /** Optional visit-header notice. x01 uses it for the double-in prompt. */
   notice?: ViewText;
   /**
    * Player card score, by player id. Text, not a number: it is what lets x01 put "Bust!" where a
@@ -167,7 +167,7 @@ export interface ModeView {
   dartsPerVisit: number;
   /** Optional dart slot contents. Omitted → the screen renders each dart's own label. */
   slots?: ViewText[];
-  /** Visit history, newest first, one entry per committed visit. */
+  /** Visit history, newest first, one entry per committed visit; retained while its UI is hidden. */
   history: ViewText[];
 }
 

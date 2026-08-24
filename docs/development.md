@@ -1,8 +1,8 @@
 # Working on this app
 
 Practical notes: how to run things, what the traps are, and the mistakes that have actually been
-made here. Not a tour of the architecture — for that read the [glossary](./glossary.md) and
-[game modes](./game-modes.md).
+made here. Not a tour of the architecture — for that read the [glossary](./glossary.md),
+[user-interface architecture](./ui.md) and [game modes](./game-modes.md).
 
 ## Where things live
 
@@ -38,7 +38,8 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
                 pages/          a screen each; pages/scorer/ is the phone's
-                components/     the match screen's parts, the dartboard, the top bar
+                components/     shared cards/icons plus the match screen's parts, board, top bar
+                layout/         Mantine theme, RGL page grids/defaults, layout editor, app zoom
                 modes/          a mode's optional panel component, found by filename
                 hooks/          the socket, the match, the vision runtime, paired devices
                 lib/            storage, power, the settings the server sent (appConfig.ts)
@@ -55,7 +56,7 @@ nothing about matches, sockets or sets**. See [game modes](./game-modes.md) for 
 ```sh
 npm run dev     # the API/WebSocket server on 3000 and Vite on 5173, together
 npm test        # unit tests (vitest). A couple of seconds; run them freely
-npm run test:e2e  # the whole browser suite. Around twenty seconds
+npm run test:e2e  # the whole browser suite; model/media projects make it a longer check
 npm run build   # production build — and see the warning below
 ```
 
@@ -107,6 +108,10 @@ plain modules built once.
 
 Nothing a user can change from the app's own screens belongs here — those are per-device settings and
 live in that screen's storage.
+
+The frontend and scorer presentation zoom controls are also local browser preferences, not
+deployment settings. Match layout positions are frontend-local preferences too. Their ownership,
+validation and reset behavior are documented in [ui.md](./ui.md#match-layout-editing-and-persistence).
 
 A value of the wrong type or out of range is ignored, the default stands, and it says which one on
 the way past; an unrecognised key is named for the same reason. A file that cannot be parsed at all
@@ -261,9 +266,8 @@ CPU-heavy spec rather than reaching for `--workers`.
 
 **Keep spec files small, because Playwright parallelises per file.** Tests inside one file run
 serially in a single worker, so a spec that grows to hold everything runs alone however many cores
-are free. Splitting the one big spec into six took the suite from 1m20s on one worker to 20s on
-eight — the same 48 tests. Shared setup goes in [`appHelpers.ts`](../tests/e2e/appHelpers.ts), which
-is imported and never collected: Playwright only runs `*.spec.ts`.
+are free. Shared setup goes in [`appHelpers.ts`](../tests/e2e/appHelpers.ts), which is imported and
+never collected: Playwright only runs `*.spec.ts`.
 
 If a run fails with `EADDRINUSE` instead of reusing what is already up, something is on the port that
 the readiness probe cannot see. `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server-stats`
@@ -326,7 +330,9 @@ const report = await page.evaluate(() => ({
 Measure as well as look. "Does it fit" and "did it actually grow" are numbers, and a screenshot
 scaled down for viewing will not tell you either. Useful viewports to cover: something narrow
 (420×900), the two-column band (1100×950), three columns (1600×1000), a short wide window
-(1600×800 — the one that catches layouts which only work on tall screens), and 2560×1440.
+(1600×800 — the one that catches layouts which only work on tall screens), and 2560×1440. For RGL
+work, also check immediately below and above 480, 768, 996 and 1200 px **container** widths; root
+presentation zoom means the viewport width alone is not always the active breakpoint.
 
 Two things that will waste your time:
 
@@ -345,13 +351,10 @@ Selector traps that have all actually bitten here:
 - **`text=` is substring and case-insensitive.** `text=0S` matched the panel's always-visible `180s`
   label. Scope to an element and anchor the pattern: `page.locator('[data-player="Alice"]')` plus
   `/^\d+[SL]$/`.
-- **Structure-coupled selectors break on markup changes.** `div:has(> h3:text("Visit History"))`
-  stopped matching when the region became a `<section>`. Prefer a stable hook — the player cards
-  carry `data-player` for exactly this reason — or at least do not pin the tag name.
-- **Reserved blank rows are still rows.** The visit history draws a fixed number of rows and leaves
-  the spare ones blank, so "no visits yet" is about text, not element count. `visitHistoryRows()` in
-  `appHelpers.ts` filters to rows that contain a total; count-based assertions would pass on an empty
-  screen and fail on a full one.
+- **Structure-coupled selectors break on markup changes and valid grid movement.** Locate an outer
+  box with `[data-grid-item="scores"]` (or another stable item id), then use roles, labels,
+  `data-player` or a functional test id inside it. Do not encode RGL transforms, DOM depth, sibling
+  order or a canonical `x`/`y` unless the layout itself is under test.
 - **Assertions on mode-provided strings go stale when a mode changes.** Changing an x01 dart slot
   from `T20 (60)` to `T20` and blanking the panel title broke three tests that had nothing to do
   with the change. If you edit `src/server/modes/*.ts`, grep the specs — unit *and* e2e — for the

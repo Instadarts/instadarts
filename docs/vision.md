@@ -57,13 +57,14 @@ so a person can slide the lens correction until the drawn lines sit on the real 
 | Lens geometry | `tests/unit/vision-lens.test.ts` | the homography round trip, ring order, k1 direction, bed placement |
 | Board geometry | `tests/unit/vision-geometry.test.ts` | image→board projection and scoring |
 | Fusion and tracking | `tests/unit/vision-fusion.test.ts`, `vision-session.test.ts`, `scorer-tips.test.ts` | which tips are one dart, when a visit ends |
-| End to end | `tests/e2e/scorer-inference.spec.ts` | a real `.tflite` running on a real board photo, through pairing, into a visit |
+| End to end | `tests/e2e/scorer-inference.spec.ts`, `scorer-onboarding.spec.ts` | a real `.tflite` through pairing into a visit; landscape/portrait square-preview geometry; one video node surviving onboarding, calibration and model-resolution changes |
 
 The e2e run is the strongest of these: it loads the actual model and asserts the actual darts. It
 replaces exactly one thing — `getUserMedia` returns a canvas painted with a board photo
 ([`fakeCamera.ts`](../tests/e2e/fakeCamera.ts)) — and leaves the model, the preprocessing and the
-geometry alone. The fake can cap either camera axis independently; onboarding runs it as a
-1280×720-class camera so a landscape stream exercises the real centre-square path.
+geometry alone. The fake can cap either camera axis independently. The scorer coverage exercises
+landscape and portrait streams, asserts the centred square cover presentation, and changes model
+resolution without accepting a resized viewport or replacement video element.
 
 ## What no test here can reach
 
@@ -125,8 +126,8 @@ Everything drawn is filtered at the pipeline's own thresholds, so what appears i
 scored and the bar can never read red under a spider that is showing. It computes no scores and
 displays none — the question is whether it can see the board, not what anybody hit.
 
-Reach it again from **Settings → Set up again**, which also clears the camera choice and its zoom —
-step one asks for them again. The decision logic is in
+Reach it again from **Settings → Device → Set up again**, which also clears the camera choice and
+its zoom — step one asks for them again. The decision logic is in
 [`lib/onboarding.ts`](../src/client/lib/onboarding.ts) and is unit-tested against fakes; everything
 that needs a GPU or a camera is behind `OnboardingHarness` in
 [`lib/onboardingHarness.ts`](../src/client/lib/onboardingHarness.ts).
@@ -189,7 +190,7 @@ of ours could be worse.
 - **The fallback chain itself** — WebGPU → WASM on device loss, and the mid-run fall back from the
   GPU analyzer to the CPU one when a pass throws.
 
-*To check:* **run the self-test** (Settings → Set up again) on a phone whose browser has WebGPU. It
+*To check:* **run the self-test** (Settings → Device → Set up again) on a phone whose browser has WebGPU. It
 reports which path each stage actually took and what each one cost, and it will not finish green
 unless the chosen configuration reads both reference boards correctly — so a shader that produces
 plausible-but-wrong keypoints fails it rather than passing quietly. Then throw, because the self-test
@@ -217,7 +218,8 @@ and see whether scoring gets better.
 made from — under 250 ms on the small model is what makes the large one worth trying at all. It also
 skips the large model when the selected track advertises a maximum shorter side of 960 px or less:
 upscaling the same source detail into a 1280 input buys nothing. Missing capability data keeps the
-timing-only behavior. This gate applies only to onboarding; both models remain available in Settings.
+timing-only behavior. This gate applies only to onboarding; both models remain available in
+**Settings → Camera and AI**.
 The self-test cannot see heat, though: run a full leg on the phone you intend to use, watch the ms
 figure, and confirm it behaves over the length of a session rather than only at the start.
 `WASM_MAX_THREADS` is the knob if it does not.
@@ -229,12 +231,17 @@ figure, and confirm it behaves over the length of a session rather than only at 
   not requirements: browsers and cameras may return a smaller landscape mode such as 1280×720.
 - **Framing** — inference, both motion analyzers, and calibration use the same centred square from
   whatever stream arrives. Still and outgoing-video geometry use that square as their coordinate
-  basis, then may select a smaller board region. The onboarding and scoring previews are square
-  `object-cover` boxes centred on the stream, so the person sees exactly the model's base crop. It is
-  uniformly resized to 960×960 or 1280×1280 for the model, never squeezed from the stream's original
-  aspect ratio.
+  basis, then may select a smaller board region. Onboarding and scoring share
+  [`SquareCameraViewport.tsx`](../src/client/pages/scorer/SquareCameraViewport.tsx): a square with a
+  permanently centred `object-fit: cover` video, so the person sees exactly the model's base crop.
+  Normalized motion, board and aim overlays remain inside the same square. The crop is uniformly
+  resized to 960×960 or 1280×1280 for the model, never squeezed from the stream's original aspect
+  ratio. Keep the viewport reserved when no stream exists, and keep the same video DOM node across
+  settings, calibration and model changes.
 - **Zoom** — `getCapabilities().zoom` exists on Android Chrome and mostly does not on iOS Safari.
-  The per-lens zoom memory can only be exercised with a lens.
+  The per-lens zoom memory can only be exercised with a lens. This camera-track zoom lives under
+  **Camera and AI** and changes the model's source pixels. The menu's **Layout → Zoom** control is
+  CSS presentation scale, is stored separately, and must not affect this geometry.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is
   the case the `detail` content hint is there for.
 - **Where the camera stands is a model requirement, not a preference.** It wants the board **from an

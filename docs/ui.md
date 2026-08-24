@@ -1,0 +1,191 @@
+# User-interface architecture
+
+The gaming frontend and the scoring-device app share one visual language, but they do not share one
+layout system. Mantine is the design system for both. React Grid Layout (RGL) arranges the gaming
+frontend's page-level boxes; the scorer remains a static, centred column because its camera geometry
+must not be negotiated by a dashboard grid.
+
+Read [game-modes.md](./game-modes.md) before changing what a mode contributes to the match screen,
+and [vision.md](./vision.md) before changing any scorer camera surface.
+
+## The two applications
+
+[`main.tsx`](../src/client/main.tsx) chooses the application from the path before React mounts it and
+marks the document with `data-app="frontend"` or `data-app="scorer"`. Both applications receive the
+same dark [`MantineProvider`](../src/client/layout/appTheme.ts), theme, card surface, icons and
+fullscreen control.
+
+They deliberately diverge after that:
+
+| | Gaming frontend | Scoring device |
+| --- | --- | --- |
+| Entry component | `App` inside `BrowserRouter` | `ScorerApp` |
+| React Strict Mode | yes | no: a development double mount would duplicate camera/runtime ownership |
+| Page layout | RGL `Responsive` grids | static `AppShell` and a centred 28 rem column |
+| Layout editing | live and finished match screens | none |
+| Presentation zoom | one frontend preference | a separate scorer preference |
+| Socket and state | match/lobby state | scorer projection and vision runtime |
+
+The scorer is a sibling application, not a route rendered inside `App`. Do not move it under the
+frontend router or layout-editor provider.
+
+## Design-system ownership
+
+Use Mantine for routine interface work: typography, spacing, cards, stacks, groups, forms, buttons,
+menus, dialogs, alerts, scrolling and repeated inner layouts. In particular,
+`SimpleGrid minColWidth` is the normal answer when equally shaped content inside a box must wrap.
+It does not require an application breakpoint.
+
+[`AppCard`](../src/client/components/AppCard.tsx) is the common surface. It owns the card border,
+header, optional centred header content, badge/actions area and body. A scorer or overlay can use it
+directly. [`GridBox`](../src/client/layout/GridBox.tsx) adds the RGL fill classes and the match edit
+handle; it is not a general card replacement outside an RGL item.
+
+Do not put RGL inside a box. The outer grid decides which boxes share a row; Mantine primitives
+decide how the contents of one box flow. Keeping that boundary makes a box reusable and prevents a
+page layout from leaking into its contents.
+
+There is no utility-CSS framework in this repository. Prefer a Mantine prop or component before
+adding CSS. A small inline style is appropriate when it expresses geometry that Mantine has no prop
+for. Purpose-built CSS remains appropriate for visual behavior rather than routine layout, including:
+
+- RGL item fill, overflow, edit outlines, drag cursors and resize handles;
+- the square dartboard and camera coordinate spaces;
+- SVG overlays, precision aiming and canvas/video layers;
+- Whac-a-Mole animation and its reduced-motion override;
+- screensaver capture/reveal behavior;
+- application background and root presentation zoom.
+
+[`index.css`](../src/client/index.css) is intentionally short. Do not rebuild ordinary card, form or
+responsive layouts there, and do not add application `@media` breakpoints for the regular frontend.
+
+## Frontend page grids
+
+[`ResponsiveBoxGrid`](../src/client/layout/ResponsiveBoxGrid.tsx) is the one page-grid entry point.
+It measures its container with RGL's `useContainerWidth` and uses RGL's stock responsive map:
+
+| Breakpoint | Minimum container width | Columns |
+| --- | ---: | ---: |
+| `lg` | 1200 px | 12 |
+| `md` | 996 px | 10 |
+| `sm` | 768 px | 6 |
+| `xs` | 480 px | 4 |
+| `xxs` | 0 px | 2 |
+
+These are **container widths**, not promises about `window.innerWidth`. Browser chrome, application
+zoom and any containing layout can change the width RGL measures. Use the active breakpoint badge
+in the match settings menu or measure the grid host when debugging; do not add a CSS media query to
+force the result.
+
+Every grid uses an 8 px row height, 12 px gaps and 12 px container padding. Canonical page layouts
+live in [`frontendLayout.ts`](../src/client/layout/frontendLayout.ts), not in page components:
+
+- home and join are centred stacks generated for every stock column count;
+- the lobby is generated as balanced, centred rows, with at most two ordinary cards per row;
+- live matches declare a tuned layout for each breakpoint;
+- match summaries declare another tuned layout for each breakpoint.
+
+`ResponsiveBoxGrid` can materialise a missing smaller layout with RGL's own responsive generation,
+but all current canonical page maps are complete. Prefer generated helpers when a rule really is the
+same at every width; use explicit per-breakpoint match layouts when board usability needs deliberate
+geometry. Do not copy layout constants back into page components.
+
+### Document grids and match grids are intentionally different
+
+Home, join and lobby are document-style grids. They are always static, prevent overlap, and compact
+vertically. Items marked `autoHeight` are measured from their natural card contents. A
+`ResizeObserver` catches geometry changes and a `MutationObserver` catches content changes that a
+flexed border box can hide; the resulting height is rounded up to whole RGL rows. Conditional lobby
+boxes are removed from the item set and compaction closes the hole.
+
+Match grids use fixed-height boxes with internally scrolling bodies. A changing score, visit or
+statistic must not move the board under a player's hand. They use vertical compaction with overlap
+allowed and collision prevention off. That is deliberate: while editing, a box does not push the
+rest of a carefully tuned match layout away, and gaps or overlap are available to the person making
+the layout. Canonical layouts should still begin non-overlapping.
+
+Constraints such as `minW`, `minH`, `static` and `isBounded` belong to each canonical layout item.
+Current code replaces stored constraints with these current declarations when it restores a saved
+position, so old browser data cannot retain a rule that the application removed.
+
+## Match layout editing and persistence
+
+The settings menu exposes **Edit Match Layout** only while a live or finished match grid is
+registered. Edit mode is transient and off by default. It reveals a header drag handle and the
+south-east resize handle; interactive controls and the dartboard are excluded from drag starts.
+Leaving the match or switching between the live and summary profiles turns editing off.
+
+RGL reports layouts for all five breakpoints. They are stored locally under the versioned key
+`instadarts_frontend_layout_v1` in two independent profiles:
+
+- `match-live` for the playing screen;
+- `match-summary` for the finished screen.
+
+Each breakpoint keeps its own arrangement. Loading accepts only the current schema version, known
+profiles, known breakpoints and known box ids; numeric positions are bounded, current constraints
+are reapplied, and newly introduced boxes are merged from canonical defaults. Malformed or
+unavailable local storage falls back to the defaults, and editing still works in memory for the
+current page.
+
+**Reset layout** removes every saved breakpoint for the active profile only, restores that profile's
+canonical map and exits edit mode. It does not reset the other match profile, application zoom,
+camera settings or match state.
+
+[`LayoutEditorContext`](../src/client/layout/LayoutEditorContext.tsx) is only the bridge from the
+active match grid to the global header. Layout data does not belong to the server, protocol or match
+state.
+
+## Presentation zoom
+
+Both settings menus offer presentation zoom from 50% to 150% in 5% steps. The frontend and scorer
+use separate local-storage keys and separate root CSS variables. The saved value applies to the
+whole application at every breakpoint; it is not part of an RGL layout profile.
+
+This is CSS `zoom` on that application's `#root`. It changes presentation and available CSS layout
+space, so RGL may select another breakpoint after the frontend is zoomed. It does not change browser
+page zoom.
+
+Scorer presentation zoom is also unrelated to **camera zoom**. Camera zoom is an optical/digital
+track constraint remembered per lens and changes the pixels reaching the model. Presentation zoom
+only scales the interface and must never change capture constraints, the square crop or calibration.
+Resetting scorer setup does not reset presentation zoom.
+
+Storage reads and writes are guarded. A blocked/private storage implementation gives the default
+100% on the next page load but must not stop in-memory zoom controls from working.
+
+## Scorer presentation and sensitive geometry
+
+The paired scorer uses the same 52 px `AppShell` header as the frontend, then a static centred
+column. Its settings are a height-bounded, scrollable header menu. Onboarding hides the header and
+keeps its existing name → camera → self-test → optional aim state machine.
+
+The camera preview is not an ordinary responsive image. Scoring and onboarding share
+[`SquareCameraViewport.tsx`](../src/client/pages/scorer/SquareCameraViewport.tsx): a reserved square
+whose video absolutely fills it with `object-fit: cover` and centred object positioning. This is the
+presentation equivalent of `getCenterSquareCrop`; the longer source axis is clipped equally at both
+ends, so the user sees the model's base input crop. Normalized board, motion and aim overlays stay
+inside that same square.
+
+Keep `CameraPanel` mounted while settings or calibration is shown. Its video node, stream, runtime
+and model must survive presentation changes and model-resolution switches. Calibration has a
+separate frozen 640×640 canvas and normalized SVG overlay. These invariants and the hardware checks
+are documented in [vision.md](./vision.md#the-camera).
+
+## Changing or testing the UI
+
+For a new frontend page box:
+
+1. add its canonical item to `frontendLayout.ts`;
+2. render a `GridBox` with the same stable id through `ResponsiveBoxGrid`;
+3. choose document `autoHeight` or match fixed height deliberately;
+4. use Mantine inside it and add CSS only for specialized visual geometry;
+5. verify immediately below and above the stock RGL breakpoints.
+
+Tests should locate a box by `[data-grid-item="<id>"]`, then use roles, labels and stable test ids
+inside it. Do not encode a canonical `x`/`y`, DOM depth or sibling order unless layout persistence
+itself is what the test covers. Clear the layout and zoom storage keys when a test needs canonical
+state; deliberately preserve them when testing reload persistence.
+
+For visual work, inspect narrow portrait, short-wide and large-display viewports. Measure overflow,
+containment and square geometry as well as taking screenshots. The full local procedure, including
+the Playwright project ordering, is in [development.md](./development.md#the-e2e-suite).

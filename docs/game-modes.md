@@ -86,7 +86,7 @@ interface GameMode {
   /** Everything mode-specific the match screen displays for the current leg. */
   view(ctx: LegContext): ModeView;
 
-  /** The mode's own block of the match screen, across the whole match. Optional. */
+  /** The mode's own live-screen block, derived across the whole match. Optional. */
   panel?(match: MatchState): ModePanel | undefined;
 }
 ```
@@ -265,8 +265,7 @@ interface ModeView {
   visitTotal: ViewText;                   // empty text hides the line; x01 always returns a number
   dartsPerVisit: number;
   slots?: ViewText[];                     // optional slot contents; omitted → default rendering
-  history: ViewText[];                    // newest first, one entry per committed visit
-  panel?: unknown;                        // optional payload for the mode's own screen element
+  history: ViewText[];                    // newest first; retained in the contract, not currently shown
 }
 ```
 
@@ -288,8 +287,8 @@ Three rules make this a hint and not a stylesheet:
 
 1. **Tones are meanings, not colours.** A mode says `danger`; what that looks like is decided once,
    in [`client/components/modeText.ts`](../src/client/components/modeText.ts). `danger` is red text
-   in the history and a red-backed slot on the board — the same word, expressed the way each element
-   expresses things. A redesign changes one file.
+   in ordinary mode text and a red-backed slot in the visit card — the same word, expressed the way
+   each element expresses things. A redesign changes one file.
 2. **Every hint is optional, and overrides exactly one axis.** Whatever a mode leaves out comes from
    the element's own defaults, which is what keeps the screen looking like one screen. A bare string
    is the normal case and should stay the normal case.
@@ -306,58 +305,59 @@ Note what this buys beyond looks — **the screen stops inferring.** It used to 
 a verdict by testing whether the string was numeric, and colour a dart slot by checking whether the
 dart scored above zero. Both were the screen guessing at x01's rules. Now x01 says so.
 
-Top to bottom:
+The page-level boxes are arranged by the responsive match grid rather than a fixed DOM order:
 
 | # | Element | Universal | From the mode |
 | --- | --- | --- | --- |
-| 1 | Headline | the element, the spectator suffix | `headline`, `notice` |
+| 1 | Overview | the element, spectator/media badges, Leave | `headline` |
 | 2 | Player cards | names, standings (sets and legs), current-player highlight, "▶ throwing", winner banner | `playerScores[playerId]` |
-| 3 | **Mode panel** | the slot | rendered entirely by the mode; nothing shown when `panel` is absent |
-| 4 | Dartboard (manual input) | all of it | — |
-| 5 | Visit slots | the element | `dartsPerVisit`, optionally `slots` |
-| 6 | `Visit: <total>` | the element | `visitTotal` — an empty string hides the line |
-| 7 | Undo / Submit Visit | all of it | — (they act on the current visit, which the mode interprets) |
-| 8 | History | the element | `history` |
-| 9 | Leave | all of it | — |
+| 3 | Dartboard | manual input and optional live-board presentation | — |
+| 4 | Visit | slots, evidence, Undo / Submit | `notice` in the card header, `dartsPerVisit`, optional `slots`, `visitTotal` |
+| 5 | **Mode panel** | the responsive box | rendered from `panel`; nothing shown when `panel` is absent |
+| — | Visit history | no current surface; deliberately omitted from the live layout | `history` remains on `ModeView` for possible restoration |
 
 ### A screen that does not jump
 
 **An element should be its final size from the first frame, not the size of what it currently has to
-show.** A match screen fills up as it is played — visits land in the history, a panel's numbers
-appear once there is something to average — and anything that grows as that happens shoves whatever
-is under it down the page, under the hand of someone who is aiming at a dartboard.
+show.** A match screen fills up as it is played — scores change and a panel's numbers appear once
+there is something to average — and anything that grows as that happens could move the dartboard
+under the hand of someone who is aiming at it.
 
 What this looks like in practice:
 
-- **Reserve the rows.** The visit history draws a fixed number of rows from the start and leaves the
-  ones it has nothing for blank ([`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx),
-  `HISTORY_ROWS`). It is not scrolled to a maximum height; it is that height throughout.
+- **Fix match-box geometry.** Live and summary boxes have canonical RGL heights at every stock
+  breakpoint. Their bodies scroll internally when necessary; changing content does not remeasure a
+  match box or move its neighbours.
 - **Show the element before it has content.** x01's panel renders with `0` darts thrown and `—`
   for the averages rather than waiting for a first visit, which is why the board does not move when
   one is thrown.
 - **Keep a slot's width off its contents.** Dart slots and score cards have a width from the layout,
-  not from the label inside them, so `T20` and `miss` occupy the same space.
-- **A breakpoint may change the size; content may not.** Fewer history rows on a phone than in a
-  column of its own is fine. What must not happen is the same screen changing size under itself.
+  not from the label inside them, so `T20` and `miss` occupy the same space. Player score text fits
+  itself inside the available card area instead of asking the mode for a font size.
+- **A breakpoint or explicit layout edit may change the size; content may not.** What must not
+  happen is the same match layout changing under itself because a score or statistic changed.
 
 This is good practice rather than an enforced rule, and there are places that do not follow it yet.
 Anything new on the match screen should.
 
 ### The summary
 
-Once the match is finished the screen becomes **the match's**, not the mode's. The input block (4–7)
-unmounts, the player cards show winner and loser instead of a score, and the history is replaced by
-the match scoreline — legs per set, read like a tennis result.
+Once the match is finished the screen becomes **the match's**, not the mode's. The board, visit and
+mode-panel boxes unmount; result cards show winner and loser instead of a score, and match history
+shows the scoreline — legs per set, read like a tennis result.
 
-A mode contributes exactly two things to it:
+A mode contributes exactly one thing to the current summary:
 
-- the **headline**, so the summary still says what was played;
-- the **panel**, which is the one place a mode may show its own statistics after a match. x01 uses
-  it for nothing, so nothing is rendered there.
+- the **headline**, so the summary still says what was played.
 
 Everything else on the summary — the verdict, the scoreline, the re-match, Exit — is match-level and
 means the same whatever was played. The re-match in particular is **not** a mode concern: it starts
 an ordinary new match with the same settings and participants, and no mode is consulted.
+
+The summary has its own `match-summary` RGL profile, distinct from the live screen's `match-live`
+profile. That is presentation state only and does not widen the game-mode contract. If a future
+summary needs mode statistics, add that surface deliberately rather than assuming the live panel is
+still mounted.
 
 This is also why a finished match needs no special handling on the mode side: its current leg is
 empty, and there is nothing left for the mode to describe.

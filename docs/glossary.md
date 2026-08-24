@@ -46,7 +46,7 @@ for the places where that has already gone wrong.
 | **[x01]** [Bust](#x01-bust) | x01's void: overthrown, or an impossible leave | `isBustScore`, committed as `Visit.voided` |
 | **[x01]** [Checkout](#x01-checkout) | x01's win: reaching exactly zero | `FinalizedVisit.legWinnerId` |
 | [Mode view](#mode-view) | The mode's text for the current leg | `ModeView`, `ViewText`, `mode.view(ctx)` |
-| [Mode panel](#mode-panel) | The mode's own block, across the match | `ModePanel`, `mode.panel(match)` |
+| [Mode panel](#mode-panel) | The mode's live-screen block, derived across the match | `ModePanel`, `mode.panel(match)` |
 | [Scorer](#scorer--scoring-device) | Paired camera device that reports dart tips | `deviceId`, `scorer_*` messages, `ScorerApp` |
 | [Scoring](#scoring-and-the-two-power-stages) | A match is running that this device feeds | `scorer_state.scoring`, `resolveScoringTarget` |
 | [Standby](#scoring-and-the-two-power-stages) | Device asleep: wake lock released, socket closed | `PowerStage`, `useScorerPower` |
@@ -87,9 +87,11 @@ Consequences worth knowing:
   the only place either of those exists.** Both are stripped from every lobby and match on the way
   out, and the client is told the conclusions instead: `yourPlayerIds`, `youAreHost` and
   `youAreSpectator`, addressed to one connection rather than broadcast to the room.
-- Browser-level state that outlives the tab (paired scoring devices) lives in `localStorage`;
-  tab-level state (which devices *this tab* is using) lives in `sessionStorage`. See
-  [`deviceStorage.ts`](../src/client/lib/deviceStorage.ts).
+- Browser-level state that outlives the tab (paired scoring devices, presentation zoom and saved
+  match layouts) lives in `localStorage`; tab-level state (which devices *this tab* is using) lives
+  in `sessionStorage`. These stores are preferences and credentials, not a persistent user identity.
+  See [`deviceStorage.ts`](../src/client/lib/deviceStorage.ts) and
+  [ui.md](./ui.md#match-layout-editing-and-persistence).
 
 Do **not** write "user" when you mean a player. One user can own several: every player in a local
 match, and as many as it added in an online one.
@@ -458,9 +460,10 @@ What a finished match shows. Deliberately **match-level**: the player cards give
 rather than a score, and the scoreline is legs per set, read like a tennis result
 ([`MatchHistory`](../src/client/components/MatchHistory.tsx)).
 
-The game mode contributes exactly two things — the headline, so it still says what was played, and
-its optional [panel](#mode-view), which is where a mode may put statistics of its own. Everything
-else is the same whatever was played inside the legs.
+The game mode contributes the headline, so the summary still says what was played. The live
+[mode panel](#mode-panel) is not mounted on the current summary; result, match history and re-match
+are the same whatever was played inside the legs. Its responsive layout is saved under a distinct
+`match-summary` profile rather than reusing the live match arrangement.
 
 ### Who throws first
 
@@ -583,9 +586,9 @@ Say **game mode** (or *mode*), never just "game", for this concept.
 
 ### Mode view
 
-`ModeView` — everything mode-specific the match screen shows: headline, notice, per-player card
-score, visit total, darts per visit, optional slot contents, history lines, and an optional payload
-for the mode's own screen element.
+`ModeView` — the mode-specific presentation for one leg: headline, visit-header notice, per-player
+card score, visit total, darts per visit, optional slot contents, and history lines. History remains
+in the wire contract, although the current live layout deliberately has no history surface.
 
 Computed by the mode **on the server** (`mode.view(ctx)`) and shipped with every `match_state` /
 `match_started` / `match_finished` message, so the client holds no rules. Player card scores are
@@ -601,7 +604,8 @@ looks like. See [game-modes.md](./game-modes.md).
 
 ### Mode panel
 
-`ModePanel` — the mode's own block of the match screen, and its vehicle for extending the match UI.
+`ModePanel` — the mode's own block of the live match screen, and its vehicle for extending the match
+UI. It is not currently rendered on the summary screen.
 
 Owned by the **match**, not by a leg: `panel(match)` is handed the whole `MatchState`, because a
 statistic is about the match and an average read off one leg would change every time a leg ended. It
@@ -779,12 +783,12 @@ that remain are the constraints a second game mode will meet.
 | `GameSettingsPanel` rendering x01's three settings | `MatchSettingsPanel` renders the mode's declared fields, from the catalog the server sends |
 | The screen deciding a card score was a verdict by testing whether the string was numeric | x01 sends a `danger`/`warning` tone with the word |
 | The screen colouring a dart slot by whether the dart scored above zero | x01 tones its own slots |
+| The visit UI assuming a fixed three-slot row | `VisitInput` and dart evidence use Mantine grids with `view.dartsPerVisit` equal columns; evidence tiles retain a capped visual size |
 
 **Remaining:**
 
 | Leak | Where | Why it is still there |
 | --- | --- | --- |
-| Three darts per visit is assumed by the client's fixed-width slot row, though the count itself comes from `view.dartsPerVisit` | [`VisitInput.tsx`](../src/client/components/VisitInput.tsx) | Layout, not logic: the row is sized for three. Whac-A-Mole is the first mode to offer more — up to five — and the row holds, because each slot is `flex-1` under a maximum rather than a fixed width |
 | A mode's own component reaches the dartboard through the DOM (`[data-testid="dartboard"]`) rather than through a slot the match screen offers it | [`client/modes/whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) | `ModePanelProps` is the panel and nothing else, so a mode that draws **on** the board — rather than beside it — has no other way in. The alternative is a board-decoration channel in `ModeView`, or a slot threaded through `MatchScreen` → `VisitInput` → `Dartboard` |
 
 ---
@@ -874,7 +878,8 @@ halves of it.
 
 Unpairing throws away the **identity** — the `deviceId` and token — and nothing else. Everything
 that describes the hardware survives it: the device's **name**, its lens calibration, its remembered
-camera and zoom, and its power delays. A phone somebody labelled "Board camera" and mounted above
+camera and per-lens camera zoom, and its power delays. The scorer's presentation zoom is a separate
+application preference and survives too. A phone somebody labelled "Board camera" and mounted above
 their board is still that phone after it is handed to another browser, and it says so as soon as it
 pairs.
 
@@ -1118,14 +1123,15 @@ reached, so a second command — or a reset arriving mid-swing — reads as one 
 
 ## Settings
 
-Three different things are called *settings*, and they belong to three different people. Keeping
-them apart is the whole of this entry; when the distinction matters, name it.
+Four different things appear under *settings*, and they have different owners. Keeping them apart
+is the whole of this entry; when the distinction matters, name it.
 
 | | Who sets it | Where it lives | Scope |
 | --- | --- | --- | --- |
 | **Deployment settings** | whoever runs the server | `instadarts.config.jsonc`, one optional file | the whole deployment |
 | **Match settings** | the lobby's host | in the lobby, then the match | one match |
 | **Device settings** | the person holding the phone | that browser's own storage | one device |
+| **Presentation preferences** | the person using either app | that browser's own storage | frontend or scorer; match layouts additionally split by profile/breakpoint |
 
 ### Deployment settings
 
@@ -1160,17 +1166,23 @@ way to know its own public address, so it sends the word and the client turns it
 behind it, so a client is never sent to a closed port. See
 [media.md](./media.md#ice-and-why-video-may-simply-not-work).
 
-### Match settings and device settings
+### Match settings, device settings and presentation preferences
 
 **Match settings** are `MatchSettings` — the mode, the mode's own `ModeSettings`, and the
 legs/sets format. Set in the [lobby](#lobby) by the host, validated against the mode's declared
 fields, and fixed for that match. See [game-modes.md](./game-modes.md#settings).
 
 **Device settings** belong to one phone or one browser and outlive any match: a scoring device's
-name, its lens calibration, its remembered camera and zoom, its power delays, its
+name, its lens calibration, its remembered camera and per-lens camera zoom, its power delays, its
 [media tier](#media-tier). Stored locally ([`scorerStorage.ts`](../src/client/lib/scorerStorage.ts))
 and, notably, they survive unpairing — see
 [what belongs to the pairing](#what-belongs-to-the-pairing-and-what-belongs-to-the-phone).
+
+**Presentation preferences** affect only how an application is arranged or scaled. Frontend and
+scorer application zoom are separate, global to their respective app and independent of camera
+zoom. Editable match positions are frontend-only, stored separately for live and summary screens
+and for each stock RGL breakpoint. They never enter `MatchState`, the protocol or deployment config.
+See [ui.md](./ui.md#match-layout-editing-and-persistence).
 
 ---
 
@@ -1208,4 +1220,4 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
 | "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), the e2e specs |
 | `visitNumber` counts across the leg and every player in it, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
-| The visit history shows the current leg only; earlier legs are kept in `MatchState.legs` and are summarised, never replayed | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |
+| `ModeView.history` is still sent for the current leg, but its live UI is deliberately commented out; completed legs remain summarized through `MatchState.legs` | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

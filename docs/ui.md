@@ -147,7 +147,7 @@ the fullscreen control, and two menus:
 | Menu | Holds |
 | --- | --- |
 | **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
-| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, **Reset layout**; `Links` → source code |
+| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code |
 
 The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a
 navigation, and a menu that shut on each click would make changing two things a two-trip job. Its
@@ -163,8 +163,10 @@ the match-layout controls — **Edit Match Layout**, the active breakpoint badge
 ## Match layout editing and persistence
 
 The settings menu exposes **Edit Match Layout** only while a live or finished match grid is
-registered. Edit mode is transient and off by default. It reveals a drag handle in each box header
-and the south-east resize handle.
+registered. Edit mode is transient and off by default. It reveals a drag handle in each box header,
+the south-east resize handle, and an **Optional cards** switch list when that profile declares any.
+The badge and optional-card switches describe the current RGL breakpoint: showing a card at `lg`
+does not also show it at `sm`.
 
 **Dragging is handle-only.** RGL is given `handle: '.frontend-grid-drag-handle'`, so the header grip
 is the one place a drag can begin and everything else in the box — the dartboard, the visit buttons,
@@ -178,15 +180,18 @@ RGL reports layouts for all five breakpoints. They are stored locally under the 
 - `match-live` for the playing screen;
 - `match-summary` for the finished screen.
 
-Each breakpoint keeps its own arrangement. Loading accepts only the current schema version, known
-profiles, known breakpoints and known box ids; numeric positions are bounded, current constraints
-are reapplied, and newly introduced boxes are merged from canonical defaults. Malformed or
-unavailable local storage falls back to the defaults, and editing still works in memory for the
-current page.
+Each breakpoint keeps its own arrangement and optional-card state. Active layouts remain in the
+profile map; an additive inactive map keeps the complete geometry of disabled optional cards so
+re-enabling one restores its last position and size at that breakpoint. Loading accepts only the
+current schema version, known profiles, known breakpoints and known box ids; inactive entries must
+also name a card declared optional. Numeric positions are bounded, current constraints are
+reapplied, mandatory cards are repaired into the active layout, and newly introduced boxes use
+their canonical enabled default. Malformed or unavailable local storage falls back to the defaults,
+and editing still works in memory for the current page.
 
-**Reset layout** removes every saved breakpoint for the active profile only, restores that profile's
-canonical map and exits edit mode. It does not reset the other match profile, application zoom,
-camera settings or match state.
+**Reset layout** removes every saved breakpoint and inactive-card entry for the active profile only,
+restores that profile's canonical geometry and optional-card defaults, and exits edit mode. It does
+not reset the other match profile, application zoom, camera settings or match state.
 
 [`LayoutEditorContext`](../src/client/layout/LayoutEditorContext.tsx) is only the bridge from the
 active match grid to the global header. Layout data does not belong to the server, protocol or match
@@ -237,6 +242,11 @@ For a new frontend page box:
 3. choose document `autoHeight` or match fixed height deliberately;
 4. use Mantine inside it and add CSS only for specialized visual geometry;
 5. verify immediately below and above the stock RGL breakpoints.
+
+For a match card that is not required for play, add
+`optional: { label, defaultEnabled }` to its `ResponsiveBoxItem`. Omitting `optional` is the safety
+default: the card remains mandatory and receives no visibility switch. Every optional card still
+needs canonical geometry at all five breakpoints, including one that is disabled by default.
 
 Tests should locate a box by `[data-grid-item="<id>"]`, then use roles, labels and stable test ids
 inside it. Do not encode a canonical `x`/`y`, DOM depth or sibling order unless layout persistence

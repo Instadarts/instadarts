@@ -167,7 +167,7 @@ export interface ModeView {
   dartsPerVisit: number;
   /** Optional dart slot contents. Omitted → the screen renders each dart's own label. */
   slots?: ViewText[];
-  /** Visit history, newest first, one entry per committed visit; retained while its UI is hidden. */
+  /** Visit history, newest first, one entry per committed visit; shown by an optional live card. */
   history: ViewText[];
 }
 

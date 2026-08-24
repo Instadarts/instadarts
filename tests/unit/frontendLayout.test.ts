@@ -6,18 +6,27 @@ import {
   JOIN_LAYOUTS,
   LIVE_MATCH_LAYOUTS,
   MATCH_LAYOUT_STORAGE_KEY,
+  MATCH_LAYOUT_VERSION,
   SUMMARY_MATCH_LAYOUTS,
-  loadMatchLayouts,
+  loadMatchLayoutState,
   mergeResponsiveLayouts,
   parseStoredMatchLayouts,
+  reconcileMatchLayoutState,
   resetMatchLayout,
-  saveMatchLayouts,
+  saveMatchLayoutState,
+  setMatchLayoutItemEnabled,
   type FrontendBreakpoint,
+  type MatchLayoutItemPreference,
 } from '../../src/client/layout/frontendLayout';
 
 const defaults: Layout = [
   { i: 'alpha', x: 0, y: 0, w: 8, h: 5, minW: 2, minH: 3, static: true },
   { i: 'beta', x: 8, y: 0, w: 4, h: 5, minW: 1, minH: 2 },
+];
+
+const optionalItems: MatchLayoutItemPreference[] = [
+  { id: 'alpha', optional: false },
+  { id: 'beta', optional: true, defaultEnabled: false },
 ];
 
 let values: Record<string, string>;
@@ -104,18 +113,98 @@ describe('generated frontend page layouts', () => {
       }
     }
   });
+
+  it('appends visit history after the live layout at a useful responsive width', () => {
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      const layout = LIVE_MATCH_LAYOUTS[breakpoint] ?? [];
+      const history = layout.find((item) => item.i === 'history');
+      const withoutHistory = layout.filter((item) => item.i !== 'history');
+      expect(history).toBeDefined();
+      expect(history).toMatchObject({ h: 20, minH: 8 });
+      expect(history!.y).toBeGreaterThanOrEqual(
+        Math.max(...withoutHistory.map((item) => item.y + item.h)),
+      );
+
+      const cols = DEFAULT_COLS[breakpoint];
+      if (breakpoint === 'xs' || breakpoint === 'xxs') expect(history!.w).toBe(cols);
+      else expect(history!.w).toBe(layout.find((item) => item.i === 'scores')!.w);
+    }
+  });
+});
+
+describe('optional match cards', () => {
+  it('places default-disabled cards in the inactive pool and repairs mandatory cards', () => {
+    const state = reconcileMatchLayoutState(
+      { lg: [] },
+      { lg: [{ i: 'alpha', x: 3, y: 8, w: 2, h: 3 }] },
+      defaults,
+      optionalItems,
+    );
+
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      expect(state.layouts[breakpoint]?.map((item) => item.i)).toEqual(['alpha']);
+      expect(state.inactive[breakpoint]?.map((item) => item.i)).toEqual(['beta']);
+    }
+    expect(state.layouts.lg?.[0]).toEqual(defaults[0]);
+  });
+
+  it('restores a saved enabled state at one breakpoint without enabling the others', () => {
+    const state = reconcileMatchLayoutState({
+      sm: [
+        { ...defaults[0], x: 0 },
+        { ...defaults[1], x: 2, y: 11, w: 4, h: 6 },
+      ],
+    }, null, defaults, optionalItems);
+
+    expect(state.layouts.sm?.map((item) => item.i)).toEqual(['alpha', 'beta']);
+    expect(state.layouts.sm?.find((item) => item.i === 'beta')).toMatchObject({ y: 11, h: 6 });
+    expect(state.inactive.sm).toEqual([]);
+    expect(state.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
+    expect(state.inactive.lg?.map((item) => item.i)).toEqual(['beta']);
+  });
+
+  it('moves the complete layout item between collections without changing its geometry', () => {
+    const initial = reconcileMatchLayoutState({
+      lg: [defaults[0], { ...defaults[1], x: 3, y: 17, w: 5, h: 9 }],
+    }, null, defaults, optionalItems);
+    const before = initial.layouts.lg?.find((item) => item.i === 'beta');
+
+    const disabled = setMatchLayoutItemEnabled(initial, 'lg', 'beta', false);
+    expect(disabled.layouts.lg?.some((item) => item.i === 'beta')).toBe(false);
+    expect(disabled.inactive.lg?.find((item) => item.i === 'beta')).toEqual(before);
+
+    const enabled = setMatchLayoutItemEnabled(disabled, 'lg', 'beta', true);
+    expect(enabled.layouts.lg?.find((item) => item.i === 'beta')).toEqual(before);
+    expect(enabled.inactive.lg).toEqual([]);
+  });
+
+  it('drops unknown, malformed and mandatory inactive entries', () => {
+    const state = reconcileMatchLayoutState(null, {
+      lg: [
+        { i: 'alpha', x: 0, y: 0, w: 8, h: 5 },
+        { i: 'beta', x: -1, y: 0, w: 4, h: 5 },
+        { i: 'unknown', x: 0, y: 0, w: 1, h: 1 },
+      ],
+    }, defaults, optionalItems);
+
+    expect(state.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
+    expect(state.inactive.lg).toEqual([defaults[1]]);
+  });
 });
 
 describe('stored frontend match layouts', () => {
   it('rejects invalid JSON and old schema versions', () => {
     expect(parseStoredMatchLayouts(null)).toBeNull();
     expect(parseStoredMatchLayouts('{not json')).toBeNull();
-    expect(parseStoredMatchLayouts(JSON.stringify({ version: 0, profiles: {} }))).toBeNull();
+    expect(parseStoredMatchLayouts(JSON.stringify({
+      version: MATCH_LAYOUT_VERSION - 1,
+      profiles: {},
+    }))).toBeNull();
   });
 
   it('keeps only known profiles and breakpoints from the storage envelope', () => {
     const parsed = parseStoredMatchLayouts(JSON.stringify({
-      version: 1,
+      version: MATCH_LAYOUT_VERSION,
       profiles: {
         'match-live': { lg: [], tablet: [{ i: 'alpha', x: 0, y: 0, w: 1, h: 1 }] },
         unknown: { lg: [] },
@@ -175,26 +264,70 @@ describe('stored frontend match layouts', () => {
       md: [{ i: 'alpha', x: 1, y: 4, w: 8, h: 7 }],
     };
 
-    saveMatchLayouts('match-live', live);
-    saveMatchLayouts('match-summary', summary);
+    saveMatchLayoutState(
+      'match-live',
+      reconcileMatchLayoutState(live, null, defaults, optionalItems),
+    );
+    saveMatchLayoutState(
+      'match-summary',
+      reconcileMatchLayoutState(summary, null, defaults, optionalItems),
+    );
 
     const stored = parseStoredMatchLayouts(values[MATCH_LAYOUT_STORAGE_KEY] ?? null);
-    expect(stored?.profiles['match-live']).toEqual(live);
-    expect(stored?.profiles['match-summary']).toEqual(summary);
-    expect(loadMatchLayouts('match-live', defaults, ['alpha']).sm?.[0]).toMatchObject({ y: 9, h: 6 });
-    expect(loadMatchLayouts('match-summary', defaults, ['alpha']).md?.[0]).toMatchObject({ y: 4, h: 7 });
+    expect(stored?.profiles['match-live']?.sm?.[0]).toMatchObject({ y: 9, h: 6 });
+    expect(stored?.profiles['match-summary']?.md?.[0]).toMatchObject({ y: 4, h: 7 });
+    expect(loadMatchLayoutState('match-live', defaults, optionalItems).layouts.sm?.[0])
+      .toMatchObject({ y: 9, h: 6 });
+    expect(loadMatchLayoutState('match-summary', defaults, optionalItems).layouts.md?.[0])
+      .toMatchObject({ y: 4, h: 7 });
+  });
+
+  it('persists inactive cards additively and loads legacy data without that field', () => {
+    const legacy = JSON.stringify({
+      version: MATCH_LAYOUT_VERSION,
+      profiles: { 'match-live': { lg: [defaults[0]] } },
+    });
+    values[MATCH_LAYOUT_STORAGE_KEY] = legacy;
+
+    const loaded = loadMatchLayoutState('match-live', defaults, optionalItems);
+    expect(loaded.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
+    expect(loaded.inactive.lg?.map((item) => item.i)).toEqual(['beta']);
+
+    const enabled = setMatchLayoutItemEnabled(loaded, 'lg', 'beta', true);
+    saveMatchLayoutState('match-live', enabled);
+    const stored = parseStoredMatchLayouts(values[MATCH_LAYOUT_STORAGE_KEY] ?? null);
+    expect(stored?.profiles['match-live']?.lg?.map((item) => item.i)).toEqual(['alpha', 'beta']);
+    expect(stored?.inactive?.['match-live']?.lg).toEqual([]);
   });
 
   it('resets only the active profile, including all of its breakpoints', () => {
-    saveMatchLayouts('match-live', { lg: [{ i: 'alpha', x: 0, y: 5, w: 8, h: 5 }] });
-    saveMatchLayouts('match-summary', { xs: [{ i: 'alpha', x: 0, y: 6, w: 4, h: 5 }] });
+    saveMatchLayoutState('match-summary', reconcileMatchLayoutState({
+      xs: [{ i: 'alpha', x: 0, y: 6, w: 4, h: 5 }],
+    }, null, defaults, optionalItems));
+    saveMatchLayoutState('match-live', reconcileMatchLayoutState(null, null, defaults, optionalItems));
 
     resetMatchLayout('match-live');
 
     const stored = parseStoredMatchLayouts(values[MATCH_LAYOUT_STORAGE_KEY] ?? null);
     expect(stored?.profiles['match-live']).toBeUndefined();
+    expect(stored?.inactive?.['match-live']).toBeUndefined();
     expect(stored?.profiles['match-summary']?.xs?.[0]?.y).toBe(6);
-    expect(loadMatchLayouts('match-live', defaults, ['alpha']).lg?.[0]?.y).toBe(0);
+    expect(stored?.inactive?.['match-summary']?.xs?.map((item) => item.i)).toEqual(['beta']);
+    expect(loadMatchLayoutState('match-live', defaults, optionalItems).layouts.lg?.[0]?.y).toBe(0);
+  });
+
+  it('deletes layouts from another schema version and loads current defaults', () => {
+    values[MATCH_LAYOUT_STORAGE_KEY] = JSON.stringify({
+      version: MATCH_LAYOUT_VERSION + 1,
+      profiles: {
+        'match-live': { lg: [{ i: 'alpha', x: 0, y: 99, w: 8, h: 5 }] },
+      },
+    });
+
+    const loaded = loadMatchLayoutState('match-live', defaults, optionalItems);
+
+    expect(loaded.layouts.lg?.[0]?.y).toBe(0);
+    expect(values[MATCH_LAYOUT_STORAGE_KEY]).toBeUndefined();
   });
 
   it('falls back to defaults and never interrupts a match when storage is unavailable', () => {
@@ -206,8 +339,14 @@ describe('stored frontend match layouts', () => {
       },
     });
 
-    expect(loadMatchLayouts('match-live', defaults, ['alpha', 'beta']).lg).toEqual(defaults);
-    expect(() => saveMatchLayouts('match-live', { lg: defaults })).not.toThrow();
+    expect(loadMatchLayoutState('match-live', defaults, optionalItems).layouts.lg)
+      .toEqual([defaults[0]]);
+    expect(loadMatchLayoutState('match-live', defaults, optionalItems).inactive.lg)
+      .toEqual([defaults[1]]);
+    expect(() => saveMatchLayoutState(
+      'match-live',
+      reconcileMatchLayoutState(null, null, defaults, optionalItems),
+    )).not.toThrow();
     expect(() => resetMatchLayout('match-live')).not.toThrow();
   });
 });

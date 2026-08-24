@@ -3,15 +3,33 @@ import { DEFAULT_COLS, type DefaultBreakpoints, type Layout, type LayoutItem, ty
 export type MatchLayoutProfile = 'match-live' | 'match-summary';
 export type FrontendBreakpoint = DefaultBreakpoints;
 
-export interface StoredMatchLayouts {
-  version: 1;
+// Keep the key stable: the envelope version below is what detects and deletes stale layouts.
+export const MATCH_LAYOUT_STORAGE_KEY = 'instadarts_frontend_layout_v1';
+/** Incrementing this invalidates the complete browser-local match layout catalog. */
+export const MATCH_LAYOUT_VERSION = 1;
+
+interface StoredMatchLayouts {
+  version: typeof MATCH_LAYOUT_VERSION;
   profiles: Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>>;
+  inactive?: Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>>;
 }
 
-export const MATCH_LAYOUT_STORAGE_KEY = 'instadarts_frontend_layout_v1';
-export const MATCH_LAYOUT_VERSION = 1;
+export type MatchLayoutItemPreference = {
+  id: string;
+  optional: false;
+} | {
+  id: string;
+  optional: true;
+  defaultEnabled: boolean;
+};
+
+export interface MatchLayoutState {
+  layouts: ResponsiveLayouts<FrontendBreakpoint>;
+  inactive: ResponsiveLayouts<FrontendBreakpoint>;
+}
+
 export const FRONTEND_BREAKPOINTS: readonly FrontendBreakpoint[] = ['lg', 'md', 'sm', 'xs', 'xxs'];
-export const MATCH_LAYOUT_PROFILES: readonly MatchLayoutProfile[] = ['match-live', 'match-summary'];
+const MATCH_LAYOUT_PROFILES: readonly MatchLayoutProfile[] = ['match-live', 'match-summary'];
 
 const MAX_SAVED_GRID_VALUE = 10_000;
 
@@ -167,6 +185,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'board', x: 6, y: 4, w: 6, h: 52, minW: 2, minH: 18, isBounded: false },
     { i: 'visit', x: 0, y: 16, w: 6, h: 20, minW: 2, minH: 8, isBounded: false },
     { i: 'mode-panel', x: 0, y: 36, w: 6, h: 20, minW: 2, minH: 6, isBounded: false },
+    { i: 'history', x: 0, y: 56, w: 6, h: 20, minW: 2, minH: 8, isBounded: false },
   ],
   md: [
     { i: 'overview', x: 0, y: 0, w: 10, h: 4, isBounded: true },
@@ -174,6 +193,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'board', x: 5, y: 4, w: 5, h: 31, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 16, w: 5, h: 19, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 35, w: 10, h: 20, minW: 2, minH: 6, isBounded: true },
+    { i: 'history', x: 0, y: 55, w: 5, h: 20, minW: 2, minH: 8, isBounded: true },
   ],
   sm: [
     { i: 'overview', x: 0, y: 0, w: 6, h: 4, isBounded: true },
@@ -181,6 +201,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'board', x: 3, y: 4, w: 3, h: 30, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 16, w: 3, h: 18, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 34, w: 6, h: 20, minW: 2, minH: 6, isBounded: true },
+    { i: 'history', x: 0, y: 54, w: 3, h: 20, minW: 2, minH: 8, isBounded: true },
   ],
   xs: [
     { i: 'overview', x: 0, y: 0, w: 4, h: 4, isBounded: true },
@@ -188,6 +209,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'board', x: 0, y: 16, w: 4, h: 30, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 46, w: 4, h: 19, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 65, w: 4, h: 20, minW: 2, minH: 6, isBounded: true },
+    { i: 'history', x: 0, y: 85, w: 4, h: 20, minW: 2, minH: 8, isBounded: true },
   ],
   xxs: [
     { i: 'overview', x: 0, y: 0, w: 2, h: 4, isBounded: true },
@@ -195,6 +217,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
     { i: 'board', x: 0, y: 16, w: 2, h: 24, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 40, w: 2, h: 18, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 58, w: 2, h: 20, minW: 2, minH: 6, isBounded: true },
+    { i: 'history', x: 0, y: 78, w: 2, h: 20, minW: 2, minH: 8, isBounded: true },
   ],
 };
 
@@ -346,52 +369,212 @@ export function mergeResponsiveLayouts(
   return result;
 }
 
+function validStoredItems(
+  raw: unknown,
+  defaults: Map<string, LayoutItem>,
+  preferences: Map<string, MatchLayoutItemPreference>,
+  cols: number,
+  inactive: boolean,
+): LayoutItem[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const result: LayoutItem[] = [];
+
+  for (const candidate of raw) {
+    if (!isRecord(candidate) || typeof candidate.i !== 'string' || seen.has(candidate.i)) continue;
+    const preference = preferences.get(candidate.i);
+    const fallback = defaults.get(candidate.i);
+    if (!preference || !fallback || (inactive && !preference.optional)) continue;
+    const restored = positionFor(candidate, fallback, cols);
+    if (!restored) continue;
+    seen.add(candidate.i);
+    result.push(restored);
+  }
+  return result;
+}
+
+/**
+ * Reconcile enabled and inactive match items independently at every responsive breakpoint.
+ * Optional items keep their last complete LayoutItem in whichever collection currently owns them.
+ */
+export function reconcileMatchLayoutState(
+  rawLayouts: unknown,
+  rawInactive: unknown,
+  defaultLayout: Layout,
+  items: readonly MatchLayoutItemPreference[],
+  defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>,
+): MatchLayoutState {
+  const preferences = new Map(items.map((item) => [item.id, item]));
+  const activeSource = isRecord(rawLayouts) ? rawLayouts : {};
+  const inactiveSource = isRecord(rawInactive) ? rawInactive : {};
+  const layouts: ResponsiveLayouts<FrontendBreakpoint> = {};
+  const inactive: ResponsiveLayouts<FrontendBreakpoint> = {};
+
+  for (const breakpoint of FRONTEND_BREAKPOINTS) {
+    const cols = DEFAULT_COLS[breakpoint];
+    const canonical = defaultsAtBreakpoint(defaultLayout, defaultLayouts, breakpoint, cols)
+      .filter((item) => preferences.has(item.i));
+    const defaults = defaultById(canonical);
+    const storedActive = validStoredItems(
+      activeSource[breakpoint],
+      defaults,
+      preferences,
+      cols,
+      false,
+    );
+    const storedInactive = validStoredItems(
+      inactiveSource[breakpoint],
+      defaults,
+      preferences,
+      cols,
+      true,
+    );
+    const activeById = defaultById(storedActive);
+    const inactiveById = defaultById(storedInactive);
+    const enabled = new Map<string, boolean>();
+
+    for (const item of canonical) {
+      const preference = preferences.get(item.i)!;
+      enabled.set(
+        item.i,
+        !preference.optional
+          || activeById.has(item.i)
+          || (!inactiveById.has(item.i) && preference.defaultEnabled),
+      );
+    }
+
+    const activeItems = storedActive.filter((item) => enabled.get(item.i));
+    const inactiveItems = storedInactive.filter((item) => enabled.get(item.i) === false);
+    const placedActive = new Set(activeItems.map((item) => item.i));
+    const placedInactive = new Set(inactiveItems.map((item) => item.i));
+
+    for (const item of canonical) {
+      if (enabled.get(item.i)) {
+        if (!placedActive.has(item.i)) activeItems.push({ ...item });
+      } else if (!placedInactive.has(item.i)) {
+        inactiveItems.push({ ...item });
+      }
+    }
+
+    layouts[breakpoint] = activeItems;
+    inactive[breakpoint] = inactiveItems;
+  }
+
+  return { layouts, inactive };
+}
+
+/** Move one optional card between the active layout and its breakpoint-local inactive pool. */
+export function setMatchLayoutItemEnabled(
+  state: MatchLayoutState,
+  breakpoint: FrontendBreakpoint,
+  id: string,
+  enabled: boolean,
+): MatchLayoutState {
+  const source = enabled ? state.inactive[breakpoint] : state.layouts[breakpoint];
+  const item = source?.find((candidate) => candidate.i === id);
+  if (!item) return state;
+
+  const layouts = { ...state.layouts };
+  const inactive = { ...state.inactive };
+  if (enabled) {
+    inactive[breakpoint] = (inactive[breakpoint] ?? []).filter((candidate) => candidate.i !== id);
+    layouts[breakpoint] = [
+      ...(layouts[breakpoint] ?? []).filter((candidate) => candidate.i !== id),
+      item,
+    ];
+  } else {
+    layouts[breakpoint] = (layouts[breakpoint] ?? []).filter((candidate) => candidate.i !== id);
+    inactive[breakpoint] = [
+      ...(inactive[breakpoint] ?? []).filter((candidate) => candidate.i !== id),
+      item,
+    ];
+  }
+  return { layouts, inactive };
+}
+
+function parseStoredProfiles(
+  raw: unknown,
+): Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>> {
+  const profiles: Partial<Record<MatchLayoutProfile, ResponsiveLayouts<FrontendBreakpoint>>> = {};
+  if (!isRecord(raw)) return profiles;
+
+  for (const profile of MATCH_LAYOUT_PROFILES) {
+    const candidate = raw[profile];
+    if (!isRecord(candidate)) continue;
+    const layouts: ResponsiveLayouts<FrontendBreakpoint> = {};
+    for (const breakpoint of FRONTEND_BREAKPOINTS) {
+      const layout = candidate[breakpoint];
+      if (Array.isArray(layout)) layouts[breakpoint] = layout as Layout;
+    }
+    profiles[profile] = layouts;
+  }
+  return profiles;
+}
+
 export function parseStoredMatchLayouts(raw: string | null): StoredMatchLayouts | null {
   if (!raw) return null;
   try {
     const value: unknown = JSON.parse(raw);
     if (!isRecord(value) || value.version !== MATCH_LAYOUT_VERSION || !isRecord(value.profiles)) return null;
 
-    const profiles: StoredMatchLayouts['profiles'] = {};
-    for (const profile of MATCH_LAYOUT_PROFILES) {
-      const candidate = value.profiles[profile];
-      if (!isRecord(candidate)) continue;
-      const layouts: ResponsiveLayouts<FrontendBreakpoint> = {};
-      for (const breakpoint of FRONTEND_BREAKPOINTS) {
-        const layout = candidate[breakpoint];
-        if (Array.isArray(layout)) layouts[breakpoint] = layout as Layout;
-      }
-      profiles[profile] = layouts;
-    }
-    return { version: MATCH_LAYOUT_VERSION, profiles };
+    const profiles = parseStoredProfiles(value.profiles);
+    const inactive = parseStoredProfiles(value.inactive);
+    return Object.keys(inactive).length > 0
+      ? { version: MATCH_LAYOUT_VERSION, profiles, inactive }
+      : { version: MATCH_LAYOUT_VERSION, profiles };
   } catch {
     return null;
   }
 }
 
-export function loadMatchLayouts(
+/**
+ * Read the current storage envelope. A version change deliberately invalidates the complete
+ * browser-local layout catalog: discard it now so all profiles load their current defaults.
+ */
+function readStoredMatchLayouts(): StoredMatchLayouts | null {
+  const raw = localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (isRecord(value) && value.version !== MATCH_LAYOUT_VERSION) {
+      localStorage.removeItem(MATCH_LAYOUT_STORAGE_KEY);
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return parseStoredMatchLayouts(raw);
+}
+
+export function loadMatchLayoutState(
   profile: MatchLayoutProfile,
   defaultLayout: Layout,
-  activeIds: readonly string[],
+  items: readonly MatchLayoutItemPreference[],
   defaultLayouts?: ResponsiveLayouts<FrontendBreakpoint>,
-): ResponsiveLayouts<FrontendBreakpoint> {
+): MatchLayoutState {
   try {
-    const stored = parseStoredMatchLayouts(localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY));
-    return mergeResponsiveLayouts(stored?.profiles[profile], defaultLayout, activeIds, defaultLayouts);
+    const stored = readStoredMatchLayouts();
+    return reconcileMatchLayoutState(
+      stored?.profiles[profile],
+      stored?.inactive?.[profile],
+      defaultLayout,
+      items,
+      defaultLayouts,
+    );
   } catch {
-    return mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts);
+    return reconcileMatchLayoutState(null, null, defaultLayout, items, defaultLayouts);
   }
 }
 
-export function saveMatchLayouts(
-  profile: MatchLayoutProfile,
-  layouts: ResponsiveLayouts<FrontendBreakpoint>,
-): void {
+export function saveMatchLayoutState(profile: MatchLayoutProfile, state: MatchLayoutState): void {
   try {
-    const previous = parseStoredMatchLayouts(localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY));
+    const previous = readStoredMatchLayouts();
     const stored: StoredMatchLayouts = {
       version: MATCH_LAYOUT_VERSION,
-      profiles: { ...previous?.profiles, [profile]: layouts },
+      profiles: { ...previous?.profiles, [profile]: state.layouts },
+      inactive: { ...previous?.inactive, [profile]: state.inactive },
     };
     localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify(stored));
   } catch {
@@ -401,11 +584,17 @@ export function saveMatchLayouts(
 
 export function resetMatchLayout(profile: MatchLayoutProfile): void {
   try {
-    const previous = parseStoredMatchLayouts(localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY));
+    const previous = readStoredMatchLayouts();
     if (!previous) return;
     const profiles = { ...previous.profiles };
+    const inactive = { ...previous.inactive };
     delete profiles[profile];
-    localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify({ version: MATCH_LAYOUT_VERSION, profiles }));
+    delete inactive[profile];
+    localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify({
+      version: MATCH_LAYOUT_VERSION,
+      profiles,
+      ...(Object.keys(inactive).length > 0 ? { inactive } : {}),
+    }));
   } catch {
     // The in-memory layout is reset by the caller either way.
   }

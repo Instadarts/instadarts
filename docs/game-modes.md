@@ -265,7 +265,7 @@ interface ModeView {
   visitTotal: ViewText;                   // empty text hides the line; x01 always returns a number
   dartsPerVisit: number;
   slots?: ViewText[];                     // optional slot contents; omitted → default rendering
-  history: ViewText[];                    // newest first; retained in the contract, not currently shown
+  history: ViewText[];                    // newest first; shown by the optional Visit history card
 }
 ```
 
@@ -314,7 +314,7 @@ The page-level boxes are arranged by the responsive match grid rather than a fix
 | 3 | Dartboard | manual input and optional live-board presentation | — |
 | 4 | Visit | slots, evidence, Undo / Submit | `notice` in the card header, `dartsPerVisit`, optional `slots`, `visitTotal` |
 | 5 | **Mode panel** | the responsive box | rendered from `panel`; nothing shown when `panel` is absent |
-| — | Visit history | no current surface; deliberately omitted from the live layout | `history` remains on `ModeView` for possible restoration |
+| 6 | Visit history | optional live card, disabled by default at every breakpoint | `history`, newest first |
 
 ### A screen that does not jump
 

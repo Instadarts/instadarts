@@ -186,8 +186,9 @@ export function MatchScreen({
         </GridBox>
       ),
     },
-    /** currently disabled, do not remove *{
+    {
       id: 'history',
+      optional: { label: 'Visit history', defaultEnabled: false },
       content: (
         <GridBox title="Visit history">
           <Stack gap={0}>
@@ -209,7 +210,7 @@ export function MatchScreen({
           </Stack>
         </GridBox>
       ),
-    },**/
+    },
   ];
 
   if (panel) {

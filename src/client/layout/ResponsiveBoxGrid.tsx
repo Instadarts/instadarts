@@ -14,12 +14,10 @@ import { useLayoutEditor } from './LayoutEditorContext';
 import {
   FRONTEND_BREAKPOINTS,
   mergeResponsiveLayouts,
-  loadMatchLayouts,
-  resetMatchLayout,
-  saveMatchLayouts,
   type FrontendBreakpoint,
   type MatchLayoutProfile,
 } from './frontendLayout';
+import { useMatchLayoutState } from './useMatchLayoutState';
 
 const ROW_HEIGHT = 8;
 const GAP = 12;
@@ -30,6 +28,10 @@ export interface ResponsiveBoxItem {
   id: string;
   content: ReactNode;
   autoHeight?: boolean;
+  optional?: {
+    label: string;
+    defaultEnabled: boolean;
+  };
 }
 
 interface ResponsiveBoxGridProps {
@@ -157,22 +159,31 @@ export function ResponsiveBoxGrid({
 
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
-  const breakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
+  const measuredBreakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
+  const [responsiveBreakpoint, setResponsiveBreakpoint] = useState<FrontendBreakpoint | null>(null);
+  const breakpoint = responsiveBreakpoint ?? measuredBreakpoint;
   const compactor = profile ? MATCH_COMPACTOR : DOCUMENT_COMPACTOR;
-  const activeKey = items.map((item) => item.id).join('|');
-  const activeIds = useMemo(() => activeKey.split('|').filter(Boolean), [activeKey]);
-  const initialLayouts = useMemo(
-    () => completeResponsiveLayouts(
-      profile
-        ? loadMatchLayouts(profile, defaultLayout, activeIds, defaultLayouts)
-        : mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts),
-      compactor,
-    ),
-    // A profile/grid instance owns one canonical item set; callers key the component when it changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [profile],
-  );
-  const [layouts, setLayouts] = useState<ResponsiveLayouts<FrontendBreakpoint>>(initialLayouts);
+  const itemConfigurationKey = JSON.stringify(items.map((item) => [
+    item.id,
+    item.optional?.label ?? null,
+    item.optional?.defaultEnabled ?? null,
+  ]));
+  const { itemPreferences, availableIds, optionalCatalog } = useMemo(() => {
+    const configuration = JSON.parse(itemConfigurationKey) as Array<[
+      id: string,
+      label: string | null,
+      defaultEnabled: boolean | null,
+    ]>;
+    return {
+      itemPreferences: configuration.map(([id, label, defaultEnabled]) => label === null
+        ? { id, optional: false as const }
+        : { id, optional: true as const, defaultEnabled: defaultEnabled ?? true }),
+      availableIds: configuration.map(([id]) => id),
+      optionalCatalog: configuration.flatMap(([id, label]) => (
+        label === null ? [] : [{ id, label }]
+      )),
+    };
+  }, [itemConfigurationKey]);
   const [generation, setGeneration] = useState(0);
   const measuredHeights = useRef(new Map<string, number>());
   const editable = profile !== undefined && editor.editing;
@@ -192,57 +203,115 @@ export function ResponsiveBoxGrid({
     return changed ? { ...next, [breakpoint]: adjusted } : next;
   }, [breakpoint]);
 
+  const {
+    state: matchLayoutState,
+    commitLayouts: commitMatchLayouts,
+    reset: resetMatchLayoutState,
+    setItemEnabled: setMatchItemEnabled,
+    updateLayouts: updateMatchLayouts,
+  } = useMatchLayoutState({
+    profile,
+    defaultLayout,
+    defaultLayouts,
+    itemPreferences,
+    normalizeLayouts: applyMeasuredHeights,
+  });
+  const [documentLayouts, setDocumentLayouts] = useState<ResponsiveLayouts<FrontendBreakpoint>>(
+    () => profile ? {} : completeResponsiveLayouts(
+      mergeResponsiveLayouts(null, defaultLayout, availableIds, defaultLayouts),
+      DOCUMENT_COMPACTOR,
+    ),
+  );
+  if (profile && !matchLayoutState) throw new Error('Match layout state requires a profile');
+  const layouts = matchLayoutState?.layouts ?? documentLayouts;
+
   const commitLayouts = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {
-    const merged = completeResponsiveLayouts(
-      mergeResponsiveLayouts(next, defaultLayout, activeIds, defaultLayouts),
-      compactor,
-    );
-    const measured = applyMeasuredHeights(merged);
-    setLayouts((current) => sameLayouts(current, measured) ? current : measured);
-    if (profile) saveMatchLayouts(profile, measured);
-  }, [activeKey, activeIds, applyMeasuredHeights, compactor, defaultLayout, defaultLayouts, profile]);
+    if (profile) {
+      commitMatchLayouts(next);
+    } else {
+      setDocumentLayouts((current) => {
+        const merged = completeResponsiveLayouts(
+          mergeResponsiveLayouts(next, defaultLayout, availableIds, defaultLayouts),
+          DOCUMENT_COMPACTOR,
+        );
+        const measured = applyMeasuredHeights(merged);
+        return sameLayouts(current, measured) ? current : measured;
+      });
+    }
+  }, [applyMeasuredHeights, availableIds, commitMatchLayouts, defaultLayout, defaultLayouts, profile]);
 
   const reportHeight = useCallback((id: string, height: number) => {
     if (measuredHeights.current.get(id) === height) return;
     measuredHeights.current.set(id, height);
-    setLayouts((current) => {
-      const measured = applyMeasuredHeights(current);
-      return sameLayouts(current, measured) ? current : measured;
-    });
-  }, [applyMeasuredHeights]);
+    if (profile) {
+      updateMatchLayouts(applyMeasuredHeights);
+    } else {
+      setDocumentLayouts((current) => {
+        const measured = applyMeasuredHeights(current);
+        return sameLayouts(current, measured) ? current : measured;
+      });
+    }
+  }, [applyMeasuredHeights, profile, updateMatchLayouts]);
 
   const reset = useCallback(() => {
     if (!profile) return;
-    resetMatchLayout(profile);
     measuredHeights.current.clear();
-    setLayouts(completeResponsiveLayouts(
-      mergeResponsiveLayouts(null, defaultLayout, activeIds, defaultLayouts),
-      compactor,
-    ));
+    resetMatchLayoutState();
     setGeneration((value) => value + 1);
-  }, [activeKey, activeIds, compactor, defaultLayout, defaultLayouts, profile]);
+  }, [profile, resetMatchLayoutState]);
 
   useEffect(() => {
-    setLayouts((current) => {
+    if (profile) return;
+    setDocumentLayouts((current) => {
       const merged = completeResponsiveLayouts(
-        mergeResponsiveLayouts(current, defaultLayout, activeIds, defaultLayouts),
-        compactor,
+        mergeResponsiveLayouts(current, defaultLayout, availableIds, defaultLayouts),
+        DOCUMENT_COMPACTOR,
       );
       return sameLayouts(current, merged) ? current : merged;
     });
-  }, [activeKey, activeIds, compactor, defaultLayout, defaultLayouts]);
+  }, [availableIds, defaultLayout, defaultLayouts, profile]);
 
   useEffect(() => {
-    setLayouts((current) => {
-      const measured = applyMeasuredHeights(current);
-      return sameLayouts(current, measured) ? current : measured;
-    });
-  }, [applyMeasuredHeights]);
+    if (profile) {
+      updateMatchLayouts(applyMeasuredHeights);
+    } else {
+      setDocumentLayouts((current) => {
+        const measured = applyMeasuredHeights(current);
+        return sameLayouts(current, measured) ? current : measured;
+      });
+    }
+  }, [applyMeasuredHeights, profile, updateMatchLayouts]);
+
+  useEffect(() => {
+    if (mounted && responsiveBreakpoint === null) setResponsiveBreakpoint(measuredBreakpoint);
+  }, [measuredBreakpoint, mounted, responsiveBreakpoint]);
+
+  const enabledItemIds = (layouts[breakpoint] ?? []).map((item) => item.i).sort();
+  const enabledItemKey = JSON.stringify(enabledItemIds);
+  const enabledIds = useMemo(() => new Set(JSON.parse(enabledItemKey) as string[]), [enabledItemKey]);
+  const optionalItems = useMemo(() => optionalCatalog.map((item) => ({
+    ...item,
+    enabled: enabledIds.has(item.id),
+  })), [enabledIds, optionalCatalog]);
+
+  const setOptionalItemEnabled = useCallback((id: string, enabled: boolean) => {
+    setMatchItemEnabled(breakpoint, id, enabled);
+  }, [breakpoint, setMatchItemEnabled]);
 
   useEffect(() => {
     if (!profile) return;
-    return editor.register({ profile, breakpoint, reset });
-  }, [breakpoint, editor.register, profile, reset]);
+    return editor.register({
+      profile,
+      breakpoint,
+      optionalItems,
+      setOptionalItemEnabled,
+      reset,
+    });
+  }, [breakpoint, editor.register, optionalItems, profile, reset, setOptionalItemEnabled]);
+
+  const renderedItems = profile
+    ? items.filter((item) => enabledIds.has(item.id))
+    : items;
 
   return (
     <div ref={containerRef} className="frontend-grid-host">
@@ -263,10 +332,11 @@ export function ResponsiveBoxGrid({
             threshold: 4,
           }}
           resizeConfig={{ enabled: editable, handles: ['se'] }}
+          onBreakpointChange={setResponsiveBreakpoint}
           onLayoutChange={(_, allLayouts) => commitLayouts(allLayouts)}
           className={editable ? 'frontend-grid frontend-grid--editing' : 'frontend-grid'}
         >
-          {items.map((item) => (
+          {renderedItems.map((item) => (
             <div key={item.id} data-grid-item={item.id}>
               <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
                 {item.content}

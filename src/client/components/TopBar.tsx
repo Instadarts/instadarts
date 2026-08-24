@@ -229,6 +229,27 @@ export function TopBar({
                         <Badge variant="light" size="sm" mt={2}>{editor.active.breakpoint}</Badge>
                       </Group>
                     )}
+                    {editor.active && editor.editing && editor.active.optionalItems.length > 0 && (
+                      <>
+                        <Divider />
+                        <Stack gap="xs">
+                          <Text fz="xs" c="dimmed" fw={600} tt="uppercase">
+                            Optional cards · {editor.active.breakpoint}
+                          </Text>
+                          {editor.active.optionalItems.map((item) => (
+                            <Switch
+                              key={item.id}
+                              label={item.label}
+                              checked={item.enabled}
+                              onChange={(event) => editor.active?.setOptionalItemEnabled(
+                                item.id,
+                                event.currentTarget.checked,
+                              )}
+                            />
+                          ))}
+                        </Stack>
+                      </>
+                    )}
                   </Stack>
                 </Box>
                 {editor.active && (

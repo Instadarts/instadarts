@@ -1,9 +1,17 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FrontendBreakpoint, MatchLayoutProfile } from './frontendLayout';
 
+interface OptionalLayoutItemControl {
+  id: string;
+  label: string;
+  enabled: boolean;
+}
+
 interface ActiveLayoutEditor {
   profile: MatchLayoutProfile;
   breakpoint: FrontendBreakpoint;
+  optionalItems: readonly OptionalLayoutItemControl[];
+  setOptionalItemEnabled: (id: string, enabled: boolean) => void;
   reset: () => void;
 }
 
@@ -28,7 +36,7 @@ export function LayoutEditorProvider({ children }: { children: ReactNode }) {
     registration.current = { token: mine, profile: editor.profile };
     setActive(editor);
     return () => {
-      // A breakpoint update cleans up and re-registers this effect in the same React pass. Waiting
+      // Editor-state updates clean up and re-register this effect in the same React pass. Waiting
       // for the microtask lets that replacement claim the context without flicking edit mode off.
       queueMicrotask(() => {
         if (registration.current?.token !== mine) return;

@@ -593,7 +593,8 @@ Say **game mode** (or *mode*), never just "game", for this concept.
 
 `ModeView` — the mode-specific presentation for one leg: headline, visit-header notice, per-player
 card score, visit total, darts per visit, optional slot contents, and history lines. History remains
-in the wire contract, although the current live layout deliberately has no history surface.
+in the wire contract and is shown by the breakpoint-local optional Visit history card when the user
+enables it in match-layout edit mode. The card is disabled by default.
 
 Computed by the mode **on the server** (`mode.view(ctx)`) and shipped with every `match_state` /
 `match_started` / `match_finished` message, so the client holds no rules. Player card scores are
@@ -1225,4 +1226,4 @@ layers has its own table [above](#mode-specific-vocabulary-in-mode-agnostic-laye
 | `set_player_name` is handled server-side, but `useMatch`'s `setPlayerName` is never returned, so no UI can send it | [`useMatch.ts`](../src/client/hooks/useMatch.ts) |
 | "Leg" appears in comments and test names for what is currently a whole match | [`session.ts`](../src/server/scoring/session.ts), the e2e specs |
 | `visitNumber` counts across the leg and every player in it, not per player | [`x01.ts`](../src/server/modes/x01.ts) |
-| `ModeView.history` is still sent for the current leg, but its live UI is deliberately commented out; completed legs remain summarized through `MatchState.legs` | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |
+| `ModeView.history` is sent for the current leg and rendered only when the optional Visit history card is enabled at the active breakpoint; completed legs remain summarized through `MatchState.legs` | [`MatchScreen.tsx`](../src/client/pages/MatchScreen.tsx) |

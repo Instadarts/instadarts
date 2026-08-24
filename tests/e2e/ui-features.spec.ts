@@ -131,6 +131,15 @@ async function openFrontendSettings(page: Page): Promise<Locator> {
   return menu;
 }
 
+/** Let the controlled Mantine input settle through its breakpoint-local editor rerender. */
+async function setOptionalCard(menu: Locator, label: string, enabled: boolean): Promise<void> {
+  const control = menu.getByRole('switch', { name: label });
+  if (await control.isChecked() === enabled) return;
+  await control.click();
+  if (enabled) await expect(control).toBeChecked();
+  else await expect(control).not.toBeChecked();
+}
+
 async function openCameraMenu(page: Page): Promise<Locator> {
   const menu = page.getByRole('menu', { name: /^Cameras(?: · \d+)?$/ });
   if (!await menu.isVisible().catch(() => false)) {
@@ -175,6 +184,14 @@ async function storedProfile(page: Page, profile: MatchLayoutProfile): Promise<S
   }, { key: MATCH_LAYOUT_STORAGE_KEY, wantedProfile: profile });
 }
 
+async function storedInactiveProfile(page: Page, profile: MatchLayoutProfile): Promise<StoredProfile | null> {
+  return page.evaluate(({ key, wantedProfile }) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw)?.inactive?.[wantedProfile] ?? null;
+  }, { key: MATCH_LAYOUT_STORAGE_KEY, wantedProfile: profile });
+}
+
 async function storedItem(
   page: Page,
   profile: MatchLayoutProfile,
@@ -182,6 +199,15 @@ async function storedItem(
   id: string,
 ): Promise<StoredGridItem | undefined> {
   return (await storedProfile(page, profile))?.[breakpoint]?.find((item) => item.i === id);
+}
+
+async function storedInactiveItem(
+  page: Page,
+  profile: MatchLayoutProfile,
+  breakpoint: FrontendBreakpoint,
+  id: string,
+): Promise<StoredGridItem | undefined> {
+  return (await storedInactiveProfile(page, profile))?.[breakpoint]?.find((item) => item.i === id);
 }
 
 async function resizeGridItemUp(page: Page, id: string, pixels: number): Promise<void> {
@@ -412,6 +438,73 @@ test.describe('responsive UI branch features', () => {
       x: boardBefore!.x,
       y: boardBefore!.y,
     });
+  });
+
+  test('optional cards persist their enabled state and geometry independently by breakpoint', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    const history = page.locator('[data-grid-item="history"]');
+    await expect(history).toHaveCount(0);
+
+    let menu = await openFrontendSettings(page);
+    await expect(menu.getByRole('switch', { name: 'Visit history' })).toHaveCount(0);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    const historySwitch = menu.getByRole('switch', { name: 'Visit history' });
+    await expect(historySwitch).not.toBeChecked();
+    await setOptionalCard(menu, 'Visit history', true);
+    await expect(history).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await clickT20(page);
+    await submitVisit(page);
+    await expect(history.getByText(/Alice/)).toBeVisible();
+
+    menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), false);
+    await expect(menu.getByRole('switch', { name: 'Visit history' })).toHaveCount(0);
+    await expect(history).toBeVisible();
+
+    await page.reload();
+    await expect(history).toBeVisible();
+    menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await expect(menu.getByRole('switch', { name: 'Visit history' })).toBeChecked();
+    await page.keyboard.press('Escape');
+
+    await resizeGridItemUp(page, 'history', 40);
+    await expect.poll(async () => (await storedItem(page, 'match-live', 'lg', 'history'))?.h)
+      .toBeLessThan(LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'history')!.h);
+    const customLgHistory = await storedItem(page, 'match-live', 'lg', 'history');
+
+    menu = await openFrontendSettings(page);
+    await setOptionalCard(menu, 'Visit history', false);
+    await expect(history).toHaveCount(0);
+    expect(await storedInactiveItem(page, 'match-live', 'lg', 'history')).toEqual(customLgHistory);
+    await setOptionalCard(menu, 'Visit history', true);
+    await expect(history).toBeVisible();
+    expect(await storedItem(page, 'match-live', 'lg', 'history')).toEqual(customLgHistory);
+    await page.keyboard.press('Escape');
+
+    await page.setViewportSize({ width: 900, height: 900 });
+    await expect(history).toHaveCount(0);
+    menu = await openFrontendSettings(page);
+    await expect(menu.getByText('sm', { exact: true })).toBeVisible();
+    await expect(menu.getByRole('switch', { name: 'Visit history' })).not.toBeChecked();
+    await setOptionalCard(menu, 'Visit history', true);
+    await expect(history).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await expect(history).toBeVisible();
+    expect(await storedItem(page, 'match-live', 'lg', 'history')).toEqual(customLgHistory);
+
+    menu = await openFrontendSettings(page);
+    await menu.getByText('Reset layout', { exact: true }).click();
+    await expect(history).toHaveCount(0);
+    await page.setViewportSize({ width: 900, height: 900 });
+    await expect(history).toHaveCount(0);
   });
 
   test('match layouts persist by breakpoint and reset only the active live or summary profile', async ({ page }) => {

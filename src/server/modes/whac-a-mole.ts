@@ -12,7 +12,8 @@ import { registerMode } from './types';
  * Moles pop up on scoring **areas** and start digging. Hit the area and the mole is whacked; leave it
  * too long and it digs through, and that area is a hole for the rest of the run. Put a dart in a hole
  * and it costs you one dart per visit from your next turn onwards. The run ends when everybody has
- * run out of darts, or when the turns are up, and the score is what the players whacked between them.
+ * run out of darts, when the turns are up, or when the last area worth putting a mole on has become
+ * a hole — and the score is what the players whacked between them.
  *
  * **A turn is a visit** — this mode's own word for one, because it reads as an arcade machine rather
  * than as a darts match. Everything about the colony is counted in them: how long a run lasts, how
@@ -417,10 +418,29 @@ function liveAllowance(start: Run, live: Run, playerId: string, cfg: Config): nu
 }
 
 /**
+ * Every area a mole could come up in is now a hole, so none ever will again.
+ *
+ * Holes are permanent and arrive one at a time, as a mole nobody whacked digs its way out at the
+ * end of a visit — so the board wears down, and a long run with short dig times can consume it.
+ * `pickArea` then has nothing to return, `beginVisit` spawns nothing, and every remaining turn is
+ * darts thrown at a board that cannot answer: no score to be had, and every dart that lands costs
+ * its thrower one, since by then everything is a hole.
+ *
+ * Only the holes are counted, not the moles standing on top of them. The two sets are disjoint —
+ * nothing comes up in a hole — so a board of nothing but holes is also a board with no moles left
+ * to whack, and there is genuinely nothing to play.
+ */
+function boardIsSpent(run: Run): boolean {
+  const holes = new Set(run.holes);
+  return TIERS.every((tier) => tier.every((area) => holes.has(area)));
+}
+
+/**
  * Whether the run is over, asked at the start of a visit.
  *
- * Either everybody has thrown their last dart into a hole, or the turns are up. That visit is then
- * the curtain call: nothing to throw, and submitting it ends the leg.
+ * Everybody has thrown their last dart into a hole, the turns are up, or the board has no unspent
+ * area left to put a mole in. That visit is then the curtain call: nothing to throw, and submitting
+ * it ends the leg.
  *
  * The turns being up is not quite enough on its own: a run stops at the end of a **full way round
  * the table**, so nobody is cut off having had a turn fewer than the player beside them. Three
@@ -434,6 +454,9 @@ function liveAllowance(start: Run, live: Run, playerId: string, cfg: Config): nu
 function isOver(run: Run, ctx: LegContext, cfg: Config): boolean {
   const players = Math.max(1, ctx.players.length);
   if (run.visitIndex >= cfg.turns && run.visitIndex % players === 0) return true;
+  // Unlike the turn limit, this does not wait for a full way round the table. There is nothing to
+  // be fair about once the board is spent: every player left to throw would be throwing at holes.
+  if (boardIsSpent(run)) return true;
   return ctx.players.every((p) => allowanceOf(run, p.id, cfg) === 0);
 }
 

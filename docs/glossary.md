@@ -723,13 +723,19 @@ many people are sharing the turns out: a five-handed run plays like a solo run o
 It counts no **rounds**; the mode-agnostic sense of that word ([who throws first](#who-throws-first))
 is untouched and simply never appears here.
 
-A run ends when the turns are up or when nobody has a dart left. The turns being up is not quite
-enough on its own — a run stops at the end of a full way round the table, so nobody is cut off
-having had a turn fewer than the player beside them. Three players in a fifty-turn run therefore
-play fifty-one, while the lobby still offers the fifty it asked for.
+A run ends three ways: the turns are up, nobody has a dart left, or **the board is spent**. The turns
+being up is not quite enough on its own — a run stops at the end of a full way round the table, so
+nobody is cut off having had a turn fewer than the player beside them. Three players in a fifty-turn
+run therefore play fifty-one, while the lobby still offers the fifty it asked for.
 
-Either way the next visit is the **curtain call** — no darts, locked from the start, and submitting
-it is what ends the leg. It exists so the closing screen is seen: the match summary does not draw a
+A **spent board** is one where every area a mole could come up in is a hole. Holes are permanent and
+arrive one at a time, as a mole nobody whacked digs through, so a long run with short dig times wears
+the board away until nothing can be put up on it. That ending does *not* wait for a full way round
+the table: there is nothing to be fair about once no dart can score and every one that lands costs
+its thrower another.
+
+Any of the three makes the next visit the **curtain call** — no darts, locked from the start, and
+submitting it is what ends the leg. It exists so the closing screen is seen: the match summary does not draw a
 mode's panel.
 
 ### [wam] Perfect run / points per turn

@@ -343,6 +343,33 @@ describe('whac-a-mole: how a run ends', () => {
     expect(whacAMole.finalizeVisit(legContext(match)).legWinnerId).toBe('p1');
   });
 
+  it('ends the moment the board has no area left to put a mole in', () => {
+    // Five moles a turn, each digging out at the end of the turn it appeared in, is the fastest a
+    // board can be worn away: every visit turns up to five more areas into permanent holes. The
+    // turn limit is set far beyond what that needs, so reaching the end here can only be the board.
+    let match = makeMatch({ turns: 100, moles: 5, digTime: 1 });
+    let visits = 0;
+
+    // Submitting nothing at all: no dart thrown means no whack to save an area and no dart lost to
+    // a hole, so neither of the other two endings can be what stops this.
+    while (whacAMole.finalizeVisit(legContext(match)).legWinnerId === null) {
+      match = submit(match);
+      visits += 1;
+      // Short of the 100 turns asked for, so tripping this means the board filled and the run
+      // carried on regardless — which is the bug this covers.
+      if (visits > 90) throw new Error('the run outlived its board');
+    }
+
+    // Every area a mole could have come up in, and nothing standing on any of them.
+    expect(dugHoles(match)).toHaveLength(80);
+    expect(molesOn(match)).toHaveLength(0);
+
+    // Well short of the 100 turns asked for, and every player still holding a full hand of darts.
+    expect(visits).toBeLessThan(40);
+    expect(runOf(match).live.lost).toHaveLength(0);
+    expect(submit(match).status).toBe('finished');
+  });
+
   it('names the better of two players, and only ever one', () => {
     // Four turns, shared by two — which is what the two rounds this used to ask for came to.
     let match = makeMatch({ turns: 4 }, 2);

@@ -80,7 +80,10 @@ export function MatchScreen({
   const overview = (
     <GridBox title="Overview" editable={true}>
       <Group justify="space-between" gap="md" wrap="nowrap">
-        <Group className="match-overview__headline-group" gap="sm" miw={0}>
+        {/* nowrap, because the card is four rows tall and clips: a badge pushed to a second line is
+            not a smaller layout, it is a badge nobody sees. Everything here shrinks instead — the
+            headline fits itself, a badge truncates. */}
+        <Group className="match-overview__headline-group" gap="sm" miw={0} wrap="nowrap">
           <AutoFitText
             color={headlineColor}
             component="h2"

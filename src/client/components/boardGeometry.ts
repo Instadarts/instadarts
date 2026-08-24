@@ -23,8 +23,14 @@ export const SVG_SIZE = 100;
 
 const SVG_PER_BOARD = SVG_SIZE / BOARD_SIZE;
 
-/** A millimetre in SVG units. The board is 451mm across, which is `SVG_SIZE` wide. */
-const MM = 0.5 / 225.5 * SVG_SIZE;
+/**
+ * A millimetre in SVG units. The board is 451mm across, which is `SVG_SIZE` wide.
+ *
+ * Exported because the decoration is measured in millimetres too — the width of a wire, the ring
+ * the sisal ends at, how coarse the fibre grain is. A number taken off a photograph of a real
+ * board arrives in millimetres and has to be brought into this space before it means anything.
+ */
+export const MM = 0.5 / 225.5 * SVG_SIZE;
 
 export const RADII = {
   boardOuter: 225.0 * MM,        // ~49.89 — full board including miss area
@@ -38,12 +44,36 @@ export const RADII = {
 
 export const CENTER = SVG_SIZE / 2;
 
-/** Wire thicknesses, in SVG units. A real spider wire is about a quarter of a millimetre thick. */
+/**
+ * Wire thicknesses, in SVG units.
+ *
+ * A real spider wire is about a quarter of a millimetre thick, which is what these used to be and
+ * why they read as a rasteriser artefact rather than as wire: a quarter of a millimetre is a third
+ * of a pixel on a phone, so it flickered in and out along its own length as the board was scaled.
+ * These are nearer three quarters of a millimetre — the width at which a wire looks like a wire —
+ * and the hierarchy between them is the real one, the double ring's outer wire being the board's
+ * rim rather than a divider.
+ */
 export const WIRE = {
-  thin: 0.05,
-  normal: 0.06,
-  thick: 0.08,
+  thin: 0.75 * MM,
+  normal: 0.85 * MM,
+  thick: 1.05 * MM,
 };
+
+/**
+ * A wire is drawn three times in the same place: a dark spread beneath it, the steel itself, then a
+ * highlight along the lit edge. That is what makes it round — a single flat stroke is a line drawn
+ * on the board, and three are a wire lying on top of it.
+ *
+ * The widths are multiples of whichever thickness above the wire has, so one treatment covers all
+ * three, and every pass covers every wire before the next one starts. Drawing a whole wire at a
+ * time instead would put each wire's highlight under its neighbour's shadow at the junctions.
+ */
+export const WIRE_PASSES = [
+  { stroke: '#000', width: 2.1, opacity: 0.4 },
+  { stroke: '#b9c0c7', width: 1, opacity: 1 },
+  { stroke: '#eef2f5', width: 0.38, opacity: 0.9 },
+] as const;
 
 // Sector order clockwise from top (y-up)
 export const SECTOR_ORDER = [
@@ -53,8 +83,12 @@ export const SECTOR_ORDER = [
 
 // Colors per sector index (alternating)
 // Black sectors → red doubles/triples, cream sectors → green doubles/triples
-const SINGLE_COLORS = ['#1a1a1a', '#f5e6c8'];
-const DOUBLE_TRIPLE_COLORS = ['#d44', '#4a4'];
+//
+// A sisal board has no pure colours on it. The dark bed is a warm-grey stain worked into fibre, the
+// light one is the fibre itself, and the rings are paint that has to sit against both — so these
+// are those four, rather than the screen primaries they replaced.
+const SINGLE_COLORS = ['#1c1c20', '#ecdfbe'];
+const DOUBLE_TRIPLE_COLORS = ['#ce2431', '#1e7c3f'];
 
 export function getSectorColor(sectorIndex: number): string {
   return SINGLE_COLORS[sectorIndex % 2];

@@ -408,7 +408,9 @@ The drawing has its own system because of text. **Chrome clamps `font-size` at 1
 million-unit viewBox a readable label is not expressible — the sector numbers and the digits in the
 dart markers were invisible and could not be fixed by asking for a larger size. Anything you add to
 the board should be sized in SVG units; a label of `4` is about 4% of the board's width at whatever
-size it is currently drawn.
+size it is currently drawn. Anything with a real-world size is written in millimetres and multiplied
+by `MM` instead — the ring radii, the wire thicknesses, the sector numbers and the coarseness of the
+sisal grain all do that, so a measurement taken off a real board can be typed in as it was measured.
 
 **The screen should not jump.** An element is its final size from the first frame, not the size of
 what it currently has to show. That rule and what it looks like in practice are written up under

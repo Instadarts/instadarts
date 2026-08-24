@@ -298,33 +298,83 @@ function BoardOverlay({ run, host, svg }: { run: RunView; host: HTMLElement; svg
       aria-hidden
     >
       <defs>
-        {/* Earth, not shadow. The board's dark beds are #1a1a1a on a #000 backing, so a hole whose
-            middle was black read as one of them on a dim screen — every tone here stays above that
-            and stays brown, which is what tells the two apart. */}
+        {/* Earth, not shadow. The board's dark beds are #1c1c20 over a shaded surround, so a hole
+            whose middle was black read as one of them on a dim screen — every tone here stays above
+            that and stays brown, which is what tells the two apart. */}
         <radialGradient id="wam-hole" cx="50%" cy="50%" r="60%">
           <stop offset="0%" stopColor="#33200f" />
           <stop offset="55%" stopColor="#563318" />
           <stop offset="100%" stopColor="#8a5c35" />
         </radialGradient>
+
+        {/* Turned earth, now that the board grains its own sisal and smooth dirt would be the one
+            flat thing left on it.
+            Three things happen here and they are in the order a spade does them. The turbulence is
+            the clods, and they are kept small on purpose: noise as coarse as a bed is wide moves a
+            whole edge and tears an inner single in half rather than crumbling its rim. The
+            displacement then pushes the fill and its dashed rim around by up to a third of a unit
+            each, which is what makes a hole look dug rather than cut — the rim moves with the fill
+            because both are inside the filtered group, so the outline still follows its edge.
+            The lighting then relights those clods from up and to the left, the corner the board's
+            own sheen comes from, and multiplying it back over the dirt is what turns noise into
+            lumps: a warm white lamp leaves the lit side the brown it already was and only darkens
+            the far side of each clod. */}
+        <filter id="wam-mud" x="-8%" y="-8%" width="116%" height="116%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.95 0.75"
+            numOctaves={2}
+            seed={7}
+            stitchTiles="stitch"
+            result="clods"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="clods"
+            scale={0.65}
+            xChannelSelector="R"
+            yChannelSelector="G"
+            result="churned"
+          />
+          <feDiffuseLighting
+            in="clods"
+            surfaceScale={0.6}
+            diffuseConstant={1}
+            lightingColor="#fff8ee"
+            result="relief"
+          >
+            <feDistantLight azimuth={225} elevation={58} />
+          </feDiffuseLighting>
+          {/* The lighting fills the whole filter region, so clip it back to the dirt before it is
+              multiplied in — otherwise every hole arrives in a lit square. */}
+          <feComposite in="relief" in2="churned" operator="in" result="clipped" />
+          <feBlend in="churned" in2="clipped" mode="multiply" />
+        </filter>
       </defs>
 
       {/* Every area a mole dug through, the burrow in the middle included — that one was there
           before anybody threw. `data-hole` and the `data-area` on the roster chips are how a test
-          says "click the thing this mode has put there"; the board has no per-segment elements. */}
-      {run.holes.map((hole) => (
-        <g key={`hole-${hole.area}`} data-hole={hole.area} className={buried.has(hole.area) ? 'wam-dug' : undefined}>
-          <path d={areaPath(hole.area)} fill="url(#wam-hole)" fillRule="evenodd" />
-          <path
-            d={areaPath(hole.area)}
-            fill="none"
-            fillRule="evenodd"
-            stroke={hole.area === run.burrow ? '#cb9a5c' : '#b8874f'}
-            strokeWidth={hole.area === run.burrow ? 0.5 : 0.3}
-            strokeDasharray="0.8 0.5"
-            opacity={0.9}
-          />
-        </g>
-      ))}
+          says "click the thing this mode has put there"; the board has no per-segment elements.
+          All of them share one filtered group rather than carrying `wam-mud` apiece: a run can end
+          with twenty holes open, and the board's viewBox moves under every one of them each frame
+          of a precision drag, so this is one raster pass per frame instead of twenty. The noise is
+          sampled in user space, so a shared filter still gives each hole its own patch of dirt. */}
+      <g filter="url(#wam-mud)">
+        {run.holes.map((hole) => (
+          <g key={`hole-${hole.area}`} data-hole={hole.area} className={buried.has(hole.area) ? 'wam-dug' : undefined}>
+            <path d={areaPath(hole.area)} fill="url(#wam-hole)" fillRule="evenodd" />
+            <path
+              d={areaPath(hole.area)}
+              fill="none"
+              fillRule="evenodd"
+              stroke={hole.area === run.burrow ? '#cb9a5c' : '#b8874f'}
+              strokeWidth={hole.area === run.burrow ? 0.5 : 0.3}
+              strokeDasharray="0.8 0.5"
+              opacity={0.9}
+            />
+          </g>
+        ))}
+      </g>
 
       {/* Two passes over the same moles, and the order is the point: every target's outline is laid
           down before any mole is drawn, so no mole is ever cut in half by its neighbour's border. */}

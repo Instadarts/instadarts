@@ -23,8 +23,8 @@
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { installFakeCamera } from './fakeCamera';
-import { openScorerSettings, pairingCode, scorerDeviceName } from './appHelpers';
+import { installFakeCamera, type FakeCameraOptions } from './fakeCamera';
+import { cameraPreviewPresentation, openScorerSettings, pairingCode, scorerDeviceName } from './appHelpers';
 
 /** The self-test loads two models and runs a dozen inferences on a CPU; it is not quick. */
 const RUN_TIMEOUT = 180_000;
@@ -35,7 +35,13 @@ const SCENES = {
   darts: fileURLToPath(new URL('../media/board-three-darts.jpg', import.meta.url)),
 };
 
-async function pairedScorer(browser: Browser, { camera = true } = {}) {
+async function pairedScorer(
+  browser: Browser,
+  {
+    camera = true,
+    cameraOptions = { maxWidth: 1280, maxHeight: 720 },
+  }: { camera?: boolean; cameraOptions?: FakeCameraOptions } = {},
+) {
   const frontend = await browser.newContext();
   const player = await frontend.newPage();
   await player.goto('/');
@@ -50,7 +56,7 @@ async function pairedScorer(browser: Browser, { camera = true } = {}) {
   // A common 720p camera shape: it accepts the scorer's preferred width but cannot provide more
   // than 720 rows. The page and every live vision path must agree on the centred 720x720 square.
   if (camera) {
-    await installFakeCamera(scorer, SCENES, { maxWidth: 1280, maxHeight: 720 });
+    await installFakeCamera(scorer, SCENES, cameraOptions);
   } else {
     await scorer.addInitScript(() => {
       Object.defineProperty(navigator, 'mediaDevices', {
@@ -116,6 +122,9 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByRole('button', { name: 'Settings' })).toHaveCount(0);
     await expect(scorer.getByTestId('onboarding-start-checks')).toBeVisible();
     expect(await previewSize(scorer)).toEqual({ width: 960, height: 720 });
+    await scorer.getByTestId('onboarding-preview').evaluate((video) => {
+      video.dataset.e2eIdentity = 'onboarding-preview';
+    });
     // And nothing has been measured: this holds the GPU for a while and asks first.
     await expect(scorer.getByTestId('onboarding-stages')).toHaveCount(0);
 
@@ -124,6 +133,8 @@ test.describe('setting up a scoring device', () => {
 
     // 4. It reaches a verdict.
     await expect(scorer.getByTestId('onboarding-verdict')).toBeVisible({ timeout: RUN_TIMEOUT });
+    await expect(scorer.getByTestId('onboarding-preview'))
+      .toHaveAttribute('data-e2e-identity', 'onboarding-preview');
 
     // 5 + 6. Some configuration works, and it is the one now stored. A device that gave up says so
     // in the same place, so asserting the wording is asserting the outcome.
@@ -170,6 +181,8 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-quality', 'full');
     await expect(scorer.getByTestId('aim-quality')).toHaveAttribute('data-points', '8');
     await expect(scorer.getByTestId('aim-tips').locator('> g')).toHaveCount(3);
+    await expect(scorer.getByTestId('onboarding-preview'))
+      .toHaveAttribute('data-e2e-identity', 'onboarding-preview');
 
     // **The model is compiled once, and stays compiled.** This preview used to unload and recompile
     // it on every render — forty-one compiles in five seconds — because the camera handle it depends
@@ -197,6 +210,31 @@ test.describe('setting up a scoring device', () => {
     await expect(scorer.getByRole('button', { name: 'Settings' })).toBeVisible();
     await expect(scorer.getByRole('heading', { name: 'Setting up this camera' })).toHaveCount(0);
 
+    await frontend.close();
+    await phone.close();
+  });
+
+  test('a portrait camera still presents the same centered square viewport', async ({ browser }) => {
+    const { frontend, phone, scorer } = await pairedScorer(browser, {
+      cameraOptions: { maxWidth: 720, maxHeight: 1280 },
+    });
+    await nameDevice(scorer);
+
+    const preview = scorer.getByTestId('onboarding-preview');
+    await expect.poll(() => previewSize(scorer)).toEqual({ width: 720, height: 960 });
+    const presentation = await cameraPreviewPresentation(preview);
+    expect(presentation.sourceHeight).toBeGreaterThan(presentation.sourceWidth);
+    expect(Math.abs(presentation.viewportWidth - presentation.viewportHeight)).toBeLessThan(2);
+    expect(Math.abs(presentation.videoWidth - presentation.viewportInnerWidth)).toBeLessThan(2);
+    expect(Math.abs(presentation.videoHeight - presentation.viewportInnerHeight)).toBeLessThan(2);
+    expect(presentation).toMatchObject({
+      objectFit: 'cover',
+      objectPosition: '50% 50%',
+      position: 'absolute',
+    });
+
+    await scorer.getByRole('button', { name: 'Skip' }).click();
+    await expect(scorer.getByRole('button', { name: 'Settings' })).toBeVisible();
     await frontend.close();
     await phone.close();
   });

@@ -1,5 +1,48 @@
-import { test, expect } from '@playwright/test';
-import { clickT20, clickT19, clickD12, submitVisit, setupLocalMatch } from './appHelpers';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import { clickT20, clickT19, clickD12, setSwitch, submitVisit, setupLocalMatch } from './appHelpers';
+
+async function autoFitMetrics(card: Locator, text: string) {
+  return card.getByText(text, { exact: true }).evaluate((line) => {
+    const host = line.parentElement;
+    const playerCard = line.closest<HTMLElement>('[data-player]');
+    if (!host || !playerCard) throw new Error('auto-fit score is outside a player card');
+    const footer = [...playerCard.querySelectorAll<HTMLElement>('*')]
+      .find((element) => element.children.length === 0
+        && /throwing|waiting|departed/.test(element.textContent ?? ''));
+    if (!footer) throw new Error('player card has no status footer');
+
+    const lineRect = line.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    const cardRect = playerCard.getBoundingClientRect();
+    const footerRect = footer.getBoundingClientRect();
+    return {
+      fontSize: Number.parseFloat(getComputedStyle(line).fontSize),
+      lineInsideHost: lineRect.left >= hostRect.left - 1
+        && lineRect.right <= hostRect.right + 1
+        && lineRect.top >= hostRect.top - 1
+        && lineRect.bottom <= hostRect.bottom + 1,
+      centerDelta: Math.abs(
+        (lineRect.top + lineRect.height / 2) - (hostRect.top + hostRect.height / 2),
+      ),
+      footerBottomGap: cardRect.bottom - footerRect.bottom,
+    };
+  });
+}
+
+async function resizeGridItemVertically(page: Page, id: string, deltaY: number) {
+  const item = page.locator(`[data-grid-item="${id}"]`);
+  await item.scrollIntoViewIfNeeded();
+  const handle = item.locator('.react-resizable-handle-se');
+  await expect(handle).toBeVisible();
+  const box = await handle.boundingBox();
+  if (!box) throw new Error(`resize handle for ${id} has no bounding box`);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + deltaY, { steps: 10 });
+  await page.mouse.up();
+}
 
 test.describe('N-players matches', () => {
   test('3-player local match with Count-Up mode', async ({ page }) => {
@@ -110,6 +153,49 @@ test.describe('N-players matches', () => {
 
     await expect(page.getByText('Alice wins!')).toBeVisible({ timeout: 10_000 });
     expect(await spilling(), 'verdict cards on the summary').toEqual([]);
+  });
+
+  test('mode-provided score text refits in both directions and leaves the status footer pinned', async ({ page }) => {
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 301);
+
+    const alice = page.locator('[data-player="Alice"]');
+    await expect.poll(async () => (await autoFitMetrics(alice, '301')).lineInsideHost).toBe(true);
+    const compactScore = await autoFitMetrics(alice, '301');
+    expect(compactScore.centerDelta).toBeLessThan(2);
+    expect(compactScore.footerBottomGap).toBeLessThan(20);
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(page.getByRole('menu', { name: 'Settings' })
+      .getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+    await resizeGridItemVertically(page, 'scores', 160);
+    await expect.poll(async () => (await autoFitMetrics(alice, '301')).fontSize)
+      .toBeGreaterThan(compactScore.fontSize);
+
+    // Alice leaves 121, then leaving exactly one produces the mode's wider score string instead of
+    // a numeric score.
+    await clickT20(page); await clickT20(page); await clickT20(page);
+    await submitVisit(page);
+    await clickT20(page); await clickT20(page);
+    await expect(alice.getByText('Bust!', { exact: true })).toBeVisible();
+
+    const expandedBust = await autoFitMetrics(alice, 'Bust!');
+    expect(expandedBust.lineInsideHost).toBe(true);
+    expect(expandedBust.centerDelta).toBeLessThan(2);
+    expect(expandedBust.footerBottomGap).toBeLessThan(20);
+
+    const expandedBoxHeight = (await page.locator('[data-grid-item="scores"]').boundingBox())!.height;
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('menu', { name: 'Settings' }).getByText('Reset layout', { exact: true }).click();
+    await expect.poll(async () => (await page.locator('[data-grid-item="scores"]').boundingBox())!.height)
+      .toBeLessThan(expandedBoxHeight);
+    await expect.poll(async () => (await autoFitMetrics(alice, 'Bust!')).fontSize)
+      .toBeLessThan(expandedBust.fontSize);
+    const compactBust = await autoFitMetrics(alice, 'Bust!');
+    expect(compactBust.lineInsideHost).toBe(true);
+    expect(compactBust.centerDelta).toBeLessThan(2);
+    expect(compactBust.footerBottomGap).toBeLessThan(20);
   });
 
   test('5-player local Whac-A-Mole, played through to the finale', async ({ page }) => {

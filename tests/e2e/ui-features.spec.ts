@@ -81,6 +81,35 @@ async function expectInsideViewport(page: Page, element: Locator): Promise<void>
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
 }
 
+async function expectGridItemsDoNotOverlap(page: Page): Promise<void> {
+  const boxes = await page.locator('[data-grid-item]').evaluateAll((items) => items.map((item) => {
+    const rect = item.getBoundingClientRect();
+    return {
+      id: item.getAttribute('data-grid-item'),
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+    };
+  }));
+
+  for (const [index, box] of boxes.entries()) {
+    for (const other of boxes.slice(index + 1)) {
+      const separated = box.right <= other.left + 1
+        || other.right <= box.left + 1
+        || box.bottom <= other.top + 1
+        || other.bottom <= box.top + 1;
+      expect(separated, `${box.id} overlaps ${other.id}`).toBe(true);
+    }
+  }
+}
+
+async function gridItemHeight(page: Page, id: string): Promise<number> {
+  const box = await page.locator(`[data-grid-item="${id}"]`).boundingBox();
+  if (!box) throw new Error(`grid item ${id} has no bounding box`);
+  return box.height;
+}
+
 async function scrollableAncestor(element: Locator): Promise<{ clientHeight: number; scrollHeight: number } | null> {
   return element.evaluate((node) => {
     let parent = node.parentElement;
@@ -171,6 +200,22 @@ async function resizeGridItemUp(page: Page, id: string, pixels: number): Promise
   await page.mouse.up();
 }
 
+async function dragGridItem(page: Page, id: string, deltaX: number, deltaY: number): Promise<void> {
+  const item = page.locator(`[data-grid-item="${id}"]`);
+  await item.scrollIntoViewIfNeeded();
+  const handle = item.getByLabel('Drag box');
+  await expect(handle).toBeVisible();
+  const box = await handle.boundingBox();
+  if (!box) throw new Error(`drag handle for ${id} has no bounding box`);
+
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + deltaX, y + deltaY, { steps: 10 });
+  await page.mouse.up();
+}
+
 async function finishSinglePlayerMatch(page: Page): Promise<void> {
   await clickT20(page); await clickT20(page); await clickT20(page);
   await submitVisit(page);
@@ -182,6 +227,42 @@ async function finishSinglePlayerMatch(page: Page): Promise<void> {
 }
 
 test.describe('responsive UI branch features', () => {
+  test('document grids remeasure growing and shrinking lobby content at the active breakpoint', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Local Match' }).click();
+    await expect(page.locator('[data-grid-item="players"]')).toBeVisible();
+
+    const emptyHeight = await gridItemHeight(page, 'players');
+
+    for (const name of ['Alice', 'Bob', 'Carol', 'Dave']) {
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(page.getByText(name, { exact: true })).toBeVisible();
+    }
+
+    await expect.poll(() => gridItemHeight(page, 'players'))
+      .toBeGreaterThan(emptyHeight);
+    const grownHeight = await gridItemHeight(page, 'players');
+    await expectGridItemsDoNotOverlap(page);
+
+    const players = page.locator('[data-grid-item="players"]');
+    const playerCard = players.locator('.frontend-grid-box');
+    const [itemBox, cardBox] = await Promise.all([players.boundingBox(), playerCard.boundingBox()]);
+    expect(itemBox).not.toBeNull();
+    expect(cardBox).not.toBeNull();
+    expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(itemBox!.y + itemBox!.height + 1);
+
+    for (let remaining = 3; remaining >= 1; remaining -= 1) {
+      await page.getByTitle('Remove player').first().click();
+      await expect(page.getByTitle('Remove player')).toHaveCount(remaining);
+    }
+
+    await expect.poll(() => gridItemHeight(page, 'players'))
+      .toBeLessThan(grownHeight);
+    await expectGridItemsDoNotOverlap(page);
+  });
+
   test('global menus remain usable on narrow screens and frontend zoom persists within its bounds', async ({ page }) => {
     await clearUiPreferences(page);
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -290,6 +371,47 @@ test.describe('responsive UI branch features', () => {
 
     await frontendContext.close();
     await scorer.context.close();
+  });
+
+  test('match edit mode persists handle drags while board and visit controls remain interactive', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    let menu = await openFrontendSettings(page);
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+
+    const canonicalVisit = LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'visit')!;
+    const before = await storedItem(page, 'match-live', 'lg', 'visit') ?? canonicalVisit;
+    const beforePosition = `${before.x},${before.y}`;
+    await dragGridItem(page, 'visit', 180, 120);
+    await expect.poll(async () => {
+      const item = await storedItem(page, 'match-live', 'lg', 'visit');
+      return item ? `${item.x},${item.y}` : beforePosition;
+    }).not.toBe(beforePosition);
+    const dragged = await storedItem(page, 'match-live', 'lg', 'visit');
+
+    await page.reload();
+    expect(await storedItem(page, 'match-live', 'lg', 'visit')).toMatchObject({
+      x: dragged!.x,
+      y: dragged!.y,
+    });
+
+    menu = await openFrontendSettings(page);
+    await expect(menu.getByRole('switch', { name: 'Edit Match Layout' })).not.toBeChecked();
+    await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+
+    const boardBefore = await storedItem(page, 'match-live', 'lg', 'board');
+    await clickT20(page);
+    await expect(page.getByText('Visit: 60', { exact: true })).toBeVisible();
+    await submitVisit(page);
+    await expect(page.locator('[data-player="Alice"]').getByText('441', { exact: true })).toBeVisible();
+    expect(await storedItem(page, 'match-live', 'lg', 'board')).toMatchObject({
+      x: boardBefore!.x,
+      y: boardBefore!.y,
+    });
   });
 
   test('match layouts persist by breakpoint and reset only the active live or summary profile', async ({ page }) => {

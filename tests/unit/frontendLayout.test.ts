@@ -196,4 +196,18 @@ describe('stored frontend match layouts', () => {
     expect(stored?.profiles['match-summary']?.xs?.[0]?.y).toBe(6);
     expect(loadMatchLayouts('match-live', defaults, ['alpha']).lg?.[0]?.y).toBe(0);
   });
+
+  it('falls back to defaults and never interrupts a match when storage is unavailable', () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => { throw new Error('blocked'); },
+        setItem: () => { throw new Error('blocked'); },
+      },
+    });
+
+    expect(loadMatchLayouts('match-live', defaults, ['alpha', 'beta']).lg).toEqual(defaults);
+    expect(() => saveMatchLayouts('match-live', { lg: defaults })).not.toThrow();
+    expect(() => resetMatchLayout('match-live')).not.toThrow();
+  });
 });

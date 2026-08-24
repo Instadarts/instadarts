@@ -63,6 +63,35 @@ export async function closeScorerSettings(page: Page): Promise<void> {
   await expect(name).toHaveCount(0);
 }
 
+/** Browser-resolved geometry and presentation of one square camera preview. */
+export async function cameraPreviewPresentation(video: Locator) {
+  return video.evaluate((element: HTMLVideoElement) => {
+    const viewport = element.parentElement;
+    if (!viewport) throw new Error('camera preview has no viewport');
+    const videoRect = element.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const viewportStyle = getComputedStyle(viewport);
+    const viewportBorderWidth = Number.parseFloat(viewportStyle.borderLeftWidth)
+      + Number.parseFloat(viewportStyle.borderRightWidth);
+    const viewportBorderHeight = Number.parseFloat(viewportStyle.borderTopWidth)
+      + Number.parseFloat(viewportStyle.borderBottomWidth);
+    return {
+      sourceWidth: element.videoWidth,
+      sourceHeight: element.videoHeight,
+      viewportWidth: viewportRect.width,
+      viewportHeight: viewportRect.height,
+      viewportInnerWidth: viewportRect.width - viewportBorderWidth,
+      viewportInnerHeight: viewportRect.height - viewportBorderHeight,
+      videoWidth: videoRect.width,
+      videoHeight: videoRect.height,
+      objectFit: style.objectFit,
+      objectPosition: style.objectPosition,
+      position: style.position,
+    };
+  });
+}
+
 /** Rename a paired scorer through its settings menu, then return to the scoring view. */
 export async function renameScorerDevice(page: Page, value: string): Promise<void> {
   const name = await openScorerSettings(page);

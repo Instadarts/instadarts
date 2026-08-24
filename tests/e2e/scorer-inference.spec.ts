@@ -1,7 +1,7 @@
-import { test, expect, type Page, type Browser } from '@playwright/test';
+import { test, expect, type Page, type Browser, type Locator } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { installFakeCamera, scan, showScene } from './fakeCamera';
-import { closeScorerSettings, pairingCode, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
+import { installFakeCamera, scan, showScene, type FakeCameraOptions } from './fakeCamera';
+import { cameraPreviewPresentation, closeScorerSettings, pairingCode, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
 
 // The two reference photographs: the same board, with three darts in the 20 bed and then empty.
 const SCENES = {
@@ -12,13 +12,29 @@ const SCENES = {
 /** Loading a 2.4MB model and running it is slower than clicking a button. */
 test.setTimeout(120_000);
 
-async function openScorer(browser: Browser) {
+async function openScorer(browser: Browser, cameraOptions: FakeCameraOptions = {}) {
   const context = await browser.newContext({ permissions: ['camera'] });
   await skipOnboarding(context);
   const page = await context.newPage();
-  await installFakeCamera(page, SCENES);
+  await installFakeCamera(page, SCENES, cameraOptions);
   await page.goto('/scorer?e2e=1');
   return { context, page };
+}
+
+async function expectCenteredSquarePreview(video: Locator) {
+  const presentation = await cameraPreviewPresentation(video);
+  expect(Math.abs(presentation.viewportWidth - presentation.viewportHeight), 'preview viewport is square')
+    .toBeLessThan(2);
+  expect(Math.abs(presentation.videoWidth - presentation.viewportInnerWidth), 'video fills the viewport width')
+    .toBeLessThan(2);
+  expect(Math.abs(presentation.videoHeight - presentation.viewportInnerHeight), 'video fills the viewport height')
+    .toBeLessThan(2);
+  expect(presentation).toMatchObject({
+    objectFit: 'cover',
+    objectPosition: '50% 50%',
+    position: 'absolute',
+  });
+  return presentation;
 }
 
 async function startLocalMatch(page: Page) {
@@ -48,6 +64,52 @@ async function pairCamera(player: Page, scorer: Page, scoring = true) {
 }
 
 test.describe('camera scoring, end to end', () => {
+  test('keeps the centered scoring preview mounted while calibration and model resolution change', async ({ browser }) => {
+    test.setTimeout(180_000);
+    const frontend = await browser.newContext();
+    const player = await frontend.newPage();
+    const scorer = await openScorer(browser, { maxWidth: 1280, maxHeight: 720 });
+
+    await player.goto('/');
+    await pairCamera(player, scorer.page, false);
+    await startScorerCamera(scorer.page);
+
+    const preview = scorer.page.locator('#preview');
+    await expect(preview).toBeVisible();
+    const initial = await expectCenteredSquarePreview(preview);
+    expect({ width: initial.sourceWidth, height: initial.sourceHeight })
+      .toEqual({ width: 960, height: 720 });
+    await expect(scorer.page.getByText('960×720', { exact: true })).toBeVisible();
+
+    await preview.evaluate((video) => { video.dataset.e2eIdentity = 'original-preview'; });
+    const initialViewport = { width: initial.viewportWidth, height: initial.viewportHeight };
+
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByRole('button', { name: 'Calibrate lens' }).click();
+    await expect(scorer.page.getByText('Slide until the lines sit on the wires', { exact: false }))
+      .toBeVisible({ timeout: 30_000 });
+    await expect(preview).toHaveAttribute('data-e2e-identity', 'original-preview');
+    await scorer.page.getByRole('button', { name: 'Done' }).click();
+    await expect(preview).toBeVisible();
+
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByRole('combobox', { name: 'Detection model' }).selectOption('s_1280');
+    await expect.poll(async () => {
+      const presentation = await cameraPreviewPresentation(preview);
+      return { width: presentation.sourceWidth, height: presentation.sourceHeight };
+    }, { timeout: 120_000 }).toEqual({ width: 1280, height: 720 });
+    await closeScorerSettings(scorer.page);
+
+    await expect(preview).toHaveAttribute('data-e2e-identity', 'original-preview');
+    await expect(scorer.page.getByText('1280×720', { exact: true })).toBeVisible();
+    const restarted = await expectCenteredSquarePreview(preview);
+    expect(Math.abs(restarted.viewportWidth - initialViewport.width)).toBeLessThan(2);
+    expect(Math.abs(restarted.viewportHeight - initialViewport.height)).toBeLessThan(2);
+
+    await frontend.close();
+    await scorer.context.close();
+  });
+
   test('can force each vision stage onto its CPU path independently', async ({ browser }) => {
     const frontend = await browser.newContext();
     const player = await frontend.newPage();

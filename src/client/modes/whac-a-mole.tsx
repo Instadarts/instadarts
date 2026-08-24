@@ -813,7 +813,41 @@ function Hud({ run }: { run: RunView }) {
   const stageColor = run.stage === 'frenzy' ? 'red' : run.stage === 'enraged' ? 'yellow' : 'gray';
 
   return (
-    <Stack gap="sm">
+    <Stack gap="xs">
+      {/* Always as many chips as there are moles in play, so the block keeps its height. */}
+      <Box>
+        <Group gap={4} wrap="nowrap">
+          {run.moles.map((mole) => {
+            const left = Math.max(0, mole.digTime - mole.age);
+            const colour = left <= 1 ? 'red' : left === 2 ? 'yellow' : 'gray';
+            return (
+              <Paper
+                key={mole.id}
+                data-area={mole.area}
+                withBorder
+                bg={left <= 1 ? 'red.9' : left === 2 ? 'yellow.9' : 'dark.9'}
+                c={`${colour}.2`}
+                px={4}
+                py={4}
+                ta="center"
+                style={{ flex: 1, minWidth: 0 }}
+              >
+                <Text ff="monospace" fz="sm" truncate>{mole.label}</Text>
+                <Pips total={mole.digTime} left={left} />
+              </Paper>
+            );
+          })}
+          {Array.from({ length: Math.max(0, run.moleCount - run.moles.length) }).map((_, i) => (
+            <Paper key={`gap-${i}`} withBorder px={4} py={4} ta="center" style={{ flex: 1, minWidth: 0 }}>
+              <Text ff="monospace" fz="sm" c="gray.7">—</Text>
+              <Pips total={0} left={0} />
+            </Paper>
+          ))}
+        </Group>
+      </Box>
+
+      <Burrow run={run} />
+
       <Paper bg="dark.9" radius="md" px="md" py="sm">
         <Group justify="space-between" gap="md" wrap="nowrap">
         <Box>
@@ -860,42 +894,8 @@ function Hud({ run }: { run: RunView }) {
         ))}
       </Stack>
 
-      <Burrow run={run} />
 
-      {/* Always as many chips as there are moles in play, so the block keeps its height. */}
-      <Box>
-        <Text fz={10} tt="uppercase" c="dimmed" mb={4}>On the board</Text>
-        <Group gap={4} wrap="nowrap">
-          {run.moles.map((mole) => {
-            const left = Math.max(0, mole.digTime - mole.age);
-            const colour = left <= 1 ? 'red' : left === 2 ? 'yellow' : 'gray';
-            return (
-              <Paper
-                key={mole.id}
-                data-area={mole.area}
-                withBorder
-                bg={left <= 1 ? 'red.9' : left === 2 ? 'yellow.9' : 'dark.9'}
-                c={`${colour}.2`}
-                px={4}
-                py={4}
-                ta="center"
-                style={{ flex: 1, minWidth: 0 }}
-              >
-                <Text ff="monospace" fz="sm" truncate>{mole.label}</Text>
-                <Pips total={mole.digTime} left={left} />
-              </Paper>
-            );
-          })}
-          {Array.from({ length: Math.max(0, run.moleCount - run.moles.length) }).map((_, i) => (
-            <Paper key={`gap-${i}`} withBorder px={4} py={4} ta="center" style={{ flex: 1, minWidth: 0 }}>
-              <Text ff="monospace" fz="sm" c="gray.7">—</Text>
-              <Pips total={0} left={0} />
-            </Paper>
-          ))}
-        </Group>
-      </Box>
-
-      <SimpleGrid component="dl" cols={5} spacing={4} ta="center">
+      <SimpleGrid component="div" cols={5} spacing={4} ta="center">
         <Stat label="whacked" value={run.stats.whacked} tone="good" />
         <Stat label="holes" value={run.stats.holes} tone="danger" />
         <Stat label="saved" value={run.stats.rescued} tone="info" />
@@ -1070,7 +1070,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
         ))}
       </SimpleGrid>
 
-      <SimpleGrid component="dl" cols={5} spacing="1.2cqw" mt="1cqw" w="100%">
+      <SimpleGrid component="div" cols={5} spacing="1.2cqw" mt="1cqw" w="100%">
         <FinaleStat label="whacked" value={run.stats.whacked} colour="green.4" />
         <FinaleStat label="holes" value={run.stats.holes} colour="red.4" />
         <FinaleStat label="saved" value={run.stats.rescued} colour="cyan.3" />

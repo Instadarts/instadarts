@@ -16,7 +16,7 @@ export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
   if (empty) return null;
 
   return (
-    <Stack align="stretch" gap="xs" justify="center" h="100%">
+    <Stack align="stretch" gap="xs" justify="center">
       {panel.lines?.map((line, index) => (
         <Text key={index} ta="center" {...modeTextProps(line, { size: 'sm', tone: 'muted' })}>
           {textOf(line)}

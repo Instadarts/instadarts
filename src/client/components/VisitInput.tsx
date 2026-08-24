@@ -1,6 +1,6 @@
 import { Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, ViewText } from '../../shared/types';
-import { styleOf, textOf } from '../../shared/types';
+import { textOf } from '../../shared/types';
 import { DartEvidence } from './DartEvidence';
 import { modeTextProps, slotStyle } from './modeText';
 
@@ -43,8 +43,6 @@ export function VisitInput({
             radius="sm"
             ta="center"
             ff="monospace"
-            data-slot-size={styleOf(slot).size ?? 'lg'}
-            data-slot-tone={styleOf(slot).tone ?? 'default'}
             style={slotStyle(slot, { size: 'lg' })}
           >
             {textOf(slot)}

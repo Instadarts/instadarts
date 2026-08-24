@@ -1,5 +1,5 @@
 import type {
-  CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, PlayerScoreText, ViewText, Visit,
+  CurrentVisit, DartThrow, MatchState, ModePanel, ModeView, ViewText, Visit,
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { boolOr, numberOr, stringOr } from '../../shared/settings';
@@ -260,7 +260,7 @@ export const x01: GameMode = {
     const { startScore, doubleOut } = read(ctx.settings);
     const cv = ctx.currentVisit;
 
-    const playerScores: Record<string, PlayerScoreText> = {};
+    const playerScores: Record<string, ViewText> = {};
     for (const player of ctx.players) playerScores[player.id] = cardScore(ctx, player.id);
 
     return {
@@ -485,7 +485,7 @@ function legsWon(match: MatchState): Record<string, ViewText> {
  * submitted. The verdict carries its own tone, while the card fits every score to its available
  * space without asking the mode to predict screen geometry.
  */
-function cardScore(ctx: LegContext, playerId: string): PlayerScoreText {
+function cardScore(ctx: LegContext, playerId: string): ViewText {
   const cv = ctx.currentVisit;
   if (cv && cv.playerId === playerId) {
     const verdict = verdictFor(ctx);
@@ -504,7 +504,7 @@ function cardScore(ctx: LegContext, playerId: string): PlayerScoreText {
  * Asks the rules what submitting would do rather than restating them: `finalizeVisit` is pure, so
  * running it speculatively costs nothing and cannot drift from the real outcome.
  */
-function verdictFor(ctx: LegContext): PlayerScoreText | null {
+function verdictFor(ctx: LegContext): ViewText | null {
   const cv = ctx.currentVisit;
   if (!cv || !cv.locked || cv.darts.length === 0) return null;
 

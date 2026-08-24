@@ -109,29 +109,12 @@ export interface MatchSettings {
  * wire — the whole view is JSON.
  */
 export type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
-export type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
-export type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
-
-export interface TextStyle {
-  tone?: TextTone;
-  size?: TextSize;
-  weight?: TextWeight;
-}
-
-export interface StyledText extends TextStyle {
-  text: string;
-}
 
 /**
- * Any text a mode supplies. A bare string takes the element's own defaults — which is what a mode
- * should send unless it has a reason not to, because those defaults are what makes the screen look
- * like one screen. Every hint is an override of exactly one axis; the rest still come from the
- * element.
+ * Any text a mode supplies. A mode may express semantic meaning through tone; sizing, weight and
+ * every other presentation choice belong to the client element that renders it.
  */
-export type ViewText = string | StyledText;
-
-/** A player-card score may express meaning through tone; the client fits its size and weight. */
-export type PlayerScoreText = string | { text: string; tone?: TextTone };
+export type ViewText = string | { text: string; tone?: TextTone };
 
 /** The text of a `ViewText`, whichever form it came in. */
 export function textOf(value: ViewText | undefined): string {
@@ -139,9 +122,9 @@ export function textOf(value: ViewText | undefined): string {
   return typeof value === 'string' ? value : value.text;
 }
 
-/** The style hints of a `ViewText`, or none for a bare string. */
-export function styleOf(value: ViewText | undefined): TextStyle {
-  return value === undefined || typeof value === 'string' ? {} : value;
+/** The semantic tone of a `ViewText`, if its mode supplied one. */
+export function toneOf(value: ViewText | undefined): TextTone | undefined {
+  return value === undefined || typeof value === 'string' ? undefined : value.tone;
 }
 
 /**
@@ -161,7 +144,7 @@ export interface ModeView {
    * score goes without the screen knowing what a bust is. A mode may set its semantic tone; the
    * card owns its geometry and automatically fits the text to the available space.
    */
-  playerScores: Record<string, PlayerScoreText>;
+  playerScores: Record<string, ViewText>;
   /** The `Visit: <total>` line. Empty text hides the line entirely. */
   visitTotal: ViewText;
   dartsPerVisit: number;

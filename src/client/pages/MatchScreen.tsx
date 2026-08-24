@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
-import { styleOf, textOf } from '../../shared/types';
+import { textOf, toneOf } from '../../shared/types';
 import { standingsOf } from '../../shared/matchFormat';
 import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
@@ -259,7 +259,7 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
         const score = scores?.[player.id] ?? '';
         const background = isDeparted ? 'dark.8' : isCurrent ? 'green.9' : 'dark.7';
         const borderColor = isDeparted ? 'var(--mantine-color-red-9)' : isCurrent ? 'var(--mantine-color-green-5)' : undefined;
-        const scoreTone = styleOf(score).tone ?? (isCurrent ? 'warning' : 'muted');
+        const scoreTone = toneOf(score) ?? (isCurrent ? 'warning' : 'muted');
         const scoreStyle = modeTextProps(undefined, { tone: scoreTone, weight: 'bold' });
 
         return (

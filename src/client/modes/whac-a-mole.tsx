@@ -1140,25 +1140,12 @@ const CSS = `
  * Last, not fourth: a visit holds as many darts as the lobby asked for and the bonus sits after
  * them, so the row is four slots at the default and six if somebody sets five darts.
  *
- * The mode fills that slot itself (see slotsFor), and VisitInput exposes its text hints as data
- * attributes. The mode always sends one slot per dart the visit could hold, so the last one is the
- * bonus.
- *
- * An inset ring rather than a border, so it does not come out a different size from its neighbours.
- * The two states come from what the mode sent, because what it sent is the state: warning is the
- * tone no other slot in this mode uses, so it means the throw is live, and the small text is only
- * ever the placeholder, so it means the slot is still out of reach. Keying the dim on the muted
- * tone instead would have caught a bonus dart that missed, which is spent rather than disabled.
+ * The mode always sends one slot per dart the visit could hold, so the last one is the bonus. An
+ * inset ring rather than a border keeps it the same size as its neighbours. Its ordinary semantic
+ * tone is enough to distinguish unavailable, available and thrown states.
  *
  */
 [data-visit-slots] > div:last-child { box-shadow: inset 0 0 0 1.5px #78350f }
-[data-visit-slots] > div:last-child[data-slot-size="sm"] { opacity: .55 }
-[data-visit-slots] > div:last-child[data-slot-tone="warning"] { animation: wam-bonus 1.1s ease-in-out infinite }
-
-@keyframes wam-bonus {
-  0%, 100% { box-shadow: inset 0 0 0 2px #f59e0b }
-  50% { box-shadow: inset 0 0 0 2px #fde68a, 0 0 12px rgba(245, 158, 11, .55) }
-}
 
 /*
  * A mallet, since that is what this is — but the mallet is not the cursor.

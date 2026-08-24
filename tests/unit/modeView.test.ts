@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { viewOf } from '../../src/server/match';
-import { styleOf, textOf } from '../../src/shared/types';
+import { textOf, toneOf } from '../../src/shared/types';
 import { makeMatch, playVisit, throwDart } from '../helpers';
 
 /**
@@ -36,13 +36,13 @@ describe('x01 view', () => {
     const bust = throwDart(makeMatch({ settings: { startScore: 40 } }), 'p1', 'T20');
     const busted = viewOf(bust.match).playerScores.p1;
     expect(textOf(busted)).toBe('Bust!');
-    expect(styleOf(busted)).toEqual({ text: 'Bust!', tone: 'danger' });
+    expect(toneOf(busted)).toBe('danger');
 
     // Checkout: D16 from 32.
     const out = throwDart(makeMatch({ settings: { startScore: 32 } }), 'p1', 'D16');
     const won = viewOf(out.match).playerScores.p1;
     expect(textOf(won)).toBe('Checkout!');
-    expect(styleOf(won)).toEqual({ text: 'Checkout!', tone: 'warning' });
+    expect(toneOf(won)).toBe('warning');
   });
 
   it('keeps the visit total visible before the first dart', () => {
@@ -72,11 +72,11 @@ describe('x01 view', () => {
   it('marks a voided visit in the history, in words and in tone', () => {
     const voided = playVisit(makeMatch({ settings: { startScore: 40 } }), 'p1', ['T20']);
     expect(textOf(viewOf(voided).history[0])).toContain('= Bust');
-    expect(styleOf(viewOf(voided).history[0])).toMatchObject({ tone: 'danger' });
+    expect(toneOf(viewOf(voided).history[0])).toBe('danger');
 
     // A visit that counted says nothing about how it should look.
     const scored = playVisit(makeMatch(), 'p1', ['T20']);
-    expect(styleOf(viewOf(scored).history[0])).toEqual({});
+    expect(toneOf(viewOf(scored).history[0])).toBeUndefined();
   });
 
   it('reports the slot count, and tones the slots it fills', () => {
@@ -87,8 +87,8 @@ describe('x01 view', () => {
     const slots = viewOf(r.match).slots!;
     // A slot says what was hit. What it was worth is the visit total's job, not three labels'.
     expect(slots.map(textOf)).toEqual(['T20', 'miss']);
-    expect(styleOf(slots[0])).toMatchObject({ tone: 'positive' });
-    expect(styleOf(slots[1])).toMatchObject({ tone: 'danger' });
+    expect(toneOf(slots[0])).toBe('positive');
+    expect(toneOf(slots[1])).toBe('danger');
   });
 
   it('offers no panel — x01 has nothing of its own to draw', () => {

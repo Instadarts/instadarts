@@ -261,7 +261,7 @@ client code — except an optional panel component (below).
 interface ModeView {
   headline: ViewText;                     // x01: "501 — Double Out"; one line, width-fitted
   notice?: ViewText;                      // x01: "Double-In required — hit a double to start scoring"
-  playerScores: Record<string, PlayerScoreText>; // playerId → automatically fitted card score
+  playerScores: Record<string, ViewText>; // playerId → automatically fitted card score
   visitTotal: ViewText;                   // empty text hides the line; x01 always returns a number
   dartsPerVisit: number;
   slots?: ViewText[];                     // optional slot contents; omitted → default rendering
@@ -270,38 +270,33 @@ interface ModeView {
 ```
 
 The overview keeps `headline` on one line and measures it into the width left by its badges and
-**Leave** button. Its tone and weight hints are honored, while its font size is owned by that
-automatic fit. Keep the text concise: the fitter retains a readable minimum rather than shrinking
-an arbitrarily long headline into illegibility.
+**Leave** button. Its tone hint is honored, while its font size and weight belong to the overview.
+Keep the text concise: the fitter retains a readable minimum rather than shrinking an arbitrarily
+long headline into illegibility.
 
 ### Text, and what a mode may say about how it looks
 
-Most text above is a `ViewText`: either a bare string, or a string with hints.
+Mode-supplied display text is a `ViewText`: either a bare string, or text with a semantic tone.
 
 ```ts
-type ViewText = string | { text: string; tone?: TextTone; size?: TextSize; weight?: TextWeight };
-
-type PlayerScoreText = string | { text: string; tone?: TextTone };
+type ViewText = string | { text: string; tone?: TextTone };
 
 type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
-type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
-type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
 ```
 
-Three rules make this a hint and not a stylesheet:
+Three rules keep this a semantic hint rather than a stylesheet:
 
 1. **Tones are meanings, not colours.** A mode says `danger`; what that looks like is decided once,
    in [`client/components/modeText.ts`](../src/client/components/modeText.ts). `danger` is red text
    in ordinary mode text and a red-backed slot in the visit card — the same word, expressed the way
    each element expresses things. A redesign changes one file.
-2. **Every hint is optional, and overrides exactly one axis.** Whatever a mode leaves out comes from
-   the element's own defaults, which is what keeps the screen looking like one screen. A bare string
-   is the normal case and should stay the normal case.
-3. **The screen's own concerns win where they are not the mode's.** The player card colours whoever
-   is throwing; a mode that says nothing about a score inherits that. A player score may only set a
-   semantic tone. Its weight and font size belong to the card, which continuously fits the score to
-   the available width and height. x01 sends plain strings for scores and only speaks up for `Bust!`
-   and `Checkout!`.
+2. **A tone is optional.** A bare string inherits the element's contextual tone and should remain
+   the normal case. For example, the player card colours whoever is throwing unless the mode needs
+   to say that a score is a `danger` or `warning`.
+3. **Geometry belongs to the screen.** Modes cannot hint font size or weight. Each element owns
+   those choices, including responsive fitting: player cards fit scores in both axes and the
+   overview fits its headline in the available width. x01 therefore sends plain strings for scores
+   and only speaks up with tones for `Bust!` and `Checkout!`.
 
 Why hints and not markup: the view is JSON on a WebSocket, and React elements do not survive
 `JSON.stringify`. A mode that needs real markup has the [panel](#the-match-screen) for it.

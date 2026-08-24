@@ -1,6 +1,15 @@
-import { styleOf } from '../../shared/types';
-import type { TextStyle, TextTone, ViewText } from '../../shared/types';
+import { toneOf } from '../../shared/types';
+import type { TextTone, ViewText } from '../../shared/types';
 import type { CSSProperties } from 'react';
+
+type TextSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
+
+interface TextPresentation {
+  tone?: TextTone;
+  size?: TextSize;
+  weight?: TextWeight;
+}
 
 const TONE_TEXT: Record<TextTone, string> = {
   default: 'gray.3',
@@ -21,7 +30,7 @@ const TONE_SLOT: Record<TextTone, { color: string; background: string }> = {
 };
 
 const WEIGHT = { normal: 400, medium: 500, semibold: 600, bold: 700 } as const;
-const SIZE: Record<NonNullable<TextStyle['size']>, string> = {
+const SIZE: Record<TextSize, string> = {
   xs: '0.75rem',
   sm: '0.875rem',
   base: '1rem',
@@ -39,23 +48,21 @@ export interface ModeTextProps {
   fw: number;
 }
 
-export function modeTextProps(value: ViewText | undefined, base: TextStyle = {}): ModeTextProps {
-  const hint = styleOf(value);
+export function modeTextProps(value: ViewText | undefined, presentation: TextPresentation = {}): ModeTextProps {
   return {
-    c: TONE_TEXT[hint.tone ?? base.tone ?? 'default'],
-    fz: SIZE[hint.size ?? base.size ?? 'base'],
-    fw: WEIGHT[hint.weight ?? base.weight ?? 'normal'],
+    c: TONE_TEXT[toneOf(value) ?? presentation.tone ?? 'default'],
+    fz: SIZE[presentation.size ?? 'base'],
+    fw: WEIGHT[presentation.weight ?? 'normal'],
   };
 }
 
-export function slotStyle(value: ViewText | undefined, base: TextStyle = {}): CSSProperties {
-  const hint = styleOf(value);
-  const tone = TONE_SLOT[hint.tone ?? base.tone ?? 'default'];
-  const size = hint.size ?? base.size ?? 'base';
+export function slotStyle(value: ViewText | undefined, presentation: TextPresentation = {}): CSSProperties {
+  const toneName = toneOf(value) ?? presentation.tone ?? 'default';
+  const tone = TONE_SLOT[toneName];
   return {
     color: tone.color,
     backgroundColor: tone.background,
-    fontSize: SIZE[size],
-    fontWeight: WEIGHT[hint.weight ?? base.weight ?? 'normal'],
+    fontSize: SIZE[presentation.size ?? 'base'],
+    fontWeight: WEIGHT[presentation.weight ?? 'normal'],
   };
 }

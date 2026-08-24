@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { DartThrow, MatchState, ModeSettings, Visit } from '../../src/shared/types';
+import { textOf, toneOf } from '../../src/shared/types';
 import { scoreFromBoardCoords } from '../../src/shared/scoring';
 import { whacAMole, whacAreaOf, whacRun } from '../../src/server/modes/whac-a-mole';
 import { addDartToMatch, legContext, submitVisitToMatch } from '../../src/server/match';
@@ -601,7 +602,7 @@ describe('whac-a-mole: what the screen is told', () => {
     expect(slots.filter((slot) => typeof slot !== 'string' && slot.text === '✖ lost')).toHaveLength(1);
 
     // The last of them is always the bonus throw, dim until the janitor pays for it.
-    expect(slots.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'muted', size: 'sm' });
+    expect(slots.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'muted' });
   });
 
   it('hands its own component a snapshot, and everyone else a table', () => {
@@ -628,18 +629,18 @@ describe('whac-a-mole: what the screen is told', () => {
   it('lights the bonus slot the moment the janitor pays for it', () => {
     const match = untilJanitor(makeMatch({}, 2));
     const before = whacAMole.view(legContext(match)).slots ?? [];
-    expect(before.at(-1)).toMatchObject({ tone: 'muted' });
+    expect(toneOf(before.at(-1))).toBe('muted');
 
     const after = whacAMole.view(legContext(throwAt(match, BURROW))).slots ?? [];
     // `warning` is the tone nothing else in this row uses; the screen decorates on it.
-    expect(after.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'warning', weight: 'bold' });
+    expect(after.at(-1)).toEqual({ text: '🛠 BONUS', tone: 'warning' });
   });
 
   it('puts the bonus last however many darts a visit was given', () => {
     const view = whacAMole.view(legContext(makeMatch({ darts: 5 })));
     expect(view.dartsPerVisit).toBe(6);
     expect(view.slots).toHaveLength(6);
-    expect(view.slots?.at(-1)).toMatchObject({ text: '🛠 BONUS' });
+    expect(textOf(view.slots?.at(-1))).toBe('🛠 BONUS');
     expect(whacAMole.dartsPerVisit({ ...SETTINGS, darts: 5 })).toBe(6);
   });
 

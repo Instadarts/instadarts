@@ -122,7 +122,7 @@ test.describe('Re-match', () => {
     await watcher.goto(`/spectate/${matchId}`);
     await expect(watcher.locator('text=501 — Double Out')).toBeVisible();
 
-    await host.click('button:has-text("Leave Match")');
+    await host.getByRole('button', { name: 'Leave', exact: true }).click();
 
     await expect(watcher.locator('text=Match cancelled')).toBeVisible({ timeout: 5000 });
     await expect(watcher.locator('text=wins!')).toHaveCount(0);
@@ -147,7 +147,7 @@ test.describe('Re-match', () => {
     await page1.waitForURL('**/match/**');
     await page2.waitForURL('**/match/**');
 
-    await page1.click('button:has-text("Leave Match")');
+    await page1.getByRole('button', { name: 'Leave', exact: true }).click();
 
     await expect(page2.locator('text=Bob wins!')).toBeVisible({ timeout: 5000 });
     await expect(page2.locator('text=Play again?')).toHaveCount(0);

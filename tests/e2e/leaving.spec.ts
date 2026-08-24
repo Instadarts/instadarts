@@ -168,7 +168,7 @@ test.describe('In-match leave scenarios', () => {
     await submitVisit(page1);
 
     // Alice leaves the match
-    await page1.click('button:has-text("Leave Match")');
+    await page1.getByRole('button', { name: 'Leave', exact: true }).click();
     await page1.waitForURL('/');
 
     // Bob should be declared winner

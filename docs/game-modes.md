@@ -259,7 +259,7 @@ client code — except an optional panel component (below).
 
 ```ts
 interface ModeView {
-  headline: ViewText;                     // x01: "501 — Double Out"
+  headline: ViewText;                     // x01: "501 — Double Out"; one line, width-fitted
   notice?: ViewText;                      // x01: "Double-In required — hit a double to start scoring"
   playerScores: Record<string, PlayerScoreText>; // playerId → automatically fitted card score
   visitTotal: ViewText;                   // empty text hides the line; x01 always returns a number
@@ -268,6 +268,11 @@ interface ModeView {
   history: ViewText[];                    // newest first; shown by the optional Visit history card
 }
 ```
+
+The overview keeps `headline` on one line and measures it into the width left by its badges and
+**Leave** button. Its tone and weight hints are honored, while its font size is owned by that
+automatic fit. Keep the text concise: the fitter retains a readable minimum rather than shrinking
+an arbitrarily long headline into illegibility.
 
 ### Text, and what a mode may say about how it looks
 

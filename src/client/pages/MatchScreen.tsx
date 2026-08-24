@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
 import { styleOf, textOf } from '../../shared/types';
 import { standingsOf } from '../../shared/matchFormat';
@@ -68,6 +68,10 @@ export function MatchScreen({
   const handleUndo = useCallback(() => onUndoDart(match.id), [match.id, onUndoDart]);
   const handleSubmit = useCallback(() => onSubmitVisit(match.id), [match.id, onSubmitVisit]);
   const over = match.status === 'finished';
+  const { c: headlineColor, fw: headlineWeight } = modeTextProps(view.headline, {
+    tone: 'accent',
+    weight: 'bold',
+  });
   const liveBoard = liveFeed?.canvas ? {
     canvas: liveFeed.canvas,
     ...(liveFeed.label ? { label: liveFeed.label } : {}),
@@ -75,15 +79,24 @@ export function MatchScreen({
 
   const overview = (
     <GridBox title="Overview" editable={true}>
-      <Group justify="space-between" gap="md" wrap="wrap">
-        <Group gap="sm" miw={0}>
-          <Title order={2} lh="1em" {...modeTextProps(view.headline, { tone: 'accent', size: '4xl', weight: 'bold' })}>
-            {textOf(view.headline)}
-          </Title>
+      <Group justify="space-between" gap="md" wrap="nowrap">
+        <Group className="match-overview__headline-group" gap="sm" miw={0}>
+          <AutoFitText
+            color={headlineColor}
+            component="h2"
+            fitHeight={false}
+            fontFamily="var(--mantine-font-family-headings)"
+            fontWeight={headlineWeight}
+            horizontalAlign="start"
+            lineHeight={1}
+            maximumFontSize={36}
+            minimumFontSize={16}
+            text={textOf(view.headline)}
+          />
           {isSpectator && <Badge color="yellow">spectating</Badge>}
           {mediaDisabled && !over && <Badge variant="light" color="gray">video off · more than two boards</Badge>}
         </Group>
-        <Button variant="default" onClick={onLeave}>{over ? 'Exit' : 'Leave Match'}</Button>
+        <Button variant="default" onClick={onLeave}>{over ? 'Exit' : 'Leave'}</Button>
       </Group>
     </GridBox>
   );

@@ -357,6 +357,40 @@ test.describe('responsive UI branch features', () => {
     await expectInsideViewport(page, cameras);
   });
 
+  test('the narrow match overview keeps its full headline and Leave button on one row', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 360, height: 800 });
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    const overview = page.locator('[data-grid-item="overview"]');
+    const headline = overview.getByRole('heading', { level: 2 });
+    const headlineContainer = headline.locator('..');
+    const leave = overview.getByRole('button', { name: 'Leave', exact: true });
+
+    await expect(headline.locator('span')).toHaveCSS('white-space', 'nowrap');
+    await expect(headlineContainer).toHaveCSS('overflow', 'clip');
+    await expect.poll(async () => parseFloat(await headline.locator('span').evaluate(
+      (element) => getComputedStyle(element).fontSize,
+    ))).toBeLessThan(36);
+
+    await expect.poll(async () => {
+      const [headlineBox, headlineContainerBox] = await Promise.all([
+        headline.locator('span').boundingBox(),
+        headline.boundingBox(),
+      ]);
+      if (!headlineBox || !headlineContainerBox) return false;
+      return headlineBox.x + headlineBox.width <= headlineContainerBox.x + headlineContainerBox.width + 1;
+    }).toBe(true);
+
+    const [headlineBox, leaveBox] = await Promise.all([headline.boundingBox(), leave.boundingBox()]);
+    expect(headlineBox).not.toBeNull();
+    expect(leaveBox).not.toBeNull();
+    expect(leaveBox!.y).toBeLessThan(headlineBox!.y + headlineBox!.height);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(headline.locator('span')).toHaveCSS('font-size', '36px');
+  });
+
   test('the narrow scorer settings scroll, and scorer zoom survives reload and device setup reset', async ({ browser }) => {
     const frontendContext = await browser.newContext();
     const frontend = await frontendContext.newPage();

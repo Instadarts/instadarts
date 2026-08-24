@@ -5,26 +5,34 @@ import type { CSSProperties } from 'react';
 interface AutoFitTextProps {
   text: string;
   color: string;
+  component?: 'div' | 'h2';
+  fitHeight?: boolean;
   fontFamily?: string;
   fontWeight?: number;
+  horizontalAlign?: 'start' | 'center' | 'end';
   lineHeight?: number;
+  maximumFontSize?: number;
   minimumFontSize?: number;
   style?: CSSProperties;
 }
 
 const EDGE_TOLERANCE = 1;
 
-/** A single unwrapped line, centered and enlarged until either available axis is exhausted. */
+/** A single unwrapped line, enlarged until its configured available axes are exhausted. */
 export function AutoFitText({
   text,
   color,
+  component = 'div',
+  fitHeight = true,
   fontFamily,
   fontWeight,
+  horizontalAlign = 'center',
   lineHeight = 1.2,
+  maximumFontSize,
   minimumFontSize = 8,
   style,
 }: AutoFitTextProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState(minimumFontSize);
 
@@ -35,10 +43,13 @@ export function AutoFitText({
 
     const availableWidth = host.clientWidth - EDGE_TOLERANCE;
     const availableHeight = host.clientHeight - EDGE_TOLERANCE;
-    if (availableWidth <= 0 || availableHeight <= 0) return;
+    if (availableWidth <= 0 || (fitHeight && availableHeight <= 0)) return;
 
     let low = minimumFontSize;
-    let high = Math.max(low, Math.floor(availableHeight / lineHeight));
+    const naturalMaximum = fitHeight
+      ? Math.floor(availableHeight / lineHeight)
+      : Math.ceil(availableWidth * 2);
+    let high = Math.max(low, Math.floor(Math.min(maximumFontSize ?? naturalMaximum, naturalMaximum)));
     let best = low;
 
     while (low <= high) {
@@ -46,7 +57,7 @@ export function AutoFitText({
       element.style.fontSize = `${candidate}px`;
       const bounds = element.getBoundingClientRect();
 
-      if (bounds.width <= availableWidth && bounds.height <= availableHeight) {
+      if (bounds.width <= availableWidth && (!fitHeight || bounds.height <= availableHeight)) {
         best = candidate;
         low = candidate + 1;
       } else {
@@ -56,7 +67,7 @@ export function AutoFitText({
 
     element.style.fontSize = `${best}px`;
     setFontSize((current) => current === best ? current : best);
-  }, [lineHeight, minimumFontSize, text]);
+  }, [fitHeight, lineHeight, maximumFontSize, minimumFontSize, text]);
 
   useLayoutEffect(() => {
     fit();
@@ -71,14 +82,17 @@ export function AutoFitText({
 
   return (
     <Box
-      ref={hostRef}
+      component={component}
+      ref={(element) => { hostRef.current = element; }}
       style={{
+        alignItems: 'center',
         display: 'grid',
         flex: '1 1 0',
+        justifyItems: horizontalAlign,
+        margin: 0,
         minHeight: 0,
         minWidth: 0,
         overflow: 'hidden',
-        placeItems: 'center',
         width: '100%',
       }}
     >

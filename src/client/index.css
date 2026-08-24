@@ -110,6 +110,11 @@ body {
   width: 100%;
 }
 
+.match-overview__headline-group {
+  flex: 1 1 0;
+  overflow: clip;
+}
+
 .frontend-grid--editing .react-grid-item:not(.react-grid-placeholder) {
   outline: 1px dashed var(--mantine-color-green-6);
   outline-offset: 2px;

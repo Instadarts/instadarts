@@ -329,7 +329,7 @@ test.describe('N-players matches', () => {
     await expect(guest.locator('[data-player="Bob"]')).toBeVisible();
 
     // Host (controlling Alice and Carol) leaves the match
-    await host.click('text=Leave Match');
+    await host.getByRole('button', { name: 'Leave', exact: true }).click();
     await host.waitForURL('/');
 
     // Guest should now see match finished with Bob as WINNER

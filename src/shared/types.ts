@@ -152,6 +152,20 @@ export interface ModeView {
   slots?: ViewText[];
   /** Visit history, newest first, one entry per committed visit; shown by an optional live card. */
   history: ViewText[];
+  /**
+   * This visit has nothing in it for the player whose turn it is, so the screen submits it for them
+   * rather than waiting on a button nobody has a reason to press.
+   *
+   * The only field here that asks for an action rather than describing something to draw, and the
+   * only one a mode must be careful with: *not throwing* and *nothing to wait for* are different
+   * states. A closing screen the mode wants read is also a visit with no darts in it, and setting
+   * this on one would skip it before anybody saw it. Say it only for a turn that is genuinely
+   * empty — Whac-A-Mole sets it for a player whose darts are all down the burrow, and deliberately
+   * not for its curtain call.
+   *
+   * The screen owns the pacing, and only the client holding that player submits.
+   */
+  autoSubmit?: boolean;
 }
 
 // --- Match state ---

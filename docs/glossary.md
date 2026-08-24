@@ -597,6 +597,12 @@ card score, visit total, darts per visit, optional slot contents, and history li
 in the wire contract and is shown by the breakpoint-local optional Visit history card when the user
 enables it in match-layout edit mode. The card is disabled by default.
 
+It also carries **`autoSubmit`**, the one field that asks the screen to do something rather than to
+draw something: the turn has nothing in it for the player whose turn it is, so the screen submits it
+for them. Whac-A-Mole sets it for a player whose darts are all down the burrow, and deliberately not
+for its [curtain call](#wam-run--turn--curtain-call), which is also a visit with no darts but is
+meant to be read.
+
 Computed by the mode **on the server** (`mode.view(ctx)`) and shipped with every `match_state` /
 `match_started` / `match_finished` message, so the client holds no rules. Player card scores are
 text, not numbers — that is what lets x01 put "Bust!" where a score would be without the screen

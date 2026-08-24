@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
 import { textOf, toneOf } from '../../shared/types';
@@ -66,6 +66,15 @@ export function MatchScreen({
   const handleUndo = useCallback(() => onUndoDart(match.id), [match.id, onUndoDart]);
   const handleSubmit = useCallback(() => onSubmitVisit(match.id), [match.id, onSubmitVisit]);
   const over = match.status === 'finished';
+
+  useAutoSubmit({
+    enabled: Boolean(view.autoSubmit) && isMyTurn,
+    // A visit has no id of its own — it does not exist until a dart lands, and this one never gets
+    // any. The count of committed visits is what numbers it, and it ticks the moment this submit
+    // lands, so the guard cannot fire twice for the same turn or miss the next one.
+    visitKey: `${match.id}:${match.visits.length}`,
+    onSubmit: handleSubmit,
+  });
   const { c: headlineColor, fw: headlineWeight } = modeTextProps(view.headline, {
     tone: 'accent',
     weight: 'bold',
@@ -245,6 +254,44 @@ export function MatchScreen({
       items={items}
     />
   );
+}
+
+/**
+ * How long a skipped turn stays on screen before it is submitted.
+ *
+ * Not zero. A turn that vanishes the instant it arrives reads as a dropped frame rather than as a
+ * turn, and the player it belonged to never sees why they got nothing to throw — which for
+ * Whac-A-Mole is the whole story of the darts they lost. Long enough to register, short enough that
+ * nobody waits on it.
+ */
+const AUTO_SUBMIT_MS = 1400;
+
+/**
+ * Submit a visit the mode says is empty, once, for the player whose turn it is.
+ *
+ * Only that player's own client runs this — everyone else is watching a turn taken elsewhere, and a
+ * second submit would be a second turn. The timer is cleared if anything moves first, so a state
+ * that arrives mid-wait cannot land a submit for a turn that has already gone.
+ */
+function useAutoSubmit({
+  enabled,
+  visitKey,
+  onSubmit,
+}: {
+  enabled: boolean;
+  visitKey: string;
+  onSubmit: () => void;
+}) {
+  const submitted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || submitted.current === visitKey) return;
+    const timer = setTimeout(() => {
+      submitted.current = visitKey;
+      onSubmit();
+    }, AUTO_SUBMIT_MS);
+    return () => clearTimeout(timer);
+  }, [enabled, visitKey, onSubmit]);
 }
 
 function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['playerScores'] }) {

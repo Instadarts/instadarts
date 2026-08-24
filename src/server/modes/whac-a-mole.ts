@@ -766,6 +766,11 @@ export const whacAMole: GameMode = {
       dartsPerVisit: cfg.darts + 1,
       slots: slotsFor(thrown, live, allowanceOf(start, playerId, cfg), cfg, playerId),
       history: [...live.history].reverse(),
+      // Every dart this player had is down the burrow, so their turn is a formality: the colony
+      // still digs, the run still advances, and there is nothing for them to aim at. `!over` is
+      // load-bearing — the curtain call is also a turn with no darts in it, and it is the one
+      // screen this mode most wants looked at.
+      autoSubmit: !over && allowance === 0,
     };
   },
 

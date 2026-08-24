@@ -266,8 +266,21 @@ interface ModeView {
   dartsPerVisit: number;
   slots?: ViewText[];                     // optional slot contents; omitted → default rendering
   history: ViewText[];                    // newest first; shown by the optional Visit history card
+  autoSubmit?: boolean;                   // nothing to throw this turn; the screen moves it on
 }
 ```
+
+**`autoSubmit` is the one field that asks for an action** rather than describing something to draw.
+A mode sets it for a turn that has nothing in it — Whac-A-Mole does when a player's darts are all
+down the burrow — and the screen submits that visit for them instead of waiting on a button nobody
+has a reason to press. Only the client holding that player acts on it, and the screen owns the
+pacing: it holds the turn on screen briefly first, so a skipped turn reads as a turn rather than as
+a dropped frame.
+
+Be careful with it, because *not throwing* and *nothing to wait for* are different states. A closing
+screen the mode wants read is also a visit with no darts in it; setting `autoSubmit` on one would
+sweep it away before anybody saw it. Whac-A-Mole's curtain call is exactly that case, and its flag
+is written `!over && allowance === 0` for that reason.
 
 The overview keeps `headline` on one line and measures it into the width left by its badges and
 **Leave** button. Its tone hint is honored, while its font size and weight belong to the overview.

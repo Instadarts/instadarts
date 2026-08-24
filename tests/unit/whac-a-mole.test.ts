@@ -619,6 +619,39 @@ describe('whac-a-mole: what the screen is told', () => {
     throw new Error('the janitor never came');
   }
 
+  it('asks the screen to move a turn on when a player has no darts, but never the curtain call', () => {
+    // Two players, because a solo run that loses its last dart is simply over — the empty turn only
+    // exists when somebody else still has darts to throw.
+    let match = makeMatch({ turns: 50 }, 2);
+    expect(whacAMole.view(legContext(match)).autoSubmit).toBe(false);
+
+    // Alice puts all three down the burrow, which is a hole before anybody throws.
+    for (let i = 0; i < 3; i++) match = throwAt(match, BURROW);
+    match = submit(match);
+    match = idleVisit(match);   // Bob, who keeps his
+
+    // Alice again, with nothing to throw and the run still going.
+    expect(match.players[match.currentPlayerIndex].id).toBe('p1');
+    expect(runOf(match).over).toBe(false);
+    expect(whacAMole.isVisitLocked(legContext(match))).toBe(true);
+    expect(whacAMole.view(legContext(match)).autoSubmit).toBe(true);
+
+    // Bob's turn is untouched by it.
+    match = submit(match);
+    expect(match.players[match.currentPlayerIndex].id).toBe('p2');
+    expect(whacAMole.view(legContext(match)).autoSubmit).toBe(false);
+  });
+
+  it('leaves the curtain call for the player to submit when the turns run out', () => {
+    let match = makeMatch({ turns: 3 });
+    for (let turn = 0; turn < 3; turn++) match = idleVisit(match);
+
+    // Over, no darts to throw, and the closing screen is the point of it.
+    expect(runOf(match).over).toBe(true);
+    expect(whacAMole.isVisitLocked(legContext(match))).toBe(true);
+    expect(whacAMole.view(legContext(match)).autoSubmit).toBe(false);
+  });
+
   it('draws a full row of slots, with the darts lost to holes shown as lost', () => {
     let match = makeMatch({ digTime: 1 });
     match = idleVisit(match);

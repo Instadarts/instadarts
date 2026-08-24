@@ -465,6 +465,11 @@ The game mode contributes the headline, so the summary still says what was playe
 are the same whatever was played inside the legs. Its responsive layout is saved under a distinct
 `match-summary` profile rather than reusing the live match arrangement.
 
+**The re-match box is conditional**, and it is the only one that is. It is left out entirely for a
+[spectator](#spectator), who has nothing to vote with, and for any match somebody has
+[left](#departed) — leaving is a decline that cannot be taken back, so there is no question left to
+put to anyone still there. Result and match history are always drawn.
+
 ### Who throws first
 
 The throw moves along the roster every leg, **and every set carries on from where the legs left
@@ -506,9 +511,9 @@ whose turn is next, whether anyone won — is entirely the mode handler's decisi
 x01 commits it as three misses.
 
 **How many darts a visit holds is the mode's**: `mode.dartsPerVisit(settings)`, enforced by the
-match layer and shipped to the screen as `view.dartsPerVisit`. x01 says three. The client's slot row
-is still laid out as if three were the only answer — see the
-[remaining leaks](#mode-specific-vocabulary-in-mode-agnostic-layers).
+match layer and shipped to the screen as `view.dartsPerVisit`. x01 says three, and the screen no
+longer assumes it: the slot row and the evidence strip are equal-column grids sized from
+`view.dartsPerVisit`.
 
 ### Locked visit
 

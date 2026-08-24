@@ -47,8 +47,8 @@ that cannot see the match structure cannot accidentally depend on it — which i
 legs to the match needed no change to any mode at all. The match layer hands over the current leg's
 visits and keeps the finished ones to itself.
 
-**Why pure derivation.** Undo, reconnect, spectating and (later) starting a fresh leg all become
-free: there is no second copy of the truth to keep in sync. x01 already worked this way for the
+**Why pure derivation.** Undo, reconnect, spectating and starting a fresh leg all become free: there
+is no second copy of the truth to keep in sync. x01 already worked this way for the
 remaining score; the one exception — a `doubleInMet` map living on the handler instance, outside the
 match state and never cleared — was exactly the thing that could not have survived a leg boundary.
 It is derived now: *a player has satisfied double-in iff they have a committed non-void visit whose
@@ -344,7 +344,8 @@ Anything new on the match screen should.
 
 Once the match is finished the screen becomes **the match's**, not the mode's. The board, visit and
 mode-panel boxes unmount; result cards show winner and loser instead of a score, and match history
-shows the scoreline — legs per set, read like a tennis result.
+shows the scoreline — legs per set, read like a tennis result. The re-match box is left out for a
+spectator and for a match somebody has left; result and match history are always there.
 
 A mode contributes exactly one thing to the current summary:
 

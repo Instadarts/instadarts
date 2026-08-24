@@ -270,7 +270,7 @@ are free. Shared setup goes in [`appHelpers.ts`](../tests/e2e/appHelpers.ts), wh
 never collected: Playwright only runs `*.spec.ts`.
 
 If a run fails with `EADDRINUSE` instead of reusing what is already up, something is on the port that
-the readiness probe cannot see. `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server-stats`
+the readiness probe cannot see. `curl -s -o /dev/null -w '%{http_code}' 'http://[::1]:3000/server-stats'`
 says whether the server is answering, and the next section is the usual culprit.
 
 ## Leftover processes

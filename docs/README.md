@@ -9,7 +9,7 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
 
 - [Glossary](./glossary.md) — the domain vocabulary: user, player, lobby, match, game mode, leg, set,
   visit, dart, scoring device. Read this first; it also records where the code's names disagree with
-  the words we use, and what the planned legs/sets work will have to touch.
+  the words we use, and which mode-specific words have leaked into mode-agnostic layers.
 - [User-interface architecture](./ui.md) — the shared Mantine design system, the frontend's
   responsive box grids, match layout editing and persistence, application zoom, scorer layout, and
   the boundary around specialized visual CSS. Read this before changing a screen.

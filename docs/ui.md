@@ -47,17 +47,37 @@ page layout from leaking into its contents.
 
 There is no utility-CSS framework in this repository. Prefer a Mantine prop or component before
 adding CSS. A small inline style is appropriate when it expresses geometry that Mantine has no prop
-for. Purpose-built CSS remains appropriate for visual behavior rather than routine layout, including:
+for — and inline style is where most specialized geometry ends up, so do not go looking for a
+stylesheet that does not exist. Mantine, RGL and react-resizable bring their own imported styles;
+within the application source, custom rule sets are authored in exactly two places.
 
+[`index.css`](../src/client/index.css) is the application stylesheet, and is intentionally short. It
+owns what has to apply to elements the components do not render themselves, or to the document root:
+
+- the `html`/`body`/`#root` reset, and the app-wide `user-select: none` with selection restored
+  inside text fields;
 - RGL item fill, overflow, edit outlines, drag cursors and resize handles;
-- the square dartboard and camera coordinate spaces;
-- SVG overlays, precision aiming and canvas/video layers;
-- Whac-a-Mole animation and its reduced-motion override;
-- screensaver capture/reveal behavior;
-- application background and root presentation zoom.
+- `.frontend-board-area`, the size container the square dartboard is measured against;
+- `.app-main` and `.scorer-column`, the application background and the scorer's column width;
+- the root presentation-zoom variables for both applications.
 
-[`index.css`](../src/client/index.css) is intentionally short. Do not rebuild ordinary card, form or
-responsive layouts there, and do not add application `@media` breakpoints for the regular frontend.
+Do not rebuild ordinary card, form or responsive layouts there, and do not add application `@media`
+breakpoints for the regular frontend.
+
+[`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) is the other one. A mode that animates needs
+keyframes, and keyframes cannot be expressed as inline style, so it portals a `<style>` element into
+`document.head` holding its own animations and their `prefers-reduced-motion` override. That block
+also sets the board's active cursor through `[data-testid="dartboard"]` — a second way this mode
+reaches outside its own panel, alongside the DOM reach recorded in
+[the glossary's remaining leaks](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). A
+new mode needing animation should follow the same pattern rather than adding to `index.css`.
+
+Everything else visual outside that mode-specific stylesheet is inline style plus Mantine props: the
+square camera viewport, the SVG board and its overlays, precision aiming, the canvas and video
+layers, and the screensaver's capture and reveal behavior. Not one of those components carries a
+`className` — `VirtualBoard`'s `.frontend-board-area` wrapper above is the single exception. Its
+container geometry could technically be inline too; the class keeps the shared board-area rule with
+the rest of the application stylesheet.
 
 ## Frontend page grids
 
@@ -99,21 +119,58 @@ flexed border box can hide; the resulting height is rounded up to whole RGL rows
 boxes are removed from the item set and compaction closes the hole.
 
 Match grids use fixed-height boxes with internally scrolling bodies. A changing score, visit or
-statistic must not move the board under a player's hand. They use vertical compaction with overlap
-allowed and collision prevention off. That is deliberate: while editing, a box does not push the
-rest of a carefully tuned match layout away, and gaps or overlap are available to the person making
-the layout. Canonical layouts should still begin non-overlapping.
+statistic must not move the board under a player's hand. They are built with
+`getCompactor('vertical', true, false)` — overlap allowed, collision prevention off — and RGL's
+overlap-allowing compactor **does not compact at all**: its pass returns the layout untouched. During
+a drag, an overlap is accepted rather than resolved by moving either box. That is deliberate: a box
+does not push the rest of a carefully tuned match layout away, and gaps or overlap are available to
+the person making the layout. Canonical layouts should still begin non-overlapping.
+
+A match grid can drop a box too — the summary omits its re-match box for a spectator and for a match
+somebody has left — and because nothing compacts, every remaining box keeps the position it was
+given. The re-match box is the trailing summary item, so removing it shortens the grid at the result
+and history row rather than leaving a visible hole. Removing an interior item from another match
+layout can leave a gap, which is consistent with its free-placement behavior.
 
 Constraints such as `minW`, `minH`, `static` and `isBounded` belong to each canonical layout item.
 Current code replaces stored constraints with these current declarations when it restores a saved
 position, so old browser data cannot retain a rule that the application removed.
 
+## The frontend header
+
+[`TopBar`](../src/client/components/TopBar.tsx) sits in a 52 px `AppShell.Header` above every route.
+It is the part of the frontend that outlives the screen you are on: pairing a camera and taking it
+for this tab has nothing to do with whether you are at home, in a lobby or mid-match, so it lives
+here rather than being duplicated into three pages. It holds the wordmark, a connection indicator,
+the fullscreen control, and two menus:
+
+| Menu | Holds |
+| --- | --- |
+| **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
+| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, **Reset layout**; `Links` → source code |
+
+The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a
+navigation, and a menu that shut on each click would make changing two things a two-trip job. Its
+dropdown is width- and height-bounded and scrolls, so a long device list stays usable on a
+phone-sized window. The settings menu keeps the default instead, and puts its live controls in a
+plain `Box` rather than in `Menu.Item`s — only **Reset layout** is an item, and closing after it is
+the right behavior for a one-shot action.
+
+The Layout section and presentation zoom are present on every route, including the home page. Only
+the match-layout controls — **Edit Match Layout**, the active breakpoint badge and **Reset layout**
+— appear while a match grid has registered itself; see below.
+
 ## Match layout editing and persistence
 
 The settings menu exposes **Edit Match Layout** only while a live or finished match grid is
-registered. Edit mode is transient and off by default. It reveals a header drag handle and the
-south-east resize handle; interactive controls and the dartboard are excluded from drag starts.
-Leaving the match or switching between the live and summary profiles turns editing off.
+registered. Edit mode is transient and off by default. It reveals a drag handle in each box header
+and the south-east resize handle.
+
+**Dragging is handle-only.** RGL is given `handle: '.frontend-grid-drag-handle'`, so the header grip
+is the one place a drag can begin and everything else in the box — the dartboard, the visit buttons,
+a scrolling body — keeps behaving normally while the layout is being edited. The `cancel` selector
+alongside it is a second line of defence for ordinary controls, not the thing that protects the
+board. Leaving the match or switching between the live and summary profiles turns editing off.
 
 RGL reports layouts for all five breakpoints. They are stored locally under the versioned key
 `instadarts_frontend_layout_v1` in two independent profiles:

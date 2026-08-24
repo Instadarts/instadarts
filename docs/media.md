@@ -135,6 +135,30 @@ roster removal, role loss, decline, feed end, source-epoch change, or match end.
 requests remain peer-to-peer. A scorer accepts still and director commands only over its exact `own`
 roster edge.
 
+### Live board video
+
+Consent decides what a viewer *may* decode; the screen decides what it shows, and the two are not the
+same question. A frontend covers its virtual board with one feed at a time, chosen by
+[`selectVideoFeed`](../src/client/hooks/useVideoFeed.ts) from the board whose turn it currently is:
+
+- **a participant** sees a board only on a turn taken at *another* board. Never their own — they are
+  standing at it — which is also the whole of a single-board match without that being a case of its
+  own;
+- **a spectator** sees the current player's board, whichever it is;
+- **nobody** sees anything while there is no current board to key the choice on — no match, or one
+  still arriving.
+
+That feed must also be accepted, decoding, and **fresh**: a frame older than `VIDEO_STALL_MS`
+(3000 ms) marks the feed `stalled` rather than `live`. Declined, unavailable, waiting and stalled all
+resolve the same way — the picture is not drawn and the virtual board underneath it stays visible.
+Uncovering the board is the fallback for every video failure in this document, which is why none of
+them needs to interrupt a match.
+
+Feed labels are derived from match participants, never from the device that publishes them: a board
+is labelled with everybody who throws at it, so one user who brought two players gets one board
+carrying both names. Feed identity remains an opaque source-generated UUID, and peer rosters
+deliberately carry no device names.
+
 ## Match setup presentation
 
 `media.setupTimeoutMs` defaults to 4000. On a mounted page the full-screen “Setting up match…” overlay
@@ -168,13 +192,33 @@ For WebRTC:
 - connection, link close, roster removal, socket replacement, mesh change, and teardown cancel pending
   retry work.
 
+### Why a link carries no video track
+
 Media uses two data channels and no WebRTC media tracks. Control is ordered/reliable. Encoded video is
-unordered with no retransmission; a late frame is useless. A scorer encodes once with WebCodecs and
-fans the same chunk out to accepted writable recipients.
+unordered with no retransmission; a late frame is useless.
+
+The reason is the encoder. It belongs to the **mesh**, not to a link: a scorer encodes once with
+WebCodecs and fans the same chunk out to every accepted, writable recipient. A media track would
+belong to one peer connection, so a phone with four viewers would run four encoders of the same
+picture — which is the cost this design exists to avoid. Fanning out an already-encoded chunk costs a
+send per recipient and nothing more.
+
+Two things follow. Quality is settled once at the source from the deployment's `media.video` profile
+rather than negotiated per viewer; and each recipient is judged separately, so one that cannot keep
+up has frames dropped for it — `bufferedAmount` past the backlog limit means skip, never queue —
+without holding the others back.
+
+### ICE, and why video may simply not work
 
 STUN only helps peers discover public addresses. `media.iceUrls` defaults to `["internal"]`, resolved by
-the browser to the host it reached and `media.stunPort` (3478 by default). There is no TURN relay, so
-unconnectable NAT combinations fall back to the virtual board.
+the browser to the host it reached and `media.stunPort` (3478 by default) — the STUN server this
+deployment carries itself, so making remote play work does not mean naming a third party. It needs
+that UDP port reachable, which a reverse proxy will not arrange.
+
+There is no TURN relay. Where two routers cannot be talked past, the connection is simply not made:
+unconnectable NAT combinations fall back to the virtual board, the match plays normally, and nothing
+waits on video that is never coming. Adding a relay would be the place to change that, and it is a
+deliberate omission rather than an oversight.
 
 ## Contract boundaries
 

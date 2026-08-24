@@ -239,9 +239,12 @@ figure, and confirm it behaves over the length of a session rather than only at 
   ratio. Keep the viewport reserved when no stream exists, and keep the same video DOM node across
   settings, calibration and model changes.
 - **Zoom** — `getCapabilities().zoom` exists on Android Chrome and mostly does not on iOS Safari.
-  The per-lens zoom memory can only be exercised with a lens. This camera-track zoom lives under
-  **Camera and AI** and changes the model's source pixels. The menu's **Layout → Zoom** control is
-  CSS presentation scale, is stored separately, and must not affect this geometry.
+  The per-lens zoom memory can only be exercised with a lens. This camera-track zoom sits on the
+  camera panel directly under the square preview, and in onboarding's camera and optional aim steps
+  — framing the board is the first thing done at a mount, and it is judged against the picture above
+  it rather than from a settings screen. A camera that exposes no zoom control says so under
+  **Camera and AI** instead. It changes the model's source pixels. The menu's **Layout → Zoom**
+  control is CSS presentation scale, is stored separately, and must not affect this geometry.
 - **Autofocus behaviour** — a mounted camera looking at a board with darts standing out of it is
   the case the `detail` content hint is there for.
 - **Where the camera stands is a model requirement, not a preference.** It wants the board **from an

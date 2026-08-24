@@ -153,9 +153,10 @@ A board is the unit the [media](#media) feature is built on: one source slot per
 player, so a user holding two players declares once and publishes one camera feed for both of their
 turns. One user holding the whole roster is that rule at its extreme — one board, everybody on it.
 
-The mesh is built for at most two boards. A match with a third gets no media session at all, and the
-screen is told so (`mediaDisabled`) rather than left showing video that never arrives. See
-[docs/media.md](./media.md).
+The mesh is built for at most two boards. A match with a third gets no media session at all. The
+client is told so (`mediaDisabled`) and uses it for one thing — not announcing itself into a session
+that is never coming; it shows the user nothing, because no feed is offered and none is therefore
+missing. See [docs/media.md](./media.md).
 
 ### Lobby
 

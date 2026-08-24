@@ -256,7 +256,10 @@ test.describe('N-players matches', () => {
 
   test('three users get a match but no video mesh', async ({ browser }) => {
     // A third board is a topology the mesh was never built for, so the server creates no session at
-    // all — and the screen says so, or missing video reads as a fault rather than as a decision.
+    // all and the match simply plays on the virtual board. The client says nothing about it: there
+    // is no feed to be missing, so there is nothing to explain. That the server withholds the
+    // session is pinned on the wire in tests/unit/media.test.ts; what matters here is that three
+    // users still get a working match out of it.
     const contexts = await Promise.all([0, 1, 2].map(() => browser.newContext()));
     const [host, second, third] = await Promise.all(contexts.map((ctx) => ctx.newPage()));
 
@@ -283,7 +286,7 @@ test.describe('N-players matches', () => {
       await expect(page.locator('[data-player="Alice"]')).toBeVisible();
       await expect(page.locator('[data-player="Bob"]')).toBeVisible();
       await expect(page.locator('[data-player="Carol"]')).toBeVisible();
-      await expect(page.getByText(/video off.*more than two boards/i)).toBeVisible();
+      await expect(page.getByTestId('dartboard')).toBeVisible();
     }
 
     await Promise.all(contexts.map((ctx) => ctx.close()));

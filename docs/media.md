@@ -25,10 +25,17 @@ boards are in play.
 
 A match with a third board gets **no session at all**: `startMediaForMatch` returns without creating
 one, which is the state a deployment with `media.enabled: false` already produces, so every client
-path handles it. It is not a mesh with nobody in it — no peer identity is ever minted. The match
-messages carry `mediaDisabled` so the screen can say why, and the frontend does not announce itself
-into a session that is never coming. An n-board mesh is a topology nobody has designed; this is where
-that decision would be made.
+path handles it. It is not a mesh with nobody in it — no peer identity is ever minted. An n-board
+mesh is a topology nobody has designed; this is where that decision would be made.
+
+The match messages carry **`mediaDisabled`** so the frontend does not announce itself into a session
+that is never coming. That is now its only client-side effect — it gates `useMediaMesh`'s `matchId`
+in [`App.tsx`](../src/client/App.tsx) and nothing else. **The screen does not mention it.** It used
+to carry a "video off · more than two boards" badge, on the reasoning that missing video would
+otherwise read as a fault; the badge was removed because nothing is missing to a player looking at
+the screen. No feed is offered, no placeholder is drawn, and the match plays on the virtual board
+exactly as a two-board match does when its peers cannot connect. Explaining an absence nobody
+notices cost a line of the overview at every width.
 
 Each frontend declares its current choice after it receives a running match:
 

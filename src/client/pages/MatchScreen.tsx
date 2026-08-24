@@ -30,7 +30,6 @@ interface MatchScreenProps {
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   ownPlayerIds: string[];
   isSpectator: boolean;
-  mediaDisabled: boolean;
   evidence: (string | undefined)[] | null;
   liveFeed: VideoFeedView | null;
   videoOffers: readonly VideoFeedView[];
@@ -51,7 +50,6 @@ export function MatchScreen({
   onVoteRematch,
   ownPlayerIds,
   isSpectator,
-  mediaDisabled,
   evidence,
   liveFeed,
   videoOffers,
@@ -97,7 +95,6 @@ export function MatchScreen({
             text={textOf(view.headline)}
           />
           {isSpectator && <Badge color="yellow">spectating</Badge>}
-          {mediaDisabled && !over && <Badge variant="light" color="gray">video off · more than two boards</Badge>}
         </Group>
         <Button variant="default" onClick={onLeave}>{over ? 'Exit' : 'Leave'}</Button>
       </Group>

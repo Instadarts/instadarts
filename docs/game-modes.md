@@ -309,7 +309,7 @@ The page-level boxes are arranged by the responsive match grid rather than a fix
 
 | # | Element | Universal | From the mode |
 | --- | --- | --- | --- |
-| 1 | Overview | the element, spectator/media badges, Leave | `headline` |
+| 1 | Overview | the element, the spectator badge, Leave | `headline` |
 | 2 | Player cards | names, standings (sets and legs), current-player highlight, "▶ throwing", winner banner | `playerScores[playerId]` |
 | 3 | Dartboard | manual input and optional live-board presentation | — |
 | 4 | Visit | slots, evidence, Undo / Submit | `notice` in the card header, `dartsPerVisit`, optional `slots`, `visitTotal` |

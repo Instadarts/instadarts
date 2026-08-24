@@ -94,6 +94,8 @@ export function App() {
     tier: wantsMedia ? 'video' : 'disabled',
     // A match with more than two boards is never given a session, so joining one would only build
     // peer machinery for a roster that is never coming. Respected here as well as enforced there.
+    // This is now the only thing `mediaDisabled` does on the client: the screen no longer announces
+    // it, because there is nothing there to look wrong — no feed is offered and none is missing.
     matchId: match?.status === 'in_progress' && !mediaDisabled ? match.id : null,
     declarationVersion: roomGeneration,
     declarationReady: devices.claimsReady,
@@ -277,7 +279,6 @@ export function App() {
             match={match}
             view={view}
             panel={panel}
-            mediaDisabled={mediaDisabled}
             ownPlayerIds={ownPlayerIds}
             isSpectator={isSpectator}
             leaveMatch={leaveMatch}
@@ -296,7 +297,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} mediaDisabled={mediaDisabled} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -368,7 +369,6 @@ interface MatchWrapperProps {
   match: MatchState | null;
   view: ModeView | null;
   panel?: ModePanel;
-  mediaDisabled: boolean;
   ownPlayerIds: string[];
   isSpectator: boolean;
   leaveMatch: (matchId: string) => void;
@@ -385,7 +385,7 @@ interface MatchWrapperProps {
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, mediaDisabled, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, panel, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view) return <LoadingRoute label="Loading match…" />;
@@ -394,7 +394,6 @@ function MatchWrapper({ match, view, panel, mediaDisabled, ownPlayerIds, isSpect
       match={match}
       view={view}
       panel={panel}
-      mediaDisabled={mediaDisabled}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
       onLeave={() => { leaveMatch(match.id); navigate('/'); }}
@@ -419,7 +418,6 @@ interface SpectateWrapperProps {
   match: MatchState | null;
   view: ModeView | null;
   panel?: ModePanel;
-  mediaDisabled: boolean;
   modes: ModeDescriptor[];
   leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
@@ -430,7 +428,7 @@ interface SpectateWrapperProps {
   onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, mediaDisabled, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
   const lastSpectateRef = useRef<string | null>(null);
 
@@ -472,7 +470,6 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
         match={match}
         view={view}
         panel={panel}
-        mediaDisabled={mediaDisabled}
         ownPlayerIds={[]}
         isSpectator={true}
         onLeave={() => navigate('/')}

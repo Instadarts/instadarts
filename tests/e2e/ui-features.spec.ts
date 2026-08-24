@@ -404,9 +404,19 @@ test.describe('responsive UI branch features', () => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await setupLocalMatch(page, ['Alice'], 501);
 
+    const overviewCard = page.locator('[data-grid-item="overview"] .frontend-grid-box');
+    const overviewContent = overviewCard.locator('[data-grid-box-content]');
+    const overviewTopBeforeEditing = (await overviewContent.boundingBox())!.y;
+
     let menu = await openFrontendSettings(page);
     await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), true);
     await page.keyboard.press('Escape');
+
+    await expect(overviewCard).toHaveClass(/frontend-grid-box--edit-header-overlay/);
+    await expect(overviewCard.locator('.frontend-grid-box__header')).toHaveCSS('position', 'absolute');
+    await expect(page.locator('[data-grid-item="visit"] .frontend-grid-box'))
+      .not.toHaveClass(/frontend-grid-box--edit-header-overlay/);
+    expect((await overviewContent.boundingBox())!.y).toBeCloseTo(overviewTopBeforeEditing, 1);
 
     const canonicalVisit = LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'visit')!;
     const before = await storedItem(page, 'match-live', 'lg', 'visit') ?? canonicalVisit;

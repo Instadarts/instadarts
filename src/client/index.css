@@ -41,6 +41,27 @@ body {
   flex: 0 0 auto;
 }
 
+/* A titleless grid box gets a grip-only header in edit mode. Keep its body geometry unchanged. */
+.frontend-grid-box--edit-header-overlay {
+  position: relative;
+}
+
+.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header {
+  background: color-mix(in srgb, var(--mantine-color-dark-8) 76%, transparent);
+  inset: 0 0 auto;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header .frontend-grid-drag-handle {
+  pointer-events: auto;
+}
+
+.frontend-grid-box--edit-header-overlay > [data-app-card-header-divider] {
+  display: none;
+}
+
 .frontend-grid-box__body {
   display: flex;
   flex-direction: column;

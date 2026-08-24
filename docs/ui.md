@@ -168,6 +168,10 @@ the south-east resize handle, and an **Optional cards** switch list when that pr
 The badge and optional-card switches describe the current RGL breakpoint: showing a card at `lg`
 does not also show it at `sm`.
 
+Boxes without a configured header still receive a grip while editing. That temporary header overlays
+the body with a translucent background instead of consuming grid-box height, so entering edit mode
+does not move or shrink the content being used to judge the box size.
+
 **Dragging is handle-only.** RGL is given `handle: '.frontend-grid-drag-handle'`, so the header grip
 is the one place a drag can begin and everything else in the box — the dartboard, the visit buttons,
 a scrolling body — keeps behaving normally while the layout is being edited. The `cancel` selector

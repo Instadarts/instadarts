@@ -64,7 +64,7 @@ export function AppCard({
               </Group>
             )}
           </Group>
-          <Divider />
+          <Divider data-app-card-header-divider />
         </>
       )}
       <Box

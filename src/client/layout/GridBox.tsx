@@ -26,6 +26,11 @@ export function GridBox({
 }: GridBoxProps) {
   const editor = useLayoutEditor();
   const showHandle = editable && editor.active !== null && editor.editing;
+  const hasConfiguredHeader = title !== undefined
+    || headerCenter !== undefined
+    || badge !== undefined
+    || actions !== undefined;
+  const overlayEditHeader = showHandle && !hasConfiguredHeader;
   return (
     <AppCard
       title={title}
@@ -46,7 +51,7 @@ export function GridBox({
       actions={actions}
       centered={centered}
       padding={padding}
-      className="frontend-grid-box"
+      className={`frontend-grid-box${overlayEditHeader ? ' frontend-grid-box--edit-header-overlay' : ''}`}
       headerClassName="frontend-grid-box__header"
       bodyClassName="frontend-grid-box__body"
       contentClassName="frontend-grid-box__content"

@@ -70,15 +70,43 @@ async function expectAppliedZoom(
   expect(await storedValue(page, APP_ZOOM_STORAGE_KEYS[target])).toBe(String(value));
 }
 
+/**
+ * Where a floating element comes to rest, not where it is passing through.
+ *
+ * A dropdown repositions asynchronously, and the two halves of that do not land together: its width
+ * reflows to the new viewport while its offset is still the old one, so for a frame it measures as
+ * a narrow box sitting off the right edge. Polled for that reason, and the failure reports the box
+ * it settled on, because "expected <= 361, received 1084" says nothing about which half was wrong.
+ */
 async function expectInsideViewport(page: Page, element: Locator): Promise<void> {
   const viewport = page.viewportSize();
-  const box = await element.boundingBox();
   expect(viewport).not.toBeNull();
-  expect(box).not.toBeNull();
-  expect(box!.x).toBeGreaterThanOrEqual(0);
-  expect(box!.y).toBeGreaterThanOrEqual(0);
-  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
+
+  await expect.poll(async () => {
+    const box = await element.boundingBox();
+    if (!box) return 'no bounding box';
+    const inside = box.x >= 0 && box.y >= 0
+      && box.x + box.width <= viewport!.width + 1
+      && box.y + box.height <= viewport!.height + 1;
+    return inside ? 'inside' : [
+      `${Math.round(box.x)},${Math.round(box.y)}`,
+      `${Math.round(box.width)}x${Math.round(box.height)}`,
+      `outside ${viewport!.width}x${viewport!.height}`,
+    ].join(' ');
+  }).toBe('inside');
+}
+
+/** Dismiss whatever is floating above the page, so the next resize has nothing to reposition. */
+async function closeOverlays(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog');
+  const menu = page.getByRole('menu');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!await dialog.first().isVisible().catch(() => false)
+      && !await menu.first().isVisible().catch(() => false)) return;
+    await page.keyboard.press('Escape');
+  }
+  await expect(dialog.first()).toBeHidden();
+  await expect(menu.first()).toBeHidden();
 }
 
 async function expectGridItemsDoNotOverlap(page: Page): Promise<void> {
@@ -426,6 +454,11 @@ test.describe('responsive UI branch features', () => {
     const code = await requestPairingCode(frontend);
     const scorer = await openPairedScorer(browser, code);
 
+    // Reading the pairing code left the camera menu and its dialog open at the default width, and
+    // `openCameraMenu` reuses a menu that is already showing. Resizing under it would measure a
+    // dropdown mid-reposition rather than the narrow layout this test is about — and a person on a
+    // phone opens the menu at phone size, they do not open it on a desktop and shrink the window.
+    await closeOverlays(frontend);
     await frontend.setViewportSize({ width: 360, height: 240 });
     const cameras = await openCameraMenu(frontend);
     await expectInsideViewport(frontend, cameras);

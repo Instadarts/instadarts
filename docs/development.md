@@ -343,6 +343,12 @@ Two things that will waste your time:
   shows two, because the third has not come back over the WebSocket yet. Wait for the effect you
   expect (`expect.poll`, or a plain `waitForTimeout` in a throwaway spec) rather than concluding the
   click was dropped.
+- **A floating element repositions in two steps, and they do not land together.** Resize with a
+  dropdown open and its width reflows to the new viewport while its offset is still the old one, so
+  for a frame it measures as a narrow box hanging off the right edge — `740 + 344 = 1084` on a
+  360-wide screen, which cost a flake in roughly one run in six. Close what is floating before
+  resizing, and open it again at the size being tested: it is also what the person on the phone
+  does. Measure a floating element with a polled assertion either way.
 
 ## Tests that do not break for the wrong reason
 

@@ -317,6 +317,49 @@ async function finishSinglePlayerMatch(page: Page): Promise<void> {
 }
 
 test.describe('responsive UI branch features', () => {
+  test('visit card fills roomy heights and keeps both ends reachable when short', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await setupLocalMatch(page, ['Alice'], 501);
+
+    const visit = page.locator('[data-grid-item="visit"]');
+    const body = visit.locator('.frontend-grid-box__body');
+    const content = visit.locator('[data-grid-box-content]');
+    const slots = visit.locator('[data-visit-slots]');
+    const footer = visit.getByTestId('visit-footer');
+
+    await expect.poll(() => body.evaluate((element) => element.scrollHeight <= element.clientHeight))
+      .toBe(true);
+    const roomy = {
+      content: (await content.boundingBox())!,
+      slots: (await slots.boundingBox())!,
+      footer: (await footer.boundingBox())!,
+    };
+    expect(Math.abs(roomy.slots.y - roomy.content.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      roomy.footer.y + roomy.footer.height - roomy.content.y - roomy.content.height,
+    )).toBeLessThanOrEqual(1);
+
+    await setEditMode(page, true);
+    await resizeGridItemUp(page, 'visit', 600);
+    await expect.poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true);
+
+    await body.evaluate((element) => { element.scrollTop = 0; });
+    const shortBody = (await body.boundingBox())!;
+    const shortSlots = (await slots.boundingBox())!;
+    expect(shortSlots.y).toBeGreaterThanOrEqual(shortBody.y);
+    expect(shortSlots.y + shortSlots.height).toBeLessThanOrEqual(shortBody.y + shortBody.height + 1);
+
+    await expect.poll(async () => {
+      await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      const visible = (await body.boundingBox())!;
+      const bottom = (await footer.boundingBox())!;
+      return bottom.y >= visible.y
+        && bottom.y + bottom.height <= visible.y + visible.height + 1;
+    }).toBe(true);
+  });
+
   test('document grids remeasure growing and shrinking lobby content at the active breakpoint', async ({ page }) => {
     await page.setViewportSize({ width: 900, height: 900 });
     await page.goto('/');
@@ -524,7 +567,9 @@ test.describe('responsive UI branch features', () => {
     const canonicalVisit = LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'visit')!;
     const before = await storedItem(page, 'match-live', 'lg', 'visit') ?? canonicalVisit;
     const beforePosition = `${before.x},${before.y}`;
-    await dragGridItem(page, 'visit', 180, 120);
+    // Match layouts deliberately allow overlap. Move the card one column sideways so the drag is
+    // real without covering the bottom-anchored visit controls this test exercises afterwards.
+    await dragGridItem(page, 'visit', 110, 0);
     await expect.poll(async () => {
       const item = await storedItem(page, 'match-live', 'lg', 'visit');
       return item ? `${item.x},${item.y}` : beforePosition;

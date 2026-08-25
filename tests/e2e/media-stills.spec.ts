@@ -142,6 +142,57 @@ test.describe('dart evidence', () => {
     await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
     await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBe(3);
 
+    const evidenceLayout = await host.locator('[data-grid-item="visit"]').evaluate((visit) => {
+      const content = visit.querySelector<HTMLElement>('[data-grid-box-content]');
+      const slots = visit.querySelector<HTMLElement>('[data-visit-slots]');
+      const slot = slots?.firstElementChild;
+      const space = visit.querySelector<HTMLElement>('[data-testid="visit-evidence-space"]');
+      const evidence = visit.querySelector<HTMLElement>('[data-testid="dart-evidence"]');
+      const tile = evidence?.firstElementChild;
+      const footer = visit.querySelector<HTMLElement>('[data-testid="visit-footer"]');
+      if (!content || !slots || !(slot instanceof HTMLElement) || !space || !evidence
+        || !(tile instanceof HTMLElement) || !footer) {
+        throw new Error('visit layout is incomplete');
+      }
+      const box = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      };
+      return {
+        content: box(content),
+        slots: box(slots),
+        slot: box(slot),
+        space: box(space),
+        evidence: box(evidence),
+        tile: box(tile),
+        footer: box(footer),
+      };
+    });
+
+    // Fixed regions sit at the card edges. The evidence consumes the smaller of the remaining
+    // height and one slot's width, stays square, and is centred when either axis has room left.
+    expect(Math.abs(evidenceLayout.slots.y - evidenceLayout.content.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      evidenceLayout.footer.y + evidenceLayout.footer.height
+        - evidenceLayout.content.y - evidenceLayout.content.height,
+    )).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        evidenceLayout.evidence.y + evidenceLayout.evidence.height / 2
+          - evidenceLayout.space.y - evidenceLayout.space.height / 2,
+      ),
+      JSON.stringify(evidenceLayout),
+    ).toBeLessThanOrEqual(1);
+    expect(Math.abs(evidenceLayout.tile.width - evidenceLayout.tile.height)).toBeLessThanOrEqual(1);
+    expect(evidenceLayout.tile.width).toBeLessThanOrEqual(evidenceLayout.slot.width + 1);
+    expect(Math.abs(
+      evidenceLayout.tile.x + evidenceLayout.tile.width / 2
+        - evidenceLayout.slot.x - evidenceLayout.slot.width / 2,
+    )).toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      evidenceLayout.tile.width - Math.min(evidenceLayout.slot.width, evidenceLayout.space.height),
+    )).toBeLessThanOrEqual(1);
+
     // A real JPEG at the configured size, decoded by the browser rather than merely delivered.
     // Asked of the defaults rather than of a literal: this run has no settings file, so they are
     // what the server shipped, and the question is whether what arrives matches what was asked for.
@@ -150,7 +201,7 @@ test.describe('dart evidence', () => {
     expect(decoded).toEqual({ w: CONFIG_DEFAULTS.media.still.size, h: CONFIG_DEFAULTS.media.still.size });
 
     // And the board did not move when the pictures arrived, which is the rule the fixed match-grid
-    // height is there to keep. The Visit card may recenter its own contents within that fixed box.
+    // height is there to keep. The Visit card uses the room inside that fixed box.
     expect(await gridItemTop(host, 'board')).toBe(boardTop);
 
     // Three darts, three different squares of the board — so three different pictures.

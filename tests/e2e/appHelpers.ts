@@ -153,35 +153,6 @@ export async function startScorerCamera(
  * SVG is y-down, so we flip: svgY = 1_000_000 - boardY.
  */
 /**
- * Keep to the server's message budget.
- *
- * `rateLimit.ts` gives a session ten messages a second and drops the eleventh. A dropped
- * `add_dart`, `submit_visit` or `start_match` is invisible from the page: the server answers
- * `Rate limit exceeded`, the match screen never draws it, and the press simply did not happen. A
- * person cannot press that fast. A test can, and did — three darts and a submit per visit sat
- * exactly on ten a second once the round-trip sleeps came out of these helpers, and the server log
- * shows it dropping both. Eight, not ten, because the app spends from the same bucket on its own.
- *
- * This is a rate the server documents, not a guess at how long something takes.
- */
-const BUDGET_PER_SECOND = 5;
-const sentTimes = new WeakMap<Page, number[]>();
-
-async function paced(page: Page): Promise<void> {
-  for (;;) {
-    const now = Date.now();
-    const recent = (sentTimes.get(page) ?? []).filter((at) => now - at < 1000);
-    if (recent.length < BUDGET_PER_SECOND) {
-      recent.push(now);
-      sentTimes.set(page, recent);
-      return;
-    }
-    sentTimes.set(page, recent);
-    await page.waitForTimeout(1000 - (now - recent[0]) + 10);
-  }
-}
-
-/**
  * Enough of the visit to tell one state of it from the next.
  *
  * Deliberately not a dart count. A mode declares its own slot row and Whac-A-Mole's is always a
@@ -215,7 +186,6 @@ export async function clickBoard(page: Page, boardX: number, boardY: number) {
   const py = box.height * (1 - boardY / 1_000_000);
 
   const before = await visitState(page);
-  await paced(page);
   await svg.click({ position: { x: px, y: py } });
   // And wait for it to come back, so a dart that does go missing fails here rather than surfacing
   // three assertions later as a score nobody can account for.
@@ -267,7 +237,6 @@ export async function submitVisit(page: Page) {
   // one: when it ran long the next press landed on the turn before, and the failure surfaced
   // somewhere else entirely as a dart on the wrong player or a leg that never ended.
   const before = await visitState(page);
-  await paced(page);
   await submit.click();
   await expect
     .poll(() => visitState(page), { message: 'the visit was submitted but nothing moved on' })
@@ -318,8 +287,7 @@ export async function setupLocalMatch(page: Page, players: string[], startScore 
   // Add players
   for (const name of players) {
     await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
-    await paced(page);
-    await page.click('button:has-text("Add")');
+      await page.click('button:has-text("Add")');
     await expect(page.locator(`text=${name}`)).toBeVisible();
   }
 
@@ -332,7 +300,6 @@ export async function setupLocalMatch(page: Page, players: string[], startScore 
   if (!await doCheckbox.isChecked()) await doCheckbox.check();
 
   // Start match
-  await paced(page);
   await page.click('text=Start Match');
   await page.waitForURL('**/match/**');
   await expect(page.locator(`text=${startScore}`).first()).toBeVisible();

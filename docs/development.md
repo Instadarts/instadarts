@@ -33,7 +33,9 @@ src/server/     index.ts        boot: modes, express, the socket server, the clo
                                 only thing that deletes a lobby or a match
                 capacity.ts     how big this server may get, all of it derived from one number
                 config.ts       the optional settings file: where it is, and what a bad one does
-                rateLimit.ts, env.ts, invite.ts, player.ts
+                rateLimit.ts    two numbers per budget — what may be spent at once, and what may
+                                be kept up — and what becomes of a client that empties one
+                env.ts, invite.ts, player.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
@@ -361,6 +363,13 @@ Selector traps that have all actually bitten here:
   box with `[data-grid-item="scores"]` (or another stable item id), then use roles, labels,
   `data-player` or a functional test id inside it. Do not encode RGL transforms, DOM depth, sibling
   order or a canonical `x`/`y` unless the layout itself is under test.
+- **A message the server refuses is not always a message the screen mentions.** Several handlers
+  return without answering — `start_match` from a connection holding no seat is one — and a
+  `Rate limit exceeded` reply is not drawn on the match screen at all. The symptom is a press that
+  does nothing, for as long as you care to wait, with no error anywhere: it looks like a dead button
+  or a broken selector, and it is neither. Before chasing the UI, log inbound messages on the server
+  and see whether the press arrived and what was done with it. A day went into the rate limiter this
+  way, and the answer was two lines of server output.
 - **Assertions on mode-provided strings go stale when a mode changes.** Changing an x01 dart slot
   from `T20 (60)` to `T20` and blanking the panel title broke three tests that had nothing to do
   with the change. If you edit `src/server/modes/*.ts`, grep the specs — unit *and* e2e — for the

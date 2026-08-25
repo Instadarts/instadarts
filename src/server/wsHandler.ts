@@ -20,7 +20,7 @@ import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
 import { generateInviteCode } from './invite';
 import { nameIsTaken, sanitizeName, validateSettings, validateDartThrow } from './validation';
-import { checkRateLimit, checkSignalRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
+import { checkMediaRateLimit, checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { CONFIG } from './config';
 import {
   handleMediaLeave,
@@ -246,6 +246,15 @@ function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
 // Message routing
 // ============================================================
 
+/**
+ * The media plane, answered from the media budget rather than the general one.
+ *
+ * All four are bursty and none of them is gameplay: a frontend announces itself with `media_join`,
+ * a device with `media_ready`, both withdraw with `media_leave`, and `media_signal` carries the
+ * offers and answers between them.
+ */
+const MEDIA_PLANE = new Set(['media_signal', 'media_join', 'media_ready', 'media_leave']);
+
 export function handleMessage(ws: WebSocket, raw: string): void {
   const client = getClient(ws);
 
@@ -259,12 +268,20 @@ export function handleMessage(ws: WebSocket, raw: string): void {
   // one of the reports it would lose to the shared bucket is the empty one that ends the visit.
   if (msg.type === 'scorer_tips') {
     if (!client?.deviceId || !checkTipsRateLimit(client.deviceId)) return;
-  } else if (msg.type === 'media_signal') {
-    // Its own budget, because signaling arrives in bursts: a client joining a match negotiates every
-    // link it has in one breath and then says nothing all evening.
-    if (!checkSignalRateLimit(client?.deviceId ?? client?.sessionId ?? '')) return;
+  } else if (MEDIA_PLANE.has(msg.type)) {
+    // Its own budget, because the media plane arrives in bursts: a client joining a match announces
+    // itself and negotiates every link it has in one breath, then says nothing all evening. None of
+    // that may cost it a dart, which is what sharing the general bucket was quietly doing.
+    if (!checkMediaRateLimit(client?.deviceId ?? client?.sessionId ?? '')) return;
   } else if (!checkRateLimit(client?.sessionId ?? `anon_${Math.random()}`)) {
-    send(ws, { type: 'error', message: 'Rate limit exceeded' });
+    // Closed, not dropped. The budget's burst is set well above anything a person or the interface
+    // can produce, so a client that reaches it is broken or hostile rather than quick — and dropping
+    // one message is the worst answer to either. It leaves an honest client quietly diverged from
+    // the server, a dart lighter and never told, and it does not inconvenience a flood at all, which
+    // simply carries on at the refill rate. A closed socket answers the second and is the safer
+    // answer to the first: a seat is what resumes a session, so an honest client comes back and
+    // resyncs. 1013 is "try again later", which the client's own reconnect already treats that way.
+    ws.close(1013, 'Rate limit exceeded');
     return;
   }
 

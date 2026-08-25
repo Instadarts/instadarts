@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import '../helpers'; // installs the x01 game mode
 import { sanitizeName, validateSettings, validateDartThrow } from '../../src/server/validation';
 import type { MatchSettings } from '../../src/shared/types';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
+import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
+import type { WebSocket } from 'ws';
 import { canCreateLobby, canCreateMatch } from '../../src/server/capacity';
 
 // ============================================================
@@ -252,25 +254,98 @@ describe('validateDartThrow', () => {
 // ============================================================
 
 describe('rate limiting', () => {
-  it('allows initial burst of messages', () => {
+  it('lets a burst no honest client could produce through untouched', () => {
     const id = 'test-ratelimit-1';
-    // Should allow up to 10 messages
-    for (let i = 0; i < 10; i++) {
-      expect(checkRateLimit(id)).toBe(true);
-    }
-    // 11th should be rejected
-    expect(checkRateLimit(id)).toBe(false);
+    // Measured by logging every inbound message through a full end-to-end run: a page arriving in a
+    // room sends four of its own accord, and the busiest second anywhere in the suite was twelve —
+    // a test doing in under a second what a person does over half a minute in a lobby. Thirty is
+    // past anything a person or the interface produces, and it is still only half the allowance.
+    for (let i = 0; i < 30; i++) expect(checkRateLimit(id)).toBe(true);
     releaseRateLimit(id, null);
+  });
+
+  it('bounds a flood at the sustained rate rather than at the burst', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const id = 'test-ratelimit-flood';
+
+      // A client that never pauses gets the burst once, and nothing else while the clock stands
+      // still. The burst is an allowance for being quiet, not a rate.
+      let allowed = 0;
+      for (let i = 0; i < 500; i++) if (checkRateLimit(id)) allowed += 1;
+      expect(allowed).toBe(60);
+      expect(checkRateLimit(id)).toBe(false);
+
+      // A second later it has earned one second of refill — ten — and not another whole burst.
+      vi.advanceTimersByTime(1000);
+      allowed = 0;
+      for (let i = 0; i < 500; i++) if (checkRateLimit(id)) allowed += 1;
+      expect(allowed).toBe(10);
+
+      releaseRateLimit(id, null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refills the whole allowance back for a client that goes quiet', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const id = 'test-ratelimit-quiet';
+      for (let i = 0; i < 500 && checkRateLimit(id); i += 1) { /* spend it */ }
+
+      vi.advanceTimersByTime(30_000);
+      let allowed = 0;
+      for (let i = 0; i < 500; i++) if (checkRateLimit(id)) allowed += 1;
+      expect(allowed).toBe(60);
+
+      releaseRateLimit(id, null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('closes a connection that empties its budget instead of dropping the message', () => {
+    const sessionId = 'test-ratelimit-close';
+    const closed: { code: number; reason: string }[] = [];
+    const ws = {
+      readyState: 1,
+      OPEN: 1,
+      send: () => {},
+      close: (code: number, reason: string) => closed.push({ code, reason }),
+    } as unknown as WebSocket;
+    registerClient(ws, {
+      sessionId, lobbyId: null, matchId: null, isSpectator: false, deviceId: null,
+    });
+
+    try {
+      // `start_match` from a connection holding no seat: the cheapest message that reaches the
+      // budget and then does nothing at all.
+      let sent = 0;
+      while (closed.length === 0 && sent < 500) {
+        handleMessage(ws, JSON.stringify({ type: 'start_match' }));
+        sent += 1;
+      }
+
+      // Dropping one message and carrying on is the worst of both: an honest client is left quietly
+      // diverged from the server, and a flood is not slowed down at all. 1013 is "try again later",
+      // which the client's own reconnect already treats as a reason to come back.
+      expect(closed).toEqual([{ code: 1013, reason: 'Rate limit exceeded' }]);
+      // And it took a real burst to get there, not ten.
+      expect(sent).toBeGreaterThan(30);
+    } finally {
+      removeClient(ws);
+      releaseRateLimit(sessionId, null);
+    }
   });
 
   it('different connections have independent limits', () => {
     const id1 = 'test-ratelimit-2a';
     const id2 = 'test-ratelimit-2b';
 
-    for (let i = 0; i < 10; i++) {
-      checkRateLimit(id1);
-    }
-    // id1 is exhausted, id2 should still work
+    for (let i = 0; i < 500 && checkRateLimit(id1); i += 1) { /* exhaust id1 */ }
     expect(checkRateLimit(id1)).toBe(false);
     expect(checkRateLimit(id2)).toBe(true);
 

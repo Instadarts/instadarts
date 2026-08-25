@@ -13,7 +13,7 @@ import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
-import { releaseRateLimit } from '../../src/server/rateLimit';
+import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
 import { sweepLifecycle } from '../../src/server/lifecycle';
 import type { ServerMessage } from '../../src/shared/protocol';
@@ -421,5 +421,25 @@ describe('match boundaries and signaling', () => {
     host.send({ type: 'media_signal', to: other.host.peerId(), description: offer });
     expect(other.host.count('media_signal')).toBe(0);
     expect(guest.count('error')).toBe(0);
+  });
+});
+
+describe('the media plane does not spend a player\'s budget', () => {
+  it('answers media_join and media_ready from its own, so they cannot cost a dart', () => {
+    const user = connect();
+
+    // `handleMessage` directly rather than the harness's `send`, which resets both budgets before
+    // every message: the whole question here is what one budget does to the other.
+    for (let i = 0; i < 40; i += 1) {
+      handleMessage(user.ws, JSON.stringify({
+        type: 'media_join', matchId: 'no-such-match', tier: 'video', boardCamera: null,
+      }));
+      handleMessage(user.ws, JSON.stringify({ type: 'media_ready', tier: 'video' }));
+    }
+
+    // Eighty media messages, and the general budget has not been touched: the dart still gets
+    // through. Sharing one bucket, the eleventh of those would have taken it.
+    expect(checkRateLimit(user.sessionId)).toBe(true);
+    releaseRateLimit(user.sessionId, null);
   });
 });

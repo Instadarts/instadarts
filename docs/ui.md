@@ -280,6 +280,10 @@ For a match card that is not required for play, add
 default: the card remains mandatory and receives no visibility switch. Every optional card still
 needs canonical geometry at all five breakpoints, including one that is disabled by default.
 
+A grid instance owns one profile and one storage slot, read once at mount, so callers key
+`ResponsiveBoxGrid` by profile. Changing the profile on a mounted grid is refused rather than
+silently keeping the previous profile's state and overwriting the new one's saved layout.
+
 Tests should locate a box by `[data-grid-item="<id>"]`, then use roles, labels and stable test ids
 inside it. Do not encode a canonical `x`/`y`, DOM depth or sibling order unless layout persistence
 itself is what the test covers. Clear the layout and zoom storage keys when a test needs canonical

@@ -161,6 +161,15 @@ export function ResponsiveBoxGrid({
 
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
+
+  // A profile/grid instance owns one canonical item set and one storage slot: `useMatchLayoutState`
+  // reads `profile` in a lazy initializer, once, at mount. A changed profile would therefore keep
+  // the previous profile's state, never load the new one's saved layout, and overwrite it with
+  // defaults on the first edit. Callers key the component by profile; this holds them to it.
+  const mountProfile = useRef(profile);
+  if (mountProfile.current !== profile) {
+    throw new Error('ResponsiveBoxGrid must be remounted when its profile changes');
+  }
   const measuredBreakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
   const [responsiveBreakpoint, setResponsiveBreakpoint] = useState<FrontendBreakpoint | null>(null);
   const breakpoint = responsiveBreakpoint ?? measuredBreakpoint;
@@ -237,7 +246,6 @@ export function ResponsiveBoxGrid({
       DOCUMENT_COMPACTOR,
     ),
   );
-  if (profile && !matchLayoutState) throw new Error('Match layout state requires a profile');
   const layouts = matchLayoutState?.layouts ?? documentLayouts;
 
   const commitLayouts = useCallback((next: ResponsiveLayouts<FrontendBreakpoint>) => {

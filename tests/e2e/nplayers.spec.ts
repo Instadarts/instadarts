@@ -254,6 +254,58 @@ test.describe('N-players matches', () => {
     }
   });
 
+  test('Whac-A-Mole uses tall panels and keeps the foot of short panels reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await page.goto('/');
+    await page.click('text=Local Match');
+    await page.getByLabel('Game').selectOption('whac-a-mole');
+    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
+    await page.click('button:has-text("Add")');
+    await page.click('text=Start Match');
+    await page.waitForURL('**/match/**');
+
+    const panel = page.locator('[data-grid-item="mode-panel"]');
+    const body = panel.locator('.frontend-grid-box__body');
+    const hud = page.getByTestId('wam-hud');
+    const score = page.getByTestId('wam-score');
+    const players = page.getByTestId('wam-players');
+    const stats = page.getByTestId('wam-stats');
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(page.getByRole('menu', { name: 'Settings' })
+      .getByRole('switch', { name: 'Edit Match Layout' }), true);
+    await page.keyboard.press('Escape');
+
+    const scoreBefore = (await score.boundingBox())!.height;
+    await resizeGridItemVertically(page, 'mode-panel', 240);
+    await expect.poll(async () => (await score.boundingBox())!.height)
+      .toBeGreaterThan(scoreBefore + 180);
+
+    const tall = {
+      body: (await body.boundingBox())!,
+      hud: (await hud.boundingBox())!,
+      score: (await score.boundingBox())!,
+      players: (await players.boundingBox())!,
+      stats: (await stats.boundingBox())!,
+    };
+    expect(tall.players.y).toBeGreaterThanOrEqual(tall.score.y + tall.score.height);
+    expect(tall.stats.y).toBeGreaterThanOrEqual(tall.players.y + tall.players.height);
+    // The stats stay at the foot of the HUD without an artificial gap below them.
+    expect(Math.abs(
+      tall.hud.y + tall.hud.height - (tall.stats.y + tall.stats.height),
+    )).toBeLessThan(1);
+
+    await resizeGridItemVertically(page, 'mode-panel', -600);
+    await expect.poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
+      .toBe(true);
+    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+
+    const shortBody = (await body.boundingBox())!;
+    const shortStats = (await stats.boundingBox())!;
+    expect(shortStats.y).toBeGreaterThanOrEqual(shortBody.y);
+    expect(shortStats.y + shortStats.height).toBeLessThanOrEqual(shortBody.y + shortBody.height + 1);
+  });
+
   test('three users get a match but no video mesh', async ({ browser }) => {
     // A third board is a topology the mesh was never built for, so the server creates no session at
     // all and the match simply plays on the virtual board. The client says nothing about it: there

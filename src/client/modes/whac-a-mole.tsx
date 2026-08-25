@@ -813,7 +813,7 @@ function Hud({ run }: { run: RunView }) {
   const stageColor = run.stage === 'frenzy' ? 'red' : run.stage === 'enraged' ? 'yellow' : 'gray';
 
   return (
-    <Stack gap="xs">
+    <Stack gap="md" h="100%" data-testid="wam-hud">
       {/* Always as many chips as there are moles in play, so the block keeps its height. */}
       <Box>
         <Group gap={4} wrap="nowrap">
@@ -848,8 +848,15 @@ function Hud({ run }: { run: RunView }) {
 
       <Burrow run={run} />
 
-      <Paper bg="dark.9" radius="md" px="md" py="sm">
-        <Group justify="space-between" gap="md" wrap="nowrap">
+      <Paper
+        data-testid="wam-score"
+        bg="dark.9"
+        radius="md"
+        px="md"
+        py="sm"
+        style={{ flex: '1 0 auto', display: 'flex', alignItems: 'center' }}
+      >
+        <Group justify="space-between" gap="md" wrap="nowrap" w="100%">
         <Box>
           <Text fz="2.25rem" fw={700} ff="monospace" c="yellow.3" lh={1}>{run.team}</Text>
           <Text fz={10} tt="uppercase" c="dimmed" mt={4}>
@@ -865,7 +872,7 @@ function Hud({ run }: { run: RunView }) {
         </Group>
       </Paper>
 
-      <Stack gap={4}>
+      <Stack gap={4} data-testid="wam-players">
         {run.players.map((player) => (
           <Paper
             key={player.id}
@@ -895,7 +902,7 @@ function Hud({ run }: { run: RunView }) {
       </Stack>
 
 
-      <SimpleGrid component="div" cols={5} spacing={4} ta="center">
+      <SimpleGrid component="div" cols={5} spacing={4} ta="center" data-testid="wam-stats">
         <Stat label="whacked" value={run.stats.whacked} tone="good" />
         <Stat label="holes" value={run.stats.holes} tone="danger" />
         <Stat label="saved" value={run.stats.rescued} tone="info" />

@@ -281,6 +281,10 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
       <svg
         ref={svgRef}
         data-testid="dartboard"
+        // Whether a dart thrown right now would be taken. The board already says this with its
+        // cursor; saying it as data too costs nothing and is the only way to ask from outside,
+        // because a press it will not take is dropped in silence rather than refused.
+        data-can-throw={canPlaceDart ? 'true' : 'false'}
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.size} ${viewBox.size}`}
         style={{
           display: 'block',

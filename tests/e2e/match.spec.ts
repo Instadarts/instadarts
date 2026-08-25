@@ -153,10 +153,16 @@ test.describe('Local 1-player x01 match', () => {
     await clickT20(page);
     await submitVisit(page);
 
-    // 121 − 60 − 60 leaves 1, and D20 overthrows it to −39. The last dart being a double must not
+    // 121 − 60 − 57 leaves 4, and D20 overthrows it to −36. The last dart being a double must not
     // make that read as a finish.
+    //
+    // The third dart has to be reachable, which is the whole difficulty here: this used to leave 1
+    // after two darts, and a double-out player left on 1 has already busted — `isVisitLocked` says
+    // so and the board stops taking darts. The D20 was never thrown, the assertions below passed on
+    // the bust that leaving 1 had already caused, and the case this test is named for went
+    // untested. Nothing said so, because a press the board will not take is dropped in silence.
     await clickT20(page);
-    await clickT20(page);
+    await clickT19(page);
     await clickD20(page);
 
     await expect(page.locator('text=Bust!')).toBeVisible();

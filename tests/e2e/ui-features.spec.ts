@@ -140,6 +140,33 @@ async function setOptionalCard(menu: Locator, label: string, enabled: boolean): 
   else await expect(control).not.toBeChecked();
 }
 
+/**
+ * Start a fresh local x01 match, choosing how the mode draws its panel. `Statistics: Off` is the
+ * one setting that takes a card out of the roster without needing a second browser context.
+ */
+async function startLocalX01(page: Page, statistics: 'graphic' | 'off'): Promise<void> {
+  const leave = page.getByRole('button', { name: /^(Leave|Exit)$/ });
+  if (await leave.isVisible().catch(() => false)) {
+    await leave.click();
+    await page.waitForURL('**/');
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Local Match' }).click();
+  await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByLabel('Statistics').selectOption(statistics);
+  await page.getByText('Start Match').click();
+  await page.waitForURL('**/match/**');
+  await expect(page.locator('[data-grid-item="visit"]')).toBeVisible();
+}
+
+async function setEditMode(page: Page, editing: boolean): Promise<void> {
+  const menu = await openFrontendSettings(page);
+  await setSwitch(menu.getByRole('switch', { name: 'Edit Match Layout' }), editing);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+}
+
 async function setCardTitleBar(page: Page, id: string, visible: boolean): Promise<void> {
   const control = page.locator(`[data-grid-item="${id}"]`)
     .getByRole('switch', { name: 'Show title bar' });
@@ -651,6 +678,38 @@ test.describe('responsive UI branch features', () => {
     await expect(history).toHaveCount(0);
     await page.setViewportSize({ width: 900, height: 900 });
     await expect(history).toHaveCount(0);
+  });
+
+  test('a card that leaves the roster keeps its geometry and title bar for its return', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await startLocalX01(page, 'graphic');
+
+    const panel = page.locator('[data-grid-item="mode-panel"]');
+    await expect(panel.locator('.frontend-grid-box__header')).toBeVisible();
+
+    await setEditMode(page, true);
+    await setCardTitleBar(page, 'mode-panel', false);
+    await resizeGridItemUp(page, 'mode-panel', 40);
+    await expect.poll(async () => (await storedItem(page, 'match-live', 'lg', 'mode-panel'))?.h)
+      .toBeLessThan(LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'mode-panel')!.h);
+    const customPanel = await storedItem(page, 'match-live', 'lg', 'mode-panel');
+    await setEditMode(page, false);
+
+    // The mode now draws no panel, so the card is not in this match's roster at all — and the
+    // layout is saved again while it is away, which is the write that used to discard its entry.
+    await startLocalX01(page, 'off');
+    await expect(panel).toHaveCount(0);
+    await setEditMode(page, true);
+    await resizeGridItemUp(page, 'visit', 40);
+    await expect.poll(async () => (await storedItem(page, 'match-live', 'lg', 'visit'))?.h)
+      .toBeLessThan(LIVE_MATCH_LAYOUTS.lg!.find((item) => item.i === 'visit')!.h);
+    await setEditMode(page, false);
+
+    await startLocalX01(page, 'graphic');
+    await expect(panel).toBeVisible();
+    expect(await storedItem(page, 'match-live', 'lg', 'mode-panel')).toEqual(customPanel);
+    await expect(panel.locator('.frontend-grid-box__header')).toHaveCount(0);
   });
 
   test('match layouts persist by breakpoint and reset only the active live or summary profile', async ({ page }) => {

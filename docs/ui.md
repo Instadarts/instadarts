@@ -221,6 +221,11 @@ their canonical enabled and title-bar defaults. Whether a card is switched on is
 the stored profile names rather than from the entries that survived validation, so a card with an
 unusable saved position is repaired to its canonical geometry instead of being switched off.
 
+Saving is additive in the same way. A card can be temporarily out of the roster — `mode-panel` when
+the mode draws no panel, `rematch` while spectating or after somebody departs — and the state being
+written then has no opinion about it. Only the ids that state does name are overwritten, so an
+absent card keeps the position and title-bar choice it had and gets them back when it returns.
+
 Malformed or unavailable local storage falls back to the defaults, and editing still works in
 memory for the current page.
 

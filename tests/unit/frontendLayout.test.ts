@@ -354,6 +354,55 @@ describe('stored frontend match layouts', () => {
     expect(stored?.titleBars?.['match-live']?.lg).toEqual({ alpha: true, beta: true });
   });
 
+  it('keeps the preferences of a card that is temporarily unavailable', () => {
+    const placed = reconcileMatchLayoutState(
+      { lg: [defaults[0], { ...defaults[1], x: 3, y: 17, w: 4, h: 9 }] },
+      null,
+      defaults,
+      optionalItems,
+    );
+    saveMatchLayoutState('match-live', setMatchTitleBarVisible(placed, 'lg', 'beta', false));
+
+    // The card leaves the roster -- a mode that draws no panel, a summary with nobody to re-match --
+    // so it leaves `itemPreferences` too and the next state saved says nothing about it at all.
+    const withoutBeta = reconcileMatchLayoutState(
+      placed.layouts,
+      placed.inactive,
+      defaults,
+      [optionalItems[0]],
+      undefined,
+      placed.titleBars,
+    );
+    expect(withoutBeta.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
+    saveMatchLayoutState('match-live', withoutBeta);
+
+    const restored = loadMatchLayoutState('match-live', defaults, optionalItems);
+    expect(restored.layouts.lg?.find((item) => item.i === 'beta')).toMatchObject({
+      x: 3, y: 17, w: 4, h: 9,
+    });
+    expect(restored.titleBars.lg?.beta).toBe(false);
+  });
+
+  it('still overwrites the cards a save does know about', () => {
+    const moved = reconcileMatchLayoutState(
+      { lg: [{ ...defaults[0], y: 6 }, { ...defaults[1], x: 3, y: 17, w: 4, h: 9 }] },
+      null,
+      defaults,
+      optionalItems,
+    );
+    saveMatchLayoutState('match-live', moved);
+    saveMatchLayoutState('match-live', reconcileMatchLayoutState(
+      { lg: [{ ...defaults[0], y: 2 }] },
+      null,
+      defaults,
+      [optionalItems[0]],
+    ));
+
+    const restored = loadMatchLayoutState('match-live', defaults, optionalItems);
+    expect(restored.layouts.lg?.map((item) => item.i)).toEqual(['alpha', 'beta']);
+    expect(restored.layouts.lg?.find((item) => item.i === 'alpha')).toMatchObject({ y: 2 });
+  });
+
   it('resets only the active profile, including all of its breakpoints', () => {
     saveMatchLayoutState('match-summary', reconcileMatchLayoutState({
       xs: [{ i: 'alpha', x: 0, y: 6, w: 4, h: 5 }],

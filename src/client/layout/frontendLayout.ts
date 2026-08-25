@@ -654,14 +654,77 @@ export function loadMatchLayoutState(
   }
 }
 
+/** Ids the state being saved has an opinion about, in either collection, at one breakpoint. */
+function mentionedIds(state: MatchLayoutState, breakpoint: FrontendBreakpoint): Set<string> {
+  const ids = new Set<string>();
+  for (const item of state.layouts[breakpoint] ?? []) ids.add(item.i);
+  for (const item of state.inactive[breakpoint] ?? []) ids.add(item.i);
+  return ids;
+}
+
+/** Keep stored entries for cards the state being saved knows nothing about — see `saveMatchLayoutState`. */
+function withDormantItems(
+  previous: ResponsiveLayouts<FrontendBreakpoint> | undefined,
+  next: ResponsiveLayouts<FrontendBreakpoint>,
+  state: MatchLayoutState,
+): ResponsiveLayouts<FrontendBreakpoint> {
+  const merged: ResponsiveLayouts<FrontendBreakpoint> = {};
+
+  for (const breakpoint of FRONTEND_BREAKPOINTS) {
+    const mentioned = mentionedIds(state, breakpoint);
+    const dormant = (previous?.[breakpoint] ?? []).filter((item) => (
+      typeof item.i === 'string' && !mentioned.has(item.i)
+    ));
+    const current = next[breakpoint];
+    if (!current && dormant.length === 0) continue;
+    merged[breakpoint] = [...(current ?? []), ...dormant];
+  }
+  return merged;
+}
+
+/** The same, for the title bar map: current answers win, unknown ids survive. */
+function withDormantTitleBars(
+  previous: MatchTitleBarVisibility | undefined,
+  state: MatchLayoutState,
+): MatchTitleBarVisibility {
+  const merged: MatchTitleBarVisibility = {};
+
+  for (const breakpoint of FRONTEND_BREAKPOINTS) {
+    const current = state.titleBars[breakpoint];
+    const stored = previous?.[breakpoint];
+    if (!current && !stored) continue;
+    merged[breakpoint] = { ...stored, ...current };
+  }
+  return merged;
+}
+
+/**
+ * Write one profile without discarding what it currently has no opinion about.
+ *
+ * A card can be temporarily absent — `mode-panel` when the mode draws none, `rematch` while
+ * spectating or after somebody departs — and an absent card is absent from `itemPreferences` too, so
+ * the state being saved simply never mentions it. Replacing the profile wholesale would read that
+ * silence as a decision and delete the position and title bar the user chose for it. Only ids the
+ * state does mention are overwritten; an id retired from the code lingers in storage until the
+ * version bump, which costs nothing because loading validates against the current card set anyway.
+ */
 export function saveMatchLayoutState(profile: MatchLayoutProfile, state: MatchLayoutState): void {
   try {
     const previous = readStoredMatchLayouts();
     const stored: StoredMatchLayouts = {
       version: MATCH_LAYOUT_VERSION,
-      profiles: { ...previous?.profiles, [profile]: state.layouts },
-      inactive: { ...previous?.inactive, [profile]: state.inactive },
-      titleBars: { ...previous?.titleBars, [profile]: state.titleBars },
+      profiles: {
+        ...previous?.profiles,
+        [profile]: withDormantItems(previous?.profiles[profile], state.layouts, state),
+      },
+      inactive: {
+        ...previous?.inactive,
+        [profile]: withDormantItems(previous?.inactive?.[profile], state.inactive, state),
+      },
+      titleBars: {
+        ...previous?.titleBars,
+        [profile]: withDormantTitleBars(previous?.titleBars?.[profile], state),
+      },
     };
     localStorage.setItem(MATCH_LAYOUT_STORAGE_KEY, JSON.stringify(stored));
   } catch {

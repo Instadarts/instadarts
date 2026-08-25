@@ -2,6 +2,7 @@ import { writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { defineConfig } from '@playwright/test';
+import { worker } from 'cluster';
 
 const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
@@ -141,4 +142,6 @@ export default defineConfig({
   ],
   // An explicit base URL means somebody else is running the app; there is nothing here to start.
   webServer: process.env.E2E_BASE_URL ? undefined : webServer,
+  // Explicitly limit workers
+  workers: process.env.CI ? 1 : "25%",
 });

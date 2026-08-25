@@ -297,7 +297,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} error={error} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -421,6 +421,7 @@ interface SpectateWrapperProps {
   modes: ModeDescriptor[];
   leaveMatch: (matchId: string) => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
+  error: string | null;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
   videoOffers: readonly VideoFeedView[];
@@ -428,9 +429,16 @@ interface SpectateWrapperProps {
   onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, modes, leaveMatch, navigate, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, modes, leaveMatch, navigate, error, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
   const lastSpectateRef = useRef<string | null>(null);
+
+  // The same guard the other two routes have, and this route needs it most: a watcher arrives
+  // holding nothing, so the effect that sends an empty page home has to leave `/spectate/` alone
+  // until the server has answered. That exemption is what left a mistyped or expired link on a
+  // spinner with nothing coming — the server does say `Lobby or match not found`, and until now
+  // nobody on this route was listening.
+  useNavigationGuard(lobby ?? match, error, navigate);
 
   useEffect(() => {
     if (!id || !connected) return;
@@ -472,7 +480,10 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
         panel={panel}
         ownPlayerIds={[]}
         isSpectator={true}
-        onLeave={() => navigate('/')}
+        // `handleLeave`, the same as the lobby above, and not a bare `navigate('/')`. A tab that
+        // walks away still holding the match is pulled straight back to it by the effect that keeps
+        // the address on the match being watched — home for one frame, then the match again.
+        onLeave={handleLeave}
         onAddDart={() => {}}
         onUndoDart={() => {}}
         onSubmitVisit={() => {}}

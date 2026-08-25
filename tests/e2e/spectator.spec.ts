@@ -62,6 +62,48 @@ test.describe('Spectator mode', () => {
     await ctx2.close();
   });
 
+  test('a watched match can be left, and stays left', async ({ browser }) => {
+    const ctx1 = await browser.newContext();
+    const ctx2 = await browser.newContext();
+    const player = await ctx1.newPage();
+    const watcher = await ctx2.newPage();
+
+    await setupLocalMatch(player, ['Alice', 'Bob'], 501);
+    const matchId = player.url().split('/match/')[1];
+
+    await watcher.goto(`/spectate/${matchId}`);
+    await expect(spectatorLabel(watcher)).toBeVisible({ timeout: 5000 });
+
+    await watcher.getByRole('button', { name: /^(Leave|Exit)$/ }).click();
+    await expect.poll(() => new URL(watcher.url()).pathname).toBe('/');
+    await expect(watcher.getByRole('button', { name: 'Local Match' })).toBeVisible();
+
+    // A fixed wait, deliberately: what is being asserted is that nothing happens next. Watching a
+    // match the tab still holds is what pulls it back, so leaving has to let go of the match as
+    // well as change the address.
+    await watcher.waitForTimeout(1500);
+    expect(new URL(watcher.url()).pathname, 'the watcher was dragged back to the match').toBe('/');
+
+    await ctx1.close();
+    await ctx2.close();
+  });
+
+  test('a room id that is not a room returns to the home screen', async ({ browser }) => {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+
+    // Both halves of the same mistyped or expired link. Neither may leave somebody looking at a
+    // spinner: there is nothing coming, and nothing that will ever say so.
+    await page.goto('/match/no-such-room-id');
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 12_000 }).toBe('/');
+
+    await page.goto('/spectate/no-such-room-id');
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 12_000 }).toBe('/');
+    await expect(page.getByRole('button', { name: 'Local Match' })).toBeVisible();
+
+    await ctx.close();
+  });
+
   test('spectator cannot interact with lobby', async ({ browser }) => {
     const ctx1 = await browser.newContext();
     const ctx2 = await browser.newContext();

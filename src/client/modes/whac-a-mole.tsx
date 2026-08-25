@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Badge, Box, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { ModePanelProps } from './panels';
 import { RADII, CENTER, SECTOR_ORDER } from '../components/boardGeometry';
+import { AutoFitText } from '../components/AutoFitText';
 
 // Whac-A-Mole's second file.
 //
@@ -856,19 +857,27 @@ function Hud({ run }: { run: RunView }) {
         py="sm"
         style={{ flex: '1 0 auto', display: 'flex', alignItems: 'center' }}
       >
-        <Group justify="space-between" gap="md" wrap="nowrap" w="100%">
-        <Box>
-          <Text fz="2.25rem" fw={700} ff="monospace" c="yellow.3" lh={1}>{run.team}</Text>
-          <Text fz={10} tt="uppercase" c="dimmed" mt={4}>
-            {run.players.length > 1 ? 'team score' : 'score'}
-          </Text>
-        </Box>
-        <Stack align="flex-end" gap={4}>
-          <Text fz="sm" ff="monospace" c="gray.3">
-            Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
-          </Text>
-          <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
-        </Stack>
+        <Group justify="space-between" align="stretch" gap="md" wrap="nowrap" w="100%" h="100%" mih={52}>
+          <Stack gap={4} h="100%" miw={0} style={{ flex: '1 1 0' }}>
+            <AutoFitText
+              text={String(run.team)}
+              color="yellow.3"
+              fontFamily="monospace"
+              fontWeight={700}
+              horizontalAlign="start"
+              lineHeight={1}
+              minimumFontSize={24}
+            />
+            <Text fz={10} tt="uppercase" c="dimmed">
+              {run.players.length > 1 ? 'team score' : 'score'}
+            </Text>
+          </Stack>
+          <Stack align="flex-end" justify="center" gap={4}>
+            <Text fz="sm" ff="monospace" c="gray.3">
+              Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
+            </Text>
+            <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
+          </Stack>
         </Group>
       </Paper>
 

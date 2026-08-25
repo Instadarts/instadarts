@@ -254,7 +254,7 @@ test.describe('N-players matches', () => {
     }
   });
 
-  test('Whac-A-Mole uses tall panels and keeps the foot of short panels reachable', async ({ page }) => {
+  test('Whac-A-Mole grows its score in tall panels and keeps short panels reachable', async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await page.goto('/');
     await page.click('text=Local Match');
@@ -268,8 +268,11 @@ test.describe('N-players matches', () => {
     const body = panel.locator('.frontend-grid-box__body');
     const hud = page.getByTestId('wam-hud');
     const score = page.getByTestId('wam-score');
+    const teamScore = score.getByText('0', { exact: true });
     const players = page.getByTestId('wam-players');
     const stats = page.getByTestId('wam-stats');
+    await expect.poll(() => body.evaluate((element) => element.scrollHeight <= element.clientHeight))
+      .toBe(true);
 
     await page.getByRole('button', { name: 'Settings' }).click();
     await setSwitch(page.getByRole('menu', { name: 'Settings' })
@@ -277,9 +280,15 @@ test.describe('N-players matches', () => {
     await page.keyboard.press('Escape');
 
     const scoreBefore = (await score.boundingBox())!.height;
+    const fontSizeBefore = await teamScore.evaluate((element) => (
+      Number.parseFloat(getComputedStyle(element).fontSize)
+    ));
     await resizeGridItemVertically(page, 'mode-panel', 240);
     await expect.poll(async () => (await score.boundingBox())!.height)
       .toBeGreaterThan(scoreBefore + 180);
+    await expect.poll(() => teamScore.evaluate((element) => (
+      Number.parseFloat(getComputedStyle(element).fontSize)
+    ))).toBeGreaterThan(fontSizeBefore + 20);
 
     const tall = {
       body: (await body.boundingBox())!,
@@ -294,8 +303,25 @@ test.describe('N-players matches', () => {
     expect(Math.abs(
       tall.hud.y + tall.hud.height - (tall.stats.y + tall.stats.height),
     )).toBeLessThan(1);
+    const fittedScore = await teamScore.evaluate((element) => {
+      const host = element.parentElement;
+      if (!host) throw new Error('team score is outside its auto-fit host');
+      const line = element.getBoundingClientRect();
+      const bounds = host.getBoundingClientRect();
+      return line.left >= bounds.left - 1
+        && line.right <= bounds.right + 1
+        && line.top >= bounds.top - 1
+        && line.bottom <= bounds.bottom + 1;
+    });
+    expect(fittedScore).toBe(true);
+    const tallFontSize = await teamScore.evaluate((element) => (
+      Number.parseFloat(getComputedStyle(element).fontSize)
+    ));
 
     await resizeGridItemVertically(page, 'mode-panel', -600);
+    await expect.poll(() => teamScore.evaluate((element) => (
+      Number.parseFloat(getComputedStyle(element).fontSize)
+    ))).toBeLessThan(tallFontSize);
     await expect.poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
       .toBe(true);
     await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });

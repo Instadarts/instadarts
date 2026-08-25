@@ -376,6 +376,23 @@ export function mergeResponsiveLayouts(
   return result;
 }
 
+/**
+ * Every id a stored array names, including entries whose geometry is unusable.
+ *
+ * Enablement is a separate question from geometry: a card the user switched on is switched on even
+ * if its saved position no longer validates. Deciding it from the surviving items instead would
+ * read a corrupt entry as an absent one and turn an optional card off, where the same corruption on
+ * a mandatory card is simply repaired to its default position.
+ */
+function storedIds(raw: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(raw)) return ids;
+  for (const candidate of raw) {
+    if (isRecord(candidate) && typeof candidate.i === 'string') ids.add(candidate.i);
+  }
+  return ids;
+}
+
 function validStoredItems(
   raw: unknown,
   defaults: Map<string, LayoutItem>,
@@ -439,8 +456,8 @@ export function reconcileMatchLayoutState(
       cols,
       true,
     );
-    const activeById = defaultById(storedActive);
-    const inactiveById = defaultById(storedInactive);
+    const storedActiveIds = storedIds(activeSource[breakpoint]);
+    const storedInactiveIds = storedIds(inactiveSource[breakpoint]);
     const enabled = new Map<string, boolean>();
 
     for (const item of canonical) {
@@ -448,8 +465,8 @@ export function reconcileMatchLayoutState(
       enabled.set(
         item.i,
         !preference.optional
-          || activeById.has(item.i)
-          || (!inactiveById.has(item.i) && preference.defaultEnabled),
+          || storedActiveIds.has(item.i)
+          || (!storedInactiveIds.has(item.i) && preference.defaultEnabled),
       );
     }
 

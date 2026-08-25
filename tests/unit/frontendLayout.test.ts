@@ -179,6 +179,19 @@ describe('optional match cards', () => {
     expect(enabled.inactive.lg).toEqual([]);
   });
 
+  it('keeps an enabled card enabled when its saved position is unusable', () => {
+    const state = reconcileMatchLayoutState({
+      lg: [defaults[0], { ...defaults[1], w: 0 }],
+    }, null, defaults, optionalItems);
+
+    // Geometry and enablement are separate questions. A mandatory card with the same corruption is
+    // repaired to its default position, and an optional one the user switched on must be too --
+    // reading the rejected entry as an absent one would switch the card off instead.
+    expect(state.layouts.lg?.map((item) => item.i)).toEqual(['alpha', 'beta']);
+    expect(state.layouts.lg?.find((item) => item.i === 'beta')).toEqual(defaults[1]);
+    expect(state.inactive.lg).toEqual([]);
+  });
+
   it('drops unknown, malformed and mandatory inactive entries', () => {
     const state = reconcileMatchLayoutState(null, {
       lg: [

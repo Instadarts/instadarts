@@ -216,8 +216,11 @@ layouts remain in the profile map; an additive inactive map keeps the complete g
 optional cards so re-enabling one restores its last position and size at that breakpoint. Loading
 accepts only the current schema version, known profiles, known breakpoints and known box ids;
 inactive entries must also name a card declared optional, and title-bar entries must be boolean.
-Numeric positions are bounded, current constraints are reapplied, mandatory cards are repaired into
-the active layout, and newly introduced boxes use their canonical enabled and title-bar defaults.
+Numeric positions are bounded, current constraints are reapplied, and newly introduced boxes use
+their canonical enabled and title-bar defaults. Whether a card is switched on is read from the ids
+the stored profile names rather than from the entries that survived validation, so a card with an
+unusable saved position is repaired to its canonical geometry instead of being switched off.
+
 Malformed or unavailable local storage falls back to the defaults, and editing still works in
 memory for the current page.
 

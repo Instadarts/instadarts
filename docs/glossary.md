@@ -316,6 +316,15 @@ Three rules make it worth something:
   submit, start, vote or leave. That distinction is now exact: a `Client` records the room it is in
   and whether it is watching, and nothing about who it may play.
 
+**A reopened socket says who it is before it says anything else.** A frontend queues what it could
+not send while the line was down and flushes that queue when the socket comes back
+([`useWebSocket.ts`](../src/client/hooks/useWebSocket.ts)), and a socket that has just opened holds
+no seat yet — so the `reconnect` frame goes first, and the queue after it. The other order is silent
+rather than noisy: the seat-gated handlers drop a message from a connection that holds nothing
+without answering it, so a press made during a blip would be swallowed on the way back and the person
+who made it would be looking at a button that did nothing. Frames keep their order and the seat is
+redeemed synchronously, so going first is the whole fix.
+
 **Seats are the roster's owner of record — the only one.** Which players a connection holds is read
 from its seat every time it is asked (`playersOf` / `holdsPlayer` in
 [`connections.ts`](../src/server/connections.ts)) and is not remembered anywhere else. `Client` used

@@ -59,9 +59,15 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
       generationRef.current += 1;
       setGeneration(generationRef.current);
       reconnectAttempt.current = 0;
-      flushPending();
 
-      // Check for reconnect info (page reload recovery)
+      // Say who we are before anything queued goes out, and in that order.
+      //
+      // The server reads a connection's lobby or match from the connection itself, and a socket
+      // that has just opened holds neither until it has redeemed its seat. Anything sent ahead of
+      // that therefore arrives from nobody: `start_match`, `submit_visit` and their neighbours are
+      // seat-gated and drop a message from an unseated connection without a reply, so a click made
+      // while the line was down would be swallowed on the way back rather than honoured. Frames
+      // keep their order and the server redeems the seat synchronously, so going first is enough.
       const info = resumeSession ? loadReconnectInfo() : null;
       if (info?.token) {
         ws.send(JSON.stringify({
@@ -71,6 +77,8 @@ export function useWebSocket(onMessage: MessageHandler, options: Options = {}) {
           token: info.token,
         }));
       }
+
+      flushPending();
     };
 
     ws.onmessage = (event) => {

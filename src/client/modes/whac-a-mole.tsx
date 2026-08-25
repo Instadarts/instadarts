@@ -852,7 +852,6 @@ function Hud({ run }: { run: RunView }) {
       <Burrow run={run} />
 
       <Box
-        data-testid="wam-score-and-players"
         style={{
           display: 'grid',
           flex: '1 0 auto',

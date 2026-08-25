@@ -40,7 +40,6 @@ export function VisitInput({
       gap="sm"
       h="100%"
       align="stretch"
-      data-testid="visit-input"
       style={{ minHeight: 'max-content' }}
     >
       <SimpleGrid cols={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} data-visit-slots>
@@ -87,7 +86,6 @@ export function VisitInput({
           {visitTotalVisible && (
             <Text
               ta="center"
-              data-testid="visit-score"
               {...modeTextProps(visitTotal, { tone: 'warning', size: 'xl', weight: 'bold' })}
             >
               Visit: {textOf(visitTotal)}

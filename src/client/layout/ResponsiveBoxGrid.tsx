@@ -393,8 +393,20 @@ export function ResponsiveBoxGrid({
         >
           {renderedItems.map((item) => {
             const placement = (layouts[breakpoint] ?? []).find((placed) => placed.i === item.id);
-            if (!placement) throw new Error(`ResponsiveBoxGrid item "${item.id}" has no ${breakpoint} placement`);
-            const widthUnits = liveWidth?.id === item.id ? liveWidth.widthUnits : placement.w;
+            const defaultPlacement = defaultLayouts[breakpoint]?.find((placed) => placed.i === item.id)
+              ?? defaultLayout.find((placed) => placed.i === item.id)!;
+            // A match grid renders only the ids its own layout named, so a placement missing there
+            // is a real inconsistency and says so. A document grid renders `items` straight through
+            // and re-merges them in an effect, so a card the page has only just added is one render
+            // ahead of its placement: fall back to the active default, then the lg default the
+            // orphan check above guarantees, and let RGL place the card as it did before this width
+            // was reported at all.
+            if (profile && !placement) {
+              throw new Error(`ResponsiveBoxGrid item "${item.id}" has no ${breakpoint} placement`);
+            }
+            const widthUnits = liveWidth?.id === item.id
+              ? liveWidth.widthUnits
+              : (placement ?? defaultPlacement).w;
             const titleBarVisible = matchLayoutState?.titleBars[breakpoint]?.[item.id]
               ?? item.defaultTitleBarVisible
               ?? true;

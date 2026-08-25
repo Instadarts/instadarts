@@ -180,39 +180,37 @@ export function ResponsiveBoxGrid({
   const [responsiveBreakpoint, setResponsiveBreakpoint] = useState<FrontendBreakpoint | null>(null);
   const breakpoint = responsiveBreakpoint ?? measuredBreakpoint;
   const compactor = profile ? MATCH_COMPACTOR : DOCUMENT_COMPACTOR;
-  const itemConfigurationKey = JSON.stringify(items.map((item) => [
+  // `items` is rebuilt every render — new content, same configuration — so it cannot be a dependency.
+  // These tuples are what the memo reads and their serialization is what tells it when to recompute,
+  // which holds only while the two stay the same list: anything a preference depends on has to be in
+  // the tuple, or the memo will not notice it changing.
+  const itemConfiguration = items.map((item) => [
     item.id,
     item.optional?.label ?? null,
     item.optional?.defaultEnabled ?? null,
     item.defaultTitleBarVisible ?? true,
-  ]));
-  const { itemPreferences, availableIds, optionalCatalog } = useMemo(() => {
-    const configuration = JSON.parse(itemConfigurationKey) as Array<[
-      id: string,
-      label: string | null,
-      defaultEnabled: boolean | null,
-      defaultTitleBarVisible: boolean,
-    ]>;
-    return {
-      itemPreferences: configuration.map(([
-        id,
-        label,
-        defaultEnabled,
-        defaultTitleBarVisible,
-      ]) => label === null
-        ? { id, optional: false as const, defaultTitleBarVisible }
-        : {
-            id,
-            optional: true as const,
-            defaultEnabled: defaultEnabled ?? true,
-            defaultTitleBarVisible,
-          }),
-      availableIds: configuration.map(([id]) => id),
-      optionalCatalog: configuration.flatMap(([id, label]) => (
-        label === null ? [] : [{ id, label }]
-      )),
-    };
-  }, [itemConfigurationKey]);
+  ] as const);
+  const itemConfigurationKey = JSON.stringify(itemConfiguration);
+  const { itemPreferences, availableIds, optionalCatalog } = useMemo(() => ({
+    itemPreferences: itemConfiguration.map(([
+      id,
+      label,
+      defaultEnabled,
+      defaultTitleBarVisible,
+    ]) => label === null
+      ? { id, optional: false as const, defaultTitleBarVisible }
+      : {
+          id,
+          optional: true as const,
+          defaultEnabled: defaultEnabled ?? true,
+          defaultTitleBarVisible,
+        }),
+    availableIds: itemConfiguration.map(([id]) => id),
+    optionalCatalog: itemConfiguration.flatMap(([id, label]) => (
+      label === null ? [] : [{ id, label }]
+    )),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [itemConfigurationKey]);
   const [generation, setGeneration] = useState(0);
   const measuredHeights = useRef(new Map<string, number>());
   const editable = profile !== undefined && editor.editing;
@@ -317,7 +315,9 @@ export function ResponsiveBoxGrid({
 
   const enabledItemIds = (layouts[breakpoint] ?? []).map((item) => item.i).sort();
   const enabledItemKey = JSON.stringify(enabledItemIds);
-  const enabledIds = useMemo(() => new Set(JSON.parse(enabledItemKey) as string[]), [enabledItemKey]);
+  // Same shape as above: the ids are the source, their serialization is when to rebuild the set.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const enabledIds = useMemo(() => new Set(enabledItemIds), [enabledItemKey]);
   const optionalItems = useMemo(() => optionalCatalog.map((item) => ({
     ...item,
     enabled: enabledIds.has(item.id),

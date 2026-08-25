@@ -147,6 +147,12 @@ a drag, an overlap is accepted rather than resolved by moving either box. That i
 does not push the rest of a carefully tuned match layout away, and gaps or overlap are available to
 the person making the layout. Canonical layouts should still begin non-overlapping.
 
+The Visit box also uses that fixed height internally: dart slots stay at the top, the visit score
+and actions stay at the foot, and the space between them flexes. When dart evidence is available,
+each square grows within that middle space until either its height or its matching slot-column width
+becomes the limit, and remains centred under that slot. If the box is shorter than its minimum
+content, its body scrolls with both the slots and footer reachable.
+
 A match grid can drop a box too — the summary omits its re-match box for a spectator and for a match
 somebody has left — and because nothing compacts, every remaining box keeps the position it was
 given. The re-match box is the trailing summary item, so removing it shortens the grid at the result

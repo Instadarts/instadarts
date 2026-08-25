@@ -819,7 +819,7 @@ that remain are the constraints a second game mode will meet.
 | `GameSettingsPanel` rendering x01's three settings | `MatchSettingsPanel` renders the mode's declared fields, from the catalog the server sends |
 | The screen deciding a card score was a verdict by testing whether the string was numeric | x01 sends a `danger`/`warning` tone with the word |
 | The screen colouring a dart slot by whether the dart scored above zero | x01 tones its own slots |
-| The visit UI assuming a fixed three-slot row | `VisitInput` and dart evidence use Mantine grids with `view.dartsPerVisit` equal columns; evidence tiles retain a capped visual size |
+| The visit UI assuming a fixed three-slot row | `VisitInput` and dart evidence use Mantine grids with `view.dartsPerVisit` equal columns; each evidence tile stays centred under its slot and is limited by the slot width and available card height |
 
 **Remaining:**
 

@@ -322,6 +322,35 @@ function defaultsAtBreakpoint(
 }
 
 /**
+ * The one restore loop: the first usable stored entry for each accepted id, in stored order.
+ *
+ * Its two callers differ only in which ids they accept — a document grid's active set, a match
+ * profile's declared cards, or the optional ones among those — so what counts as a usable entry is
+ * decided here and nowhere else.
+ */
+function restoreStoredItems(
+  raw: unknown,
+  defaults: Map<string, LayoutItem>,
+  cols: number,
+  accepts: (id: string) => boolean,
+): LayoutItem[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const result: LayoutItem[] = [];
+
+  for (const candidate of raw) {
+    if (!isRecord(candidate) || typeof candidate.i !== 'string' || seen.has(candidate.i)) continue;
+    const fallback = defaults.get(candidate.i);
+    if (!fallback || !accepts(candidate.i)) continue;
+    const restored = positionFor(candidate, fallback, cols);
+    if (!restored) continue;
+    seen.add(candidate.i);
+    result.push(restored);
+  }
+  return result;
+}
+
+/**
  * Restores positions only. Constraints and static/editable flags always come from current code, so
  * a stale browser cannot preserve rules that no longer belong to an item.
  */
@@ -350,18 +379,8 @@ export function mergeResponsiveLayouts(
       continue;
     }
 
-    const seen = new Set<string>();
-    const layout: LayoutItem[] = [];
-
-    for (const candidate of raw) {
-      if (!isRecord(candidate) || typeof candidate.i !== 'string' || seen.has(candidate.i)) continue;
-      const fallback = defaults.get(candidate.i);
-      if (!fallback || !wanted.has(candidate.i)) continue;
-      const restored = positionFor(candidate, fallback, cols);
-      if (!restored) continue;
-      seen.add(candidate.i);
-      layout.push(restored);
-    }
+    const layout = restoreStoredItems(raw, defaults, cols, (id) => wanted.has(id));
+    const seen = new Set(layout.map((item) => item.i));
 
     for (const item of breakpointDefaults) {
       if (wanted.has(item.i) && !seen.has(item.i)) layout.push({ ...item });
@@ -393,30 +412,6 @@ function storedIds(raw: unknown): Set<string> {
   return ids;
 }
 
-function validStoredItems(
-  raw: unknown,
-  defaults: Map<string, LayoutItem>,
-  preferences: Map<string, MatchLayoutItemPreference>,
-  cols: number,
-  inactive: boolean,
-): LayoutItem[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<string>();
-  const result: LayoutItem[] = [];
-
-  for (const candidate of raw) {
-    if (!isRecord(candidate) || typeof candidate.i !== 'string' || seen.has(candidate.i)) continue;
-    const preference = preferences.get(candidate.i);
-    const fallback = defaults.get(candidate.i);
-    if (!preference || !fallback || (inactive && !preference.optional)) continue;
-    const restored = positionFor(candidate, fallback, cols);
-    if (!restored) continue;
-    seen.add(candidate.i);
-    result.push(restored);
-  }
-  return result;
-}
-
 /**
  * Reconcile enabled and inactive match items independently at every responsive breakpoint.
  * Optional items keep their last complete LayoutItem in whichever collection currently owns them.
@@ -442,19 +437,18 @@ export function reconcileMatchLayoutState(
     const canonical = defaultsAtBreakpoint(defaultLayout, defaultLayouts, breakpoint, cols)
       .filter((item) => preferences.has(item.i));
     const defaults = defaultById(canonical);
-    const storedActive = validStoredItems(
+    const storedActive = restoreStoredItems(
       activeSource[breakpoint],
       defaults,
-      preferences,
       cols,
-      false,
+      (id) => preferences.has(id),
     );
-    const storedInactive = validStoredItems(
+    // Only an optional card can sit in the inactive pool; a mandatory one there is a stale entry.
+    const storedInactive = restoreStoredItems(
       inactiveSource[breakpoint],
       defaults,
-      preferences,
       cols,
-      true,
+      (id) => preferences.get(id)?.optional === true,
     );
     const storedActiveIds = storedIds(activeSource[breakpoint]);
     const storedInactiveIds = storedIds(inactiveSource[breakpoint]);

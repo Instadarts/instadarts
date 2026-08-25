@@ -148,11 +148,6 @@ export async function startScorerCamera(
 }
 
 /**
- * Click a position on the dartboard SVG.
- * Board coords: [0, 1_000_000], y-up, center [500_000, 500_000].
- * SVG is y-down, so we flip: svgY = 1_000_000 - boardY.
- */
-/**
  * Enough of the visit to tell one state of it from the next.
  *
  * Deliberately not a dart count. A mode declares its own slot row and Whac-A-Mole's is always a
@@ -168,6 +163,11 @@ const visitState = (page: Page) => page.evaluate(() => [
     .join(','),
 ].join(' '));
 
+/**
+ * Click a position on the dartboard SVG.
+ * Board coords: [0, 1_000_000], y-up, center [500_000, 500_000].
+ * SVG is y-down, so we flip: svgY = 1_000_000 - boardY.
+ */
 export async function clickBoard(page: Page, boardX: number, boardY: number) {
   // Named, not "the first svg on the page": that used to be the board, and then an icon appeared
   // above it in the top bar and every dart in the suite landed on a button instead.
@@ -287,7 +287,7 @@ export async function setupLocalMatch(page: Page, players: string[], startScore 
   // Add players
   for (const name of players) {
     await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
-      await page.click('button:has-text("Add")');
+    await page.click('button:has-text("Add")');
     await expect(page.locator(`text=${name}`)).toBeVisible();
   }
 

@@ -282,6 +282,14 @@ without ever adding a player. It is taken out of the room's roster, gives up its
 is told so (`youAreSpectator`, addressed like `youAreHost`) — otherwise its tab would go on offering
 a board it is not allowed to touch.
 
+**Leaving is only stopping.** A watcher holds no [seat](#seat), so there is nothing to revoke and
+nothing final about it — but the tab has to let go of the match as well as change the address, or
+the effect that keeps the address on the match being watched puts it straight back, home for one
+frame and then the match again. A `/spectate/:id` that names no room gives up and goes home on the
+server's `Lobby or match not found`: the route carries the same navigation guard the lobby and match
+routes do, which it needs precisely because the effect that sends an empty page home leaves
+`/spectate/` alone until the server has answered.
+
 `client.isSpectator` guards a *connection*, so it cannot be the whole answer: a page load is a new
 connection, and nothing about a fresh socket says what the tab was doing a moment ago. What stops
 watching from being reloaded into playing is that resuming a place requires a [seat](#seat), and a

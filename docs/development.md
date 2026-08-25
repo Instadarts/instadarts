@@ -344,7 +344,9 @@ Two things that will waste your time:
 - **State round-trips through the server.** Clicking three darts and reading the slots immediately
   shows two, because the third has not come back over the WebSocket yet. Wait for the effect you
   expect (`expect.poll`, or a plain `waitForTimeout` in a throwaway spec) rather than concluding the
-  click was dropped.
+  click was dropped. The board answers the other half of that question itself: `data-can-throw` on
+  `[data-testid="dartboard"]` is whether a dart thrown *now* would be taken, and a press it will not
+  take is dropped in silence — no dart, no error, nothing to see. `clickBoard` waits for it.
 - **A floating element repositions in two steps, and they do not land together.** Resize with a
   dropdown open and its width reflows to the new viewport while its offset is still the old one, so
   for a frame it measures as a narrow box hanging off the right edge — `740 + 344 = 1084` on a

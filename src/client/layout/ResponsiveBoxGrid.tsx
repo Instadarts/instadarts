@@ -159,6 +159,12 @@ export function ResponsiveBoxGrid({
   const defaultLayout = defaultLayouts.lg;
   if (!defaultLayout) throw new Error('ResponsiveBoxGrid requires an lg default layout');
 
+  // The lg map is the canonical card set: everything downstream of it derives from that map rather
+  // than from `items`, so an item missing an entry would render nowhere in a match grid and land
+  // wherever RGL chose in a document one. Say so, the way the missing map above already does.
+  const orphan = items.find((item) => !defaultLayout.some((placed) => placed.i === item.id));
+  if (orphan) throw new Error(`ResponsiveBoxGrid item "${orphan.id}" has no lg default layout`);
+
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true });
   const editor = useLayoutEditor();
 

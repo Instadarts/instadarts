@@ -269,7 +269,8 @@ are documented in [vision.md](./vision.md#the-camera).
 
 For a new frontend page box:
 
-1. add its canonical item to `frontendLayout.ts`;
+1. add its canonical item to `frontendLayout.ts` — the `lg` map is the canonical card set, and an
+   item without an entry there is refused at the first render rather than quietly not appearing;
 2. render a `GridBox` with the same stable id through `ResponsiveBoxGrid`;
 3. choose document `autoHeight` or match fixed height deliberately;
 4. use Mantine inside it and add CSS only for specialized visual geometry;

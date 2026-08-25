@@ -4,6 +4,7 @@ import { Badge, Box, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core
 import type { ModePanelProps } from './panels';
 import { RADII, CENTER, SECTOR_ORDER } from '../components/boardGeometry';
 import { AutoFitText } from '../components/AutoFitText';
+import { useGridItemLayout } from '../layout/GridItemLayoutContext';
 
 // Whac-A-Mole's second file.
 //
@@ -810,11 +811,12 @@ function Banner({ stage }: { stage: 'enraged' | 'frenzy' }) {
 // ============================================================
 
 function Hud({ run }: { run: RunView }) {
+  const twoColumns = (useGridItemLayout()?.widthUnits ?? 0) >= 4;
   const stageText = run.stage === 'frenzy' ? 'FRENZY' : run.stage === 'enraged' ? 'ENRAGED' : 'DIGGING';
   const stageColor = run.stage === 'frenzy' ? 'red' : run.stage === 'enraged' ? 'yellow' : 'gray';
 
   return (
-    <Stack gap="md" h="100%" data-testid="wam-hud">
+    <Stack gap="md" h="100%" data-testid="wam-hud" style={{ minHeight: 'max-content' }}>
       {/* Always as many chips as there are moles in play, so the block keeps its height. */}
       <Box>
         <Group gap={4} wrap="nowrap">
@@ -849,67 +851,81 @@ function Hud({ run }: { run: RunView }) {
 
       <Burrow run={run} />
 
-      <Paper
-        data-testid="wam-score"
-        bg="dark.9"
-        radius="md"
-        px="md"
-        py="sm"
-        style={{ flex: '1 0 auto', display: 'flex', alignItems: 'center' }}
+      <Box
+        data-testid="wam-score-and-players"
+        style={{
+          display: 'grid',
+          flex: '1 0 auto',
+          gap: 'var(--mantine-spacing-md)',
+          gridTemplateColumns: twoColumns
+            ? 'minmax(0, 1fr) minmax(0, 1fr)'
+            : 'minmax(0, 1fr)',
+          gridTemplateRows: twoColumns
+            ? 'minmax(min-content, 1fr)'
+            : 'minmax(min-content, 1fr) auto',
+        }}
       >
-        <Group justify="space-between" align="stretch" gap="md" wrap="nowrap" w="100%" h="100%" mih={52}>
-          <Stack gap={4} h="100%" miw={0} style={{ flex: '1 1 0' }}>
-            <AutoFitText
-              text={String(run.team)}
-              color="yellow.3"
-              fontFamily="monospace"
-              fontWeight={700}
-              horizontalAlign="start"
-              lineHeight={1}
-              minimumFontSize={24}
-            />
-            <Text fz={10} tt="uppercase" c="dimmed">
-              {run.players.length > 1 ? 'team score' : 'score'}
-            </Text>
-          </Stack>
-          <Stack align="flex-end" justify="center" gap={4}>
-            <Text fz="sm" ff="monospace" c="gray.3">
-              Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
-            </Text>
-            <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
-          </Stack>
-        </Group>
-      </Paper>
+        <Paper
+          data-testid="wam-score"
+          bg="dark.9"
+          radius="md"
+          px="md"
+          py="sm"
+          style={{ display: 'flex', alignItems: 'center' }}
+        >
+          <Group justify="space-between" align="stretch" gap="md" wrap="nowrap" w="100%" h="100%" mih={52}>
+            <Stack gap={4} h="100%" miw={0} style={{ flex: '1 1 0' }}>
+              <AutoFitText
+                text={String(run.team)}
+                color="yellow.3"
+                fontFamily="monospace"
+                fontWeight={700}
+                horizontalAlign="start"
+                lineHeight={1}
+                minimumFontSize={24}
+              />
+              <Text fz={10} tt="uppercase" c="dimmed">
+                {run.players.length > 1 ? 'team score' : 'score'}
+              </Text>
+            </Stack>
+            <Stack align="flex-end" justify="center" gap={4}>
+              <Text fz="sm" ff="monospace" c="gray.3">
+                Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
+              </Text>
+              <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
+            </Stack>
+          </Group>
+        </Paper>
 
-      <Stack gap={4} data-testid="wam-players">
-        {run.players.map((player) => (
-          <Paper
-            key={player.id}
-            bg={player.isCurrent ? 'green.9' : 'dark.9'}
-            withBorder={player.isCurrent}
-            style={player.isCurrent ? { borderColor: 'var(--mantine-color-green-6)' } : undefined}
-            radius="md"
-            px="sm"
-            py={6}
-          >
-            <Group gap="xs" wrap="nowrap">
-            <Text style={{ flex: 1 }} miw={0} truncate fz="sm" c="gray.3">
-              {player.out && <Text span mr={4}>🪦</Text>}
-              {player.name}
-            </Text>
-            <Text ff="monospace" fz="lg" c="yellow.3" w={32} ta="right">{player.score}</Text>
-            <Text ff="monospace" fz="xs" w={48} ta="right" title="darts per visit" style={{ letterSpacing: '-0.05em' }}>
-              {Array.from({ length: player.darts }).map((_, i) => {
-                if (i < player.allowance) return <Text span key={i} c="green.4">●</Text>;
-                if (i < player.allowance + player.returning) return <Text span key={i} c="cyan.3">↺</Text>;
-                return <Text span key={i} c="red.8">✖</Text>;
-              })}
-            </Text>
-            </Group>
-          </Paper>
-        ))}
-      </Stack>
-
+        <Stack gap={4} justify={twoColumns ? 'flex-end' : undefined} data-testid="wam-players">
+          {run.players.map((player) => (
+            <Paper
+              key={player.id}
+              bg={player.isCurrent ? 'green.9' : 'dark.9'}
+              withBorder={player.isCurrent}
+              style={player.isCurrent ? { borderColor: 'var(--mantine-color-green-6)' } : undefined}
+              radius="md"
+              px="sm"
+              py={6}
+            >
+              <Group gap="xs" wrap="nowrap">
+                <Text style={{ flex: 1 }} miw={0} truncate fz="sm" c="gray.3">
+                  {player.out && <Text span mr={4}>🪦</Text>}
+                  {player.name}
+                </Text>
+                <Text ff="monospace" fz="lg" c="yellow.3" w={32} ta="right">{player.score}</Text>
+                <Text ff="monospace" fz="xs" w={48} ta="right" title="darts per visit" style={{ letterSpacing: '-0.05em' }}>
+                  {Array.from({ length: player.darts }).map((_, i) => {
+                    if (i < player.allowance) return <Text span key={i} c="green.4">●</Text>;
+                    if (i < player.allowance + player.returning) return <Text span key={i} c="cyan.3">↺</Text>;
+                    return <Text span key={i} c="red.8">✖</Text>;
+                  })}
+                </Text>
+              </Group>
+            </Paper>
+          ))}
+        </Stack>
+      </Box>
 
       <SimpleGrid component="div" cols={5} spacing={4} ta="center" data-testid="wam-stats">
         <Stat label="whacked" value={run.stats.whacked} tone="good" />

@@ -119,6 +119,13 @@ live in [`frontendLayout.ts`](../src/client/layout/frontendLayout.ts), not in pa
 - live matches declare a tuned layout for each breakpoint;
 - match summaries declare another tuned layout for each breakpoint.
 
+A card whose inner layout genuinely depends on its RGL width can read `widthUnits` from
+[`GridItemLayoutContext`](../src/client/layout/GridItemLayoutContext.tsx). This is different from a
+pixel-width container query: four grid columns have different physical widths at different
+breakpoints. The value follows the active breakpoint and the snapped width of an in-progress resize;
+the persisted layout catches up when the resize is released. Whac-A-Mole uses four units as the point
+where its score and player list can sit beside one another.
+
 `ResponsiveBoxGrid` can materialise a missing smaller layout with RGL's own responsive generation,
 but all current canonical page maps are complete. Prefer generated helpers when a rule really is the
 same at every width; use explicit per-breakpoint match layouts when board usability needs deliberate

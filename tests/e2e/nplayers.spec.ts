@@ -44,6 +44,44 @@ async function resizeGridItemVertically(page: Page, id: string, deltaY: number) 
   await page.mouse.up();
 }
 
+/** Resize to an exact RGL width. Item pixels are `w * column + (w - 1) * 12px gap`. */
+async function resizeGridItemToWidth(
+  page: Page,
+  id: string,
+  targetWidth: number,
+  beforeRelease?: () => Promise<void>,
+) {
+  const item = page.locator(`[data-grid-item="${id}"]`);
+  await item.scrollIntoViewIfNeeded();
+  const currentWidth = Number(await item.getAttribute('data-grid-width'));
+  const itemBox = await item.boundingBox();
+  const handle = item.locator('.react-resizable-handle-se');
+  const handleBox = await handle.boundingBox();
+  if (!Number.isInteger(currentWidth) || currentWidth <= 0 || !itemBox || !handleBox) {
+    throw new Error(`grid item ${id} has no measurable width`);
+  }
+
+  const unitPixels = (itemBox.width + 12) / currentWidth;
+  const x = handleBox.x + handleBox.width / 2;
+  const y = handleBox.y + handleBox.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + (targetWidth - currentWidth) * unitPixels, y, { steps: 10 });
+  try {
+    await beforeRelease?.();
+  } finally {
+    await page.mouse.up();
+  }
+  await expect(item).toHaveAttribute('data-grid-width', String(targetWidth));
+}
+
+async function scorePlayerBoxes(score: Locator, players: Locator) {
+  return {
+    score: (await score.boundingBox())!,
+    players: (await players.boundingBox())!,
+  };
+}
+
 test.describe('N-players matches', () => {
   test('3-player local match with Count-Up mode', async ({ page }) => {
     await page.goto('/');
@@ -254,13 +292,15 @@ test.describe('N-players matches', () => {
     }
   });
 
-  test('Whac-A-Mole grows its score in tall panels and keeps short panels reachable', async ({ page }) => {
+  test('Whac-A-Mole responds to card width and height while keeping content reachable', async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await page.goto('/');
     await page.click('text=Local Match');
     await page.getByLabel('Game').selectOption('whac-a-mole');
-    await page.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
-    await page.click('button:has-text("Add")');
+    for (const name of ['Alice', 'Bob']) {
+      await page.getByRole('textbox', { name: 'New player', exact: true }).fill(name);
+      await page.click('button:has-text("Add")');
+    }
     await page.click('text=Start Match');
     await page.waitForURL('**/match/**');
 
@@ -273,11 +313,38 @@ test.describe('N-players matches', () => {
     const stats = page.getByTestId('wam-stats');
     await expect.poll(() => body.evaluate((element) => element.scrollHeight <= element.clientHeight))
       .toBe(true);
+    let arrangement = await scorePlayerBoxes(score, players);
+    expect(arrangement.score.x + arrangement.score.width).toBeLessThanOrEqual(arrangement.players.x + 1);
+    const playerRows = await players.locator(':scope > *').all();
+    expect(playerRows).toHaveLength(2);
+    const firstPlayer = (await playerRows[0].boundingBox())!;
+    const secondPlayer = (await playerRows[1].boundingBox())!;
+    expect(firstPlayer.y + firstPlayer.height).toBeLessThanOrEqual(secondPlayer.y);
 
     await page.getByRole('button', { name: 'Settings' }).click();
     await setSwitch(page.getByRole('menu', { name: 'Settings' })
       .getByRole('switch', { name: 'Edit Match Layout' }), true);
     await page.keyboard.press('Escape');
+
+    await resizeGridItemToWidth(page, 'mode-panel', 4, async () => {
+      await expect(panel).toHaveAttribute('data-grid-width', '4');
+      const live = await scorePlayerBoxes(score, players);
+      expect(live.score.x + live.score.width).toBeLessThanOrEqual(live.players.x + 1);
+    });
+    arrangement = await scorePlayerBoxes(score, players);
+    expect(arrangement.score.x + arrangement.score.width).toBeLessThanOrEqual(arrangement.players.x + 1);
+
+    await resizeGridItemToWidth(page, 'mode-panel', 3, async () => {
+      await expect(panel).toHaveAttribute('data-grid-width', '3');
+      const live = await scorePlayerBoxes(score, players);
+      expect(live.score.y + live.score.height).toBeLessThanOrEqual(live.players.y + 1);
+    });
+    arrangement = await scorePlayerBoxes(score, players);
+    expect(arrangement.score.y + arrangement.score.height).toBeLessThanOrEqual(arrangement.players.y + 1);
+
+    await resizeGridItemToWidth(page, 'mode-panel', 6);
+    arrangement = await scorePlayerBoxes(score, players);
+    expect(arrangement.score.x + arrangement.score.width).toBeLessThanOrEqual(arrangement.players.x + 1);
 
     const scoreBefore = (await score.boundingBox())!.height;
     const fontSizeBefore = await teamScore.evaluate((element) => (
@@ -297,7 +364,8 @@ test.describe('N-players matches', () => {
       players: (await players.boundingBox())!,
       stats: (await stats.boundingBox())!,
     };
-    expect(tall.players.y).toBeGreaterThanOrEqual(tall.score.y + tall.score.height);
+    expect(tall.players.x).toBeGreaterThanOrEqual(tall.score.x + tall.score.width);
+    expect(tall.stats.y).toBeGreaterThanOrEqual(tall.score.y + tall.score.height);
     expect(tall.stats.y).toBeGreaterThanOrEqual(tall.players.y + tall.players.height);
     // The stats stay at the foot of the HUD without an artificial gap below them.
     expect(Math.abs(
@@ -324,12 +392,18 @@ test.describe('N-players matches', () => {
     ))).toBeLessThan(tallFontSize);
     await expect.poll(() => body.evaluate((element) => element.scrollHeight > element.clientHeight))
       .toBe(true);
-    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-
+    await body.evaluate((element) => { element.scrollTop = 0; });
     const shortBody = (await body.boundingBox())!;
-    const shortStats = (await stats.boundingBox())!;
-    expect(shortStats.y).toBeGreaterThanOrEqual(shortBody.y);
-    expect(shortStats.y + shortStats.height).toBeLessThanOrEqual(shortBody.y + shortBody.height + 1);
+    const shortHud = (await hud.boundingBox())!;
+    expect(shortHud.y).toBeGreaterThanOrEqual(shortBody.y);
+
+    await expect.poll(async () => {
+      await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      const visible = (await body.boundingBox())!;
+      const footer = (await stats.boundingBox())!;
+      return footer.y >= visible.y
+        && footer.y + footer.height <= visible.y + visible.height + 1;
+    }).toBe(true);
   });
 
   test('three users get a match but no video mesh', async ({ browser }) => {

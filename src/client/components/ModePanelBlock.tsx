@@ -16,7 +16,8 @@ export function ModePanelBlock({ modeId, panel }: ModePanelBlockProps) {
   if (empty) return null;
 
   return (
-    <Stack align="stretch" gap="xs" justify="center" h="100%">
+    // Natural content is centred, but overflow starts at the scroll origin instead of above it.
+    <Stack align="stretch" gap="xs" justify="safe center" h="100%">
       {panel.lines?.map((line, index) => (
         <Text key={index} ta="center" {...modeTextProps(line, { size: 'sm', tone: 'muted' })}>
           {textOf(line)}

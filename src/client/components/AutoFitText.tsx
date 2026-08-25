@@ -67,7 +67,12 @@ export function AutoFitText({
 
     element.style.fontSize = `${best}px`;
     setFontSize((current) => current === best ? current : best);
-  }, [fitHeight, lineHeight, maximumFontSize, minimumFontSize, text]);
+    // `fontFamily` and `fontWeight` belong here: both are applied to the element being measured and
+    // both change how wide it comes out, so a fit computed under the old ones is the wrong answer.
+    // `style` is not, although it can do the same through letter spacing or a transform — callers
+    // pass an object literal, so depending on it would refit on every render and memoizing nothing.
+    // A caller whose `style` changes the metrics has to change something here too.
+  }, [fitHeight, fontFamily, fontWeight, lineHeight, maximumFontSize, minimumFontSize, text]);
 
   useLayoutEffect(() => {
     fit();

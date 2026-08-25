@@ -8,6 +8,8 @@ import {
   getCompactor,
   useContainerWidth,
   type Compactor,
+  type Layout,
+  type LayoutItem,
   type ResponsiveLayouts,
 } from 'react-grid-layout';
 import { useLayoutEditor } from './LayoutEditorContext';
@@ -18,6 +20,7 @@ import {
   type MatchLayoutProfile,
 } from './frontendLayout';
 import { GridItemChromeProvider } from './GridItemChromeContext';
+import { GridItemLayoutProvider } from './GridItemLayoutContext';
 import { useMatchLayoutState } from './useMatchLayoutState';
 
 const ROW_HEIGHT = 8;
@@ -40,6 +43,11 @@ interface ResponsiveBoxGridProps {
   items: ResponsiveBoxItem[];
   defaultLayouts: ResponsiveLayouts<FrontendBreakpoint>;
   profile?: MatchLayoutProfile;
+}
+
+interface LiveGridItemWidth {
+  id: string;
+  widthUnits: number;
 }
 
 function sameLayouts(a: ResponsiveLayouts<FrontendBreakpoint>, b: ResponsiveLayouts<FrontendBreakpoint>): boolean {
@@ -178,6 +186,7 @@ export function ResponsiveBoxGrid({
   }
   const measuredBreakpoint = getBreakpointFromWidth(DEFAULT_BREAKPOINTS, width);
   const [responsiveBreakpoint, setResponsiveBreakpoint] = useState<FrontendBreakpoint | null>(null);
+  const [liveWidth, setLiveWidth] = useState<LiveGridItemWidth | null>(null);
   const breakpoint = responsiveBreakpoint ?? measuredBreakpoint;
   const compactor = profile ? MATCH_COMPACTOR : DOCUMENT_COMPACTOR;
   // `items` is rebuilt every render — new content, same configuration — so it cannot be a dependency.
@@ -342,6 +351,21 @@ export function ResponsiveBoxGrid({
     ? items.filter((item) => enabledIds.has(item.id))
     : items;
 
+  const reportResize = useCallback((
+    _layout: Layout,
+    _oldItem: LayoutItem | null,
+    item: LayoutItem | null,
+  ) => {
+    if (!item) return;
+    setLiveWidth((current) => (
+      current?.id === item.i && current.widthUnits === item.w
+        ? current
+        : { id: item.i, widthUnits: item.w }
+    ));
+  }, []);
+
+  const finishResize = useCallback(() => setLiveWidth(null), []);
+
   return (
     <div ref={containerRef} className="frontend-grid-host">
       {mounted && (
@@ -363,26 +387,33 @@ export function ResponsiveBoxGrid({
           resizeConfig={{ enabled: editable, handles: ['se'] }}
           onBreakpointChange={setResponsiveBreakpoint}
           onLayoutChange={(_, allLayouts) => commitLayouts(allLayouts)}
+          onResize={reportResize}
+          onResizeStop={finishResize}
           className={editable ? 'frontend-grid frontend-grid--editing' : 'frontend-grid'}
         >
           {renderedItems.map((item) => {
+            const placement = (layouts[breakpoint] ?? []).find((placed) => placed.i === item.id);
+            if (!placement) throw new Error(`ResponsiveBoxGrid item "${item.id}" has no ${breakpoint} placement`);
+            const widthUnits = liveWidth?.id === item.id ? liveWidth.widthUnits : placement.w;
             const titleBarVisible = matchLayoutState?.titleBars[breakpoint]?.[item.id]
               ?? item.defaultTitleBarVisible
               ?? true;
             return (
-              <div key={item.id} data-grid-item={item.id}>
-                <GridItemChromeProvider
-                  titleBarVisible={titleBarVisible}
-                  {...(profile ? {
-                    setTitleBarVisible: (visible: boolean) => (
-                      setMatchTitleBarVisible(breakpoint, item.id, visible)
-                    ),
-                  } : {})}
-                >
-                  <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
-                    {item.content}
-                  </MeasuredContent>
-                </GridItemChromeProvider>
+              <div key={item.id} data-grid-item={item.id} data-grid-width={widthUnits}>
+                <GridItemLayoutProvider widthUnits={widthUnits}>
+                  <GridItemChromeProvider
+                    titleBarVisible={titleBarVisible}
+                    {...(profile ? {
+                      setTitleBarVisible: (visible: boolean) => (
+                        setMatchTitleBarVisible(breakpoint, item.id, visible)
+                      ),
+                    } : {})}
+                  >
+                    <MeasuredContent id={item.id} autoHeight={item.autoHeight ?? false} onHeight={reportHeight}>
+                      {item.content}
+                    </MeasuredContent>
+                  </GridItemChromeProvider>
+                </GridItemLayoutProvider>
               </div>
             );
           })}

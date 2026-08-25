@@ -282,8 +282,8 @@ screen the mode wants read is also a visit with no darts in it; setting `autoSub
 sweep it away before anybody saw it. Whac-A-Mole's curtain call is exactly that case, and its flag
 is written `!over && allowance === 0` for that reason.
 
-The overview keeps `headline` on one line and measures it into the width left by its badges and
-**Leave** button. Its tone hint is honored, while its font size and weight belong to the overview.
+The overview keeps `headline` on one line and measures it into the width left by the spectator
+badge, when there is one, and the **Leave** button. Its tone hint is honored, while its font size and weight belong to the overview.
 Keep the text concise: the fitter retains a readable minimum rather than shrinking an arbitrarily
 long headline into illegibility.
 

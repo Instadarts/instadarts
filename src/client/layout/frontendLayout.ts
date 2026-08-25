@@ -586,45 +586,55 @@ function parseStoredTitleBars(
   return profiles;
 }
 
+/** The envelope from an already-parsed value, so neither reader has to parse a second time. */
+function envelopeFrom(value: unknown): StoredMatchLayouts | null {
+  if (!isRecord(value) || value.version !== MATCH_LAYOUT_VERSION || !isRecord(value.profiles)) return null;
+
+  const profiles = parseStoredProfiles(value.profiles);
+  const inactive = parseStoredProfiles(value.inactive);
+  const titleBars = parseStoredTitleBars(value.titleBars);
+  return {
+    version: MATCH_LAYOUT_VERSION,
+    profiles,
+    ...(Object.keys(inactive).length > 0 ? { inactive } : {}),
+    ...(Object.keys(titleBars).length > 0 ? { titleBars } : {}),
+  };
+}
+
 export function parseStoredMatchLayouts(raw: string | null): StoredMatchLayouts | null {
   if (!raw) return null;
   try {
-    const value: unknown = JSON.parse(raw);
-    if (!isRecord(value) || value.version !== MATCH_LAYOUT_VERSION || !isRecord(value.profiles)) return null;
-
-    const profiles = parseStoredProfiles(value.profiles);
-    const inactive = parseStoredProfiles(value.inactive);
-    const titleBars = parseStoredTitleBars(value.titleBars);
-    return {
-      version: MATCH_LAYOUT_VERSION,
-      profiles,
-      ...(Object.keys(inactive).length > 0 ? { inactive } : {}),
-      ...(Object.keys(titleBars).length > 0 ? { titleBars } : {}),
-    };
+    return envelopeFrom(JSON.parse(raw));
   } catch {
     return null;
   }
 }
 
 /**
- * Read the current storage envelope. A version change deliberately invalidates the complete
- * browser-local layout catalog: discard it now so all profiles load their current defaults.
+ * Read the current storage envelope.
+ *
+ * A version change deliberately invalidates the complete browser-local layout catalog: discard it
+ * now so all profiles load their current defaults. A value that will not parse is discarded for the
+ * same reason and one more: nothing else would ever clear it, because the version check that clears
+ * a stale catalog needs the parse that just failed.
  */
 function readStoredMatchLayouts(): StoredMatchLayouts | null {
   const raw = localStorage.getItem(MATCH_LAYOUT_STORAGE_KEY);
   if (!raw) return null;
 
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(raw);
-    if (isRecord(value) && value.version !== MATCH_LAYOUT_VERSION) {
-      localStorage.removeItem(MATCH_LAYOUT_STORAGE_KEY);
-      return null;
-    }
+    value = JSON.parse(raw);
   } catch {
+    localStorage.removeItem(MATCH_LAYOUT_STORAGE_KEY);
     return null;
   }
 
-  return parseStoredMatchLayouts(raw);
+  if (isRecord(value) && value.version !== MATCH_LAYOUT_VERSION) {
+    localStorage.removeItem(MATCH_LAYOUT_STORAGE_KEY);
+    return null;
+  }
+  return envelopeFrom(value);
 }
 
 export function loadMatchLayoutState(

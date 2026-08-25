@@ -435,6 +435,17 @@ describe('stored frontend match layouts', () => {
     expect(values[MATCH_LAYOUT_STORAGE_KEY]).toBeUndefined();
   });
 
+  it('deletes a value that will not parse, the way it deletes a stale version', () => {
+    values[MATCH_LAYOUT_STORAGE_KEY] = '{not json';
+
+    const loaded = loadMatchLayoutState('match-live', defaults, optionalItems);
+
+    // Nothing else would ever clear it: the version check that discards a stale catalog needs the
+    // parse that just failed, so leaving it means every load pays for it and nobody recovers.
+    expect(loaded.layouts.lg?.map((item) => item.i)).toEqual(['alpha']);
+    expect(values[MATCH_LAYOUT_STORAGE_KEY]).toBeUndefined();
+  });
+
   it('falls back to defaults and never interrupts a match when storage is unavailable', () => {
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,

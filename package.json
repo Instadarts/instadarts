@@ -16,7 +16,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "express": "^5.2.1",
     "tsx": "^4.23.7",
     "ws": "^8.21.2"
   },
@@ -24,7 +23,6 @@
     "@litertjs/core": "^2.5.3",
     "@mantine/core": "^9.5.1",
     "@playwright/test": "^1.62.1",
-    "@types/express": "^5.0.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/ws": "^8.18.1",

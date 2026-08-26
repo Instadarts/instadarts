@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import express from 'express';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { gzipSync } from 'node:zlib';
 import { getMimeType, getEmbeddedAssets } from '../../src/server/embeddedAssets';
-import { registerClientServing } from '../../src/server/staticServing';
+import { createClientServing } from '../../src/server/staticServing';
+import { probe, type Probe } from './rawHttp';
 
 describe('embeddedAssets', () => {
   it('identifies MIME types correctly', () => {
@@ -39,103 +39,96 @@ describe('embeddedAssets', () => {
   });
 });
 
-describe('staticServing', () => {
-  it('serves embedded assets with isolation and caching headers', async () => {
+/**
+ * The same client, embedded in the program rather than sitting in a directory beside it — what
+ * `instadarts.mjs` carries. Driven over a socket by the same harness as the disk half in
+ * staticServingDisk.test.ts, and asserting the same things, because **a browser must not be able
+ * to tell the two apart.** Where these two files disagree, one of the two deployments is wrong.
+ */
+describe('serving the built client from the embedded bundle', () => {
+  let http: Probe;
+
+  beforeAll(async () => {
     const rawMap = {
       'index.html': Buffer.from('<html><body>InstaDarts</body></html>').toString('base64'),
       'assets/app.js': Buffer.from('console.log("hello");').toString('base64'),
-      'THIRD-PARTY-NOTICES.txt': Buffer.from('THIRD-PARTY NOTICES\n\nExample').toString('base64'),
+      'THIRD-PARTY-NOTICES.txt': Buffer.from('THIRD-PARTY NOTICES').toString('base64'),
     };
-    const json = JSON.stringify(rawMap);
-    const compressed = gzipSync(Buffer.from(json, 'utf-8')).toString('base64');
+    const compressed = gzipSync(Buffer.from(JSON.stringify(rawMap), 'utf-8')).toString('base64');
+    http = await probe(createClientServing(getEmbeddedAssets(compressed))!);
+  });
 
-    const assets = getEmbeddedAssets(compressed);
+  afterAll(async () => { await http.close(); });
 
-    const app = express();
-    registerClientServing(app, assets);
+  it('answers the root with index.html', async () => {
+    const res = await http.send('GET / HTTP/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.body).toBe('<html><body>InstaDarts</body></html>');
+  });
 
-    // Test GET /
-    const rootRes = await simulateRequest(app, 'GET', '/');
-    expect(rootRes.status).toBe(200);
-    expect(rootRes.headers['content-type']).toBe('text/html; charset=utf-8');
-    expect(rootRes.headers['cross-origin-opener-policy']).toBe('same-origin');
-    expect(rootRes.headers['cross-origin-embedder-policy']).toBe('require-corp');
-    expect(rootRes.headers['cache-control']).toBe('no-cache');
-    expect(rootRes.body.toString('utf-8')).toBe('<html><body>InstaDarts</body></html>');
+  it('serves a nested asset with a JavaScript media type', async () => {
+    const res = await http.send('GET /assets/app.js HTTP/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/javascript/);
+    expect(res.body).toBe('console.log("hello");');
+  });
 
-    // Test ETag / 304 Not Modified
-    const etag = rootRes.headers['etag'];
-    expect(etag).toBeDefined();
-    const notModifiedRes = await simulateRequest(app, 'GET', '/', { 'if-none-match': etag });
-    expect(notModifiedRes.status).toBe(304);
+  it('serves the generated notices as plain text', async () => {
+    const res = await http.send('GET /THIRD-PARTY-NOTICES.txt HTTP/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/plain/);
+    expect(res.body).toBe('THIRD-PARTY NOTICES');
+  });
 
-    // Test GET /assets/app.js (immutable cache)
-    const assetRes = await simulateRequest(app, 'GET', '/assets/app.js');
-    expect(assetRes.status).toBe(200);
-    expect(assetRes.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(assetRes.headers['cache-control']).toBe('public, max-age=31536000, immutable');
-    expect(assetRes.body.toString('utf-8')).toBe('console.log("hello");');
+  it('gives every response the cross-origin isolation headers LiteRT needs', async () => {
+    for (const path of ['/', '/assets/app.js']) {
+      const res = await http.send(`GET ${path} HTTP/1.1`);
+      expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
+      expect(res.headers['cross-origin-embedder-policy']).toBe('require-corp');
+      expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
+    }
+  });
 
-    // The notices are a plain-text client asset rather than an HTML application screen.
-    const noticesRes = await simulateRequest(app, 'GET', '/THIRD-PARTY-NOTICES.txt');
-    expect(noticesRes.status).toBe(200);
-    expect(noticesRes.headers['content-type']).toBe('text/plain; charset=utf-8');
-    expect(noticesRes.headers['cache-control']).toBe('no-cache');
-    expect(noticesRes.body.toString('utf-8')).toBe('THIRD-PARTY NOTICES\n\nExample');
+  it('answers a client-side route with the application, not a 404', async () => {
+    const res = await http.send('GET /match/123 HTTP/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.body).toBe('<html><body>InstaDarts</body></html>');
+  });
 
-    // Test SPA fallback for route /match/123
-    const spaRes = await simulateRequest(app, 'GET', '/match/123');
-    expect(spaRes.status).toBe(200);
-    expect(spaRes.headers['content-type']).toBe('text/html; charset=utf-8');
-    expect(spaRes.body.toString('utf-8')).toBe('<html><body>InstaDarts</body></html>');
+  it('answers HEAD without a body', async () => {
+    const res = await http.send('HEAD / HTTP/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(res.body).toBe('');
+  });
+
+  it('lets the client revalidate the document rather than pinning it', async () => {
+    const res = await http.send('GET / HTTP/1.1');
+    expect(res.headers['cache-control']).toMatch(/no-cache|max-age=0/);
+  });
+
+  it('lets the client keep a hashed asset without asking again', async () => {
+    // The bundler puts the content hash in the name, so a cached copy can never be the wrong one.
+    const res = await http.send('GET /assets/app.js HTTP/1.1');
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('answers a repeat request for an unchanged file with 304', async () => {
+    const first = await http.send('GET / HTTP/1.1');
+    expect(first.headers['etag']).toBeDefined();
+    const second = await http.send('GET / HTTP/1.1', { 'If-None-Match': first.headers['etag'] });
+    expect(second.status).toBe(304);
+    expect(second.body).toBe('');
+  });
+
+  it('answers a missing file with 404 rather than the application', async () => {
+    // The divergence this replaced: the disk path used to fall back to index.html here, so a
+    // browser asking for a script got HTML and reported a parse error instead of the 404 that
+    // actually happened. A path with an extension is asking for a file, not for a route.
+    const res = await http.send('GET /assets/missing.js HTTP/1.1');
+    expect(res.status).toBe(404);
+    expect(res.body).not.toContain('InstaDarts');
   });
 });
-
-async function simulateRequest(
-  app: express.Express,
-  method: string,
-  url: string,
-  headers: Record<string, string> = {},
-): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
-  return new Promise((resolve, reject) => {
-    const req: any = {
-      method,
-      url,
-      headers: { ...headers },
-      path: url.split('?')[0],
-    };
-
-    const resHeaders: Record<string, string> = {};
-    let statusCode = 200;
-    const chunks: Buffer[] = [];
-
-    const res: any = {
-      setHeader(name: string, value: string) {
-        resHeaders[name.toLowerCase()] = value;
-      },
-      status(code: number) {
-        statusCode = code;
-        return this;
-      },
-      end(chunk?: any) {
-        if (chunk) {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        }
-        resolve({
-          status: statusCode,
-          headers: resHeaders,
-          body: Buffer.concat(chunks),
-        });
-      },
-    };
-
-    app(req, res, (err?: any) => {
-      if (err) return reject(err);
-      resolve({
-        status: 404,
-        headers: resHeaders,
-        body: Buffer.concat(chunks),
-      });
-    });
-  });
-}

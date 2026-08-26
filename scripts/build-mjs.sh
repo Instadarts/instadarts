@@ -46,9 +46,9 @@ echo "=== Building client and checking types ==="
 npm run build
 
 # ── 3. What the licences ask for, on behalf of everybody else ────────
-#    The archive carries other people's code — express and ws inside
-#    the .mjs along with React and LiteRT — and every licence involved
-#    asks for its notice to travel with it.
+#    The archive carries other people's code — ws inside the .mjs,
+#    React and LiteRT inside the client it embeds — and every licence
+#    involved asks for its notice to travel with it.
 #
 #    Generated **before** the client is embedded, because the embedding
 #    below sweeps up whatever dist/client holds and the app's own
@@ -99,9 +99,9 @@ echo "=== Packaging embedded client ==="
 node scripts/bundle-client.mjs dist/client src/server/embeddedAssetsBundle.ts
 
 # ── 4. The server, as one file ───────────────────────────────────────
-#    esbuild strips the TypeScript and inlines express, ws, and the
-#    embedded client assets, so the archive needs no dependencies or
-#    external static files of its own.
+#    esbuild strips the TypeScript and inlines ws and the embedded
+#    client assets, so the archive needs no dependencies or external
+#    static files of its own.
 #
 #    --target=node22 is the floor the banner enforces, not whatever
 #    Node happens to be building: a newer local Node must not emit
@@ -122,9 +122,10 @@ banner+="if (!__nodeMajor || __nodeMajor < 22) { console.error('InstaDarts requi
 banner+="import { fileURLToPath as __toPath } from 'node:url';"
 banner+="import { dirname as __dir } from 'node:path';"
 banner+="import { createRequire as __createRequire } from 'node:module';"
-# express reaches `debug`, which does `require('tty')` at load time. Bundled to ESM there is no
-# `require` for it to reach, and esbuild's shim throws rather than guessing — so give it one.
-# esbuild's shim uses a `require` it can see, and this declares it above the shim's own line.
+# ws reaches for `bufferutil` and `utf-8-validate` with a bare `require`, taking the absence of
+# either as "use the JavaScript path". Bundled to ESM there is no `require` for it to reach, and
+# esbuild's shim throws rather than reporting absence — which would turn an optional speedup into a
+# startup crash. esbuild's shim uses a `require` it can see, and this declares it above that line.
 banner+="const require = __createRequire(import.meta.url);"
 banner+="const __here = __dir(__toPath(import.meta.url));"
 banner+="process.env.NODE_ENV = 'production';"

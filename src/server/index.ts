@@ -1,6 +1,5 @@
 import './nodeVersion';
-import express from 'express';
-import { createServer } from 'http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { styleText } from 'node:util';
 import { WebSocketServer } from 'ws';
 // Importing wsHandler also registers the lifecycle handlers — it is the module that knows what to
@@ -18,6 +17,7 @@ import { startHeartbeat } from './heartbeat';
 import { QUIET } from './env';
 import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
 import { httpListenUrls } from './listenUrls';
+import { createClientServing } from './staticServing';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -44,8 +44,13 @@ await startInternalStun();
 
 const PORT = CONFIG.server.port;
 
-const app = express();
-const server = createServer(app);
+// The client this run serves: embedded in instadarts.mjs, read from CLIENT_DIR on disk, or nothing
+// at all under `npm run dev`, where Vite serves it on its own port.
+const serveClient = createClientServing();
+
+const server = createServer((req, res) => {
+  void route(req, res);
+});
 const wss = new WebSocketServer({
   server,
   path: '/ws',
@@ -63,12 +68,12 @@ const wss = new WebSocketServer({
  * played is the shape a leak would take. `heldMatches` above `runningMatches` is only summaries
  * counting down — it is the two together, staying up, that would mean something.
  */
-app.get('/server-stats', (_req, res) => {
+function serverStats() {
   const lobbies = getAllLobbies();
   const matches = getAllMatches();
   const runningMatches = [...matches.values()].filter(g => g.status === 'in_progress').length;
   const mem = process.memoryUsage();
-  res.json({
+  return {
     openLobbies: lobbies.size,
     runningMatches,
     heldMatches: matches.size,
@@ -82,13 +87,35 @@ app.get('/server-stats', (_req, res) => {
       rssMB: Math.round(mem.rss / 1024 / 1024),
     },
     uptimeSeconds: Math.round(process.uptime()),
-  });
-});
+  };
+}
 
-import { registerClientServing } from './staticServing';
+/**
+ * Every request that is not a WebSocket upgrade — those never reach here, because the upgrade is a
+ * different event on the same server.
+ *
+ * Two things to be, in this order. The readiness probe answers first and on its own terms: it is
+ * what the e2e run waits for, so it must not depend on a client being present, and it carries no
+ * isolation headers because nothing embeds it. Everything else is the client's, and what the
+ * client declines to answer is a 404 — there is no third handler behind it.
+ */
+async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const pathname = (req.url ?? '').split('?')[0];
 
-// Serve the client (either embedded in instadarts.mjs or from CLIENT_DIR on disk).
-registerClientServing(app);
+  if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/server-stats') {
+    const body = JSON.stringify(serverStats());
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Length', Buffer.byteLength(body));
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+
+  if (serveClient && await serveClient(req, res)) return;
+
+  res.statusCode = 404;
+  res.end();
+}
 
 // Cuts connections that stopped answering without closing — the only way a vanished phone is ever
 // noticed, since nothing else on the server distinguishes it from a quiet one.

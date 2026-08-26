@@ -17,7 +17,7 @@ src/shared/     types.ts        the match, the visit, the mode's view of both �
                 scoring.ts      board coordinates → a dart's score. The one authority on what was hit
                 vision/         geometry and constants the camera pipeline shares with the server
 
-src/server/     index.ts        boot: modes, express, the socket server, the clocks
+src/server/     index.ts        boot: modes, the HTTP router, the socket server, the clocks
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
@@ -165,6 +165,35 @@ the time a file could be read. `QUIET` and `CLIENT_DIR` are the same kind of thi
 the run rather than of the deployment — and are what is left in
 [`env.ts`](../src/server/env.ts). `INSTADARTS_CONFIG` and `INSTADARTS_DIR` are not settings at all:
 they say where to look for the file, and set nothing in it.
+
+### Serving the client
+
+[`staticServing.ts`](../src/server/staticServing.ts) answers everything that is not `/server-stats`
+or a WebSocket upgrade, from one of two sources: the assets embedded in `instadarts.mjs`, or
+`dist/client` on disk. **A browser must not be able to tell which.** Every rule about *what* to
+answer is shared; only the reading of the bytes differs, and the two are tested through the same
+socket-level harness in `staticServing.test.ts` and `staticServingDisk.test.ts`. Where those two
+files disagree, one of the two deployments is wrong.
+
+The rules:
+
+- **A path with a file extension is asking for a file.** If it is not there, that is a 404 — not
+  the application. Answering `/assets/missing.js` with `index.html` hands the browser a script that
+  is not one, and it reports the parse error instead of the 404 that actually happened. Anything
+  *without* an extension is a client-side route and gets the application.
+- **Only `/assets/` is immutable.** The bundler puts a content hash in those filenames, so a cached
+  copy can never be the wrong one. `/wasm/` and `/models/` are copied in under fixed names, where a
+  year-long cache would leave a browser holding the previous release's runtime — so they
+  revalidate, and an ETag turns that into a 304.
+- **Every client response carries all three cross-origin isolation headers**, because LiteRT's
+  multithreaded WASM needs `SharedArrayBuffer` and losing any one of them costs it. `/server-stats`
+  does not carry them and does not need them.
+- **A path is resolved and then checked to still be inside the client directory**, after decoding.
+  That order is the only one that catches an escape spelled `%2e%2e`.
+
+There is no HTTP framework here. The server is `node:http` with a router small enough to read in
+one screen at the bottom of [`index.ts`](../src/server/index.ts), which is what keeps the runtime
+dependencies at `ws` and `tsx`.
 
 ### Connections that vanish without closing
 

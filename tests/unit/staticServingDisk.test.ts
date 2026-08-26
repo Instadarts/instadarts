@@ -2,8 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import { connect } from 'node:net';
+import { probe, type Probe } from './rawHttp';
 
 /**
  * Serving the built client from a directory on disk — the `CLIENT_DIR` half of
@@ -17,11 +16,10 @@ import { connect } from 'node:net';
  * the process, and the attack this has to refuse is precisely the one that does not.
  *
  * Every assertion here is about what the server owes a browser rather than about how it is built,
- * which is what lets this file outlive the express dependency it currently exercises.
+ * which is what let this file outlive express, the dependency it was first written against.
  */
 
-let server: Server;
-let port: number;
+let http: Probe;
 let outside: string;
 
 beforeAll(async () => {
@@ -38,75 +36,29 @@ beforeAll(async () => {
 
   vi.resetModules();
   vi.stubEnv('CLIENT_DIR', client);
-  const express = (await import('express')).default;
-  const { registerClientServing } = await import('../../src/server/staticServing');
+  const { createClientServing } = await import('../../src/server/staticServing');
 
-  const app = express();
   // `null` rather than the default: this is the disk path, so say so instead of depending on the
   // build having left no embedded bundle behind.
-  registerClientServing(app, null);
-
-  server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  port = (server.address() as { port: number }).port;
+  http = await probe(createClientServing(null)!);
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await http.close();
   vi.unstubAllEnvs();
   vi.resetModules();
 });
 
-interface Response {
-  status: number;
-  headers: Record<string, string>;
-  body: string;
-}
-
-/**
- * One request, written byte for byte.
- *
- * `requestLine` is put on the wire exactly as given — that is the whole point of not using a
- * client here — so a test can ask for a path no library would agree to send.
- */
-function send(requestLine: string, extraHeaders: Record<string, string> = {}): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    const socket = connect(port, '127.0.0.1', () => {
-      const extra = Object.entries(extraHeaders).map(([k, v]) => `${k}: ${v}\r\n`).join('');
-      socket.write(`${requestLine}\r\nHost: localhost\r\n${extra}Connection: close\r\n\r\n`);
-    });
-
-    let raw = '';
-    socket.setEncoding('utf8');
-    socket.on('data', (chunk) => { raw += chunk; });
-    socket.on('error', reject);
-    socket.on('end', () => {
-      const [head, ...rest] = raw.split('\r\n\r\n');
-      const [statusLine, ...headerLines] = head.split('\r\n');
-      const headers: Record<string, string> = {};
-      for (const line of headerLines) {
-        const at = line.indexOf(':');
-        if (at > 0) headers[line.slice(0, at).toLowerCase()] = line.slice(at + 1).trim();
-      }
-      resolve({
-        status: Number(statusLine.split(' ')[1]),
-        headers,
-        body: rest.join('\r\n\r\n'),
-      });
-    });
-  });
-}
-
 describe('serving the built client from disk', () => {
   it('answers the root with index.html', async () => {
-    const res = await send('GET / HTTP/1.1');
+    const res = await http.send('GET / HTTP/1.1');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/html/);
     expect(res.body).toBe('<html><body>InstaDarts</body></html>');
   });
 
   it('serves a nested asset with a JavaScript media type', async () => {
-    const res = await send('GET /assets/app.js HTTP/1.1');
+    const res = await http.send('GET /assets/app.js HTTP/1.1');
     expect(res.status).toBe(200);
     // Either spelling is correct and browsers accept both, so the invariant is the media type
     // rather than which of the two names for it the server happens to use.
@@ -115,7 +67,7 @@ describe('serving the built client from disk', () => {
   });
 
   it('serves the generated notices as plain text', async () => {
-    const res = await send('GET /THIRD-PARTY-NOTICES.txt HTTP/1.1');
+    const res = await http.send('GET /THIRD-PARTY-NOTICES.txt HTTP/1.1');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/plain/);
     expect(res.body).toBe('THIRD-PARTY NOTICES');
@@ -125,7 +77,7 @@ describe('serving the built client from disk', () => {
     // Without all three the client cannot use SharedArrayBuffer, and the model runs single-threaded
     // or not at all — so these belong on the asset as much as on the document.
     for (const path of ['/', '/assets/app.js']) {
-      const res = await send(`GET ${path} HTTP/1.1`);
+      const res = await http.send(`GET ${path} HTTP/1.1`);
       expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
       expect(res.headers['cross-origin-embedder-policy']).toBe('require-corp');
       expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
@@ -133,14 +85,14 @@ describe('serving the built client from disk', () => {
   });
 
   it('answers a client-side route with the application, not a 404', async () => {
-    const res = await send('GET /match/123 HTTP/1.1');
+    const res = await http.send('GET /match/123 HTTP/1.1');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/html/);
     expect(res.body).toBe('<html><body>InstaDarts</body></html>');
   });
 
   it('answers HEAD without a body', async () => {
-    const res = await send('HEAD / HTTP/1.1');
+    const res = await http.send('HEAD / HTTP/1.1');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/^text\/html/);
     expect(res.body).toBe('');
@@ -149,8 +101,31 @@ describe('serving the built client from disk', () => {
   it('lets the client revalidate the document rather than pinning it', async () => {
     // index.html names the hashed asset files, so a browser that caches it hard never learns about
     // a new build. Whatever else changes, this one must stay revalidated.
-    const res = await send('GET / HTTP/1.1');
+    const res = await http.send('GET / HTTP/1.1');
     expect(res.headers['cache-control']).toMatch(/no-cache|max-age=0/);
+  });
+
+
+  it('answers a missing file with 404 rather than the application', async () => {
+    // The divergence this replaced: the disk path used to fall back to index.html here, so a
+    // browser asking for a script got HTML and reported a parse error instead of the 404 that
+    // actually happened. A path with an extension is asking for a file, not for a route.
+    const res = await http.send('GET /assets/missing.js HTTP/1.1');
+    expect(res.status).toBe(404);
+    expect(res.body).not.toContain('InstaDarts');
+  });
+
+  it('lets the client keep a hashed asset without asking again', async () => {
+    const res = await http.send('GET /assets/app.js HTTP/1.1');
+    expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('answers a repeat request for an unchanged file with 304', async () => {
+    const first = await http.send('GET / HTTP/1.1');
+    expect(first.headers['etag']).toBeDefined();
+    const second = await http.send('GET / HTTP/1.1', { 'If-None-Match': first.headers['etag'] });
+    expect(second.status).toBe(304);
+    expect(second.body).toBe('');
   });
 
   describe('refuses to leave the directory it was given', () => {
@@ -167,7 +142,7 @@ describe('serving the built client from disk', () => {
 
     for (const [label, requestLine] of attacks) {
       it(label, async () => {
-        const res = await send(requestLine);
+        const res = await http.send(requestLine);
         expect(res.body).not.toContain('TOP SECRET');
       });
     }

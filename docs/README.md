@@ -22,9 +22,10 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
 - [Media](./media.md) — the optional peer-to-peer video feature: who the server lets connect to whom
   and why that one rule is the whole security model, why a link carries no video track, and how to
   turn it off. It also covers shipped dart-evidence stills and live remote boards in online matches.
-- [Working on this app](./development.md) — how to run the app, how a deployment is tuned, the tests
-  and the typechecks, how to check a UI change, and the traps that have caught people here. Read this
-  first if you are about to run something.
+- [Working on this app](./development.md) — how to run the app, how a deployment is tuned, what a
+  release is and what the workflow checks before publishing one, how the built client is served, the
+  tests and the typechecks, how to check a UI change, and the traps that have caught people here.
+  Read this first if you are about to run something.
 
 Deployment settings live in one optional file, described in
 [development.md](./development.md#settings) and shown with every knob at its default in

@@ -271,8 +271,10 @@ Storage reads and writes are guarded. A blocked/private storage implementation g
 ## Scorer presentation and sensitive geometry
 
 The paired scorer uses the same 52 px `AppShell` header as the frontend, then a static centred
-column. Its settings are a height-bounded, scrollable header menu. Onboarding hides the header and
-keeps its existing name → camera → self-test → optional aim state machine.
+column. Its settings are a height-bounded, scrollable header menu, grouped `Layout` → `Camera and
+AI` → `Sharing and power` → `Device`, and in production a final `Links` → third-party notices, the
+same link the frontend menu carries. Onboarding hides the header and keeps its existing name →
+camera → self-test → optional aim state machine.
 
 The camera preview is not an ordinary responsive image. Scoring and onboarding share
 [`SquareCameraViewport.tsx`](../src/client/pages/scorer/SquareCameraViewport.tsx): a reserved square

@@ -18,6 +18,9 @@ src/shared/     types.ts        the match, the visit, the mode's view of both �
                 vision/         geometry and constants the camera pipeline shares with the server
 
 src/server/     index.ts        boot: modes, the HTTP router, the socket server, the clocks
+                staticServing.ts  the built client, from the embedded bundle or from disk — one
+                                set of rules over both, including the one that refuses to leave
+                                the client directory
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
@@ -35,7 +38,7 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                 config.ts       the optional settings file: where it is, and what a bad one does
                 rateLimit.ts    two numbers per budget — what may be spent at once, and what may
                                 be kept up — and what becomes of a client that empties one
-                env.ts, invite.ts, player.ts
+                env.ts, invite.ts, player.ts, listenUrls.ts, start.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
@@ -76,10 +79,19 @@ file.
 
 **A release is the source.** GitHub attaches its own `Source code` archives to every tag, and that
 is the whole of what we publish; a downloader runs `npm install && npm run build && npm start`. The
-workflow's only job is to prove that commit is fit to be released — `npm ci`, `npm test`,
-`npm run build` — so nothing generated ever enters Git or the release. It also means a release
-redistributes none of anybody else's code, and carries none of the obligations that would come with
-doing so.
+workflow's only job is to prove that commit is fit to be released — `npm ci`, `npm audit`,
+`npm test`, `npm run build` — so nothing generated ever enters Git or the release. It also means a
+release redistributes none of anybody else's code, and carries none of the obligations that would
+come with doing so.
+
+The audit is `npm audit --audit-level=info`, and it is a step of its own because `npm ci` reports
+its advisory count and exits 0 whatever that count is. Every severity, and devDependencies
+included: a downloader builds the source themselves, so the dev half of the tree is code that runs
+on their machine rather than build-only noise. It is checked against the registry as it stands at
+release time, which means **a tag can fail on an advisory published long after the code was
+merged.** That is the intent — the question is whether this is safe to hand out today — but it does
+mean a release can be blocked by something no code change caused. Where the advisory has no fix,
+`--audit-level=high` narrows it to the serious ones.
 
 `bash scripts/build-mjs.sh [version]` remains the optional single-file build, for handing somebody
 one file to run with no npm involved. It embeds the client and inlines the server dependencies into

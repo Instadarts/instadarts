@@ -265,6 +265,16 @@ export function TopBar({
                 >
                   Source code
                 </Menu.Item>
+                {import.meta.env.PROD && (
+                  <Menu.Item
+                    component="a"
+                    href="/THIRD-PARTY-NOTICES.txt"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Third-party notices
+                  </Menu.Item>
+                )}
               </Menu.Dropdown>
             </Menu>
           </Group>

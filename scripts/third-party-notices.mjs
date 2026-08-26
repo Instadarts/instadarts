@@ -1,12 +1,16 @@
-// Build THIRD-PARTY-NOTICES.txt for the release archive.
+// Build THIRD-PARTY-NOTICES.txt for whichever build is about to redistribute somebody else's code.
 //
-//   node scripts/third-party-notices.mjs <server-metafile.json> <out.txt>
+//   node scripts/third-party-notices.mjs --client-only <out.txt>      — what `npm run build` runs
+//   node scripts/third-party-notices.mjs <server-metafile.json> <out.txt>  — what build-mjs.sh runs
 //
-// The archive redistributes other people's code: express and ws are inlined into instadarts.mjs,
-// React and LiteRT into client/assets, and LiteRT's WASM is copied in whole. Every licence involved
-// permits that and every one of them asks for something back — MIT and ISC want their notice carried
-// with the copy, Apache-2.0 additionally wants a copy of the licence itself and any NOTICE file,
-// BSD wants its conditions reproduced. This is the file that does that, and it is generated rather
+// Two consumers, because two builds redistribute different amounts. `npm run build` inlines the
+// client dependencies into dist/client and leaves the server's in node_modules, where they are
+// nobody's copy but npm's. The standalone .mjs inlines both, so its notice has to cover both. A
+// source snapshot needs no notice at all: it carries none of this code.
+//
+// Every licence involved permits the copying and every one of them asks for something back — MIT
+// and ISC want their notice carried with the copy, Apache-2.0 additionally wants a copy of the
+// licence itself and any NOTICE file, BSD wants its conditions reproduced. This is generated rather
 // than maintained so it cannot quietly fall behind the dependency it is attributing.
 //
 // **Two ways of finding what is in there**, because the two bundlers answer differently:
@@ -26,9 +30,15 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const [metafilePath, outPath] = process.argv.slice(2);
-if (!metafilePath || !outPath) {
-  console.error('usage: node scripts/third-party-notices.mjs <server-metafile.json> <out.txt>');
+const args = process.argv.slice(2);
+const clientOnly = args[0] === '--client-only';
+const metafilePath = clientOnly ? null : args[0];
+const outPath = args[1];
+if (args.length !== 2) {
+  console.error(
+    'usage: node scripts/third-party-notices.mjs <server-metafile.json> <out.txt>\n' +
+    '   or: node scripts/third-party-notices.mjs --client-only <out.txt>',
+  );
   process.exit(1);
 }
 
@@ -38,6 +48,7 @@ const manifest = (name) => readJson(join(pkgDir(name), 'package.json'));
 
 /** Everything esbuild actually read, reduced to package names. */
 function serverPackages() {
+  if (!metafilePath) return new Set();
   const inputs = Object.keys(readJson(metafilePath).inputs);
   const names = new Set();
   for (const path of inputs) {
@@ -119,7 +130,10 @@ const out = [
 for (const name of all) {
   const m = manifest(name);
   const spdx = typeof m.license === 'string' ? m.license : (m.license?.type ?? 'UNKNOWN');
-  const where = [server.has(name) && 'instadarts.mjs', client.has(name) && 'instadarts.mjs (client)'].filter(Boolean).join(', ');
+  const where = [
+    server.has(name) && 'instadarts.mjs',
+    client.has(name) && (clientOnly ? 'dist/client' : 'instadarts.mjs (client)'),
+  ].filter(Boolean).join(', ');
 
   out.push(rule, `${name} ${m.version}`, `License: ${spdx}`);
   if (m.homepage) out.push(`Homepage: ${m.homepage}`);

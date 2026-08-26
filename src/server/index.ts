@@ -1,6 +1,7 @@
 import './nodeVersion';
 import express from 'express';
 import { createServer } from 'http';
+import { styleText } from 'node:util';
 import { WebSocketServer } from 'ws';
 // Importing wsHandler also registers the lifecycle handlers — it is the module that knows what to
 // tell people when a deadline passes, and it says so to `lifecycle` on load.
@@ -9,13 +10,14 @@ import './modes/registry.js';
 import { loadModes } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
-import { mediaPeerCount, startInternalStun } from './media';
+import { mediaPeerCount, reportInternalStun, startInternalStun } from './media';
 import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
 import { QUIET } from './env';
 import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
+import { httpListenUrls } from './listenUrls';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -121,6 +123,7 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`InstaDarts server running on http://localhost:${PORT}`);
-  console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
+  console.log('InstaDarts server listening on:');
+  for (const url of httpListenUrls(PORT)) console.log(`  ${styleText('green', url)}`);
+  reportInternalStun();
 });

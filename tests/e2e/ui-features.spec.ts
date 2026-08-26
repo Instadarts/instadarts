@@ -407,6 +407,7 @@ test.describe('responsive UI branch features', () => {
     let menu = await openFrontendSettings(page);
     await expect(menu.getByRole('menuitem', { name: 'Source code' }))
       .toHaveAttribute('href', 'https://github.com/Instadarts');
+    await expect(menu.getByRole('menuitem', { name: 'Third-party notices' })).toHaveCount(0);
     await expect(menu.getByRole('switch', { name: 'Edit Match Layout' })).toHaveCount(0);
     await expect(menu.getByText('Reset layout', { exact: true })).toHaveCount(0);
     await expect(menu.getByText('100%', { exact: true })).toBeVisible();

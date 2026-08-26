@@ -60,7 +60,31 @@ npm run dev     # the API/WebSocket server on 3000 and Vite on 5173, together
 npm test        # unit tests (vitest). A couple of seconds; run them freely
 npm run test:e2e  # the whole browser suite; model/media projects make it a longer check
 npm run build   # production build — and see the warning below
+npm start       # run that build: one process, serving the client itself
 ```
+
+`npm start` sets `NODE_ENV=production` from [`start.ts`](../src/server/start.ts) rather than from
+the script line, which a Windows Command Prompt would not honour. It prints the addresses it is
+listening on — the real ones, because a `localhost` URL is no use to the phone that has to reach it.
+
+The production build also generates `dist/client/THIRD-PARTY-NOTICES.txt`. In production the server
+exposes that file as plain text at `/THIRD-PARTY-NOTICES.txt`, and both settings menus link to it in
+a new tab. Development menus omit the link because Vite does not serve the generated production
+file.
+
+### Releases
+
+**A release is the source.** GitHub attaches its own `Source code` archives to every tag, and that
+is the whole of what we publish; a downloader runs `npm install && npm run build && npm start`. The
+workflow's only job is to prove that commit is fit to be released — `npm ci`, `npm test`,
+`npm run build` — so nothing generated ever enters Git or the release. It also means a release
+redistributes none of anybody else's code, and carries none of the obligations that would come with
+doing so.
+
+`bash scripts/build-mjs.sh [version]` remains the optional single-file build, for handing somebody
+one file to run with no npm involved. It embeds the client and inlines the server dependencies into
+`instadarts.mjs`, so that archive *does* redistribute other people's code and carries the full
+notice — both beside the program and inside it, from the same generated file.
 
 ### Settings
 
@@ -70,7 +94,7 @@ and edit it; with no file at all, the defaults are the deployment. It is looked 
 directory and beside the running executable, and `INSTADARTS_CONFIG=/path/to/file` overrides both —
 that variable locates the file and sets nothing in it, which is what lets a second instance run
 beside a first. `INSTADARTS_DIR` names a directory to look in rather than a file, and is what the
-release bundle sets so the settings can sit beside the executable.
+standalone `.mjs` bundle sets so the settings can sit beside the executable.
 
 Test processes do not inspect the working directory or executable directory for settings. Unit and
 browser tests therefore run against defaults unless the harness explicitly supplies a fixture with
@@ -196,10 +220,10 @@ reach is in [vision.md](vision.md#power-management).
 
 ### `npm run build` typechecks both sides
 
-It is `vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit`.
-Vite itself transpiles the client with esbuild and does not typecheck it; the explicit client `tsc`
-step after the bundle is what makes a green production build cover DOM and WebGPU types too. To run
-that check without building:
+It builds with Vite, typechecks the client and server, and then generates the third-party notices
+from the browser dependency closure. Vite itself transpiles the client with esbuild and does not
+typecheck it; the explicit client `tsc` step after the bundle is what makes a green production build
+cover DOM and WebGPU types too. To run that check without building:
 
 ```sh
 npx tsc -p tsconfig.client.json --noEmit

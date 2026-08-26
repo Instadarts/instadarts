@@ -195,11 +195,11 @@ describe('which file it reads', () => {
   });
 
   it('does not read the example, which is shipped in the very directory it searches', async () => {
-    // The release archive puts `instadarts.config.example.jsonc` beside the executable and points
-    // INSTADARTS_DIR at that directory, so "the example is not a settings file" is a property of the
-    // shipped layout rather than a nicety. It reads as one — same syntax, every knob present — and
-    // now that it carries real values instead of commented-out ones, picking it up would look like
-    // nothing at all going wrong while silently pinning every default it names.
+    // The standalone .mjs archive puts `instadarts.config.example.jsonc` beside the executable and
+    // points INSTADARTS_DIR at that directory, so "the example is not a settings file" is a property
+    // of the shipped layout rather than a nicety. It reads as one — same syntax, every knob present
+    // — and now that it carries real values instead of commented-out ones, picking it up would look
+    // like nothing at all going wrong while silently pinning every default it names.
     const { CONFIG, CONFIG_PATH } = await loadFromDir({
       'instadarts.config.example.jsonc': '{ "server": { "maxMatches": 777 } }',
     });

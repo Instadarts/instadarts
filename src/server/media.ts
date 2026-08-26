@@ -25,17 +25,34 @@ import { QUIET } from './env';
 const MEDIA_ENABLED = CONFIG.media.enabled;
 
 let stunPort: number | null = null;
+/** Why the internal STUN server did not bind, held until the startup report is printed. */
+let stunProblem: string | null = null;
 
 export async function startInternalStun(): Promise<void> {
   if (!MEDIA_ENABLED || !CONFIG.media.iceUrls.includes(INTERNAL_ICE)) return;
   const server = await startStunServer(CONFIG.media.stunPort);
   if (server.port === null) {
-    console.warn(`STUN: could not listen on UDP ${CONFIG.media.stunPort} — ${server.problem}`);
-    console.warn('  Peers will use host candidates only, as if "internal" were not configured.');
+    stunProblem = server.problem;
     return;
   }
   stunPort = server.port;
-  if (!QUIET) console.log(`STUN: UDP ${server.port} (must be reachable from clients)`);
+}
+
+/**
+ * Printed after the HTTP addresses so STUN remains the final part of the startup report, rather
+ * than during startup where the listen URLs would bury it.
+ *
+ * A deployment that carries no internal STUN server says nothing here — neither field is set.
+ */
+export function reportInternalStun(): void {
+  // `!== null` rather than truthiness: an error that arrived with an empty message is still a
+  // failure, and silence is the one thing this must not answer it with.
+  if (stunProblem !== null) {
+    console.warn(`STUN: could not listen on UDP ${CONFIG.media.stunPort} — ${stunProblem}`);
+    console.warn('  Peers will use host candidates only, as if "internal" were not configured.');
+  } else if (stunPort !== null && !QUIET) {
+    console.log(`STUN: UDP ${stunPort} (must be reachable from clients)`);
+  }
 }
 
 interface SourceSlot {

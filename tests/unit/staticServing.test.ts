@@ -12,6 +12,7 @@ describe('embeddedAssets', () => {
     expect(getMimeType('wasm/runtime.wasm')).toBe('application/wasm');
     expect(getMimeType('models/model.tflite')).toBe('application/octet-stream');
     expect(getMimeType('images/board.jpg')).toBe('image/jpeg');
+    expect(getMimeType('THIRD-PARTY-NOTICES.txt')).toBe('text/plain; charset=utf-8');
   });
 
   it('returns null on null bundle', () => {
@@ -43,6 +44,7 @@ describe('staticServing', () => {
     const rawMap = {
       'index.html': Buffer.from('<html><body>InstaDarts</body></html>').toString('base64'),
       'assets/app.js': Buffer.from('console.log("hello");').toString('base64'),
+      'THIRD-PARTY-NOTICES.txt': Buffer.from('THIRD-PARTY NOTICES\n\nExample').toString('base64'),
     };
     const json = JSON.stringify(rawMap);
     const compressed = gzipSync(Buffer.from(json, 'utf-8')).toString('base64');
@@ -73,6 +75,13 @@ describe('staticServing', () => {
     expect(assetRes.headers['content-type']).toBe('application/javascript; charset=utf-8');
     expect(assetRes.headers['cache-control']).toBe('public, max-age=31536000, immutable');
     expect(assetRes.body.toString('utf-8')).toBe('console.log("hello");');
+
+    // The notices are a plain-text client asset rather than an HTML application screen.
+    const noticesRes = await simulateRequest(app, 'GET', '/THIRD-PARTY-NOTICES.txt');
+    expect(noticesRes.status).toBe(200);
+    expect(noticesRes.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expect(noticesRes.headers['cache-control']).toBe('no-cache');
+    expect(noticesRes.body.toString('utf-8')).toBe('THIRD-PARTY NOTICES\n\nExample');
 
     // Test SPA fallback for route /match/123
     const spaRes = await simulateRequest(app, 'GET', '/match/123');

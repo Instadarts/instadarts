@@ -174,7 +174,7 @@ the fullscreen control, and two menus:
 | Menu | Holds |
 | --- | --- |
 | **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
-| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code |
+| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
 
 The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a
 navigation, and a menu that shut on each click would make changing two things a two-trip job. Its

@@ -260,6 +260,21 @@ export function SettingsPanel({
           />
         </Stack>
       </Box>
+
+      {import.meta.env.PROD && (
+        <>
+          <Menu.Divider />
+          <Menu.Label>Links</Menu.Label>
+          <Menu.Item
+            component="a"
+            href="/THIRD-PARTY-NOTICES.txt"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Third-party notices
+          </Menu.Item>
+        </>
+      )}
     </Stack>
   );
 }

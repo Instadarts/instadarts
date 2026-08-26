@@ -14,8 +14,8 @@
 //   1. `INSTADARTS_CONFIG`, if set — a path to the file, not a directory. It locates the file rather
 //      than setting anything in it, so a test run, or a second instance beside a first, can be
 //      pointed at its own.
-//   2. `INSTADARTS_DIR`, if set — a directory to look in. What the release bundle sets, so that the
-//      settings can sit beside the thing they configure whichever directory it is started from.
+//   2. `INSTADARTS_DIR`, if set — a directory to look in. What the standalone `.mjs` bundle sets,
+//      so settings can sit beside the thing they configure whichever directory it is started from.
 //   3. The working directory.
 //   4. Beside the running executable, which is where the file naturally sits when the program *is*
 //      the executable rather than a script handed to `node`.

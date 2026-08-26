@@ -5,8 +5,8 @@ node_modules
 test-results
 playwright-report
 
-# Build output. Not committed — a release is built by CI and attached to the GitHub release, so
-# nobody has to build this and the repository never carries 43MB of WASM per revision.
+# Local build and archive output. GitHub Releases contain a source snapshot, so neither generated
+# client files nor release archives belong in the repository.
 dist
 release
 

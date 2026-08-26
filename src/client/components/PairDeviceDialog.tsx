@@ -44,7 +44,7 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
         <CopyableText value={scorerUrl}>
           <Text span ff="monospace" c="gray.2">{scorerUrl}</Text>
         </CopyableText>
-        {' '}there and enter:
+        {' '}and enter:
       </Text>
       <Text fz="2rem" ff="monospace" fw={700} c="green.4" ta="center" style={{ letterSpacing: '0.3em', userSelect: 'text' }}>
         {code.code}

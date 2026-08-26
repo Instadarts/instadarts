@@ -71,6 +71,10 @@ export function TopBar({
   const [frontendZoom, setFrontendZoom] = useState(() => loadAppZoom('frontend'));
   const scoring = devices.filter((device) => device.active && device.online).length;
   const camerasLabel = scoring > 0 ? `Cameras · ${scoring}` : 'Cameras';
+  // Nothing has ever been paired to this browser, so this control is the whole camera feature as far
+  // as its user knows it exists. Filled and pulsing until it has been used once; the label stays
+  // "Cameras", because what the control opens has not changed.
+  const unpaired = devices.length === 0;
   const connectionLabel = connected ? 'Connected' : 'Waiting for server…';
   const changeFrontendZoom = (change: number) => {
     setFrontendZoom((current) => {
@@ -119,11 +123,12 @@ export function TopBar({
             <Menu position="bottom-end" withinPortal shadow="xl" closeOnItemClick={false}>
               <Menu.Target>
                 <ActionIcon
-                  variant={scoring > 0 ? 'light' : 'default'}
+                  variant={unpaired ? 'filled' : scoring > 0 ? 'light' : 'default'}
                   color="green"
                   size="lg"
                   title={camerasLabel}
                   aria-label={camerasLabel}
+                  className={unpaired ? 'button-hint' : undefined}
                 >
                   <CameraIcon />
                 </ActionIcon>
@@ -135,7 +140,12 @@ export function TopBar({
               >
                 <Stack gap="sm" p="xs">
                   <Group justify="space-between" align="center" wrap="nowrap">
-                    <Button size="xs" onClick={onStartPairing} disabled={!connected || pairing}>
+                    <Button
+                      size="xs"
+                      onClick={onStartPairing}
+                      disabled={!connected || pairing}
+                      className={unpaired ? 'button-hint' : undefined}
+                    >
                       Pair scoring device
                     </Button>
                     {media !== null && (

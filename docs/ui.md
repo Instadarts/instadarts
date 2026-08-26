@@ -27,7 +27,11 @@ They deliberately diverge after that:
 | Socket and state | match/lobby state | scorer projection and vision runtime |
 
 The scorer is a sibling application, not a route rendered inside `App`. Do not move it under the
-frontend router or layout-editor provider.
+frontend router or layout-editor provider. Crossing from one to the other is therefore a page load:
+the home page's scoring-device link — for the device that opened `/` when it wanted `/scorer` — is a
+plain anchor, because a router link would look for a route that does not exist and bounce straight
+back home. It is the one home grid item rendered without a card, since it leads off the page rather
+than offering something to do on it.
 
 ## Design-system ownership
 
@@ -59,6 +63,10 @@ owns what has to apply to elements the components do not render themselves, or t
 - RGL item fill, overflow, edit outlines, drag cursors and resize handles;
 - `.frontend-board-area`, the size container the square dartboard is measured against;
 - `.app-main` and `.scorer-column`, the application background and the scorer's column width;
+- `.button-hint`, the pulsing ring any control can wear while it is the thing to press next — a
+  shared helper rather than one feature's rule, and here only because keyframes cannot be inline
+  style. Its ring colours are `--button-hint-ring` and `--button-hint-ring-fade`, so a second
+  highlight recolours itself on its own element instead of adding a second animation;
 - the root presentation-zoom variables for both applications.
 
 Do not rebuild ordinary card, form or responsive layouts there, and do not add application `@media`
@@ -134,7 +142,9 @@ geometry. Do not copy layout constants back into page components.
 ### Document grids and match grids are intentionally different
 
 Home, join and lobby are document-style grids. They are always static, prevent overlap, and compact
-vertically. Items marked `autoHeight` are measured from their natural card contents. A
+vertically. Items marked `autoHeight` are measured from their natural card contents — or, for an
+item rendered without a card at all, from its own content box: home's scoring-device link is the one
+such item today. A
 `ResizeObserver` catches geometry changes and a `MutationObserver` catches content changes that a
 flexed border box can hide; the resulting height is rounded up to whole RGL rows. Conditional lobby
 boxes are removed from the item set and compaction closes the hole.
@@ -186,6 +196,19 @@ the right behavior for a one-shot action.
 The Layout section and presentation zoom are present on every route, including the home page. Only
 the match-layout controls — **Edit Match Layout**, the active breakpoint badge and **Reset layout**
 — appear while a match grid has registered itself; see below.
+
+### The first-pairing nudge
+
+A browser with nothing in `instadarts_devices` has never paired a scoring device, and its user has
+no reason to suspect the camera exists — the control that opens it is one icon among three. Until
+that list is non-empty, three controls say so with the shared `.button-hint` ring: the camera control
+(also `filled` rather than `default`), the **Pair scoring device** button inside its menu, and a
+**Pair a Scoring Device** button the home page's **Start playing** card puts above its three ways to
+start. All three call the same `startPairing`, and all three are gone once one device is paired; a
+second is added from the camera menu like any other.
+
+The control's accessible name stays `Cameras` either way. It opens the same menu whatever this
+browser has paired, and a great many e2e specs reach the camera menu by that name.
 
 ## Match layout editing and persistence
 

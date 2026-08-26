@@ -1,8 +1,8 @@
-// Getting in and staying in: the home screen's three ways to start, the ids that lead nowhere,
-// and what survives a page reload.
+// Getting in and staying in: the home screen's three ways to start, its way out to a scoring
+// device, the ids that lead nowhere, and what survives a page reload.
 
 import { test, expect } from '@playwright/test';
-import { clickT20, submitVisit, setupLocalMatch } from './appHelpers';
+import { clickT20, pairingCode, submitVisit, setupLocalMatch } from './appHelpers';
 
 test.describe('Home screen', () => {
   test('shows three match options', async ({ page }) => {
@@ -11,6 +11,46 @@ test.describe('Home screen', () => {
     await expect(page.locator('text=Local Match')).toBeVisible();
     await expect(page.locator('text=Create Online Match')).toBeVisible();
     await expect(page.locator('text=Join Online Match')).toBeVisible();
+  });
+
+  test('a browser with nothing paired is pointed at the camera first', async ({ page }) => {
+    await page.goto('/');
+    // Ahead of every way to start a match, because somebody arriving for the first time has no other
+    // clue that a camera can do the scoring — and one match played by hand is a feature never found.
+    const actions = page.locator('[data-grid-item="actions"] button');
+    await expect(actions.first()).toHaveText(/Pair a Scoring Device/);
+    // The top bar's camera control is the other half of the same nudge.
+    await expect(page.getByRole('button', { name: 'Cameras' }).first()).toHaveClass(/button-hint/);
+
+    // And it starts the same pairing the camera menu does, rather than merely explaining it.
+    await actions.first().click();
+    await expect(pairingCode(page)).toBeVisible();
+  });
+
+  test('a browser that has paired a device is left alone', async ({ page }) => {
+    // Seeded rather than paired for real: what the home page reads is this browser's own device
+    // list, and pairing one properly is scorer-pairing.spec.ts's subject, not this file's.
+    await page.addInitScript(() => {
+      window.localStorage.setItem('instadarts_devices', JSON.stringify([
+        { deviceId: 'seeded-device', tokenHash: 'seeded-hash', name: 'Camera 1', pairedAt: Date.now() },
+      ]));
+    });
+    await page.goto('/');
+
+    const actions = page.locator('[data-grid-item="actions"] button');
+    await expect(actions.first()).toHaveText(/Local Match/);
+    await expect(page.getByRole('button', { name: 'Pair a Scoring Device' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Cameras' }).first()).not.toHaveClass(/button-hint/);
+  });
+
+  test('offers the scoring device its own page', async ({ page }) => {
+    await page.goto('/');
+    // A real anchor rather than a router link: /scorer is a sibling application chosen from the
+    // path at load, so a device that opened / instead needs a page load, not a client-side route.
+    // Asserted rather than followed, because a fresh device context lands in the onboarding flow —
+    // which is a spec, and a Playwright project, of its own for good reason.
+    await expect(page.getByRole('link', { name: "I'm a scoring device" }))
+      .toHaveAttribute('href', '/scorer');
   });
 
   test('join online match shows invite code input', async ({ page }) => {

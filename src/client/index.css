@@ -150,3 +150,35 @@ html[data-app="frontend"] #root {
 html[data-app="scorer"] #root {
   zoom: var(--instadarts-scorer-zoom, 100%);
 }
+
+/*
+ * The pulsing ring a control wears while it is the thing somebody should press next.
+ *
+ * A ring and nothing else: an element wearing this neither grows nor moves what is beside it, so
+ * the class can be handed to a button that is already laid out without the layout knowing. Both
+ * colours are custom properties, so a second highlight somewhere else overrides them on its own
+ * element rather than growing a second set of keyframes.
+ *
+ * It lives here because keyframes are the one thing inline style cannot express. Today's caller is
+ * the first-pairing nudge — the top bar's camera control, the pairing button inside its menu, and
+ * the home page's Pair a Scoring Device — all of which drop it once this browser has paired one
+ * device.
+ */
+@keyframes instadarts-button-hint {
+  0%, 100% { box-shadow: 0 0 0 0 var(--button-hint-ring); }
+  70% { box-shadow: 0 0 0 8px var(--button-hint-ring-fade); }
+}
+
+.button-hint {
+  --button-hint-ring: rgba(221, 201, 15, 0.767);
+  --button-hint-ring-fade: rgba(255, 238, 0, 0.144);
+  animation: instadarts-button-hint 2.4s ease-out infinite;
+}
+
+/* The same statement, held still: what it points at matters more than the motion that pointed. */
+@media (prefers-reduced-motion: reduce) {
+  .button-hint {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--button-hint-ring);
+  }
+}

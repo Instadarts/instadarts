@@ -93,6 +93,13 @@ merged.** That is the intent — the question is whether this is safe to hand ou
 mean a release can be blocked by something no code change caused. Where the advisory has no fix,
 `--audit-level=high` narrows it to the serious ones.
 
+The version the home page stamps in the corner of its title card is the same number and comes from
+the same place: Vite substitutes `__APP_VERSION__` from `package.json` at build time, declared in
+[`env.d.ts`](../src/client/env.d.ts) and read through
+[`lib/version.ts`](../src/client/lib/version.ts). Nothing reports it at runtime and the server does
+not know it — a release is the source, so the bundle and the server it talks to are built from one
+snapshot and there is nothing a round trip could add.
+
 `bash scripts/build-mjs.sh [version]` remains the optional single-file build, for handing somebody
 one file to run with no npm involved. It embeds the client and inlines the server dependencies into
 `instadarts.mjs`, so that archive *does* redistribute other people's code and carries the full

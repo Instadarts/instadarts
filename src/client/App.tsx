@@ -247,6 +247,8 @@ export function App() {
           <HomePage
             onCreateLocalMatch={() => { createLobby(false); }}
             onCreateOnlineMatch={() => { createLobby(true); }}
+            onPairDevice={devices.startPairing}
+            unpaired={devices.devices.length === 0}
             connected={connected}
             notice={notice}
           />

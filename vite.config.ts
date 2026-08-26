@@ -1,4 +1,4 @@
-import { cpSync, createReadStream, existsSync } from 'node:fs';
+import { cpSync, createReadStream, existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -59,12 +59,26 @@ function quietWsProxyErrors(): Plugin {
   };
 }
 
+/**
+ * The application's version, from the one place it is declared.
+ *
+ * Substituted into the client below rather than fetched from the server: a release *is* the source,
+ * so the bundle and the server it talks to are built from the same snapshot and a round trip could
+ * not tell the page anything the build does not already know.
+ */
+const APP_VERSION = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+).version as string;
+
 /** Kept in step with the server's own PORT, so a second instance can be brought up beside a first. */
 const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
 
 export default defineConfig({
   plugins: [react(), litertWasm(), quietWsProxyErrors()],
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   resolve: {
     alias: {
       '@shared': new URL('./src/shared', import.meta.url).pathname,

@@ -44,7 +44,8 @@ src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
                 pages/          a screen each; pages/scorer/ is the phone's
                 components/     shared cards/icons plus the match screen's parts, board, top bar
-                layout/         Mantine theme, RGL page grids/defaults, layout editor, app zoom
+                layout/         the palette and Mantine theme, RGL page grids/defaults, the layout
+                                editor, app zoom and the bright/dark preference
                 modes/          a mode's optional panel component, found by filename
                 hooks/          the socket, the match, the vision runtime, paired devices
                 lib/            storage, power, the settings the server sent (appConfig.ts)

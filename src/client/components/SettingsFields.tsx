@@ -16,7 +16,7 @@ export function SettingsFields({ title, fields, values, canEdit, onChange, child
     <Stack gap="md">
       {title && (
         <Text fz="sm" tt="uppercase" c="dimmed" fw={700}>
-          {title}{!canEdit && <Text span c="gray.6"> (read-only)</Text>}
+          {title}{!canEdit && <Text span c="dimmed"> (read-only)</Text>}
         </Text>
       )}
       {children}

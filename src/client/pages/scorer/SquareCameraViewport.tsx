@@ -28,6 +28,8 @@ export function SquareViewport({
       bg={background}
       style={{
         aspectRatio: '1 / 1',
+        // A fixed shade rather than a palette token: this frames live video, which is dark in
+        // either colour scheme, and a pale hairline around it would read as a gap.
         border: withBorder ? '1px solid var(--mantine-color-dark-6)' : undefined,
         borderRadius: radius,
         overflow: 'hidden',

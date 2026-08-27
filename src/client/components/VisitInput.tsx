@@ -60,7 +60,7 @@ export function VisitInput({
           </Paper>
         ))}
         {Array.from({ length: empty }).map((_, index) => (
-          <Paper key={`empty-${index}`} py={5} px="xs" radius="sm" ta="center" ff="monospace" bg="dark.6" c="gray.6" fz="lg">
+          <Paper key={`empty-${index}`} py={5} px="xs" radius="sm" ta="center" ff="monospace" bg="var(--instadarts-surface-raised)" c="dimmed" fz="lg">
             --
           </Paper>
         ))}

@@ -8,9 +8,11 @@ test.describe('Home screen', () => {
   test('shows three match options', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('h1')).toHaveText('InstaDarts');
-    await expect(page.locator('text=Local Match')).toBeVisible();
-    await expect(page.locator('text=Create Online Match')).toBeVisible();
-    await expect(page.locator('text=Join Online Match')).toBeVisible();
+    // Exact role names, not `text=`: that is substring matching, and "Online Match" is a substring
+    // of "Join Online Match".
+    for (const name of ['Local Match', 'Online Match', 'Join Online Match']) {
+      await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+    }
   });
 
   test('a browser with nothing paired is pointed at the camera first', async ({ page }) => {
@@ -93,7 +95,7 @@ test.describe('Home screen', () => {
     const page2 = await ctx2.newPage();
 
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
@@ -126,7 +128,7 @@ test.describe('Home screen', () => {
     const page2 = await ctx2.newPage();
 
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     // Four from the host and one from the joiner fills the lobby at five, which is what makes the
     // "no second one to add" half of this test observable at all.
     for (const name of ['Alice', 'Carol', 'Dave', 'Eve']) {

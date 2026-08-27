@@ -24,7 +24,7 @@ export function DartEvidence({ images, slots, spacing }: DartEvidenceProps) {
             <AspectRatio
               key={index}
               ratio={1}
-              bg="dark.6"
+              bg="var(--instadarts-surface-raised)"
               w="100%"
               style={{
                 // The full-width grid matches the slot columns. Each square is centred inside its

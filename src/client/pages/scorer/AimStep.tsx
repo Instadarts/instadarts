@@ -20,14 +20,14 @@ interface AimStepProps {
 
 const QUALITY_BAR: Record<AimQuality, string> = {
   none: 'red',
-  partial: 'orange',
+  partial: 'yellow',
   full: 'green',
 };
 
 const QUALITY_TEXT: Record<AimQuality, string> = {
-  none: 'red.4',
-  partial: 'orange.3',
-  full: 'green.4',
+  none: 'var(--instadarts-tone-danger-fg)',
+  partial: 'var(--instadarts-tone-warning-fg)',
+  full: 'var(--instadarts-accent)',
 };
 
 export function AimStep({ reading, camera }: AimStepProps) {
@@ -53,8 +53,8 @@ export function AimStep({ reading, camera }: AimStepProps) {
           square-on to the board is the one view this reads badly — so they are written as what to do
           and not as what is allowed. The rest are without numbers on purpose: a tolerance invented to
           sound precise is worse than a sentence somebody can judge for themselves. */}
-      <Text fz="sm" c="gray.4">It needs to see the board from an angle — across and from above or below.</Text>
-      <List fz="sm" c="gray.4" spacing={4} pl="md">
+      <Text fz="sm" c="dimmed">It needs to see the board from an angle — across and from above or below.</Text>
+      <List fz="sm" c="dimmed" spacing={4} pl="md">
         <List.Item>Off to one side, not straight in front of the board.</List.Item>
         <List.Item>Above or below the bull, not level with it.</List.Item>
         <List.Item>Out of the way of the throw.</List.Item>

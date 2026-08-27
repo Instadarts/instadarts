@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Text } from '@mantine/core';
+import { Box } from '@mantine/core';
+import { Wordmark } from '../../components/Wordmark';
 import { e2eNumber } from '../../lib/e2e';
 
 /** The reference's numbers, field-worn, and there is no reason to differ. */
@@ -132,7 +133,7 @@ export function Screensaver({ enabled, suppressed }: ScreensaverProps) {
             textAlign: 'center',
           }}
         >
-          <Text c="dark.5">InstaDarts</Text>
+          <Wordmark fz="md" c="dark.5" />
         </Box>
       )}
     </Box>

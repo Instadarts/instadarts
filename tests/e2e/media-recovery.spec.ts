@@ -19,7 +19,7 @@ async function onlineRoom(browser: Browser): Promise<OnlineRoom> {
   const alice = await browser.newContext();
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
-  await host.getByText('Create Online Match').click();
+  await host.getByRole('button', { name: 'Online Match', exact: true }).click();
   await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.getByRole('button', { name: 'Add' }).click();
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!.trim();

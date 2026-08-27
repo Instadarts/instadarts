@@ -83,7 +83,7 @@ async function onlineMatch(browser: Browser) {
   const alice = await browser.newContext();
   const host = await alice.newPage();
   await host.goto('/?e2e=1');
-  await host.click('text=Create Online Match');
+  await host.getByRole('button', { name: 'Online Match', exact: true }).click();
   await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
   await host.click('button:has-text("Add")');
   const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!;

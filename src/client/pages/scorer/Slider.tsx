@@ -18,7 +18,7 @@ export function Slider({ label, value, min, max, step, format, onChange, disable
     <Stack gap={6} opacity={disabled ? 0.5 : 1}>
       <Group justify="space-between" gap="sm">
         <Text fz="sm">{label}</Text>
-        <Text fz="sm" ff="monospace" c="gray.4">{format(value)}</Text>
+        <Text fz="sm" ff="monospace" c="dimmed">{format(value)}</Text>
       </Group>
       <MantineSlider
         thumbLabel={label}

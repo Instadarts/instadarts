@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Alert, Button, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Stack, Text, TextInput } from '@mantine/core';
 import { CameraIcon } from '../components/AppIcons';
+import { Wordmark } from '../components/Wordmark';
 import { APP_VERSION } from '../lib/version';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
@@ -30,15 +31,21 @@ export function HomePage({
   const [joinCode, setJoinCode] = useState('');
   const navigate = useNavigate();
 
+  // Deliberately not a `centered` GridBox. `centered` makes the card's content box shrink to fit,
+  // and a shrink-to-fit box is the one thing the wordmark's auto-fit cannot measure against: the
+  // fitted line is the widest thing in the box, so the box is as wide as the line and the two settle
+  // on whatever size they first agreed on instead of on the card's. It also left the box as wide as
+  // whatever the longest line of prose happened to be, so editing the subtitle resized the title.
+  // The Stack centres its own children, so nothing here needs the card to do it.
   const welcome = (
-    <GridBox editable={false} centered>
+    <GridBox editable={false}>
       <Stack align="center" gap="xs" ta="center" py="xl" pos="relative">
-        <Title order={1} c="green.4" fz="3rem">InstaDarts</Title>
-        <Text c="dimmed" fz="lg">Open Source Ai darts scoring app. Just works - hopefully.</Text>
+        <Wordmark component="h1" fitTo={48} />
+        <Text c="dimmed" fz="lg">Open Source AI darts scoring app.</Text>
         {notice && <Alert color="yellow" role="status">{notice}</Alert>}
         {/* Out of the flow on purpose: it is here for the person filing a bug report, and a stamp in
             the corner neither moves the wordmark above it nor changes the card's measured height. */}
-        <Text pos="absolute" bottom={0} right={0} c="dark.2" fz="xs" ff="monospace">
+        <Text pos="absolute" bottom={0} right={0} c="dimmed" opacity={0.7} fz="xs" ff="monospace">
           v{APP_VERSION}
         </Text>
       </Stack>
@@ -87,7 +94,7 @@ export function HomePage({
             </Button>
           )}
           <Button size="xl" color="blue" onClick={onCreateLocalMatch} disabled={!connected}>Local Match</Button>
-          <Button size="xl" onClick={onCreateOnlineMatch} disabled={!connected}>Create Online Match</Button>
+          <Button size="xl" onClick={onCreateOnlineMatch} disabled={!connected}>Online Match</Button>
           <Button size="xl" variant="default" onClick={() => setShowJoin(true)} disabled={!connected}>Join Online Match</Button>
         </Stack>
       )}
@@ -109,8 +116,7 @@ export function HomePage({
         component="a"
         href="/scorer"
         size="md"
-        variant="light"
-        c="gray.5"
+        variant="default"
         leftSection={<CameraIcon />}
       >
         I'm a scoring device

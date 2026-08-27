@@ -12,8 +12,9 @@ and [vision.md](./vision.md) before changing any scorer camera surface.
 
 [`main.tsx`](../src/client/main.tsx) chooses the application from the path before React mounts it and
 marks the document with `data-app="frontend"` or `data-app="scorer"`. Both applications receive the
-same dark [`MantineProvider`](../src/client/layout/appTheme.ts), theme, card surface, icons and
-fullscreen control.
+same [`MantineProvider`](../src/client/layout/appTheme.ts), theme, palette, card surface, icons,
+wordmark and fullscreen control. Neither is pinned to a colour scheme: each reads its own remembered
+one, described under [Appearance](#appearance) below.
 
 They deliberately diverge after that:
 
@@ -24,6 +25,7 @@ They deliberately diverge after that:
 | Page layout | RGL `Responsive` grids | static `AppShell` and a centred 28 rem column |
 | Layout editing | live and finished match screens | none |
 | Presentation zoom | one frontend preference | a separate scorer preference |
+| Appearance | one frontend preference | a separate scorer preference |
 | Socket and state | match/lobby state | scorer projection and vision runtime |
 
 The scorer is a sibling application, not a route rendered inside `App`. Do not move it under the
@@ -41,9 +43,51 @@ menus, dialogs, alerts, scrolling and repeated inner layouts. In particular,
 It does not require an application breakpoint.
 
 [`AppCard`](../src/client/components/AppCard.tsx) is the common surface. It owns the card border,
-header, optional centred header content, badge/actions area and body. A scorer or overlay can use it
-directly. [`GridBox`](../src/client/layout/GridBox.tsx) adds the RGL fill classes and the match edit
-handle; it is not a general card replacement outside an RGL item.
+header, optional centred header content, badge/actions area and body — including the header's own
+background, which is what gives every box a title bar rather than bold text at the top of a
+rectangle. A scorer or overlay can use it directly.
+[`GridBox`](../src/client/layout/GridBox.tsx) adds the RGL fill classes and the match edit handle; it
+is not a general card replacement outside an RGL item.
+[`Wordmark`](../src/client/components/Wordmark.tsx) is the other shared surface: the mark, the name
+and its treatment, in the one place they are decided. Four screens show it — both headers, the home
+page and the screensaver — and two of those used to be duplicated markup.
+
+**The mark is drawn once**, in [`mark.svg`](../src/client/components/mark.svg), in `currentColor`. `Wordmark` inlines the file rather than pointing an `<img>` at it,
+because an image is a separate document and inherits nothing — inlining is what lets the mark take
+the accent tint in a header and go dim on the screensaver. A tab icon has neither a colour to inherit
+nor a page behind it, so the `favicon` plugin in [`vite.config.ts`](../vite.config.ts) wraps *those
+same shapes* in a ground and a colour, serving `/favicon.svg` in dev and writing it once at build.
+The tab icon is therefore not a second drawing that can drift; it was, and it did. Anything the
+shape needs must be set on the shape rather than on the file's root element, because the wrapper
+lifts the shapes out of it.
+
+The mark is sized in `em` and everything in the lockup is phrasing content, so the mark and the
+tracking scale from one font size. (The gap between them does not: it is `Group`'s fixed 1 rem.) That is what lets the home page pass it to
+[`AutoFitText`](../src/client/components/AutoFitText.tsx) and have the *drawing* shrink with the
+word: `Wordmark`'s `fitTo` takes a maximum in pixels instead of an `fz`, and the line is measured
+against its parent the same way the match headline is. It needs to. At a fixed `3rem` the lockup is
+434 px wide whatever is around it, and the home card is narrower than that below roughly 470 px of
+viewport, so the card's own `overflow: hidden` cut the end off the name. Two things about reusing
+`AutoFitText` this way are worth knowing, because both were silent:
+
+- the fit sets a **font size and nothing else**, so anything passed as children that is measured in
+  pixels will not scale, and a Mantine `Text` will not scale either — `Text` applies its own `md`
+  size rather than inheriting one. The word is a `Box` for that reason, and carries `Text`'s
+  truncation by hand, which the headers still need;
+- the host's `flex: 1 1 0` is right inside a row that shares its width and wrong inside a `Stack`,
+  where a flex basis of zero is a *height* of zero and the line vanishes into a host with no height
+  and `overflow: hidden`. `grow={false}` is the way out;
+- **it needs a box whose width does not depend on it.** A `centered` `AppCard` shrinks its content
+  box to fit, and a fitted line is usually the widest thing in that box — so the box is as wide as
+  the line, the line is fitted to the box, and the two settle on one size for every screen instead of
+  on the card's. The home page's welcome card is therefore not `centered`; its `Stack` centres its
+  own children. Watch for the symptom rather than the cause: a fit that no longer responds to the
+  window, and a box as wide as whatever the longest line of prose in it happens to be.
+
+Its detail is set by the smallest sizes it is used at rather than by how it looks in isolation — the
+two headers at about 21 px, where it is seen most, and 16 px on the screensaver. A third ring on the
+board merges into a blob under about 26 px, which is why there are two. Redraw it against the sizes
+in `mark.svg`'s comment, not against one large preview.
 
 Do not put RGL inside a box. The outer grid decides which boxes share a row; Mantine primitives
 decide how the contents of one box flow. Keeping that boundary makes a box reusable and prevents a
@@ -67,7 +111,13 @@ owns what has to apply to elements the components do not render themselves, or t
   shared helper rather than one feature's rule, and here only because keyframes cannot be inline
   style. Its ring colours are `--button-hint-ring` and `--button-hint-ring-fade`, so a second
   highlight recolours itself on its own element instead of adding a second animation;
-- the root presentation-zoom variables for both applications.
+- the root presentation-zoom variables for both applications;
+- `font-variant-numeric: tabular-nums` on the body, so a changing total stops shuffling the digits
+  beside it. Every number on these screens is a score being compared to another one.
+
+It carries **no colour of its own.** Every value it paints is a palette token — see
+[Theming](#theming) — so the stylesheet does not need a second copy of itself per colour scheme, and
+adding one would be the thing that made it long.
 
 Do not rebuild ordinary card, form or responsive layouts there, and do not add application `@media`
 breakpoints for the regular frontend.
@@ -100,6 +150,117 @@ layers, and the screensaver's capture and reveal behavior. Not one of those comp
 `className` — `VirtualBoard`'s `.frontend-board-area` wrapper above is the single exception. Its
 container geometry could technically be inline too; the class keeps the shared board-area rule with
 the rest of the application stylesheet.
+
+
+## Theming
+
+Colour is decided in one file and spent everywhere else.
+[`palette.ts`](../src/client/layout/palette.ts) holds an `AppPalette`: the Mantine colour tuples, the
+`white`/`black` pair, and one record of semantic tokens per colour scheme.
+[`appTheme.ts`](../src/client/layout/appTheme.ts) spends it. **To change the application's colours,
+edit that palette** — or write a second `AppPalette` beside it and change the one export at the
+bottom of the file. Nothing else has to move.
+
+It reaches the screen as two layers, and they do different jobs.
+
+**The tuples substitute Mantine's own, under Mantine's own names.** Every `bg="dark.8"`,
+`c="gray.6"`, `color="yellow"` and `var(--mantine-color-green-5)` in the application already resolves
+through `theme.colors`, so replacing `dark`, `gray`, `green`, `red`, `yellow`, `orange`, `blue` and
+`cyan` recolours nearly everything without a component being touched and without a prop being
+renamed. `theme.white` and `theme.black` are the same lever one level up: Mantine derives
+`--mantine-color-body` and `--mantine-color-text` from them, so those two strings set the ground of
+each scheme.
+
+**The tokens are the semantic half, and they are what makes the bright scheme correct rather than
+merely inverted.** The two schemes do not stack their surfaces the same way, so no single shade
+number is right on both; a card asks for `var(--instadarts-surface)` and stops having an opinion.
+`appCssVariables` — a Mantine `cssVariablesResolver` — emits every token under `:root` and the two
+`[data-mantine-color-scheme]` selectors. That is why the application needs no PostCSS plugin
+(`light-dark()` and Mantine's `@mixin`s are unavailable here) and why a second scheme adds no rule
+set to `index.css`, which keeps the two-places rule above true.
+
+The vocabulary, all prefixed `--instadarts-`: `app-bg` and the two `app-glow-*` washes over it;
+`surface`, `surface-header`, `surface-raised`, `surface-sunken` and `header-bg`; `border` and
+`border-strong` — `--mantine-color-default-border` is redirected to the first, so every `withBorder`
+surface follows the palette from one line; `edit-outline` and `edit-overlay`; `accent` and `link`;
+`hint-ring` and `hint-ring-fade`; `score-glow`; the two `shadow-*` values that `theme.shadows` is
+written in terms of, so one shadow scale serves both schemes; and the twelve
+`tone-{default,muted,accent,positive,warning,danger}-{fg,bg}` values behind
+[`modeText.ts`](../src/client/components/modeText.ts). A new token earns its place by being asked for
+in more than one component, or by needing a different answer in each scheme.
+
+One name in that prefix is not a palette token: `--instadarts-card-header-bg` is a hook `AppCard`
+leaves open, defaulting to `surface-header`. Mantine's `bg` prop is an **inline style**, so a
+stylesheet rule cannot repaint a surface a component painted that way — the edit-mode title bar
+overrides the variable instead. Reach for the same trick when a rule has to win over a `bg`.
+
+### Surface separation is a number, not a judgement
+
+Neighbouring surfaces have to be told apart, and a dark scheme is where that is easy to get wrong:
+shades picked by eye once left the page and the cards on it 5.3 apart in L*, which reads as one flat
+wash. Every element was where it should be, so no browser test noticed.
+[`palette.test.ts`](../tests/unit/palette.test.ts) holds the palette to these, in both schemes:
+
+| Pair | Minimum |
+| --- | ---: |
+| a surface against the one it sits on (`app-bg` → `surface`, `surface` → `surface-raised`/`-sunken`) | ΔL* 6 |
+| `surface` → `surface-header`, which is meant to be felt rather than seen | ΔL* 4 |
+| `surface` → `border`, a thin shape and so a bigger step | ΔL* 12 |
+| a surface → the text drawn on it | contrast 7.0 |
+| a surface → `tone-muted-fg`, `accent` or `link` on it | contrast 4.5 / 3.5 |
+| each `tone-*-fg` → its own `tone-*-bg` | contrast 4.5 |
+
+The two measures answer different questions. Whether two large blocks *look* like separate surfaces
+is about perceived lightness, and L* is uniform enough to ask it with one threshold for both schemes
+— a WCAG ratio is not, because the same ratio buys far less separation near black than near white.
+Whether text can be *read* is a WCAG question, so text keeps the ratio.
+
+### Chrome is themed. Artwork is not.
+
+This is the boundary to check before recolouring anything. The board, a dart, a QR code and the
+scorer's camera overlays are objects rather than surfaces: they look the same whatever the interface
+is doing, and a QR code is only scannable black on white. Those keep literal colours, or a fixed
+`dark.N`/`gray.N` — **Mantine tuples are scheme-independent, so naming a shade is how something stays
+put** while a token is how something follows.
+
+Deliberately not themed today: `Dartboard`, `boardGeometry`, `PrecisionDart`, `DartMarker`,
+`dartboardPrecision`, `QrCode` and the white `Paper` that gives it its quiet zone, the scorer's
+`BoardOverlay`, `CalibrationView` canvas, `CameraPanel` HUD and `SquareCameraViewport` backing,
+`Screensaver`'s black, the dev latency chip on its black pill, and in
+[`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) both the mole/earth/mallet artwork and the
+whole finale, which is a curtain drawn over the board rather than a surface inside a card. That
+mode's HUD, player rows and stat tiles *are* chrome and do follow the palette.
+
+Two e2e specs depend on this boundary holding: `match.spec.ts` asserts exact dart hex values and
+`scorer-screensaver.spec.ts` asserts `rgb(0, 0, 0)`. If either breaks after a palette change, the
+boundary was crossed rather than the test being stale.
+
+### Appearance
+
+Bright or dark, remembered per application, exactly the way presentation zoom is.
+[`appColorScheme.ts`](../src/client/layout/appColorScheme.ts) is the same shape as `appZoom.ts` — two
+`localStorage` keys, guarded reads and writes, `instadarts_frontend_color_scheme_v1` and
+`instadarts_scorer_color_scheme_v1` — plus an `appColorSchemeManager`, which is the
+`MantineColorSchemeManager` `MantineProvider` is given. Mantine's stock manager keeps one value for
+the whole origin, and that would make a phone propped at the board follow whatever the television
+last chose.
+
+**The default is dark, and `auto` is not offered.** Nobody's application changes appearance because
+they upgraded; bright is something a person asks for. `defaultColorScheme` carries the default and
+the storage stays empty until the control is used.
+
+The scheme is applied twice, and both are needed. An inline script in
+[`index.html`](../src/client/index.html) sets `data-mantine-color-scheme` from the right key before
+anything is painted — `main.tsx` is a module and therefore deferred, so without it a dark
+installation flashes Mantine's light body on every load. It is the one place those key names are
+repeated, because nothing bundled runs early enough to be asked. The provider then owns the value
+for the page's lifetime.
+
+The control is [`AppearanceControl`](../src/client/components/AppearanceControl.tsx), shared by both
+settings menus and sitting directly above each one's zoom row in the same shape: a label, and the
+thing to press on the right. It writes through whichever provider is above it, so it does not know
+which application it is in. The icon shows the scheme in force and the accessible name says what
+pressing it will do, which is why that name changes with state.
 
 ## Frontend page grids
 
@@ -184,7 +345,7 @@ the fullscreen control, and two menus:
 | Menu | Holds |
 | --- | --- |
 | **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
-| **Settings** | `Layout` → presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
+| **Settings** | `Layout` → the appearance toggle, presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
 
 The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a
 navigation, and a menu that shut on each click would make changing two things a two-trip job. Its
@@ -193,8 +354,8 @@ phone-sized window. The settings menu keeps the default instead, and puts its li
 plain `Box` rather than in `Menu.Item`s — only **Reset layout** is an item, and closing after it is
 the right behavior for a one-shot action.
 
-The Layout section and presentation zoom are present on every route, including the home page. Only
-the match-layout controls — **Edit Match Layout**, the active breakpoint badge and **Reset layout**
+The Layout section, the appearance toggle and presentation zoom are present on every route,
+including the home page. Only the match-layout controls — **Edit Match Layout**, the active breakpoint badge and **Reset layout**
 — appear while a match grid has registered itself; see below.
 
 ### The first-pairing nudge
@@ -291,12 +452,16 @@ Resetting scorer setup does not reset presentation zoom.
 Storage reads and writes are guarded. A blocked/private storage implementation gives the default
 100% on the next page load but must not stop in-memory zoom controls from working.
 
+The appearance toggle sits directly above the zoom row in both menus and behaves the same way — its
+own key per application, guarded storage, unrelated to any RGL profile. It is described under
+[Appearance](#appearance).
+
 ## Scorer presentation and sensitive geometry
 
 The paired scorer uses the same 52 px `AppShell` header as the frontend, then a static centred
-column. Its settings are a height-bounded, scrollable header menu, grouped `Layout` → `Camera and
-AI` → `Sharing and power` → `Device`, and in production a final `Links` → third-party notices, the
-same link the frontend menu carries. Onboarding hides the header and keeps its existing name →
+column. Its settings are a height-bounded, scrollable header menu, grouped `Layout` — appearance and
+presentation zoom — → `Camera and AI` → `Sharing and power` → `Device`, and in production a final
+`Links` → third-party notices, the same link the frontend menu carries. Onboarding hides the header and keeps its existing name →
 camera → self-test → optional aim state machine.
 
 The camera preview is not an ordinary responsive image. Scoring and onboarding share
@@ -320,7 +485,10 @@ For a new frontend page box:
 2. render a `GridBox` with the same stable id through `ResponsiveBoxGrid`;
 3. choose document `autoHeight` or match fixed height deliberately;
 4. use Mantine inside it and add CSS only for specialized visual geometry;
-5. verify immediately below and above the stock RGL breakpoints.
+5. take colour from a palette token, never from a shade you picked by eye against the scheme you
+   happen to be looking at — unless the thing is artwork, in which case name a shade deliberately
+   and say why in a comment;
+6. verify immediately below and above the stock RGL breakpoints, and **in both colour schemes**.
 
 For a match card that is not required for play, add
 `optional: { label, defaultEnabled }` to its `ResponsiveBoxItem`. Omitting `optional` is the safety
@@ -333,9 +501,12 @@ silently keeping the previous profile's state and overwriting the new one's save
 
 Tests should locate a box by `[data-grid-item="<id>"]`, then use roles, labels and stable test ids
 inside it. Do not encode a canonical `x`/`y`, DOM depth or sibling order unless layout persistence
-itself is what the test covers. Clear the layout and zoom storage keys when a test needs canonical
-state; deliberately preserve them when testing reload persistence.
+itself is what the test covers. Clear the layout, zoom and appearance storage keys when a test needs
+canonical state — `UI_STORAGE_KEYS` in `ui-features.spec.ts` is the list, and a new browser-level
+preference belongs in it — and deliberately preserve them when testing reload persistence.
 
-For visual work, inspect narrow portrait, short-wide and large-display viewports. Measure overflow,
-containment and square geometry as well as taking screenshots. The full local procedure, including
-the Playwright project ordering, is in [development.md](./development.md#the-e2e-suite).
+For visual work, inspect narrow portrait, short-wide and large-display viewports **in the bright
+scheme as well as the dark one**; a colour pinned to the wrong end of a scale looks fine in one and
+is invisible in the other, and the only way to find that is to look. Measure overflow, containment
+and square geometry as well as taking screenshots. The full local procedure, including the
+Playwright project ordering, is in [development.md](./development.md#the-e2e-suite).

@@ -40,14 +40,24 @@ export function AppCard({
     || actions !== undefined;
 
   return (
-    <Card className={className} withBorder radius="lg" padding={0} bg="dark.8" style={{ overflow: 'hidden' }}>
+    <Card className={className} withBorder radius="lg" padding={0} bg="var(--instadarts-surface)" style={{ overflow: 'hidden' }}>
       {hasHeader && (
         <>
-          <Group className={headerClassName} gap="sm" px="md" py="sm" wrap="nowrap">
+          {/* The header surface arrives through `--instadarts-card-header-bg` rather than
+              directly, because `bg` is an inline style and would otherwise outrank the edit-mode
+              overlay rule in index.css. A rule that wants a different title bar sets the variable. */}
+          <Group
+            className={headerClassName}
+            gap="sm"
+            px="md"
+            py="sm"
+            wrap="nowrap"
+            bg="var(--instadarts-card-header-bg, var(--instadarts-surface-header))"
+          >
             <Group gap="xs" wrap="nowrap" miw={0} style={{ flex: '0 1 auto' }}>
               {titlePrefix}
               {title !== undefined && (
-                <Text fw={700} tt="uppercase" fz="sm" c="dimmed" truncate>
+                <Text fw={700} tt="uppercase" fz="sm" lts="0.06em" c="dimmed" truncate>
                   {title}
                 </Text>
               )}

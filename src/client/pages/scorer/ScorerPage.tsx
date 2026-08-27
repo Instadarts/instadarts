@@ -29,6 +29,7 @@ import { CameraPanel } from './CameraPanel';
 import { CalibrationView } from './CalibrationView';
 import { OnboardingView } from './OnboardingView';
 import { FullscreenButton } from '../../components/FullscreenButton';
+import { Wordmark } from '../../components/Wordmark';
 import { Screensaver } from './Screensaver';
 import { SettingsPanel } from './SettingsPanel';
 import { LatencyMeter, type LatencySnapshot } from '../../lib/latencyMeter';
@@ -234,9 +235,9 @@ export function ScorerPage({
           and a Settings button that would drop straight to scoring with a model the self-test has
           unloaded. Setup is one screen with one thing to do on it. */}
       {!onboarding && (
-        <AppShell.Header bg="dark.8" withBorder>
+        <AppShell.Header bg="var(--instadarts-header-bg)" withBorder>
           <Group h="100%" px="md" justify="space-between" gap="sm" wrap="nowrap">
-            <Text fw={800} c="green.4" fz="lg" truncate>InstaDarts</Text>
+            <Wordmark />
             <Group gap="xs" wrap="nowrap" miw={0}>
               <StatusBadge status={status} scoring={scoring} stage={power.stage} />
               <FullscreenButton />

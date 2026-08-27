@@ -822,14 +822,14 @@ function Hud({ run }: { run: RunView }) {
         <Group gap={4} wrap="nowrap">
           {run.moles.map((mole) => {
             const left = Math.max(0, mole.digTime - mole.age);
-            const colour = left <= 1 ? 'red' : left === 2 ? 'yellow' : 'gray';
+            const tone = left <= 1 ? 'danger' : left === 2 ? 'warning' : null;
             return (
               <Paper
                 key={mole.id}
                 data-area={mole.area}
                 withBorder
-                bg={left <= 1 ? 'red.9' : left === 2 ? 'yellow.9' : 'dark.9'}
-                c={`${colour}.2`}
+                bg={tone ? `var(--instadarts-tone-${tone}-bg)` : 'var(--instadarts-surface-sunken)'}
+                c={tone ? `var(--instadarts-tone-${tone}-fg)` : undefined}
                 px={4}
                 py={4}
                 ta="center"
@@ -842,7 +842,7 @@ function Hud({ run }: { run: RunView }) {
           })}
           {Array.from({ length: Math.max(0, run.moleCount - run.moles.length) }).map((_, i) => (
             <Paper key={`gap-${i}`} withBorder px={4} py={4} ta="center" style={{ flex: 1, minWidth: 0 }}>
-              <Text ff="monospace" fz="sm" c="gray.7">—</Text>
+              <Text ff="monospace" fz="sm" c="dimmed">—</Text>
               <Pips total={0} left={0} />
             </Paper>
           ))}
@@ -866,7 +866,7 @@ function Hud({ run }: { run: RunView }) {
       >
         <Paper
           data-testid="wam-score"
-          bg="dark.9"
+          bg="var(--instadarts-surface-sunken)"
           radius="md"
           px="md"
           py="sm"
@@ -876,7 +876,7 @@ function Hud({ run }: { run: RunView }) {
             <Stack gap={4} h="100%" miw={0} style={{ flex: '1 1 0' }}>
               <AutoFitText
                 text={String(run.team)}
-                color="yellow.3"
+                color="var(--instadarts-tone-warning-fg)"
                 fontFamily="monospace"
                 fontWeight={700}
                 horizontalAlign="start"
@@ -888,8 +888,8 @@ function Hud({ run }: { run: RunView }) {
               </Text>
             </Stack>
             <Stack align="flex-end" justify="center" gap={4}>
-              <Text fz="sm" ff="monospace" c="gray.3">
-                Turn <Text span c="gray.1">{run.turn}</Text><Text span c="gray.6"> / {run.turns}</Text>
+              <Text fz="sm" ff="monospace">
+                Turn <Text span c="bright">{run.turn}</Text><Text span c="dimmed"> / {run.turns}</Text>
               </Text>
               <Badge color={stageColor} variant="light" size="sm">{stageText}</Badge>
             </Stack>
@@ -900,24 +900,24 @@ function Hud({ run }: { run: RunView }) {
           {run.players.map((player) => (
             <Paper
               key={player.id}
-              bg={player.isCurrent ? 'green.9' : 'dark.9'}
+              bg={player.isCurrent ? 'var(--instadarts-tone-accent-bg)' : 'var(--instadarts-surface-sunken)'}
               withBorder={player.isCurrent}
-              style={player.isCurrent ? { borderColor: 'var(--mantine-color-green-6)' } : undefined}
+              style={player.isCurrent ? { borderColor: 'var(--instadarts-accent)' } : undefined}
               radius="md"
               px="sm"
               py={6}
             >
               <Group gap="xs" wrap="nowrap">
-                <Text style={{ flex: 1 }} miw={0} truncate fz="sm" c="gray.3">
+                <Text style={{ flex: 1 }} miw={0} truncate fz="sm">
                   {player.out && <Text span mr={4}>🪦</Text>}
                   {player.name}
                 </Text>
-                <Text ff="monospace" fz="lg" c="yellow.3" w={32} ta="right">{player.score}</Text>
+                <Text ff="monospace" fz="lg" c="var(--instadarts-tone-warning-fg)" w={32} ta="right">{player.score}</Text>
                 <Text ff="monospace" fz="xs" w={48} ta="right" title="darts per visit" style={{ letterSpacing: '-0.05em' }}>
                   {Array.from({ length: player.darts }).map((_, i) => {
-                    if (i < player.allowance) return <Text span key={i} c="green.4">●</Text>;
-                    if (i < player.allowance + player.returning) return <Text span key={i} c="cyan.3">↺</Text>;
-                    return <Text span key={i} c="red.8">✖</Text>;
+                    if (i < player.allowance) return <Text span key={i} c="var(--instadarts-tone-positive-fg)">●</Text>;
+                    if (i < player.allowance + player.returning) return <Text span key={i} c="var(--instadarts-tone-info-fg)">↺</Text>;
+                    return <Text span key={i} c="var(--instadarts-tone-danger-fg)">✖</Text>;
                   })}
                 </Text>
               </Group>
@@ -946,12 +946,12 @@ function Hud({ run }: { run: RunView }) {
 function Burrow({ run }: { run: RunView }) {
   if (run.janitor) {
     return (
-      <Paper withBorder bg="cyan.9" className="wam-flash-soft" px="sm" py={6}>
+      <Paper withBorder bg="var(--instadarts-tone-info-bg)" className="wam-flash-soft" px="sm" py={6}>
         <Group gap="xs" wrap="nowrap">
           <Text fz="lg" lh={1}>🛠</Text>
-          <Text miw={0} style={{ flex: 1 }} truncate fz="xs" c="cyan.2">
+          <Text miw={0} style={{ flex: 1 }} truncate fz="xs" c="var(--instadarts-tone-info-fg)">
             Janitor has <Text span fw={600}>{run.janitor.ownerName}</Text>'s dart
-            {run.janitor.queue > 1 && <Text span c="cyan.5"> (+{run.janitor.queue - 1} more)</Text>}
+            {run.janitor.queue > 1 && <Text span opacity={0.75}> (+{run.janitor.queue - 1} more)</Text>}
           </Text>
           <Badge color="cyan" variant="light" size="xs">HIT BULL</Badge>
         </Group>
@@ -960,7 +960,7 @@ function Burrow({ run }: { run: RunView }) {
   }
 
   return (
-    <Paper withBorder bg="dark.9" px="sm" py={6}>
+    <Paper withBorder bg="var(--instadarts-surface-sunken)" px="sm" py={6}>
       <Group gap="xs" wrap="nowrap">
       <Text fz="lg" lh={1} opacity={0.4}>🕳</Text>
       <Text miw={0} style={{ flex: 1 }} truncate fz="xs" c="dimmed">
@@ -968,7 +968,7 @@ function Burrow({ run }: { run: RunView }) {
           ? 'The burrow is quiet'
           : `${run.lost} dart${run.lost === 1 ? '' : 's'} down the burrow`}
       </Text>
-      <Text ff="monospace" fz={10} c="gray.6">{run.lost > 0 ? 'janitor may show up' : '—'}</Text>
+      <Text ff="monospace" fz={10} c="dimmed">{run.lost > 0 ? 'janitor may show up' : '—'}</Text>
       </Group>
     </Paper>
   );
@@ -982,7 +982,7 @@ function Pips({ total, left }: { total: number; left: number }) {
         <Box
           key={i}
           h="100%"
-          bg={total === 0 ? 'dark.6' : 'currentColor'}
+          bg={total === 0 ? 'var(--instadarts-surface-raised)' : 'currentColor'}
           opacity={total === 0 || i < left ? 0.9 : 0.2}
           style={{ flex: 1, borderRadius: 999 }}
         />
@@ -993,16 +993,16 @@ function Pips({ total, left }: { total: number; left: number }) {
 
 function Stat({ label, value, tone }: { label: string; value: number | string; tone: 'good' | 'warn' | 'danger' | 'info' }) {
   const colour = tone === 'danger'
-    ? 'red.4'
+    ? 'var(--instadarts-tone-danger-fg)'
     : tone === 'warn'
-      ? 'yellow.4'
+      ? 'var(--instadarts-tone-warning-fg)'
       : tone === 'info'
-        ? 'cyan.3'
-        : 'green.4';
+        ? 'var(--instadarts-tone-info-fg)'
+        : 'var(--instadarts-accent)';
   return (
-    <Paper bg="dark.9" py={4}>
+    <Paper bg="var(--instadarts-surface-sunken)" py={4}>
       <Text component="dd" ff="monospace" fz="sm" c={colour}>{value}</Text>
-      <Text component="dt" fz={9} tt="uppercase" c="gray.6">{label}</Text>
+      <Text component="dt" fz={9} tt="uppercase" c="dimmed">{label}</Text>
     </Paper>
   );
 }
@@ -1029,6 +1029,10 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
     //
     // Sized in `cqw` against itself, so the whole card scales with the board rather than needing a
     // breakpoint per width. The board remains a square at every width its grid box allows.
+    //
+    // Its colours are fixed shades rather than palette tokens, and so are its inner panels': this is
+    // a curtain drawn over the board, and the board is dark in either colour scheme. A finale that
+    // went pale in the bright scheme would be a hole in the middle of the thing it is covering.
     <Box
       data-testid="wam-finale"
       className="wam-fade"
@@ -1068,7 +1072,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
       <Text fz="3.2cqw" fw={600} c="yellow.4" style={{ letterSpacing: '0.025em' }}>
         {shareOf(run.team, run.maxScore)}% of a perfect {run.maxScore}
       </Text>
-      <Text fz="2.6cqw" tt="uppercase" c="gray.5" style={{ letterSpacing: '0.025em' }}>
+      <Text fz="2.6cqw" tt="uppercase" c="dark.2" style={{ letterSpacing: '0.025em' }}>
         {run.players.length > 1 ? 'team score' : 'score'} after {run.turn} of {run.turns} turns
       </Text>
 
@@ -1094,7 +1098,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
             py={crowded ? '0.8cqw' : '1.4cqw'}
           >
             <Group justify="space-between" gap="xs" wrap="nowrap">
-              <Text truncate fz={crowded ? '2.8cqw' : '3.4cqw'} c="gray.3">{player.name}</Text>
+              <Text truncate fz={crowded ? '2.8cqw' : '3.4cqw'} c="dark.0">{player.name}</Text>
               <Text ff="monospace" fz={crowded ? '3.6cqw' : '4.4cqw'} c="yellow.3">{player.score}</Text>
             </Group>
           </Paper>
@@ -1109,7 +1113,7 @@ function Finale({ run, host }: { run: RunView; host: HTMLElement }) {
         <FinaleStat label="ppt" value={run.stats.ppt.toFixed(1)} colour="green.4" />
       </SimpleGrid>
 
-      <Text mt="1.5cqw" fz="3cqw" c="gray.4">
+      <Text mt="1.5cqw" fz="3cqw" c="dark.2">
         Press <Text span fw={600} c="green.4">Submit Visit</Text> to finish
       </Text>
     </Box>,
@@ -1122,7 +1126,7 @@ function FinaleStat({ label, value, colour }: { label: string; value: number | s
   return (
     <Paper bg="dark.8" radius="sm" py="1.2cqw">
       <Text component="dd" ff="monospace" fz="4cqw" c={colour}>{value}</Text>
-      <Text component="dt" fz="2.2cqw" tt="uppercase" c="gray.6">{label}</Text>
+      <Text component="dt" fz="2.2cqw" tt="uppercase" c="dark.2">{label}</Text>
     </Paper>
   );
 }

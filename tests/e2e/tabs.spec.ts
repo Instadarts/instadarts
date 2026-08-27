@@ -16,7 +16,7 @@ test.describe('two tabs of one browser', () => {
     const tabB = await ctx.newPage();
 
     await tabA.goto('/');
-    await tabA.click('text=Create Online Match');
+    await tabA.getByRole('button', { name: 'Online Match', exact: true }).click();
     await tabA.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await tabA.click('button:has-text("Add")');
 

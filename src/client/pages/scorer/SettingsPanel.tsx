@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
+import { AppearanceControl } from '../../components/AppearanceControl';
 import type { useVisionRuntime } from '../../hooks/useVisionRuntime';
 import type { MediaTier } from '../../../shared/media';
 import { resetSettings, saveSettings, type ScorerSettings } from '../../lib/scorerStorage';
@@ -81,34 +82,37 @@ export function SettingsPanel({
     <Stack gap={0}>
       <Menu.Label>Layout</Menu.Label>
       <Box px="sm" py="xs">
-        <Group justify="space-between" gap="md" wrap="nowrap">
-          <Text fz="sm">Zoom</Text>
-          <Group gap={6} wrap="nowrap">
-            <ActionIcon
-              variant="default"
-              size="sm"
-              aria-label="Increase zoom"
-              title="Increase zoom"
-              disabled={scorerZoom >= MAX_APP_ZOOM}
-              onClick={() => changeScorerZoom(APP_ZOOM_STEP)}
-            >
-              +
-            </ActionIcon>
-            <Text fz="sm" fw={600} ta="center" w="3rem" ff="monospace">
-              {scorerZoom}%
-            </Text>
-            <ActionIcon
-              variant="default"
-              size="sm"
-              aria-label="Decrease zoom"
-              title="Decrease zoom"
-              disabled={scorerZoom <= MIN_APP_ZOOM}
-              onClick={() => changeScorerZoom(-APP_ZOOM_STEP)}
-            >
-              −
-            </ActionIcon>
+        <Stack gap="sm">
+          <AppearanceControl />
+          <Group justify="space-between" gap="md" wrap="nowrap">
+            <Text fz="sm">Zoom</Text>
+            <Group gap={6} wrap="nowrap">
+              <ActionIcon
+                variant="default"
+                size="sm"
+                aria-label="Increase zoom"
+                title="Increase zoom"
+                disabled={scorerZoom >= MAX_APP_ZOOM}
+                onClick={() => changeScorerZoom(APP_ZOOM_STEP)}
+              >
+                +
+              </ActionIcon>
+              <Text fz="sm" fw={600} ta="center" w="3rem" ff="monospace">
+                {scorerZoom}%
+              </Text>
+              <ActionIcon
+                variant="default"
+                size="sm"
+                aria-label="Decrease zoom"
+                title="Decrease zoom"
+                disabled={scorerZoom <= MIN_APP_ZOOM}
+                onClick={() => changeScorerZoom(-APP_ZOOM_STEP)}
+              >
+                −
+              </ActionIcon>
+            </Group>
           </Group>
-        </Group>
+        </Stack>
       </Box>
 
       <Menu.Divider />
@@ -129,7 +133,7 @@ export function SettingsPanel({
           <Group justify="space-between" gap="sm" wrap="nowrap">
             <Text fz="sm">
               Lens correction{' '}
-              <Text span ff="monospace" c="gray.4">{lensValue > 0 ? `+${lensValue}` : lensValue}</Text>
+              <Text span ff="monospace" c="dimmed">{lensValue > 0 ? `+${lensValue}` : lensValue}</Text>
             </Text>
             <Button variant="default" size="compact-sm" onClick={onCalibrate} disabled={!vision.cameraActive}>
               Calibrate lens

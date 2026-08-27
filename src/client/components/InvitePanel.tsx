@@ -11,7 +11,7 @@ interface InvitePanelProps {
 export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: InvitePanelProps) {
   if (isClosed) {
     const oneOnOne = maxPlayers <= 2 && userCount >= 2;
-    return <Text c="green.4" fw={700}>{oneOnOne ? '✓ Opponent connected' : '✓ Lobby is full'}</Text>;
+    return <Text c="var(--instadarts-accent)" fw={700}>{oneOnOne ? '✓ Opponent connected' : '✓ Lobby is full'}</Text>;
   }
 
   if (!inviteCode) return null;
@@ -20,21 +20,21 @@ export function InvitePanel({ inviteCode, userCount, maxPlayers, isClosed }: Inv
   return (
     <Stack align="center" gap="sm" ta="center">
       {userCount > 1 && (
-        <Text c="green.4" fw={700} fz="sm">
+        <Text c="var(--instadarts-accent)" fw={700} fz="sm">
           {`✓ ${userCount - 1} other ${userCount === 2 ? 'user' : 'users'} connected`}
         </Text>
       )}
       <Text c="dimmed" fz="sm">Invite Code</Text>
       <CopyableText value={inviteCode}>
         <Group gap="xs" wrap="nowrap">
-          <Code fz="xl" c="green.4" px="md" py="xs" style={{ letterSpacing: '0.18em' }}>{inviteCode}</Code>
+          <Code fz="xl" c="var(--instadarts-accent)" px="md" py="xs" style={{ letterSpacing: '0.18em' }}>{inviteCode}</Code>
           <Text component="span" fz="xl" aria-hidden>📋</Text>
         </Group>
       </CopyableText>
       <Text c="dimmed" fz="xs" style={{ overflowWrap: 'anywhere' }}>
         Or share:{' '}
         <CopyableText value={inviteUrl}>
-          <Text span c="blue.4">/lobby/join/{inviteCode}</Text>
+          <Text span c="var(--instadarts-link)">/lobby/join/{inviteCode}</Text>
         </CopyableText>
       </Text>
     </Stack>

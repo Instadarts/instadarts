@@ -1,7 +1,14 @@
-import { cpSync, createReadStream, existsSync, readFileSync } from 'node:fs';
+import { cpSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+// Extensionless on purpose. Vite's default config loader bundles this file and resolves it; the
+// experimental `--configLoader native` hands the file to Node, which does not guess extensions and
+// needs `.ts` here. Writing `.ts` costs a permanent TS5097 in the editor, because the only tsconfig
+// covering this file is the base one and `allowImportingTsExtensions` needs `noEmit` set there. Not
+// worth it for an opt-in loader nobody runs — add the extension and that flag together on the day
+// Vite makes native the default.
+import { appPalette } from './src/client/layout/palette';
 
 // LiteRT loads its WASM runtime from /wasm/ at runtime (src/client/vision/model.js). Those files
 // ship inside the npm package, so rather than committing a copy into public/ they are served
@@ -45,6 +52,59 @@ function litertWasm(): Plugin {
  * device that drops off the Wi-Fi, and every e2e test browser close produces one — they are
  * expected and the server sees the close either way.
  */
+/**
+ * `/favicon.svg`, wrapped around the one copy of the mark.
+ *
+ * The mark is authored once, in `src/client/components/mark.svg`, in `currentColor` so the wordmark
+ * can tint it. A tab icon has no colour to inherit and no page behind it, so this adds the two
+ * things it needs — a ground and a colour — around exactly those shapes rather than around a second
+ * drawing of them. Served in dev and written once at build, the same way the LiteRT WASM is.
+ */
+const markFile = fileURLToPath(new URL('./src/client/components/mark.svg', import.meta.url));
+
+function favicon(): Plugin {
+  const render = () => {
+    // Comments go first: mark.svg documents this wrapper, so its prose mentions the tags being
+    // looked for and a naive search lands inside the explanation rather than on the element.
+    const mark = readFileSync(markFile, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const shapes = mark.slice(mark.indexOf('>', mark.indexOf('<svg')) + 1, mark.lastIndexOf('</svg>'));
+    // The box comes from the mark rather than being assumed, so redrawing it at another scale does
+    // not silently produce a tab icon with the artwork in one corner.
+    const box = /viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/.exec(mark);
+    if (!box) throw new Error('mark.svg has no "0 0 w h" viewBox to build a favicon from');
+    const [width, height] = [Number(box[1]), Number(box[2])];
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">`,
+      `<rect width="${width}" height="${height}" rx="${round(width * 0.23)}" fill="${ground}"/>`,
+      `<g color="${accent}">${shapes.trim()}</g>`,
+      '</svg>',
+    ].join('');
+  };
+
+  const round = (value: number) => Math.round(value * 100) / 100;
+  // From the palette, not typed out again here: a tab icon that keeps its old colours after somebody
+  // edits the one file they were told to edit is the drift this plugin exists to prevent.
+  const { appBg: ground, accent } = appPalette.tokens.dark;
+
+  return {
+    name: 'instadarts-favicon',
+    configureServer(server) {
+      server.middlewares.use('/favicon.svg', (_req, res) => {
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.end(render());
+      });
+    },
+    closeBundle() {
+      // Vite runs `closeBundle` when the dev server shuts down as well as after a build, so on a
+      // checkout that has only ever run `npm run dev` there is no `dist/client` to write into.
+      // Today the neighbouring wasm copy happens to create it first; that is not something to rely on.
+      const out = fileURLToPath(new URL('./dist/client/', import.meta.url));
+      mkdirSync(out, { recursive: true });
+      writeFileSync(`${out}favicon.svg`, render());
+    },
+  };
+}
+
 function quietWsProxyErrors(): Plugin {
   return {
     name: 'quiet-ws-proxy-errors',
@@ -75,7 +135,7 @@ const SERVER_PORT = Number(process.env.PORT ?? 3000);
 const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
 
 export default defineConfig({
-  plugins: [react(), litertWasm(), quietWsProxyErrors()],
+  plugins: [react(), litertWasm(), favicon(), quietWsProxyErrors()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
   },

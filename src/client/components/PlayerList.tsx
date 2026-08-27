@@ -50,7 +50,7 @@ export function PlayerList({
     <Stack gap="sm">
       <Stack gap={0}>
         {players.map((player, index) => (
-          <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+          <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--instadarts-border)' }}>
             <Text c="dimmed" fz="xs" w={34}>{ordinal(index + 1)}</Text>
             <Text style={{ flex: 1 }} truncate>{player.name}</Text>
 

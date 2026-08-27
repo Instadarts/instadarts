@@ -8,6 +8,7 @@ import {
   MAX_APP_ZOOM,
   MIN_APP_ZOOM,
 } from '../../src/client/layout/appZoom';
+import { APP_COLOR_SCHEME_STORAGE_KEYS } from '../../src/client/layout/appColorScheme';
 import {
   LIVE_MATCH_LAYOUTS,
   MATCH_LAYOUT_STORAGE_KEY,
@@ -29,6 +30,8 @@ import {
 const UI_STORAGE_KEYS = [
   APP_ZOOM_STORAGE_KEYS.frontend,
   APP_ZOOM_STORAGE_KEYS.scorer,
+  APP_COLOR_SCHEME_STORAGE_KEYS.frontend,
+  APP_COLOR_SCHEME_STORAGE_KEYS.scorer,
   MATCH_LAYOUT_STORAGE_KEY,
 ];
 
@@ -231,6 +234,11 @@ async function openPairedScorer(browser: Browser, code: string) {
   await page.getByRole('button', { name: 'Pair' }).click();
   await expect(page.getByTestId('scorer-status')).toHaveText('Ready — no match running');
   return { context, page };
+}
+
+/** The attribute Mantine writes on the document, and what every themed rule keys off. */
+async function expectColorScheme(page: Page, scheme: 'light' | 'dark'): Promise<void> {
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
 }
 
 async function openScorerSettings(page: Page): Promise<Locator> {
@@ -454,6 +462,102 @@ test.describe('responsive UI branch features', () => {
     await expect(cameras.getByRole('button', { name: 'Pair scoring device' })).toBeVisible();
     await expect(cameras.getByRole('switch', { name: 'Live video' })).toBeVisible();
     await expectInsideViewport(page, cameras);
+  });
+
+  test('the home wordmark shrinks to its heading instead of spilling out of the card', async ({ page }) => {
+    await clearUiPreferences(page);
+
+    // At a fixed size the lockup was 434 px wide whatever the card was, so under about 470 px of
+    // viewport the card's own overflow cut the end off it. Nothing failed — the heading still had
+    // its text and the layout was still correct — which is why this measures rather than looks.
+    //
+    // Each width is a fresh load rather than a resize. The fit runs from a `ResizeObserver`, so the
+    // first read after a resize can still be the pre-resize layout, and that reads as "fits"
+    // because it did before the window moved. Loading at the width is also what a phone does.
+    const measureAt = async (width: number) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await expect(page.locator('h1')).toHaveText('InstaDarts');
+      await expect
+        .poll(async () => page.evaluate(() => {
+          const heading = document.querySelector('h1')!;
+          const line = heading.firstElementChild as HTMLElement;
+          return Math.round(line.getBoundingClientRect().width) - heading.clientWidth;
+        }), { message: `the wordmark overflows its heading at ${width} px` })
+        .toBeLessThanOrEqual(0);
+      return page.evaluate(() => {
+        const heading = document.querySelector('h1')!;
+        const line = heading.firstElementChild as HTMLElement;
+        const card = heading.closest('.mantine-Card-root')!;
+        return {
+          fontSize: Math.round(Number.parseFloat(getComputedStyle(line).fontSize)),
+          mark: Math.round(heading.querySelector('svg')!.getBoundingClientRect().width),
+          // How much of the card's width the heading is missing out on.
+          unused: Math.round(card.getBoundingClientRect().width) - heading.clientWidth,
+        };
+      });
+    };
+
+    const wide = await measureAt(1100);
+    const narrow = await measureAt(420);
+    const tiny = await measureAt(330);
+
+    // The heading fills the card, less its padding and border. It has to: a card whose content box
+    // shrinks to fit gives the fit nothing to measure against but its own output, and the two settle
+    // on one size for every screen. That also made the box as wide as the longest line of prose in
+    // it, so editing the subtitle changed the size of the title.
+    for (const [width, measured] of [[1100, wide], [420, narrow], [330, tiny]] as const) {
+      expect(measured.unused, `the heading does not fill its card at ${width} px`).toBeLessThan(40);
+    }
+
+    // Fitting, not clipping: both the word and the mark beside it are smaller on a narrower screen,
+    // and the mark follows the word because it is sized in `em` rather than in pixels.
+    expect(narrow.fontSize).toBeLessThan(wide.fontSize);
+    expect(tiny.fontSize).toBeLessThan(narrow.fontSize);
+    expect(narrow.mark).toBeLessThan(wide.mark);
+    expect(tiny.mark).toBeLessThan(narrow.mark);
+  });
+
+  test('appearance is a per-application preference, applied before the first paint', async ({ browser }) => {
+    const frontendContext = await browser.newContext();
+    const frontend = await frontendContext.newPage();
+    await clearUiPreferences(frontend);
+    await frontend.goto('/');
+    const code = await requestPairingCode(frontend);
+    const scorer = await openPairedScorer(browser, code);
+    await closeOverlays(frontend);
+
+    // Dark until somebody says otherwise: nobody's application changes appearance on upgrade.
+    await expectColorScheme(frontend, 'dark');
+    expect(await storedValue(frontend, APP_COLOR_SCHEME_STORAGE_KEYS.frontend)).toBeNull();
+
+    let menu = await openFrontendSettings(frontend);
+    await menu.getByRole('button', { name: 'Switch to bright appearance' }).click();
+    await expectColorScheme(frontend, 'light');
+    expect(await storedValue(frontend, APP_COLOR_SCHEME_STORAGE_KEYS.frontend)).toBe('light');
+
+    // index.html applies the stored scheme before the deferred bundle runs, so a reload comes back
+    // bright rather than painting dark first.
+    await frontend.reload();
+    await expectColorScheme(frontend, 'light');
+
+    menu = await openFrontendSettings(frontend);
+    await menu.getByRole('button', { name: 'Switch to dark appearance' }).click();
+    await expectColorScheme(frontend, 'dark');
+
+    // The paired device keeps its own answer. A phone propped at the board and the television
+    // across the room are two applications, and one of them wants to stay dark.
+    await expectColorScheme(scorer.page, 'dark');
+    const scorerMenu = await openScorerSettings(scorer.page);
+    await scorerMenu.getByRole('button', { name: 'Switch to bright appearance' }).click();
+    await expectColorScheme(scorer.page, 'light');
+    expect(await storedValue(scorer.page, APP_COLOR_SCHEME_STORAGE_KEYS.frontend)).toBeNull();
+
+    await scorer.page.reload();
+    await expectColorScheme(scorer.page, 'light');
+
+    await frontendContext.close();
+    await scorer.context.close();
   });
 
   test('the narrow match overview keeps its full headline and Leave button on one row', async ({ page }) => {

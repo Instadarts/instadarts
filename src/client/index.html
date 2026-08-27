@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>InstaDarts</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      /*
+       * The colour scheme, applied before anything is painted.
+       *
+       * main.tsx is a module and therefore deferred, so without this the body shows the light
+       * background Mantine assumes for an undeclared scheme and then flips — a white flash on every
+       * load of an application that is dark by default. The keys and the default belong to
+       * src/client/layout/appColorScheme.ts; this is the one place they are repeated, because
+       * nothing bundled can run early enough to be asked.
+       */
+      (function () {
+        var scorer = window.location.pathname.indexOf('/scorer') === 0;
+        var key = scorer ? 'instadarts_scorer_color_scheme_v1' : 'instadarts_frontend_color_scheme_v1';
+        var stored = null;
+        try { stored = localStorage.getItem(key); } catch (error) { /* blocked store: take the default */ }
+        document.documentElement.dataset.mantineColorScheme = stored === 'light' ? 'light' : 'dark';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

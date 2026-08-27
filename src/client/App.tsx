@@ -307,7 +307,7 @@ export function App() {
       </AppShell.Main>
       <MediaDebugPanel media={media} evidenceTimings={evidence.timings} feed={displayFeed} />
       {mediaSettingUp && (
-        <Overlay fixed zIndex={500} backgroundOpacity={1} color="var(--mantine-color-dark-9)" data-testid="media-setup-overlay">
+        <Overlay fixed zIndex={500} backgroundOpacity={1} color="var(--instadarts-app-bg)" data-testid="media-setup-overlay">
           <Center h="100%">
             <Stack align="center">
               <Loader color="gray" />

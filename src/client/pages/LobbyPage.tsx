@@ -48,9 +48,9 @@ export function LobbyPage({
         <GridBox editable={false}>
           <Group justify="space-between" align="center" gap="lg">
             <Stack gap={2}>
-              <Title order={2} c="green.4">
+              <Title order={2} c="var(--instadarts-accent)">
                 {mode === 'local' ? 'Local Match' : 'Online Match'}
-                {isSpectator && <Text span c="yellow.4" fz="lg"> (spectating)</Text>}
+                {isSpectator && <Text span c="var(--instadarts-tone-warning-fg)" fz="lg"> (spectating)</Text>}
               </Title>
               <Text c="dimmed" fz="sm">
                 {mode === 'local'
@@ -65,7 +65,7 @@ export function LobbyPage({
               <Button variant="default" onClick={onLeave}>Leave</Button>
             </Group>
           </Group>
-          <Alert color="dark" mt="md">
+          <Alert variant="default" mt="md">
             {ownPlayerIds.length === 0
               ? 'Add at least one player to start'
               : 'Add more players or start the match'}

@@ -19,6 +19,8 @@ import {
 import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
 import { FullscreenButton } from './FullscreenButton';
 import { CameraIcon, SettingsIcon } from './AppIcons';
+import { AppearanceControl } from './AppearanceControl';
+import { Wordmark } from './Wordmark';
 import { PairDeviceDialog } from './PairDeviceDialog';
 import { useLayoutEditor } from '../layout/LayoutEditorContext';
 import {
@@ -86,9 +88,9 @@ export function TopBar({
 
   return (
     <>
-      <AppShell.Header bg="dark.8" withBorder>
+      <AppShell.Header bg="var(--instadarts-header-bg)" withBorder>
         <Group h="100%" px="md" justify="space-between" gap="sm" wrap="nowrap">
-          <Text fw={800} c="green.4" fz="lg" truncate>InstaDarts</Text>
+          <Wordmark />
 
           <Group gap="xs" wrap="nowrap">
             <Group
@@ -102,7 +104,7 @@ export function TopBar({
                 visibleFrom="sm"
                 w="8.75rem"
                 fz="sm"
-                c={connected ? 'green.4' : 'yellow.4'}
+                c={connected ? 'var(--instadarts-accent)' : 'var(--instadarts-tone-warning-fg)'}
                 ta="right"
                 truncate
               >
@@ -199,6 +201,7 @@ export function TopBar({
                 </Menu.Label>
                 <Box px="sm" py="xs">
                   <Stack gap="sm">
+                    <AppearanceControl />
                     <Group justify="space-between" gap="md" wrap="nowrap">
                       <Text fz="sm">Zoom</Text>
                       <Group gap={6} wrap="nowrap">
@@ -328,7 +331,7 @@ function DeviceBox({
   return (
     <Card
       withBorder
-      bg="dark.9"
+      bg="var(--instadarts-surface-sunken)"
       padding="sm"
       role="group"
       aria-label={`Scoring device: ${device.name}`}
@@ -361,7 +364,7 @@ function DeviceBox({
           <Button size="compact-xs" variant="subtle" color="gray" onClick={onForget}>Forget</Button>
         </Group>
 
-        {device.cameraError && <Text fz="xs" c="yellow.5">{device.cameraError}</Text>}
+        {device.cameraError && <Text fz="xs" c="var(--instadarts-tone-warning-fg)">{device.cameraError}</Text>}
 
         {showBoardCamera && reachable && (
           <Switch
@@ -403,10 +406,10 @@ function DeviceBox({
 }
 
 function statusColor(device: DeviceView): string {
-  if (!device.active) return 'var(--mantine-color-gray-6)';
-  if (device.cameraActive) return 'var(--mantine-color-green-5)';
-  if (device.online) return 'var(--mantine-color-blue-5)';
-  return 'var(--mantine-color-gray-6)';
+  if (!device.active) return 'var(--instadarts-tone-muted-fg)';
+  if (device.cameraActive) return 'var(--instadarts-accent)';
+  if (device.online) return 'var(--instadarts-tone-info-fg)';
+  return 'var(--instadarts-tone-muted-fg)';
 }
 
 function statusLabel(device: DeviceView): string {

@@ -1,12 +1,29 @@
 import { Box, Text } from '@mantine/core';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 interface AutoFitTextProps {
+  /** The line to fit, and the thing a refit watches for changes. */
   text: string;
-  color: string;
-  component?: 'div' | 'h2';
+  /**
+   * Rendered in place of `text` when given, and measured the same way. `text` still says what the
+   * line is, so a refit still happens when the content changes and the accessible name is unchanged.
+   * Anything passed has to be phrasing content — it goes inside the measured `span` — and has to
+   * size itself in `em` if it is to scale, because the fit sets a font size and nothing else.
+   */
+  children?: ReactNode;
+  color?: string;
+  component?: 'div' | 'h1' | 'h2';
   fitHeight?: boolean;
+  /**
+   * Whether the host takes its main size from the flex container around it.
+   *
+   * True is right inside a row that has to share its width — the match headline beside its badge and
+   * Leave button. It is wrong inside a column: `flex-basis: 0` there is a *height* of zero, and the
+   * line disappears into a host with no height and `overflow: hidden`. A caller in a `Stack` wants
+   * false, and gets its width from `width: 100%` instead.
+   */
+  grow?: boolean;
   fontFamily?: string;
   fontWeight?: number;
   horizontalAlign?: 'start' | 'center' | 'end';
@@ -21,11 +38,13 @@ const EDGE_TOLERANCE = 1;
 /** A single unwrapped line, enlarged until its configured available axes are exhausted. */
 export function AutoFitText({
   text,
+  children,
   color,
   component = 'div',
   fitHeight = true,
   fontFamily,
   fontWeight,
+  grow = true,
   horizontalAlign = 'center',
   lineHeight = 1.2,
   maximumFontSize,
@@ -92,10 +111,10 @@ export function AutoFitText({
       style={{
         alignItems: 'center',
         display: 'grid',
-        flex: '1 1 0',
+        flex: grow ? '1 1 0' : '0 0 auto',
         justifyItems: horizontalAlign,
         margin: 0,
-        minHeight: 0,
+        minHeight: grow ? 0 : undefined,
         minWidth: 0,
         overflow: 'hidden',
         width: '100%',
@@ -116,7 +135,7 @@ export function AutoFitText({
           width: 'max-content',
         }}
       >
-        {text}
+        {children ?? text}
       </Text>
     </Box>
   );

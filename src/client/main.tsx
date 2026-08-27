@@ -5,7 +5,8 @@ import { MantineProvider } from '@mantine/core';
 import { App } from './App';
 import { ScorerApp } from './ScorerApp';
 import { LayoutEditorProvider } from './layout/LayoutEditorContext';
-import { appTheme } from './layout/appTheme';
+import { appCssVariables, appTheme } from './layout/appTheme';
+import { DEFAULT_APP_COLOR_SCHEME, appColorSchemeManager } from './layout/appColorScheme';
 import { applyAppZoom, loadAppZoom } from './layout/appZoom';
 import '@mantine/core/styles.css';
 import 'react-grid-layout/css/styles.css';
@@ -15,8 +16,12 @@ import './index.css';
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 const scorer = window.location.pathname.startsWith('/scorer');
 document.documentElement.dataset.app = scorer ? 'scorer' : 'frontend';
-const zoomTarget = scorer ? 'scorer' : 'frontend';
-applyAppZoom(zoomTarget, loadAppZoom(zoomTarget));
+// Both browser-level presentation preferences are per application, and both are read from the path
+// rather than from anything React knows. index.html has already applied the colour scheme so the
+// first paint is the right one; the manager below is what keeps it and what the settings menu sets.
+const appTarget = scorer ? 'scorer' : 'frontend';
+applyAppZoom(appTarget, loadAppZoom(appTarget));
+const colorSchemeManager = appColorSchemeManager(appTarget);
 
 // The scoring device is a sibling of the gaming frontend, not a route inside it: it must not share
 // App's socket, its match state or its navigation effects (which would bounce it straight home).
@@ -24,13 +29,23 @@ applyAppZoom(zoomTarget, loadAppZoom(zoomTarget));
 // camera stream and a motion detector, and a double mount would start two of each.
 if (scorer) {
   root.render(
-    <MantineProvider theme={appTheme} forceColorScheme="dark">
+    <MantineProvider
+      theme={appTheme}
+      cssVariablesResolver={appCssVariables}
+      defaultColorScheme={DEFAULT_APP_COLOR_SCHEME}
+      colorSchemeManager={colorSchemeManager}
+    >
       <ScorerApp />
     </MantineProvider>,
   );
 } else {
   root.render(
-    <MantineProvider theme={appTheme} forceColorScheme="dark">
+    <MantineProvider
+      theme={appTheme}
+      cssVariablesResolver={appCssVariables}
+      defaultColorScheme={DEFAULT_APP_COLOR_SCHEME}
+      colorSchemeManager={colorSchemeManager}
+    >
       <React.StrictMode>
         <LayoutEditorProvider>
           <BrowserRouter>

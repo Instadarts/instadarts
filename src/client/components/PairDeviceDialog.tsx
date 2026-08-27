@@ -33,8 +33,8 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
     <Stack gap="md">
       <Text fz="sm" c="dimmed">Scan this with the camera device:</Text>
       <Group justify="center">
-        {/* Padded in white rather than sitting on the dark panel: the quiet zone the encoder draws
-            is only a quiet zone if what surrounds it is the same colour as it. */}
+        {/* Literally white in either colour scheme, and not a palette token: the quiet zone the
+            encoder draws is only a quiet zone if what surrounds it is the same colour as it. */}
         <Paper radius="md" bg="white" p="xs">
           <QrCode text={pairingUrl(code.code)} size={180} />
         </Paper>
@@ -42,11 +42,11 @@ export function PairDeviceDialog({ code, onRequest, onCancel }: PairDeviceDialog
       <Text fz="sm" c="dimmed">
         Or open{' '}
         <CopyableText value={scorerUrl}>
-          <Text span ff="monospace" c="gray.2">{scorerUrl}</Text>
+          <Text span ff="monospace" c="dimmed">{scorerUrl}</Text>
         </CopyableText>
         {' '}and enter:
       </Text>
-      <Text fz="2rem" ff="monospace" fw={700} c="green.4" ta="center" style={{ letterSpacing: '0.3em', userSelect: 'text' }}>
+      <Text fz="2rem" ff="monospace" fw={700} c="var(--instadarts-accent)" ta="center" style={{ letterSpacing: '0.3em', userSelect: 'text' }}>
         {code.code}
       </Text>
       <Group justify="space-between" gap="sm">

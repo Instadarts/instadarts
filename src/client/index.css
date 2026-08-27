@@ -18,6 +18,9 @@ body,
 
 body {
   margin: 0;
+  /* Every number on screen is a score being compared to another one, so they are tabular
+     everywhere: a changing total stops shuffling the digits beside it. */
+  font-variant-numeric: tabular-nums;
 }
 
 .frontend-grid-host,
@@ -55,9 +58,13 @@ body {
  * title bar landed on Leave and ended the match, and leaving is final. What shows through the strip
  * while editing is context, not a target, so those top pixels are deliberately inert until edit
  * mode is switched off.
+ *
+ * It recolours the bar by setting `--instadarts-card-header-bg` rather than `background`, because
+ * `AppCard` paints the title bar with Mantine's `bg` prop and that is an inline style: a rule here
+ * would lose to it. The variable is the hook AppCard leaves open for exactly this.
  */
 .frontend-grid-box--edit-header-overlay > .frontend-grid-box__header {
-  background: color-mix(in srgb, var(--mantine-color-dark-8) 76%, transparent);
+  --instadarts-card-header-bg: var(--instadarts-edit-overlay);
   inset: 0 0 auto;
   position: absolute;
   z-index: 1;
@@ -120,22 +127,28 @@ body {
 }
 
 .frontend-grid--editing .react-grid-item:not(.react-grid-placeholder) {
-  outline: 1px dashed var(--mantine-color-green-6);
+  outline: 1px dashed var(--instadarts-edit-outline);
   outline-offset: 2px;
 }
 
 .frontend-grid--editing .react-resizable-handle::after {
-  border-color: var(--mantine-color-green-4);
+  border-color: var(--instadarts-edit-outline);
   border-width: 0 3px 3px 0;
   height: 10px;
   width: 10px;
 }
 
+/*
+ * The application background: the page colour with two soft washes over it — the brand green
+ * from the top left and brass from the bottom right. Both are palette tokens, so the wash follows
+ * the colour scheme instead of being a green tint that only ever suited a dark page.
+ */
 .app-main {
   min-height: 100dvh;
   background:
-    radial-gradient(circle at 15% 0%, rgba(22, 101, 52, 0.12), transparent 34rem),
-    var(--mantine-color-dark-9);
+    radial-gradient(circle at 15% 0%, var(--instadarts-app-glow-a), transparent 34rem),
+    radial-gradient(circle at 85% 100%, var(--instadarts-app-glow-b), transparent 38rem),
+    var(--instadarts-app-bg);
 }
 
 .scorer-column {
@@ -170,8 +183,8 @@ html[data-app="scorer"] #root {
 }
 
 .button-hint {
-  --button-hint-ring: rgba(221, 201, 15, 0.767);
-  --button-hint-ring-fade: rgba(255, 238, 0, 0.144);
+  --button-hint-ring: var(--instadarts-hint-ring);
+  --button-hint-ring-fade: var(--instadarts-hint-ring-fade);
   animation: instadarts-button-hint 2.4s ease-out infinite;
 }
 

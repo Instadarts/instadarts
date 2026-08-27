@@ -416,7 +416,7 @@ test.describe('N-players matches', () => {
     const [host, second, third] = await Promise.all(contexts.map((ctx) => ctx.newPage()));
 
     await host.goto('/');
-    await host.click('text=Online Match');
+    await host.getByRole('button', { name: 'Online Match', exact: true }).click();
     await host.getByLabel('Game').selectOption('count-up');
     await host.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await host.click('button:has-text("Add")');
@@ -452,7 +452,7 @@ test.describe('N-players matches', () => {
 
     // Host creates online match
     await host.goto('/');
-    await host.click('text=Online Match');
+    await host.getByRole('button', { name: 'Online Match', exact: true }).click();
 
     // Switch to Count-Up
     const selector = host.getByLabel('Game');

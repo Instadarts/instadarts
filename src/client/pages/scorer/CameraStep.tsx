@@ -21,7 +21,7 @@ export function CameraStep({ camera, onContinue }: CameraStepProps) {
 
       {camera.phase === 'ask' && (
         <>
-          <Text fz="sm" c="gray.4">
+          <Text fz="sm" c="dimmed">
             This device scores by watching the board, so it needs its camera. Your browser will ask
             you to allow it.
           </Text>
@@ -38,7 +38,7 @@ export function CameraStep({ camera, onContinue }: CameraStepProps) {
 
       {camera.phase === 'failed' && (
         <>
-          <Text fz="sm" c="red.4" data-testid="onboarding-camera-error">{camera.error}</Text>
+          <Text fz="sm" c="var(--instadarts-tone-danger-fg)" data-testid="onboarding-camera-error">{camera.error}</Text>
           {/* Worth offering even after a refusal: the fix is in browser settings, and somebody who
               has just made it wants to come straight back here rather than start again. */}
           <Button
@@ -78,7 +78,7 @@ export function CameraStep({ camera, onContinue }: CameraStepProps) {
             />
           )}
 
-          <Text fz="sm" c="gray.4">
+          <Text fz="sm" c="dimmed">
             Next, we measure the performance of this device, pick the right settings, and tell you if the device works. It takes about half a minute.
           </Text>
           <Button

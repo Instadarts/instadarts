@@ -44,11 +44,11 @@ export function JoinView({ onPair, pairing, badCode, serverFull, connected }: Jo
       <AppCard padding="lg" centered className="scorer-column">
         <Stack align="center" gap="lg" ta="center">
           <Stack gap={2}>
-            <Title order={1} c="green.4">Scoring device</Title>
+            <Title order={1} c="var(--instadarts-accent)">Scoring device</Title>
             <Text c="dimmed">Automated darts scoring.</Text>
           </Stack>
 
-          <Text c="gray.4" fz="sm" maw="20rem">
+          <Text c="dimmed" fz="sm" maw="20rem">
             In InstaDarts, open the top bar and choose <em>Pair scoring device</em>.
           </Text>
 

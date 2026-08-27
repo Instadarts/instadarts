@@ -29,7 +29,7 @@ export function MatchHistory({ match }: MatchHistoryProps) {
         </Table.Thead>
         <Table.Tbody>
           {match.players.map((player) => (
-            <Table.Tr key={player.id} c={player.id === match.winnerId ? 'green.3' : 'gray.5'}>
+            <Table.Tr key={player.id} c={player.id === match.winnerId ? 'var(--instadarts-tone-positive-fg)' : 'dimmed'}>
               <Table.Td>{player.name}</Table.Td>
               {columns.map((column) => (
                 <Table.Td key={column.label} ta="center" ff="monospace">{column.valueFor(player.id)}</Table.Td>

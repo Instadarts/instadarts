@@ -119,7 +119,7 @@ export function MatchScreen({
           <GridBox title="Result">
             <Stack gap="lg" align="stretch">
               {match.winnerId ? (
-                <Text fz="xl" c="yellow.4" fw={700} ta="center">
+                <Text fz="xl" c="var(--instadarts-tone-warning-fg)" fw={700} ta="center">
                   🎯 {match.players.find((player) => player.id === match.winnerId)?.name ?? 'Unknown'} wins!
                 </Text>
               ) : (
@@ -304,8 +304,14 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
         const isCurrent = !over && index === match.currentPlayerIndex;
         const isDeparted = match.departed.includes(player.id);
         const score = scores?.[player.id] ?? '';
-        const background = isDeparted ? 'dark.8' : isCurrent ? 'green.9' : 'dark.7';
-        const borderColor = isDeparted ? 'var(--mantine-color-red-9)' : isCurrent ? 'var(--mantine-color-green-5)' : undefined;
+        // Three states, three surfaces: the player throwing is lit, the ones waiting sit in the
+        // card, and somebody who has left is sunk into it.
+        const background = isDeparted
+          ? 'var(--instadarts-surface-sunken)'
+          : isCurrent ? 'var(--instadarts-tone-accent-bg)' : 'var(--instadarts-surface-raised)';
+        const borderColor = isDeparted
+          ? 'var(--instadarts-tone-danger-fg)'
+          : isCurrent ? 'var(--instadarts-accent)' : undefined;
         const scoreTone = toneOf(score) ?? (isCurrent ? 'warning' : 'muted');
         const scoreStyle = modeTextProps(undefined, { tone: scoreTone, weight: 'bold' });
 
@@ -326,12 +332,12 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
               textAlign: 'center',
             }}
           >
-            <Text fz="h1" lh="1em" c="gray.3" truncate>{player.name}</Text>
+            <Text fz="h1" lh="1em" truncate>{player.name}</Text>
             {over ? (
               <Verdict match={match} playerId={player.id} />
             ) : (
               <>
-                <Text fz="xs" c="gray.3" ff="monospace">
+                <Text fz="xs" ff="monospace">
                   {formatStandings(
                     standings.setWins[player.id] ?? 0,
                     standings.legWins[player.id] ?? 0,
@@ -344,13 +350,13 @@ function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['
                   fontFamily="monospace"
                   fontWeight={scoreStyle.fw}
                   lineHeight={1.2}
-                  style={{ textShadow: '0 0 5px black' }}
+                  style={{ textShadow: 'var(--instadarts-score-glow)' }}
                 />
                 {isDeparted ? (
-                  <Text fz="xs" c="red.4">departed</Text>
+                  <Text fz="xs" c="var(--instadarts-tone-danger-fg)">departed</Text>
                 ) : isCurrent ? (
-                  <Text fz="xs" c="green.2">▶ throwing</Text>
-                ) : <Text fz="xs" c="gray.6">waiting</Text>}
+                  <Text fz="xs" c="var(--instadarts-tone-positive-fg)">▶ throwing</Text>
+                ) : <Text fz="xs" c="dimmed">waiting</Text>}
               </>
             )}
           </Paper>
@@ -365,9 +371,9 @@ function formatStandings(setWins: number, legWins: number, legsToWinSet: number)
 }
 
 function Verdict({ match, playerId }: { match: MatchState; playerId: string }) {
-  if (match.departed.includes(playerId)) return <Text fz="xl" fw={700} c="red.4">left</Text>;
-  if (!match.winnerId) return <Text fz="xl" fw={700} c="gray.6">—</Text>;
+  if (match.departed.includes(playerId)) return <Text fz="xl" fw={700} c="var(--instadarts-tone-danger-fg)">left</Text>;
+  if (!match.winnerId) return <Text fz="xl" fw={700} c="dimmed">—</Text>;
   return match.winnerId === playerId
-    ? <Text fz="xl" fw={700} c="green.4">WINNER</Text>
-    : <Text fz="xl" fw={700} c="gray.6">loser</Text>;
+    ? <Text fz="xl" fw={700} c="var(--instadarts-accent)">WINNER</Text>
+    : <Text fz="xl" fw={700} c="dimmed">loser</Text>;
 }

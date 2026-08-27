@@ -11,22 +11,25 @@ interface TextPresentation {
   weight?: TextWeight;
 }
 
+// A tone is what the server said about a value, not a colour it asked for. Both tables therefore
+// name palette tokens: the six tones have to keep meaning the same thing in either colour scheme,
+// and no single shade number is right on both charcoal and paper. See layout/palette.ts.
 const TONE_TEXT: Record<TextTone, string> = {
-  default: 'gray.3',
-  muted: 'gray.6',
-  accent: 'green.4',
-  positive: 'green.3',
-  warning: 'yellow.4',
-  danger: 'red.4',
+  default: 'var(--instadarts-tone-default-fg)',
+  muted: 'var(--instadarts-tone-muted-fg)',
+  accent: 'var(--instadarts-tone-accent-fg)',
+  positive: 'var(--instadarts-tone-positive-fg)',
+  warning: 'var(--instadarts-tone-warning-fg)',
+  danger: 'var(--instadarts-tone-danger-fg)',
 };
 
 const TONE_SLOT: Record<TextTone, { color: string; background: string }> = {
-  default: { color: 'var(--mantine-color-gray-3)', background: 'var(--mantine-color-dark-6)' },
-  muted: { color: 'var(--mantine-color-gray-6)', background: 'var(--mantine-color-dark-6)' },
-  accent: { color: 'var(--mantine-color-green-3)', background: 'var(--mantine-color-green-9)' },
-  positive: { color: 'var(--mantine-color-green-3)', background: 'var(--mantine-color-green-9)' },
-  warning: { color: 'var(--mantine-color-yellow-3)', background: 'var(--mantine-color-yellow-9)' },
-  danger: { color: 'var(--mantine-color-red-3)', background: 'var(--mantine-color-red-9)' },
+  default: { color: 'var(--instadarts-tone-default-fg)', background: 'var(--instadarts-tone-default-bg)' },
+  muted: { color: 'var(--instadarts-tone-muted-fg)', background: 'var(--instadarts-tone-muted-bg)' },
+  accent: { color: 'var(--instadarts-tone-accent-fg)', background: 'var(--instadarts-tone-accent-bg)' },
+  positive: { color: 'var(--instadarts-tone-positive-fg)', background: 'var(--instadarts-tone-positive-bg)' },
+  warning: { color: 'var(--instadarts-tone-warning-fg)', background: 'var(--instadarts-tone-warning-bg)' },
+  danger: { color: 'var(--instadarts-tone-danger-fg)', background: 'var(--instadarts-tone-danger-bg)' },
 };
 
 const WEIGHT = { normal: 400, medium: 500, semibold: 600, bold: 700 } as const;

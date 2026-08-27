@@ -42,7 +42,7 @@ test.describe('Re-match', () => {
     const page2 = await (await browser.newContext()).newPage();
 
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
     const code = (await page1.locator('text=Invite Code').locator('..').locator('code').textContent())!;
@@ -134,7 +134,7 @@ test.describe('Re-match', () => {
     const page2 = await (await browser.newContext()).newPage();
 
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
     const code = (await page1.locator('text=Invite Code').locator('..').locator('code').textContent())!;

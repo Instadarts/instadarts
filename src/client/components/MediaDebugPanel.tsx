@@ -168,7 +168,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
         </Button>
 
         {open && (
-          <Paper withBorder mt={4} p="xs" maw="90vw" bg="dark.8" style={{ overflowX: 'auto' }}>
+          <Paper withBorder mt={4} p="xs" maw="90vw" bg="var(--instadarts-surface)" style={{ overflowX: 'auto' }}>
             <Stack gap={4}>
               <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                 self {selfId?.slice(0, 8) ?? '—'} ·{' '}
@@ -181,7 +181,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                 {' '}· {config?.enabled ? 'allowed' : 'disabled'}
               </Text>
 
-              {links.length === 0 && <Text fz="xs" c="gray.6">no peers offered</Text>}
+              {links.length === 0 && <Text fz="xs" c="dimmed">no peers offered</Text>}
 
               {(stillTimings?.current?.length ?? 0) > 0 && (
                 <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
@@ -217,11 +217,11 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                 return (
                   <Group key={link.peer.peerId} gap="xs" wrap="nowrap" style={{ whiteSpace: 'nowrap' }}>
                     <Text span fz="xs" c={stateMantineColor(link.state)}>{link.state}</Text>
-                    <Text span fz="xs" c="gray.4">{link.peer.kind}</Text>
-                    <Text span fz="xs" c="gray.6">{link.peer.role}</Text>
-                    <Text span fz="xs" c="gray.3">{link.peer.peerId.slice(0, 8)}</Text>
-                    <Text span fz="xs" c="gray.6">{link.peer.polite ? 'polite' : 'impolite'}</Text>
-                    <Text span fz="xs" c="gray.6">{link.peer.send ? '↓' : ''}{link.peer.recv ? '↑' : ''}</Text>
+                    <Text span fz="xs" c="dimmed">{link.peer.kind}</Text>
+                    <Text span fz="xs" c="dimmed">{link.peer.role}</Text>
+                    <Text span fz="xs">{link.peer.peerId.slice(0, 8)}</Text>
+                    <Text span fz="xs" c="dimmed">{link.peer.polite ? 'polite' : 'impolite'}</Text>
+                    <Text span fz="xs" c="dimmed">{link.peer.send ? '↓' : ''}{link.peer.recv ? '↑' : ''}</Text>
                     {linkStats.localCandidateType && (
                       <Text span fz="xs" c="dimmed">{linkStats.localCandidateType}→{linkStats.remoteCandidateType}</Text>
                     )}
@@ -229,7 +229,7 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
                       <Text span fz="xs" c="dimmed">{Math.round(linkStats.currentRoundTripTime * 1000)}ms</Text>
                     )}
                     {linkStats.lastIceError && (
-                      <Text span fz="xs" c="yellow.7" title={`${linkStats.iceErrors} ICE server errors`}>
+                      <Text span fz="xs" c="var(--instadarts-tone-warning-fg)" title={`${linkStats.iceErrors} ICE server errors`}>
                         ice {linkStats.lastIceError}
                       </Text>
                     )}
@@ -244,9 +244,9 @@ export function MediaDebugPanel({ media, stillTimings, evidenceTimings, publishe
 }
 
 function stateMantineColor(state: string): string {
-  if (state === 'connected') return 'green.4';
-  if (state === 'failed' || state === 'closed') return 'red.4';
-  return 'yellow.4';
+  if (state === 'connected') return 'var(--instadarts-accent)';
+  if (state === 'failed' || state === 'closed') return 'var(--instadarts-tone-danger-fg)';
+  return 'var(--instadarts-tone-warning-fg)';
 }
 
 /**
@@ -278,11 +278,11 @@ function PublisherRow({ stats, offer, open }: { stats?: () => PublisherStats | n
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
       {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
-      {canvasLabel && <Text span c="gray.6"> · {canvasLabel}</Text>}
-      {counters && counters.dropped > 0 && <Text span c="yellow.5"> · {counters.dropped} dropped</Text>}
-      {counters && counters.oversize > 0 && <Text span c="red.4"> · {counters.oversize} oversize</Text>}
-      {counters && counters.missed > 0 && <Text span c="gray.6"> · {counters.missed} missed</Text>}
-      {counters?.error && <Text span c="red.4"> · {counters.error}</Text>}
+      {canvasLabel && <Text span c="dimmed"> · {canvasLabel}</Text>}
+      {counters && counters.dropped > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {counters.dropped} dropped</Text>}
+      {counters && counters.oversize > 0 && <Text span c="var(--instadarts-tone-danger-fg)"> · {counters.oversize} oversize</Text>}
+      {counters && counters.missed > 0 && <Text span c="dimmed"> · {counters.missed} missed</Text>}
+      {counters?.error && <Text span c="var(--instadarts-tone-danger-fg)"> · {counters.error}</Text>}
     </Text>
   );
 }
@@ -315,8 +315,8 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
       {shown && ` · ${shown.decoded}f`}
-      {shown && shown.gaps > 0 && <Text span c="yellow.5"> · {shown.gaps} gaps</Text>}
-      {shown && shown.dropped > 0 && <Text span c="gray.6"> · {shown.dropped} dropped</Text>}
+      {shown && shown.gaps > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {shown.gaps} gaps</Text>}
+      {shown && shown.dropped > 0 && <Text span c="dimmed"> · {shown.dropped} dropped</Text>}
     </Text>
   );
 }

@@ -67,9 +67,9 @@ const STEP_LABEL: Record<Step, string> = {
 };
 
 const VERDICT_COLOUR: Record<Verdict, string> = {
-  good: 'green.4',
-  okay: 'yellow.4',
-  bad: 'red.4',
+  good: 'var(--instadarts-accent)',
+  okay: 'var(--instadarts-tone-warning-fg)',
+  bad: 'var(--instadarts-tone-danger-fg)',
 };
 
 const STAGE_LABEL: Record<StageOutcome['stage'], string> = {
@@ -139,7 +139,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
     <AppCard>
       <Stack gap="md">
         <Box component="header">
-          <Title order={2} fz="lg" c="green.4">Setting up this camera</Title>
+          <Title order={2} fz="lg" c="var(--instadarts-accent)">Setting up this camera</Title>
         {/* A counter, so somebody can see there is an end to this — and so the day a third step
             arrives it is a line to edit rather than a screen to rethink. */}
           <Text fz="xs" c="dimmed">{STEP_LABEL[step]}</Text>
@@ -179,7 +179,7 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
         >
           {camera.phase !== 'ready' && (
             <Center pos="absolute" inset={0}>
-              <Text fz="sm" c="gray.6">Camera preview</Text>
+              <Text fz="sm" c="dimmed">Camera preview</Text>
             </Center>
           )}
           {/* Over the video and inside the same square box, which is the whole reason the geometry
@@ -210,12 +210,12 @@ export function OnboardingView({ settings, onSettingsChange, name, onRename, onN
               Fixed rather than automatic so the panel does not jump every time the message changes,
               and cleared once there is a verdict — "Checking the results…" sitting under "Ready"
               reads as a screen that has lost track of itself. */}
-          <Text fz="sm" c="gray.4" h="2.5rem" lineClamp={2} data-testid="onboarding-log">
+          <Text fz="sm" c="dimmed" h="2.5rem" lineClamp={2} data-testid="onboarding-log">
             {step === 'running' ? log : ''}
           </Text>
 
           {step === 'finished' && (
-            <Text fz="sm" c={failure ? 'red.4' : 'green.4'} data-testid="onboarding-verdict">
+            <Text fz="sm" c={failure ? 'var(--instadarts-tone-danger-fg)' : 'var(--instadarts-accent)'} data-testid="onboarding-verdict">
               {failure ?? `Ready. Using the ${settings.model === 's_1280' ? '1280' : '960'} px model${describeOverrides(settings)}.`}
             </Text>
           )}
@@ -272,8 +272,8 @@ function StageRow({ stage, chosen }: { stage: StageOutcome; chosen: boolean }) {
   const colour = stage.ok
     ? stage.verdict
       ? VERDICT_COLOUR[stage.verdict]
-      : 'green.4'
-    : 'red.4';
+      : 'var(--instadarts-accent)'
+    : 'var(--instadarts-tone-danger-fg)';
 
   const headline = headlineOf(stage);
   const details = stage.paths ?? stage.matrix;
@@ -289,8 +289,8 @@ function StageRow({ stage, chosen }: { stage: StageOutcome; chosen: boolean }) {
         w="100%"
       >
         <Group justify="space-between" gap="sm" align="baseline" wrap="nowrap">
-          <Text fz="sm" fw={chosen ? 700 : 400} c={chosen ? 'gray.2' : 'gray.3'}>
-            {details && <Text span c="gray.6">{open ? '▾ ' : '▸ '}</Text>}
+          <Text fz="sm" fw={chosen ? 700 : 400} c={chosen ? 'bright' : undefined}>
+            {details && <Text span c="dimmed">{open ? '▾ ' : '▸ '}</Text>}
             {STAGE_LABEL[stage.stage]}
           </Text>
           <Text fz="xs" ff="monospace" c={colour}>
@@ -303,7 +303,7 @@ function StageRow({ stage, chosen }: { stage: StageOutcome; chosen: boolean }) {
         {stage.paths && (
           <Text ml="md" mt={2} ff="monospace" fz="xs">
             <Timing label="cpu" result={stage.paths.cpu} selected={stage.paths.selected === 'cpu'} colour={colour} />
-            <Text span c="gray.6"> | </Text>
+            <Text span c="dimmed"> | </Text>
             <Timing label="gpu" result={stage.paths.gpu} selected={stage.paths.selected === 'gpu'} colour={colour} />
           </Text>
         )}

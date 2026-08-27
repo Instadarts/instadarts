@@ -65,7 +65,7 @@ test.describe('copying the invite code', () => {
     const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
     const host = await context.newPage();
     await host.goto('/');
-    await host.getByRole('button', { name: 'Create Online Match' }).click();
+    await host.getByRole('button', { name: 'Online Match', exact: true }).click();
 
     const code = (await host.locator('text=Invite Code').locator('..').locator('code').textContent())!.trim();
     expect(code).toMatch(/^[A-Z0-9]{4,8}$/);

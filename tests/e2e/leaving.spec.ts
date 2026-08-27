@@ -12,7 +12,7 @@ test.describe('Lobby leave scenarios', () => {
 
     // Creator creates online match and adds self
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
@@ -52,7 +52,7 @@ test.describe('Lobby leave scenarios', () => {
 
     // Creator creates online match and adds self
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
@@ -94,7 +94,7 @@ test.describe('Lobby leave scenarios', () => {
 
     // Creator creates online match and adds self
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 
@@ -137,7 +137,7 @@ test.describe('In-match leave scenarios', () => {
 
     // Creator creates online match and adds self
     await page1.goto('/');
-    await page1.click('text=Create Online Match');
+    await page1.getByRole('button', { name: 'Online Match', exact: true }).click();
     await page1.getByRole('textbox', { name: 'New player', exact: true }).fill('Alice');
     await page1.click('button:has-text("Add")');
 

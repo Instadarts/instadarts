@@ -24,7 +24,7 @@ const MAX_LENGTH = 20;
 export function NameStep({ name, onRename, onContinue }: NameStepProps) {
   return (
     <>
-      <Text fz="sm" c="gray.4">
+      <Text fz="sm" c="dimmed">
         Give this scoring device a name.
       </Text>
 

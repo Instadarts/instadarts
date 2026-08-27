@@ -26,8 +26,7 @@ export function VideoFeedControls({ feeds, onAccept, onDecline }: Props) {
             key={feed.feedId}
             onClick={() => accepted ? onDecline(feed.feedId) : onAccept(feed.feedId)}
             aria-label={`${accepted ? 'Stop' : 'Play'} live video from ${label}`}
-            variant="filled"
-            color="dark"
+            variant="default"
             size="compact-xs"
             leftSection={<span aria-hidden="true">{accepted ? '×' : '▶'}</span>}
             maw="12rem"

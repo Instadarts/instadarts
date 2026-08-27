@@ -117,7 +117,7 @@ export function CalibrationView({ vision, onClose }: CalibrationViewProps) {
         </SquareViewport>
 
         <Stack gap="md" p="md">
-          <Text fz="sm" c="gray.4" mih="1.25rem">{message || ' '}</Text>
+          <Text fz="sm" c="dimmed" mih="1.25rem">{message || ' '}</Text>
 
           <Slider
             label="Lens correction"

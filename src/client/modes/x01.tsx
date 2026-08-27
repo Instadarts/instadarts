@@ -52,11 +52,11 @@ export default function X01Panel({ panel }: ModePanelProps) {
   return (
     <SimpleGrid minColWidth={130} autoFlow="auto-fit" spacing="sm">
       {playerIds.map((playerId) => (
-        <Paper key={playerId} bg="dark.9" radius="md" px="md" py="sm">
+        <Paper key={playerId} bg="var(--instadarts-surface-sunken)" radius="md" px="md" py="sm">
           <Stack gap="sm">
           {headline && (
             <Stack gap={0} ta="center">
-              <Text fz="xl" fw={700} ff="monospace" c={leads(headline, playerId, playerIds) ? 'green.4' : 'gray.3'}>
+              <Text fz="xl" fw={700} ff="monospace" c={leads(headline, playerId, playerIds) ? 'var(--instadarts-accent)' : undefined}>
                 {textOf(headline.values[playerId])}
               </Text>
               <Text fz={10} tt="uppercase" c="dimmed">{headline.label}</Text>
@@ -69,7 +69,7 @@ export default function X01Panel({ panel }: ModePanelProps) {
             {rest.map((row) => (
               <Group key={row.label} justify="space-between" gap="md" wrap="nowrap">
                 <Text component="dt" c="dimmed">{row.label}</Text>
-                <Text component="dd" ff="monospace" c={leads(row, playerId, playerIds) ? 'green.4' : 'gray.3'}>
+                <Text component="dd" ff="monospace" c={leads(row, playerId, playerIds) ? 'var(--instadarts-accent)' : undefined}>
                   {textOf(row.values[playerId])}
                 </Text>
               </Group>
@@ -94,7 +94,7 @@ function Bars({ scores, max }: { scores: number[]; max: number }) {
   return (
     <Group align="flex-end" gap={4} h={32} aria-hidden wrap="nowrap">
       {slots.map((score, i) => (
-        <Box key={i} bg="dark.6" h="100%" style={{ flex: 1, borderRadius: 2, display: 'flex', alignItems: 'flex-end' }}>
+        <Box key={i} bg="var(--instadarts-surface-raised)" h="100%" style={{ flex: 1, borderRadius: 2, display: 'flex', alignItems: 'flex-end' }}>
           {score !== undefined && (
             <Box
               bg={score >= 100 ? 'green.5' : score > 0 ? 'green.8' : 'red.9'}

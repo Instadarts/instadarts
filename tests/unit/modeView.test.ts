@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { viewOf } from '../../src/server/match';
+import { panelOf, viewOf } from '../../src/server/match';
 import { textOf, toneOf } from '../../src/shared/types';
 import { makeMatch, playVisit, throwDart } from '../helpers';
 
@@ -91,7 +91,19 @@ describe('x01 view', () => {
     expect(toneOf(slots[1])).toBe('danger');
   });
 
-  it('offers no panel — x01 has nothing of its own to draw', () => {
-    expect(viewOf(makeMatch()).panel).toBeUndefined();
+  /**
+   * The panel is the match's and the view is the leg's, so `ModeView` has no `panel` on it at all.
+   * This used to read `viewOf(...).panel` and assert it was undefined, which could never fail — and
+   * hid the fact that x01 grew a Statistics panel and had not offered "nothing of its own to draw"
+   * for a long time.
+   */
+  it('offers a statistics panel, one row per player', () => {
+    const panel = panelOf(makeMatch());
+
+    expect(panel?.title).toBe('Statistics');
+    expect(panel?.rows.length).toBeGreaterThan(0);
+    for (const row of panel!.rows) {
+      expect(Object.keys(row.values)).toEqual(['p1', 'p2']);
+    }
   });
 });

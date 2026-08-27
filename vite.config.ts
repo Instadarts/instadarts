@@ -2,13 +2,12 @@ import { cpSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFil
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-// Extensionless on purpose. Vite's default config loader bundles this file and resolves it; the
-// experimental `--configLoader native` hands the file to Node, which does not guess extensions and
-// needs `.ts` here. Writing `.ts` costs a permanent TS5097 in the editor, because the only tsconfig
-// covering this file is the base one and `allowImportingTsExtensions` needs `noEmit` set there. Not
-// worth it for an opt-in loader nobody runs — add the extension and that flag together on the day
-// Vite makes native the default.
-import { appPalette } from './src/client/layout/palette';
+// The `.ts` is load-bearing: Vite's default config loader bundles this file and would resolve the
+// path without it, but `--configLoader native` hands the file to Node, which does not guess
+// extensions. It also means palette.ts must stay erasable — Node strips types rather than compiling
+// them, so an enum or a parameter property there breaks config loading — and its Mantine import
+// must stay `import type`, or loading this config pulls in the browser bundle.
+import { appPalette } from './src/client/layout/palette.ts';
 
 // LiteRT loads its WASM runtime from /wasm/ at runtime (src/client/vision/model.js). Those files
 // ship inside the npm package, so rather than committing a copy into public/ they are served

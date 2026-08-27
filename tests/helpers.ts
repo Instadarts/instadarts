@@ -2,6 +2,7 @@ import type { MatchState, ScoreResult, Visit } from '../src/shared/types';
 import { registerMode } from '../src/server/modes/types';
 import { x01 } from '../src/server/modes/x01';
 import { addDartToMatch, legContext, submitVisitToMatch, undoDartFromMatch } from '../src/server/match';
+import { IDLE_TTL_MS } from '../src/server/lifecycle';
 
 // Every test that touches a match needs the mode registered; importing these helpers is what does it.
 registerMode(x01);
@@ -38,6 +39,7 @@ export interface X01Over {
   startScore?: number;
   doubleIn?: boolean;
   doubleOut?: boolean;
+  stats?: 'graphic' | 'text' | 'off';
   legsToWinSet?: number;
   setsToWinMatch?: number;
 }
@@ -68,7 +70,10 @@ export function makeMatch(overrides: MatchOver = {}): MatchState {
     createdAt: 0,
     finishedAt: null,
     departed: [],
-    rematchVotes: [],
+    rematchVotes: {},
+    // What `touch()` gives a real match. Zero is in the past, so anything that swept this one would
+    // find it already expired.
+    expiresAt: Date.now() + IDLE_TTL_MS,
     ...rest,
   };
 }

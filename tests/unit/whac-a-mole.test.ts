@@ -4,6 +4,7 @@ import { textOf, toneOf } from '../../src/shared/types';
 import { scoreFromBoardCoords } from '../../src/shared/scoring';
 import { whacAMole, whacAreaOf, whacRun } from '../../src/server/modes/whac-a-mole';
 import { addDartToMatch, legContext, submitVisitToMatch } from '../../src/server/match';
+import { IDLE_TTL_MS } from '../../src/server/lifecycle';
 import { validateSettings } from '../../src/server/validation';
 import { getMode } from '../../src/server/modes/types';
 
@@ -59,7 +60,7 @@ const SETTINGS: ModeSettings = {
   turns: 25, moles: 3, darts: 3, digTime: 3, difficulty: 'medium', seed: 4242,
 };
 
-function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
+function makeMatch(over: ModeSettings = {}, players = 1): MatchState {
   return {
     id: 'test-match',
     status: 'in_progress',
@@ -81,7 +82,7 @@ function makeMatch(over: Partial<ModeSettings> = {}, players = 1): MatchState {
     finishedAt: null,
     departed: [],
     rematchVotes: {},
-    expiresAt: 0,
+    expiresAt: Date.now() + IDLE_TTL_MS,
   };
 }
 

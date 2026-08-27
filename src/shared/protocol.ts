@@ -423,18 +423,12 @@ export interface ResumeMessage {
   token: string;
 }
 
-export interface MatchStartedMessage {
+export interface MatchStartedMessage extends Omit<MatchStateMessage, 'type'> {
   type: 'match_started';
-  match: MatchState;
-  view: ModeView;
-  panel?: ModePanel;
 }
 
-export interface MatchFinishedMessage {
+export interface MatchFinishedMessage extends Omit<MatchStateMessage, 'type'> {
   type: 'match_finished';
-  match: MatchState;
-  view: ModeView;
-  panel?: ModePanel;
 }
 
 /**

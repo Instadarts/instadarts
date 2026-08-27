@@ -333,7 +333,7 @@ describe('x01', () => {
 
   describe('the mode itself', () => {
     it('reports three darts per visit', () => {
-      expect(x01.dartsPerVisit(makeMatch().settings)).toBe(3);
+      expect(x01.dartsPerVisit(makeMatch().settings.modeSettings)).toBe(3);
     });
 
     it('never writes match state — finalizeVisit only reports a leg winner', () => {

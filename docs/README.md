@@ -28,6 +28,10 @@ Anything agreed but not yet built is marked ⏳ and must not be written about as
   tests and the typechecks, how to check a UI change, and the traps that have caught people here.
   Read this first if you are about to run something.
 
+Changing something from outside the project? [CONTRIBUTING.md](../CONTRIBUTING.md) covers what a
+pull request has to arrive with — its scope, its tests, and which of these documents it has to keep
+true. These documents are what it should be written against.
+
 Deployment settings live in one optional file, described in
 [development.md](./development.md#settings) and shown with every knob at its default in
 [`instadarts.config.example.jsonc`](../instadarts.config.example.jsonc). There are no configuration

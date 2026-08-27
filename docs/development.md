@@ -267,20 +267,29 @@ The e2e suite drives the delays down through `?e2e=1&graceMs=…&standbyMs=…`
 ([`lib/e2e.ts`](../src/client/lib/e2e.ts)), which does nothing in a shipped build. What it cannot
 reach is in [vision.md](vision.md#power-management).
 
-### `npm run build` typechecks both sides
+### `npm run build` typechecks all three trees
 
-It builds with Vite, typechecks the client and server, and then generates the third-party notices
-from the browser dependency closure. Vite itself transpiles the client with esbuild and does not
-typecheck it; the explicit client `tsc` step after the bundle is what makes a green production build
-cover DOM and WebGPU types too. To run that check without building:
+It builds with Vite, typechecks the client, the server and everything else, and then generates the
+third-party notices from the browser dependency closure. Vite itself transpiles the client with
+esbuild and does not typecheck it; the explicit `tsc` steps after the bundle are what make a green
+production build mean something. To run them without building:
 
 ```sh
 npx tsc -p tsconfig.client.json --noEmit
+npx tsc -p tsconfig.server.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit
 ```
 
-Note the `-p tsconfig.client.json`: only that one adds the DOM and WebGPU libs and Vite's client
-types, so pointing `tsc` at the root `tsconfig.json` instead produces a screenful of missing
-`GPUBufferUsage`, `import.meta.env` and `import.meta.glob` and tells you nothing.
+**Always name a project.** `tsconfig.json` is a base to be extended and nothing else — it carries no
+`types` and no DOM lib, so pointing `tsc` at it produces a screenful of missing `GPUBufferUsage`,
+`import.meta.env` and `import.meta.glob` and tells you nothing.
+
+`tsconfig.node.json` is the third one, and it covers what the other two do not: `vite.config.ts`,
+the vitest and Playwright configs, `scripts/` and all of `tests/`. Those files had no project of
+their own until they got one, so nothing typechecked them — which is how the tests came to read
+three fields off `match_started` that `MatchStartedMessage` did not declare, while the server had
+been sending them all along. It needs vite and WebGPU types as well as node's, because the specs
+import client source.
 
 ## The e2e suite
 

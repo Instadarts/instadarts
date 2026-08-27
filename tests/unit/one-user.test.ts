@@ -200,7 +200,7 @@ describe('one user reloading', () => {
 
     // The socket closed. index.ts defers the leave by the grace period rather than running it, so a
     // reload has a window to come back — which is the whole reason a reload does not concede.
-    user.ws.readyState = 3 as unknown as typeof user.ws.readyState;
+    Object.defineProperty(user.ws, 'readyState', { value: 3 });
     scheduleDisconnect(user.ws, () => { handleClientLeave(user.ws); removeClient(user.ws); });
 
     const returning = connect();

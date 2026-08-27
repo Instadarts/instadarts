@@ -406,7 +406,7 @@ describe('who holds a player', () => {
 
     // The socket closed; within the grace the client record is what a reload replaces, but the
     // seat is untouched — which is exactly why reconciling is asked of the seats.
-    guest.ws.readyState = 3 as unknown as typeof guest.ws.readyState;
+    Object.defineProperty(guest.ws, 'readyState', { value: 3 });
     const returning = connect();
     returning.send({ type: 'reconnect', lobbyId, token: seat.token });
 

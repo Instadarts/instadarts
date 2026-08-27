@@ -37,7 +37,7 @@ const S1 = polar(150_000, 18);
  * `makeMatch`'s players — one user holding the whole roster, which is what a single-board match is.
  * An empty list is a frontend that holds none, and scores nothing.
  */
-function harness(overrides: Partial<MatchState> = {}, owner: string[] = ['p1', 'p2']) {
+function harness(overrides: Parameters<typeof makeMatch>[0] = {}, owner: string[] = ['p1', 'p2']) {
   let match = makeMatch({ ...overrides });
   const commits: MatchState[] = [];
   const session = new ScoringSession({

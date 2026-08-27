@@ -97,7 +97,7 @@ function onlineMatch() {
  */
 function startedOther(conn: Conn, exclude: string) {
   const started = conn.received.filter((m) => m.type === 'match_started');
-  const other = started.map((m) => (m as { match: { id: string } }).match).filter((m) => m.id !== exclude);
+  const other = started.map((m) => m.match).filter((m) => m.id !== exclude);
   return other[other.length - 1];
 }
 

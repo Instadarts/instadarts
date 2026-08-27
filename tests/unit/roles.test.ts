@@ -47,10 +47,13 @@ describe('undoing a dart', () => {
     const match = makeMatch({ currentPlayerIndex: 0 });
     let r = addDartToMatch(match, 'p1', makeDart('T20'));
     expect(r.success).toBe(true);
+    if (!r.success) throw new Error(r.error);
     r = addDartToMatch(r.match, 'p1', makeDart('S20'));
     expect(r.success).toBe(true);
+    if (!r.success) throw new Error(r.error);
     const undo = undoDartFromMatch(r.match);
     expect(undo.success).toBe(true);
+    if (!undo.success) throw new Error(undo.error);
     expect(undo.match.currentVisit?.darts).toHaveLength(1);
     expect(undo.match.currentVisit!.darts[0].score.label).toBe('T20');
   });
@@ -65,6 +68,7 @@ describe('undoing a dart', () => {
   it('with nothing to take back leaves a clean visit', () => {
     const result = undoDartFromMatch(makeMatch());
     expect(result.success).toBe(true);
+    if (!result.success) throw new Error(result.error);
     expect(result.match.currentVisit).toBeUndefined();
   });
 });

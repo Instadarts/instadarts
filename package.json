@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "concurrently -k \"tsx watch src/server/index.ts\" \"vite\"",
-    "build": "vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit && node scripts/third-party-notices.mjs --client-only dist/client/THIRD-PARTY-NOTICES.txt",
+    "build": "vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.node.json --noEmit && node scripts/third-party-notices.mjs --client-only dist/client/THIRD-PARTY-NOTICES.txt",
     "start": "node --import tsx src/server/start.ts",
     "test": "vitest run",
     "test:watch": "vitest",

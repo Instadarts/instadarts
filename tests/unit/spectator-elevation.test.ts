@@ -35,7 +35,7 @@ const openSockets = new Set<WebSocket>();
  *   Only the invariant tests pass one: it is how a connection that believes it belongs somewhere it
  *   never took a place is built.
  */
-function connect(standing: Partial<Pick<Client, 'lobbyId' | 'matchId' | 'playerId'>> = {}) {
+function connect(standing: Partial<Pick<Client, 'lobbyId' | 'matchId'>> = {}) {
   const sessionId = `s${++sessionCounter}`;
   const received: ServerMessage[] = [];
   const ws = {
@@ -414,12 +414,13 @@ describe('a duplicated tab', () => {
 
 describe('holding the place, not remembering it', () => {
   it('refuses a connection that believes it is in a match but holds no seat', () => {
-    // The invariant itself, tested the only way it can be: a connection whose record says it is a
-    // player of this match, which never took a place in it. Nothing legitimate produces this — it
-    // stands in for whatever future path forgets to keep the two in step.
-    const { matchId, players } = localMatch('Alice', 'Bob');
+    // The invariant itself, tested the only way it can be: a connection whose record says it is in
+    // this match, which never took a place in it. Nothing legitimate produces this — it stands in
+    // for whatever future path forgets to keep the two in step. `matchId` is the whole forgery:
+    // a `Client` records the room it is in, and the players it holds live on its seat.
+    const { matchId } = localMatch('Alice', 'Bob');
 
-    const forged = connect({ matchId, playerId: players[0].id });
+    const forged = connect({ matchId });
     forged.send({ type: 'add_dart', matchId, dart: DART });
     forged.send({ type: 'submit_visit', matchId });
     forged.send({ type: 'leave_match', matchId });

@@ -8,7 +8,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "concurrently -k \"tsx watch src/server/index.ts\" \"vite\"",
+    "dev": "tsx watch src/server/dev.ts",
     "build": "vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.node.json --noEmit && node scripts/third-party-notices.mjs --client-only dist/client/THIRD-PARTY-NOTICES.txt",
     "start": "node --import tsx src/server/start.ts",
     "test": "vitest run",
@@ -28,7 +28,6 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.5",
     "@webgpu/types": "^0.1.71",
-    "concurrently": "^10.0.4",
     "esbuild": "^0.28.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

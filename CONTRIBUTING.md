@@ -47,13 +47,13 @@ InstaDarts requires Node.js 22 or newer.
 npm ci
 npx playwright install    # first time only, for the browser suite
 
-npm run dev               # server on 3000 and Vite on 5173
+npm run dev               # the whole app on 3000, one process
 npm test                  # unit tests (Vitest)
 npm run test:e2e          # browser tests (Playwright)
 npm run build             # production build and typechecking
 ```
 
-Playwright starts the servers it needs, so do not start a development server specifically for an
+Playwright starts the server it needs, so do not start a development server specifically for an
 end-to-end test run. If `npm run dev` is already running, Playwright reuses it and its current state.
 See [`docs/development.md`](docs/development.md#the-e2e-suite) for details.
 

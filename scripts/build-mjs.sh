@@ -62,12 +62,19 @@ npm run build
 #    stub — small and quick, and never executed. Which packages the
 #    server pulls in does not depend on the client blob, so the list it
 #    yields is the list the real bundle below will have.
+#
+#    `--external:vite` on both passes, and it is the notices that need it
+#    rather than the size. devClient.ts reaches for Vite behind a flag no
+#    production run sets, so the program never loads it — but a bundler
+#    follows a dynamic import that a running program never will, and
+#    would both inline the whole dev toolchain and list its licences as
+#    though this archive redistributed them.
 
 cleanup() {
   cat << 'EOF' > src/server/embeddedAssetsBundle.ts
 /**
- * In standard repository runs, this is `null` (the server falls back to `CLIENT_DIR` if set,
- * or serves no client if running beside the Vite dev server).
+ * In standard repository runs, this is `null` (the server falls back to `CLIENT_DIR` if set, or to
+ * the Vite dev client when `DEV_CLIENT` asks for one, or serves no client at all).
  *
  * When bundled by `scripts/build-mjs.sh`, this file is temporarily replaced with the
  * Base64-encoded, gzipped JSON dictionary containing every file in `dist/client`.
@@ -88,6 +95,7 @@ npx esbuild src/server/index.ts \
   --platform=node \
   --target=node22 \
   --format=esm \
+  --external:vite \
   --metafile="$OUT/server-meta.json" \
   --outfile="$OUT/server-probe.mjs"
 
@@ -137,6 +145,7 @@ npx esbuild src/server/index.ts \
   --platform=node \
   --target=node22 \
   --format=esm \
+  --external:vite \
   --banner:js="$banner" \
   --outfile="$STAGE/instadarts.mjs"
 

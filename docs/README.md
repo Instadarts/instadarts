@@ -33,4 +33,5 @@ Deployment settings live in one optional file, described in
 values in environment variables: `INSTADARTS_CONFIG` and `INSTADARTS_DIR` only locate the settings
 file. The environment variables that remain describe the run rather than the deployment —
 `NODE_ENV` selects the build environment, `CLIENT_DIR` names the built client to serve (and naming
-it is what asks for it to be served at all), and `QUIET` suppresses startup chatter.
+it is what asks for it to be served at all), `DEV_CLIENT` asks for the Vite dev client instead, and
+`QUIET` suppresses startup chatter.

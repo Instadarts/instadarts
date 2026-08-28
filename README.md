@@ -29,7 +29,7 @@ it to `instadarts.config.jsonc`, edit the copy, and restart the server. See
 
 ## Development
 
-Use `npm run dev` for the API/WebSocket server and Vite client together. Run `npm test` for the unit
+Use `npm run dev` to run the whole app — API, WebSocket and client — on one port. Run `npm test` for the unit
 suite and `npm run test:e2e` for the browser suite. The internal documentation starts at
 [docs/README.md](docs/README.md).
 

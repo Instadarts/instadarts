@@ -14,10 +14,19 @@ import { appPalette } from './src/client/layout/palette.ts';
 // straight out of node_modules in dev and copied once at build.
 const wasmDir = fileURLToPath(new URL('./node_modules/@litertjs/core/wasm/', import.meta.url));
 
-/** Cross-origin isolation → SharedArrayBuffer → LiteRT's threaded WASM build. */
+/**
+ * Cross-origin isolation → SharedArrayBuffer → LiteRT's threaded WASM build.
+ *
+ * The same three `staticServing.ts` puts on every production response, because development is now
+ * the same shape: one origin serving the page, its assets and its socket. They were two headers
+ * here for as long as the dev client had a port and an origin of its own; keeping them two after
+ * that stopped being true would only mean development and production disagreeing about what a
+ * client response looks like, in the direction that hides a mistake until release.
+ */
 const ISOLATION_HEADERS = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin',
 };
 
 function litertWasm(): Plugin {
@@ -33,9 +42,9 @@ function litertWasm(): Plugin {
         res.setHeader('Content-Type', name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
         // LiteRT's threaded build starts a worker from this directory. In a cross-origin isolated
         // document the worker script must carry the isolation headers itself, or Chrome blocks it
-        // with ERR_BLOCKED_BY_RESPONSE and model loading hangs forever with no error.
+        // with ERR_BLOCKED_BY_RESPONSE and model loading hangs forever with no error. This route is
+        // Vite middleware and answers before `server.headers` would, so it sets them itself.
         for (const [header, value] of Object.entries(ISOLATION_HEADERS)) res.setHeader(header, value);
-        res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
         createReadStream(file).pipe(res);
       });
     },
@@ -45,12 +54,6 @@ function litertWasm(): Plugin {
   };
 }
 
-/**
- * Suppress the [vite] ws proxy error / ws proxy socket error noise that Vite 8 logs internally
- * before user-defined proxy error handlers get to process them. Every page reload, every scoring
- * device that drops off the Wi-Fi, and every e2e test browser close produces one — they are
- * expected and the server sees the close either way.
- */
 /**
  * `/favicon.svg`, wrapped around the one copy of the mark.
  *
@@ -90,6 +93,12 @@ function favicon(): Plugin {
     configureServer(server) {
       server.middlewares.use('/favicon.svg', (_req, res) => {
         res.setHeader('Content-Type', 'image/svg+xml');
+        // Middleware, like the wasm route above, so `server.headers` never sees this response and
+        // it has to carry the isolation headers itself. Production serves the built favicon through
+        // the same rules as everything else and gives it all three; a tab icon does not need them,
+        // but a response that differs between the two servers for no reason is the thing worth not
+        // having.
+        for (const [header, value] of Object.entries(ISOLATION_HEADERS)) res.setHeader(header, value);
         res.end(render());
       });
     },
@@ -100,20 +109,6 @@ function favicon(): Plugin {
       const out = fileURLToPath(new URL('./dist/client/', import.meta.url));
       mkdirSync(out, { recursive: true });
       writeFileSync(`${out}favicon.svg`, render());
-    },
-  };
-}
-
-function quietWsProxyErrors(): Plugin {
-  return {
-    name: 'quiet-ws-proxy-errors',
-    configureServer(server) {
-      const log = server.config.logger;
-      const orig = log.error.bind(log);
-      log.error = (msg: string, options?: { timestamp?: boolean; error?: Error }) => {
-        if (msg.includes('ws proxy error') || msg.includes('ws proxy socket error')) return;
-        return orig(msg, options);
-      };
     },
   };
 }
@@ -129,12 +124,8 @@ const APP_VERSION = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
 ).version as string;
 
-/** Kept in step with the server's own PORT, so a second instance can be brought up beside a first. */
-const SERVER_PORT = Number(process.env.PORT ?? 3000);
-const CLIENT_PORT = Number(process.env.VITE_PORT ?? 5173);
-
 export default defineConfig({
-  plugins: [react(), litertWasm(), favicon(), quietWsProxyErrors()],
+  plugins: [react(), litertWasm(), favicon()],
   define: {
     __APP_VERSION__: JSON.stringify(APP_VERSION),
   },
@@ -148,34 +139,12 @@ export default defineConfig({
     outDir: '../../dist/client',
     emptyOutDir: true,
   },
+  // No port, host or proxy: this server is not started on its own. `src/server/devClient.ts`
+  // mounts it as middleware inside the API server, which owns the port and answers `/ws` itself.
   server: {
-    port: CLIENT_PORT,
-    // Fail rather than quietly moving to the next free port. A silent slide leaves whatever was
-    // already on this one serving the app, which looks like the code simply not taking effect.
-    strictPort: true,
-    // A scoring device is a phone on the LAN, so the dev server has to be reachable from it.
-    host: true,
     // Without these the app still runs, but LiteRT silently falls back to single-threaded WASM —
     // it only opts into threads when crossOriginIsolated is true. Nothing here is cross-origin, so
     // applying them to every document costs nothing.
     headers: ISOLATION_HEADERS,
-    proxy: {
-      '/ws': {
-        target: `ws://localhost:${SERVER_PORT}`,
-        ws: true,
-        // A closing WebSocket routinely aborts the socket before the proxy has finished writing to
-        // it, and Vite logs the resulting ECONNABORTED/ECONNRESET as a stack trace. Every page
-        // reload and every scoring device that drops off the Wi-Fi produces one, which buries the
-        // errors that do mean something. The server sees the close either way.
-        configure: (proxy) => {
-          const expected = new Set(['ECONNABORTED', 'ECONNRESET', 'EPIPE']);
-          const quiet = (err: NodeJS.ErrnoException) => {
-            if (!expected.has(err.code ?? '')) console.error('[ws proxy]', err);
-          };
-          proxy.on('error', quiet);
-          proxy.on('econnreset', quiet);
-        },
-      },
-    },
   },
 });

@@ -28,6 +28,9 @@ export type ClientRequestHandler = (
  *
  * On client responses only, which is where they mean something. `/server-stats` never carried them
  * and does not need them.
+ *
+ * `ISOLATION_HEADERS` in `vite.config.ts` is the development half of this and holds the same three.
+ * A client response should not be able to tell which server built it, headers included.
  */
 const ISOLATION: ReadonlyArray<readonly [string, string]> = [
   ['Cross-Origin-Opener-Policy', 'same-origin'],
@@ -203,11 +206,11 @@ function serveDirectory(dir: string): ClientRequestHandler {
 }
 
 /**
- * The handler for this run's client, or `null` for a run that serves none.
+ * The handler for this run's *built* client, or `null` for a run that has none.
  *
- * `null` is what `npm run dev` gets: Vite serves the client on its own port, and this server also
- * answering with whatever `dist/client` happens to hold would be two answers to one question, one
- * of them stale.
+ * `null` is what `npm run dev` gets: its client is Vite's, mounted in the same process by
+ * `devClient.ts` and built on demand, and this server also answering with whatever `dist/client`
+ * happens to hold would be two answers to one question, one of them stale.
  *
  * Passing `customAssets` says which source to use rather than letting the build decide — `null`
  * for the directory, a map for the embedded case. Tests use it to reach a path the build they run

@@ -22,6 +22,7 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                 staticServing.ts  the built client, from the embedded bundle or from disk — one
                                 set of rules over both, including the one that refuses to leave
                                 the client directory
+                devClient.ts    development's client instead: Vite, mounted in this process
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
@@ -38,7 +39,7 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                 capacity.ts     how big this server may get, all of it derived from one number
                 config.ts       settings-file discovery, parsing and validation
                 rateLimit.ts    burst and sustained-rate budgets, and the clients that exhaust them
-                env.ts, invite.ts, player.ts, listenUrls.ts, start.ts
+                env.ts, invite.ts, player.ts, listenUrls.ts, start.ts, dev.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
                 ScorerApp.tsx   the scoring device's app — a sibling of App, not a route inside it
@@ -60,7 +61,7 @@ nothing about matches, sockets or sets**. See [game modes](./game-modes.md) for 
 ## Running it
 
 ```sh
-npm run dev     # the API/WebSocket server on 3000 and Vite on 5173, together
+npm run dev     # the app on 3000: API, WebSocket and the live client, one process
 npm test        # unit tests (vitest). A couple of seconds; run them freely
 npm run test:e2e  # the whole browser suite; model/media projects make it a longer check
 npm run build   # production build and all typechecks
@@ -68,8 +69,11 @@ npm start       # run that build: one process, serving the client itself
 ```
 
 `npm start` sets `NODE_ENV=production` from [`start.ts`](../src/server/start.ts) rather than from
-the script line, which a Windows Command Prompt would not honour. It prints the addresses it is
-listening on — the real ones, because a `localhost` URL is no use to the phone that has to reach it.
+the script line, which a Windows Command Prompt would not honour. `npm run dev` has the same shape:
+[`dev.ts`](../src/server/dev.ts) sets `DEV_CLIENT=1` and imports the server, for the same portability
+reason. Both print the addresses they are listening on — the real ones, because a `localhost` URL is
+no use to the phone that has to reach it, and in development they are now addresses worth opening
+rather than a server with no client behind it.
 
 The production build also generates `dist/client/THIRD-PARTY-NOTICES.txt`. In production the server
 exposes that file as plain text at `/THIRD-PARTY-NOTICES.txt`, and both settings menus link to it in
@@ -180,9 +184,11 @@ the feature is simply unavailable. See [media.md](./media.md).
 
 What is *not* in the file is whether this is a development or a production build. That is `NODE_ENV`,
 decided when the program is built, and it stays an environment variable because it is already true by
-the time a file could be read. `QUIET` and `CLIENT_DIR` are the same kind of thing — properties of
-the run rather than of the deployment — and are what is left in
-[`env.ts`](../src/server/env.ts). `INSTADARTS_CONFIG` and `INSTADARTS_DIR` are not settings at all:
+the time a file could be read. `QUIET`, `CLIENT_DIR` and `DEV_CLIENT` are the same kind of thing —
+properties of the run rather than of the deployment — and are what is left in
+[`env.ts`](../src/server/env.ts). `DEV_CLIENT=1` is what asks for the Vite dev client, the same way
+naming `CLIENT_DIR` is what asks for a built one; `npm run dev` and the e2e harness set it, and
+nothing else does. `INSTADARTS_CONFIG` and `INSTADARTS_DIR` are not settings at all:
 they say where to look for the file, and set nothing in it.
 
 ### Serving the client
@@ -193,6 +199,11 @@ or a WebSocket upgrade, from one of two sources: the assets embedded in `instada
 answer is shared; only the reading of the bytes differs, and the two are tested through the same
 socket-level harness in `staticServing.test.ts` and `staticServingDisk.test.ts`. Where those two
 files disagree, one of the two deployments is wrong.
+
+Development has a third source, and it is not that module: `DEV_CLIENT=1` makes
+[`devClient.ts`](../src/server/devClient.ts) mount Vite as middleware inside this same server, and
+the rules below are then Vite's rather than these. That is the one case where a client is built on
+demand rather than read, which is also why it is the one case where these rules do not apply.
 
 The rules:
 
@@ -206,13 +217,19 @@ The rules:
   revalidate, and an ETag turns that into a 304.
 - **Every client response carries all three cross-origin isolation headers**, because LiteRT's
   multithreaded WASM needs `SharedArrayBuffer` and losing any one of them costs it. `/server-stats`
-  does not carry them and does not need them.
+  does not carry them and does not need them. This is the one rule development shares rather than
+  replaces: `ISOLATION_HEADERS` in [`vite.config.ts`](../vite.config.ts) holds the same three, so a
+  header that is wrong is wrong in both places rather than only after a release.
 - **A path is resolved and then checked to still be inside the client directory**, after decoding.
   That order is the only one that catches an escape spelled `%2e%2e`.
 
 There is no HTTP framework here. The server is `node:http` with a router small enough to read in
 one screen at the bottom of [`index.ts`](../src/server/index.ts), which is what keeps the runtime
-dependencies at `ws` and `tsx`.
+dependencies at `ws` and `tsx`. Vite is a devDependency and stays one: `devClient.ts` reaches it
+through a dynamic `import` behind `DEV_CLIENT`, so a production run never evaluates the specifier
+and Node never resolves it. `scripts/build-mjs.sh` passes `--external:vite` for the other half of
+that — a bundler follows a dynamic import that a running program never will, and would otherwise
+inline the dev toolchain and list its licences as though the archive redistributed them.
 
 ## Build and typechecking
 
@@ -237,8 +254,8 @@ Node types because those files also import client source.
 
 ## The e2e suite
 
-Playwright owns the servers. `playwright.config.ts` declares both of them as `webServer` entries, so
-any of these work on their own and start and stop what they need:
+Playwright owns the server. `playwright.config.ts` declares it as the one `webServer` entry, so any
+of these work on their own and start and stop what they need:
 
 ```sh
 npx playwright test                       # everything
@@ -247,13 +264,15 @@ npx playwright test -g "unpairs itself"   # one test, by title
 npx playwright test --grep "Sets and legs"
 ```
 
-**Do not hand-start a dev server for a test run**, and do not background `npm run dev` and hope. The
-two servers are declared separately so each gets its own readiness probe — a Vite that answers says
-nothing about whether the socket the first test opens has anyone listening on 3000.
+**Do not hand-start a dev server for a test run**, and do not background `npm run dev` and hope.
+The one probe is `/server-stats`, and it covers the whole app because the dev client is mounted
+before the server listens — so an answer there means the page the first test opens will be served
+and the socket it opens will be heard. It is the run's `DEV_CLIENT=1` that puts the client there;
+the same command without it is an API server that would 404 every page in the suite.
 
 `reuseExistingServer` is on outside CI, so a dev server you already have running is the one the tests
 use. That is usually what you want; be aware the tests are then running against your dev server's
-state.
+state, and against its settings rather than the harness's.
 
 ### Why the expensive specs run after the app suite
 
@@ -290,9 +309,14 @@ never collected: Playwright only runs `*.spec.ts`.
 
 ## Process cleanup
 
-`npm run dev` is `concurrently -k "tsx watch src/server/index.ts" "vite"` — a small tree, not one
-process. After an interrupted run, use the operating system's process manager to stop the entire
-development-server process tree rather than only the processes holding ports 3000 and 5173.
+`npm run dev` is `tsx watch src/server/dev.ts` — one process holding one port, with the Vite dev
+server inside it rather than beside it. After an interrupted run there is one thing to stop, and
+stopping whatever holds port 3000 is enough.
+
+The trade that buys: `tsx watch` owns Vite now, so **an edit to server or shared code restarts the
+process and costs the browser its hot-reload connection** — a full page reload rather than a patch.
+Client edits are untouched by this, because the server never imports client code and so `tsx` never
+watches it.
 
 Playwright starts the API with `node --import tsx/esm src/server/index.ts`, so the process it owns is
 also the listener it stops. Preserve that property when changing a `webServer` command: the command

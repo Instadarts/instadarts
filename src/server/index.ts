@@ -14,10 +14,11 @@ import { canAcceptConnection, capacityLimits } from './capacity';
 import { clientCount } from './connections';
 import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
-import { QUIET } from './env';
+import { DEV_CLIENT, QUIET } from './env';
 import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
 import { httpListenUrls } from './listenUrls';
 import { createClientServing } from './staticServing';
+import { createDevClient } from './devClient';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -44,17 +45,34 @@ await startInternalStun();
 
 const PORT = CONFIG.server.port;
 
-// The client this run serves: embedded in instadarts.mjs, read from CLIENT_DIR on disk, or nothing
-// at all under `npm run dev`, where Vite serves it on its own port.
-const serveClient = createClientServing();
-
 const server = createServer((req, res) => {
   void route(req, res);
 });
+
+// The client this run serves: Vite, mounted on this same server and building on demand, or the
+// build — embedded in instadarts.mjs or read from CLIENT_DIR — or nothing at all. One handler
+// either way, so that everything below this line is indifferent to which it got. Before `listen`,
+// so that answering `/server-stats` also means the client is ready to be asked for.
+const serveClient = (await createDevClient(server)) ?? createClientServing();
+
+// `noServer`, and the upgrade routed by hand below. Handing the server to `ws` instead would have
+// it answer 400 to every upgrade that is not `/ws` — including Vite's hot-reload socket, which is
+// on this same server and is entitled to its own.
 const wss = new WebSocketServer({
-  server,
-  path: '/ws',
+  noServer: true,
   maxPayload: 16 * 1024, // 16KB max message size
+});
+
+server.on('upgrade', (req, socket, head) => {
+  if ((req.url ?? '').split('?')[0] !== '/ws') {
+    // Vite's listener is on this server too and takes its own, so this cannot refuse what it does
+    // not recognise. Without it there is no second listener and the socket is nobody's; with it, an
+    // upgrade neither of us wants is left to time out rather than risk closing a hot-reload
+    // connection out from under it.
+    if (!DEV_CLIENT) socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
 /**

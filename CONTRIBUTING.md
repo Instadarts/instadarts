@@ -17,8 +17,7 @@ documentation. In particular, read the domain vocabulary in
 [`docs/glossary.md`](docs/glossary.md) and the setup and testing guidance in
 [`docs/development.md`](docs/development.md).
 
-Product-level planned work is listed in [`ROADMAP.md`](ROADMAP.md), and notable completed changes
-are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+Notable completed changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Reporting bugs and proposing improvements
 
@@ -96,8 +95,7 @@ changes. Documentation must describe what exists, not planned or assumed behavio
 
 For an imminent change, a temporary `plan-<topic>.md` may describe implementation steps while the
 work is active. Remove it after the work is completed or cancelled, and do not include it in a pull
-request. Accepted product-level plans belong in [`ROADMAP.md`](ROADMAP.md) as outcomes rather than
-implementation instructions. Record notable completed user-facing changes under **Unreleased** in
+request. Record notable completed user-facing changes under **Unreleased** in
 [`CHANGELOG.md`](CHANGELOG.md).
 
 | Change | Documentation |
@@ -171,6 +169,6 @@ or training data. See [`vision.md`](docs/vision.md#where-the-model-came-from).
 - [ ] New behaviour has tests; a bug fix has a test that fails without the fix.
 - [ ] Existing tests retain their intent unless the description explains why it changed.
 - [ ] Documentation is updated where necessary.
-- [ ] Temporary plan files are removed; the roadmap and changelog are updated where relevant.
+- [ ] Temporary plan files are removed; the changelog is updated where relevant.
 - [ ] The diff contains no new dependencies, generated files, or local configuration.
 - [ ] The description explains the change, verification, documentation, and follow-up work.

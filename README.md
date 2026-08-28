@@ -44,9 +44,8 @@ Use `npm run dev` to run the whole app — API, WebSocket and client — in one 
 https alike. Run `npm test` for the unit suite and `npm run test:e2e` for the browser suite. The
 internal documentation starts at [docs/README.md](docs/README.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting an issue or pull request. Planned
-user-facing work is listed in [ROADMAP.md](ROADMAP.md), and notable completed changes are recorded in
-[CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting an issue or pull request. Notable
+completed changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

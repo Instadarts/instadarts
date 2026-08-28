@@ -4,8 +4,8 @@ Internal documentation for people (and agents) developing this app — not end-u
 
 Ground rule: **the implementation is the source of truth.** These documents describe what exists.
 Use a temporary `plan-<topic>.md` for implementation steps while an imminent change is active, then
-remove it when the work is completed or cancelled. Product-level planned outcomes belong in the
-root [`ROADMAP.md`](../ROADMAP.md), not in the current-state documentation.
+remove it when the work is completed or cancelled. Planned work does not belong in these documents,
+which describe the current state.
 
 ## Contents
 
@@ -24,8 +24,7 @@ root [`ROADMAP.md`](../ROADMAP.md), not in the current-state documentation.
   contributor pitfalls.
 
 Want to contribute? See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to report issues and submit
-pull requests. See [ROADMAP.md](../ROADMAP.md) for planned product work and
-[CHANGELOG.md](../CHANGELOG.md) for notable completed changes.
+pull requests, and [CHANGELOG.md](../CHANGELOG.md) for notable completed changes.
 
 Deployment settings live in one optional file, described in
 [development.md](./development.md#settings) and shown with every knob at its default in

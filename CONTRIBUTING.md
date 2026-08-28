@@ -47,7 +47,7 @@ InstaDarts requires Node.js 22 or newer.
 npm ci
 npx playwright install    # first time only, for the browser suite
 
-npm run dev               # the whole app on 3000, one process
+npm run dev               # the whole app on 3000 (http) and 3001 (https), one process
 npm test                  # unit tests (Vitest)
 npm run test:e2e          # browser tests (Playwright)
 npm run build             # production build and typechecking

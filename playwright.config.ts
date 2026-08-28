@@ -6,25 +6,29 @@ import { defineConfig } from '@playwright/test';
 const SERVER_PORT = Number(process.env.PORT ?? 3000);
 
 /**
- * A settings file for the run, when the run wants something other than the defaults.
+ * The settings file for the run.
  *
- * The server is tuned by a file rather than by the environment, so a suite that needs a non-default
- * deployment has to write one. Two do:
+ * The server is tuned by a file rather than by the environment, so anything the suite needs that is
+ * not the default has to be written into one. Three things are:
  *
+ *   · **https off**, always — see below.
  *   · `MEDIA=0 npx playwright test` — the whole point of the media flag is that it must be
  *     disable-able, and running the suite with it off is the only way to see that the rest of the
  *     app does not quietly depend on it.
  *   · `PORT=…` — a second instance beside a first.
  *
  * Written to the system temp directory rather than into the repository, so it cannot be mistaken for
- * a deployment's own file and cannot survive into one. When neither is asked for, no file is written
- * at all and the run exercises the same defaults a fresh install would.
+ * a deployment's own file and cannot survive into one.
  */
-function settingsFile(): string | null {
-  const settings: Record<string, unknown> = {};
-  if (SERVER_PORT !== 3000) settings.server = { port: SERVER_PORT };
+function settingsFile(): string {
+  const settings: Record<string, unknown> = {
+    // The suite runs on plain http. Turning the second listener off keeps a test run from binding a
+    // port nothing tests and from writing a self-signed certificate into the working directory —
+    // and it keeps `copy.spec.ts` honest, which needs a run that is *not* a secure context because
+    // that is what a phone on a home network gets.
+    server: { https: { enabled: false }, ...(SERVER_PORT !== 3000 ? { http: { port: SERVER_PORT } } : {}) },
+  };
   if (process.env.MEDIA === '0') settings.media = { enabled: false };
-  if (Object.keys(settings).length === 0) return null;
 
   const path = join(tmpdir(), `instadarts-e2e-${SERVER_PORT}.config.json`);
   writeFileSync(path, JSON.stringify(settings, null, 2));
@@ -66,13 +70,12 @@ const webServer = {
   url: `http://[::1]:${SERVER_PORT}/server-stats`,
   // Everything the run is, that the deployment is not. NODE_ENV keeps a deployment config in the
   // repository from leaking into the test harness; QUIET and DEV_CLIENT are properties of the run
-  // in the same way. Everything the test is explicitly tuned to goes in the file above, when there
-  // is one.
+  // in the same way. Everything the test is explicitly tuned to goes in the file above.
   env: {
     NODE_ENV: 'test',
     QUIET: '1',
     DEV_CLIENT: '1',
-    ...(SETTINGS ? { INSTADARTS_CONFIG: SETTINGS } : {}),
+    INSTADARTS_CONFIG: SETTINGS,
   },
   // A dev server already up is the one to test against; starting a second would fail anyway, since
   // it would find the port taken.

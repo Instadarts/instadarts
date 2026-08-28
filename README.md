@@ -14,9 +14,20 @@ npm run build
 npm start
 ```
 
-The server prints the network addresses it listens on. Open one of those addresses rather than
-`localhost` so join and scoring-device links also work from other devices. Stop the server with
-Ctrl+C.
+The server prints the network addresses it listens on, over both http and https. Open one of those
+addresses rather than `localhost` so join and scoring-device links also work from other devices.
+Stop the server with Ctrl+C.
+
+**Use the https address for scoring devices.** Browsers refuse camera access to a page that did not
+arrive over a secure connection, and a plain address on a local network is not one. With no
+certificate configured the server issues its own, valid for the addresses it is listening on, and
+keeps it beside the settings file. Nothing vouches for that certificate, so each device shows a
+warning the first time; accepting it once is all a phone needs. To serve a certificate of your own —
+from a local authority, or a real one for a domain — set `server.https.cert` and `server.https.key`
+and the server uses those instead.
+
+Both listeners are configurable and either can be turned off. Behind a reverse proxy that already
+terminates TLS, plain http on its own is the sensible deployment.
 
 The production build generates `dist/client/THIRD-PARTY-NOTICES.txt`; it is also available from the
 running application through **Settings → Third-party notices**.
@@ -29,9 +40,9 @@ it to `instadarts.config.jsonc`, edit the copy, and restart the server. See
 
 ## Development
 
-Use `npm run dev` to run the whole app — API, WebSocket and client — on one port. Run `npm test` for the unit
-suite and `npm run test:e2e` for the browser suite. The internal documentation starts at
-[docs/README.md](docs/README.md).
+Use `npm run dev` to run the whole app — API, WebSocket and client — in one process, over http and
+https alike. Run `npm test` for the unit suite and `npm run test:e2e` for the browser suite. The
+internal documentation starts at [docs/README.md](docs/README.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting an issue or pull request. Planned
 user-facing work is listed in [ROADMAP.md](ROADMAP.md), and notable completed changes are recorded in

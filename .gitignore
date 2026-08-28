@@ -15,5 +15,10 @@ release
 instadarts.config.jsonc
 instadarts.config.json
 
+# The certificate the server makes for itself when https is on and none is configured. Belongs to
+# the machine that generated it, and naming the machine's addresses is the whole point of it.
+instadarts-selfsigned.pem
+instadarts-selfsigned.key
+
 #logs
 *.log

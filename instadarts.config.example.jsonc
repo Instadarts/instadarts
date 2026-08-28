@@ -29,7 +29,28 @@
 {
   // ── The process itself ──────────────────────────────────────────────
   "server": {
-    "port": 3000,
+    // Plain HTTP. Leave it on behind a reverse proxy that terminates TLS for you — a second
+    // handshake here would be overhead and nothing else.
+    "http": {
+      "enabled": true,
+      "port": 3000
+    },
+
+    // HTTPS, which a phone needs before its browser will open a camera: `getUserMedia` is refused
+    // outside a secure context, and a plain address on the local network is not one.
+    //
+    // With no certificate named the server makes its own, valid for the addresses it is listening
+    // on, and keeps it beside this file. Browsers warn about it once per device because nothing
+    // vouches for it — accept the warning and the camera works. Name a real certificate below and
+    // none of that happens.
+    //
+    // Paths are relative to this file, or absolute. Both or neither.
+    "https": {
+      "enabled": true,
+      "port": 3001,
+      "cert": null,
+      "key": null
+    },
 
     // How big this deployment is sized for. The one number that scales the server: every limit it
     // refuses or evicts by is derived from this, so this is the only figure to change.

@@ -241,6 +241,14 @@ figure, and confirm it behaves over the length of a session rather than only at 
 
 ### The camera
 
+- **A secure context, before anything else** — `getUserMedia` does not exist outside one, so a
+  scoring device reached over plain http has no camera at all and says so through
+  `InsecureContextHint` rather than failing silently. `localhost` counts as secure; an address on
+  the local network does not, which is the whole reason the server carries an https listener and
+  issues its own certificate for the addresses it is bound to. See
+  [development.md](./development.md#the-two-listeners-and-the-certificate). The certificate is
+  self-signed, so the device shows a warning once and the person accepts it; the Chrome flag the
+  hint also names is what remains for anyone who would rather not.
 - **Constraints** — square `width`/`height` ideals, `aspectRatio: 1`,
   `resizeMode: crop-and-scale`, `focusMode: continuous`, `contentHint: detail`. They are preferences,
   not requirements: browsers and cameras may return a smaller landscape mode such as 1280×720.

@@ -67,7 +67,7 @@ describe('what the file says', () => {
     expect(CONFIG.scorer.cameraFrameRate).toBe(30);
     expect(CONFIG.media.still.size).toBe(480);
     // Untouched sections and untouched neighbours are the defaults, not undefined.
-    expect(CONFIG.server.port).toBe(CONFIG_DEFAULTS.server.port);
+    expect(CONFIG.server.http).toEqual(CONFIG_DEFAULTS.server.http);
     expect(CONFIG.media.video).toEqual(CONFIG_DEFAULTS.media.video);
     expect(CONFIG.media.dartEvidence).toEqual(CONFIG_DEFAULTS.media.dartEvidence);
 
@@ -78,6 +78,58 @@ describe('what the file says', () => {
   it('can turn media off, which is the setting that has to work', async () => {
     const { CONFIG } = await load('{ "media": { "enabled": false } }');
     expect(CONFIG.media.enabled).toBe(false);
+  });
+
+  it('takes the two listeners apart, and either can be turned off', async () => {
+    const { CONFIG, CONFIG_COMPLAINTS } = await load(`{
+      "server": {
+        "http": { "port": 8080 },
+        "https": { "enabled": false, "port": 8443 }
+      }
+    }`);
+
+    expect(CONFIG.server.http).toEqual({ enabled: true, port: 8080 });
+    expect(CONFIG.server.https.enabled).toBe(false);
+    expect(CONFIG.server.https.port).toBe(8443);
+    // A listener said nothing about keeps every default, including the certificate it has not got.
+    expect(CONFIG.server.https.cert).toBe(null);
+    expect(CONFIG_COMPLAINTS).toEqual([]);
+  });
+
+  /**
+   * `null` is what a copy of the example file says when it is not supplying a certificate, because
+   * the example spells every setting out. Omitting the key says the same thing, and neither is a
+   * mistake — but a number in place of a path is.
+   */
+  it('reads a certificate path, and treats a written-out null as saying nothing', async () => {
+    const named = await load('{ "server": { "https": { "cert": "tls/live.pem", "key": "tls/live.key" } } }');
+    expect(named.CONFIG.server.https.cert).toBe('tls/live.pem');
+    expect(named.CONFIG.server.https.key).toBe('tls/live.key');
+    expect(named.CONFIG_COMPLAINTS).toEqual([]);
+
+    const spelledOut = await load('{ "server": { "https": { "cert": null, "key": null } } }');
+    expect(spelledOut.CONFIG.server.https.cert).toBe(null);
+    expect(spelledOut.CONFIG_COMPLAINTS).toEqual([]);
+
+    const wrong = await load('{ "server": { "https": { "cert": 3001 } } }');
+    expect(wrong.CONFIG.server.https.cert).toBe(null);
+    expect(wrong.CONFIG_COMPLAINTS).toEqual(['server.https.cert should be a path to a file; keeping none']);
+  });
+
+  /**
+   * The one settings mistake that stops the server instead of being reported. Everything else in
+   * this file leaves something running that can be asked what it thinks it was told; this leaves a
+   * process listening nowhere, which is worse than one that will not start.
+   */
+  it('refuses a file that turns off both listeners', async () => {
+    const { CONFIG_FATAL } = await load(`{
+      "server": {
+        "http": { "enabled": false },
+        "https": { "enabled": false }
+      }
+    }`);
+
+    expect(CONFIG_FATAL).toMatch(/turns off both server\.http and server\.https/);
   });
 
   it('keeps comments out of the way, including a // inside a url', async () => {

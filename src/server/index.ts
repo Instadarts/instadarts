@@ -1,5 +1,6 @@
 import './nodeVersion';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { styleText } from 'node:util';
 import { WebSocketServer } from 'ws';
 // Importing wsHandler also registers the lifecycle handlers — it is the module that knows what to
@@ -16,9 +17,10 @@ import { startLifecycle } from './lifecycle';
 import { startHeartbeat } from './heartbeat';
 import { DEV_CLIENT, QUIET } from './env';
 import { CONFIG, CONFIG_FATAL, reportConfig } from './config';
-import { httpListenUrls } from './listenUrls';
+import { listenAddresses, listenUrls } from './listenUrls';
 import { createClientServing } from './staticServing';
 import { createDevClient } from './devClient';
+import { resolveCertificate, type ResolvedCertificate } from './certificate';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -43,30 +45,56 @@ startLifecycle();
 // that the first client to connect is already told the truth about whether it came up.
 await startInternalStun();
 
-const PORT = CONFIG.server.port;
+// The addresses this machine can be reached at. Read once: the startup banner turns them into urls
+// and the self-signed certificate turns them into the names it is valid for, and those two must be
+// the same list or a phone is handed an address the certificate does not cover.
+const ADDRESSES = listenAddresses();
 
-const server = createServer((req, res) => {
+// The certificate, before anything is listening, so a deployment that named one it cannot read
+// fails here rather than on the first connection. `null` when this run serves no TLS at all.
+let certificate: ResolvedCertificate | null = null;
+if (CONFIG.server.https.enabled) {
+  try {
+    certificate = resolveCertificate(ADDRESSES);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exit(1);
+  }
+}
+
+/**
+ * Where WebSocket upgrades are answered, whichever listener they arrived on.
+ *
+ * It never listens. It exists so that one set of handlers — ours below, and Vite's hot-reload
+ * socket — serves every listener rather than being registered once per scheme: a handshake needs
+ * the socket, not the server object that happened to emit it. It is also what lets the dev client
+ * work over TLS at all, since `https.Server` is not an `http.Server` and Vite will only attach to
+ * the latter.
+ */
+const upgrades = createServer();
+
+const handle = (req: IncomingMessage, res: ServerResponse): void => {
   void route(req, res);
-});
+};
 
-// The client this run serves: Vite, mounted on this same server and building on demand, or the
-// build — embedded in instadarts.mjs or read from CLIENT_DIR — or nothing at all. One handler
-// either way, so that everything below this line is indifferent to which it got. Before `listen`,
-// so that answering `/server-stats` also means the client is ready to be asked for.
-const serveClient = (await createDevClient(server)) ?? createClientServing();
+// The client this run serves: Vite, mounted on the hub and building on demand, or the build —
+// embedded in instadarts.mjs or read from CLIENT_DIR — or nothing at all. One handler either way,
+// so that everything below this line is indifferent to which it got, and one for both listeners.
+// Before `listen`, so that answering `/server-stats` also means the client is ready to be asked for.
+const serveClient = (await createDevClient(upgrades)) ?? createClientServing();
 
-// `noServer`, and the upgrade routed by hand below. Handing the server to `ws` instead would have
-// it answer 400 to every upgrade that is not `/ws` — including Vite's hot-reload socket, which is
-// on this same server and is entitled to its own.
+// `noServer`, and the upgrade routed by hand below. Handing a server to `ws` instead would have it
+// answer 400 to every upgrade that is not `/ws` — including Vite's hot-reload socket, which lives
+// on the same hub and is entitled to its own.
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: 16 * 1024, // 16KB max message size
 });
 
-server.on('upgrade', (req, socket, head) => {
+upgrades.on('upgrade', (req, socket, head) => {
   if ((req.url ?? '').split('?')[0] !== '/ws') {
-    // Vite's listener is on this server too and takes its own, so this cannot refuse what it does
-    // not recognise. Without it there is no second listener and the socket is nobody's; with it, an
+    // Vite's listener is on this hub too and takes its own, so this cannot refuse what it does not
+    // recognise. Without it there is no second listener and the socket is nobody's; with it, an
     // upgrade neither of us wants is left to time out rather than risk closing a hot-reload
     // connection out from under it.
     if (!DEV_CLIENT) socket.destroy();
@@ -74,6 +102,12 @@ server.on('upgrade', (req, socket, head) => {
   }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
+
+/** A listener, and the one line of wiring that makes its upgrades the hub's problem. */
+function listener(server: Server): Server {
+  server.on('upgrade', (req, socket, head) => upgrades.emit('upgrade', req, socket, head));
+  return server;
+}
 
 /**
  * What the server is currently holding, and how much memory that is costing.
@@ -167,8 +201,73 @@ wss.on('connection', (ws) => {
   });
 });
 
-server.listen(PORT, () => {
+/**
+ * What this run is listening on, said once everything is.
+ *
+ * The certificate line sits between the addresses and STUN for the same reason STUN sits last: it
+ * is about how to reach the server rather than about the server, and putting it above the urls
+ * would bury them.
+ */
+function reportListening(): void {
   console.log('InstaDarts server listening on:');
-  for (const url of httpListenUrls(PORT)) console.log(`  ${styleText('green', url)}`);
+  if (CONFIG.server.http.enabled) {
+    for (const url of listenUrls('http', CONFIG.server.http.port, ADDRESSES)) {
+      console.log(`  ${styleText('green', url)}`);
+    }
+  }
+  if (certificate) {
+    for (const url of listenUrls('https', CONFIG.server.https.port, ADDRESSES)) {
+      console.log(`  ${styleText('green', url)}`);
+    }
+  }
+
+  if (!QUIET && certificate) {
+    if (certificate.source === 'configured') {
+      console.log(`HTTPS: certificate from ${CONFIG.server.https.cert}`);
+    } else {
+      console.log(`HTTPS: self-signed certificate for ${certificate.names.join(', ')}`);
+      console.log('  Browsers warn once per device; accept it to reach the camera.');
+    }
+  }
+  if (certificate?.notPersisted) {
+    console.warn(`HTTPS: the certificate could not be saved — ${certificate.notPersisted}`);
+    console.warn('  It works, but a restart makes a new one and every device is asked again.');
+  }
+
   reportInternalStun();
-});
+}
+
+// Both listeners answer the same handler and feed the same hub; the only difference is the TLS.
+// Reported once, after the last one is up, so the banner is one block rather than a race.
+const listeners = [
+  ...(CONFIG.server.http.enabled
+    ? [{ scheme: 'http', server: listener(createServer(handle)), port: CONFIG.server.http.port }]
+    : []),
+  ...(certificate
+    ? [{
+        scheme: 'https',
+        server: listener(createTlsServer({ key: certificate.key, cert: certificate.cert }, handle)),
+        port: CONFIG.server.https.port,
+      }]
+    : []),
+];
+
+let pending = listeners.length;
+for (const { server, port, scheme } of listeners) {
+  // A port already held is the ordinary way starting fails — a previous run that outlived its
+  // terminal, or the other half of a pair of instances. Node's default answer is an unhandled
+  // error event and a stack trace, which buries the one line that says which port and which
+  // scheme. Two listeners make it twice as likely, so say it and stop.
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    const reason = err.code === 'EADDRINUSE'
+      ? `port ${port} is already in use`
+      : `${err.code ?? 'error'}: ${err.message}`;
+    console.error(`InstaDarts could not listen for ${scheme} — ${reason}`);
+    process.exit(1);
+  });
+
+  server.listen(port, () => {
+    pending -= 1;
+    if (pending === 0) reportListening();
+  });
+}

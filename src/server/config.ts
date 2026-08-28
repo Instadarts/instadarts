@@ -202,6 +202,23 @@ function fraction(raw: Raw, path: string, key: string, fallback: number): number
   return value;
 }
 
+/**
+ * A path to a file the deployment supplies, or `null` for "I am not supplying one".
+ *
+ * `null` is written as often as it is omitted — the example file spells every setting out, so the
+ * way to say "no certificate" in a copy of it is to leave the `null` there. Both mean the same
+ * thing, and neither is a complaint.
+ */
+function optionalPath(raw: Raw, path: string, key: string, fallback: string | null): string | null {
+  const value = raw[key];
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'string' || value.trim() === '') {
+    complain(`${path}.${key} should be a path to a file; keeping ${fallback ?? 'none'}`);
+    return fallback;
+  }
+  return value.trim();
+}
+
 function bool(raw: Raw, path: string, key: string, fallback: boolean): boolean {
   const value = raw[key];
   if (value === undefined) return fallback;
@@ -298,7 +315,13 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(raw, '', ['server', 'frontend', 'scorer', 'media']);
 
   const rawServer = section(raw, 'server');
-  reportUnknown(rawServer, 'server', ['port', 'maxMatches', 'maxPlayersPerMatch']);
+  reportUnknown(rawServer, 'server', ['http', 'https', 'maxMatches', 'maxPlayersPerMatch']);
+
+  const rawHttp = section(rawServer, 'http');
+  reportUnknown(rawHttp, 'server.http', ['enabled', 'port']);
+
+  const rawHttps = section(rawServer, 'https');
+  reportUnknown(rawHttps, 'server.https', ['enabled', 'port', 'cert', 'key']);
 
   const rawFrontend = section(raw, 'frontend');
   reportUnknown(rawFrontend, 'frontend', []);
@@ -325,7 +348,16 @@ function readConfig(): { config: AppConfig; from: string | null } {
     from,
     config: {
       server: {
-        port: positiveInt(rawServer, 'server', 'port', defaults.server.port),
+        http: {
+          enabled: bool(rawHttp, 'server.http', 'enabled', defaults.server.http.enabled),
+          port: positiveInt(rawHttp, 'server.http', 'port', defaults.server.http.port),
+        },
+        https: {
+          enabled: bool(rawHttps, 'server.https', 'enabled', defaults.server.https.enabled),
+          port: positiveInt(rawHttps, 'server.https', 'port', defaults.server.https.port),
+          cert: optionalPath(rawHttps, 'server.https', 'cert', defaults.server.https.cert),
+          key: optionalPath(rawHttps, 'server.https', 'key', defaults.server.https.key),
+        },
         maxMatches: positiveInt(rawServer, 'server', 'maxMatches', defaults.server.maxMatches),
         maxPlayersPerMatch: positiveInt(rawServer, 'server', 'maxPlayersPerMatch', defaults.server.maxPlayersPerMatch),
       },
@@ -374,6 +406,14 @@ let config = CONFIG_DEFAULTS;
 let from: string | null = null;
 try {
   ({ config, from } = readConfig());
+  // The one combination worth refusing rather than reporting. Every other mistake in the file
+  // leaves a server that runs and can be asked what it thinks it was told; this one leaves a
+  // process that starts, holds a port nowhere, and answers nothing.
+  if (!config.server.http.enabled && !config.server.https.enabled) {
+    throw new Error(
+      `${from ?? 'The settings'} turns off both server.http and server.https, which leaves nothing listening`,
+    );
+  }
 } catch (err) {
   fatal = (err as Error).message;
 }

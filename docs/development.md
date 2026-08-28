@@ -39,6 +39,7 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                 capacity.ts     how big this server may get, all of it derived from one number
                 config.ts       settings-file discovery, parsing and validation
                 rateLimit.ts    burst and sustained-rate budgets, and the clients that exhaust them
+                certificate.ts  the https certificate: the deployment's, or one made here
                 env.ts, invite.ts, player.ts, listenUrls.ts, start.ts, dev.ts
 
 src/client/     App.tsx         routes, and the one hook that holds match state
@@ -61,7 +62,7 @@ nothing about matches, sockets or sets**. See [game modes](./game-modes.md) for 
 ## Running it
 
 ```sh
-npm run dev     # the app on 3000: API, WebSocket and the live client, one process
+npm run dev     # the app on 3000 and 3001: API, WebSocket and the live client, one process
 npm test        # unit tests (vitest). A couple of seconds; run them freely
 npm run test:e2e  # the whole browser suite; model/media projects make it a longer check
 npm run build   # production build and all typechecks
@@ -143,7 +144,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `port`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
+| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
 | `frontend` | reserved and currently empty |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |
@@ -169,6 +170,7 @@ believes it is configured and is not is worse than one that will not start.
 
 ```sh
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
+curl -sk 'https://[::1]:3001/server-stats' # the same, over the TLS listener
 ```
 
 `maxMatches` is the only capacity number a deployment sets; everything the server refuses or evicts
@@ -190,6 +192,41 @@ properties of the run rather than of the deployment — and are what is left in
 naming `CLIENT_DIR` is what asks for a built one; `npm run dev` and the e2e harness set it, and
 nothing else does. `INSTADARTS_CONFIG` and `INSTADARTS_DIR` are not settings at all:
 they say where to look for the file, and set nothing in it.
+
+### The two listeners, and the certificate
+
+**The server answers on both http and https, and either can be turned off.** They are the same
+application over the same rules; the only difference is the TLS. Plain http stays on by default
+because a deployment behind a reverse proxy on a real domain has TLS terminated for it already, and
+a second handshake there is overhead and nothing else. Turning *both* off is the one settings
+mistake that stops the server rather than being reported — a process that starts and listens
+nowhere is worse than one that says why it will not.
+
+**Https exists for the camera.** `getUserMedia` is refused outside a secure context, and a plain
+address on the local network is not one — so without it the scoring device's whole job is behind a
+browser flag, which is what [`ScorerPage.tsx`](../src/client/pages/scorer/ScorerPage.tsx) still
+offers as the fallback.
+
+With no certificate named, [`certificate.ts`](../src/server/certificate.ts) makes one, valid for the
+addresses the server is about to bind on — which is why
+[`listenUrls.ts`](../src/server/listenUrls.ts) exposes `listenAddresses` separately: the banner and
+the certificate must be built from one list, or a phone is handed an address the certificate does
+not name. It is written beside the settings file and reused, because a browser remembers its
+exception per certificate and regenerating each boot would ask every device again. A new DHCP lease
+is what makes the stored one stop covering the current addresses, and that is exactly when a new one
+is made.
+
+**A self-signed certificate does not remove the browser warning.** Nothing vouches for it, so each
+device shows an interstitial once; accepting it gives a real secure context and the camera works.
+Naming `server.https.cert` and `key` — a certificate from a local CA, or a real one — is how a
+deployment gets rid of the warning, and then none of the above runs. Named and unreadable is fatal,
+by the same rule the settings file follows.
+
+Node has no api for *making* a certificate — `crypto.X509Certificate` only reads them — so
+`certificate.ts` builds the DER by hand. That is the price of the property this project keeps
+elsewhere: no dependency to carry, and none to license in the archive.
+[`certificate.test.ts`](../tests/unit/certificate.test.ts) is what stands in for a library's own
+test suite, down to completing a real TLS handshake against what it produced.
 
 ### Serving the client
 
@@ -309,9 +346,9 @@ never collected: Playwright only runs `*.spec.ts`.
 
 ## Process cleanup
 
-`npm run dev` is `tsx watch src/server/dev.ts` — one process holding one port, with the Vite dev
-server inside it rather than beside it. After an interrupted run there is one thing to stop, and
-stopping whatever holds port 3000 is enough.
+`npm run dev` is `tsx watch src/server/dev.ts` — one process, holding both listening ports, with the
+Vite dev server inside it rather than beside it. After an interrupted run there is one thing to stop,
+and stopping whatever holds ports 3000 and 3001 is enough.
 
 The trade that buys: `tsx watch` owns Vite now, so **an edit to server or shared code restarts the
 process and costs the browser its hot-reload connection** — a full page reload rather than a patch.

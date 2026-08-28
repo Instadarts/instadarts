@@ -30,9 +30,37 @@ import type { IceServerConfig, VideoProfile } from './media';
  */
 export const INTERNAL_ICE = 'internal';
 
+/**
+ * One of the two ways in the front door.
+ *
+ * Both listeners answer the same application over the same rules; the only difference is whether
+ * the bytes are wrapped in TLS. Either can be turned off, because both are worth turning off in
+ * some deployment: behind a reverse proxy that has already terminated TLS, a second handshake here
+ * is overhead and nothing else, and on a home network the plain port is the one a phone must not
+ * be allowed to reach for the camera.
+ */
+export interface HttpListenerConfig {
+  enabled: boolean;
+  port: number;
+}
+
+/**
+ * The same, plus what it needs to speak TLS.
+ *
+ * `cert` and `key` are paths, relative to the settings file's own directory or absolute. Naming
+ * them is what makes this a deployment's certificate — and leaving them out is not an error but a
+ * request: the server makes a self-signed one covering the addresses it is about to bind on, and
+ * keeps it beside the settings so a browser only has to be told to trust it once.
+ */
+export interface HttpsListenerConfig extends HttpListenerConfig {
+  cert: string | null;
+  key: string | null;
+}
+
 /** The process. Read at boot; nothing here can change while it runs. */
 export interface ServerConfig {
-  port: number;
+  http: HttpListenerConfig;
+  https: HttpsListenerConfig;
   /**
    * How many matches this deployment is sized for — the one number that scales the server.
    *
@@ -192,7 +220,8 @@ export interface AppConfig {
 
 export const CONFIG_DEFAULTS: AppConfig = {
   server: {
-    port: 3000,
+    http: { enabled: true, port: 3000 },
+    https: { enabled: true, port: 3001, cert: null, key: null },
     maxMatches: 10_000,
     maxPlayersPerMatch: 5,
   },

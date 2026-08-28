@@ -149,10 +149,6 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     send({ type: 'update_settings', lobbyId, settings });
   }, [send]);
 
-  const setPlayerName = useCallback((lobbyId: string, playerId: string, name: string) => {
-    send({ type: 'set_player_name', lobbyId, playerId, name });
-  }, [send]);
-
   const startMatch = useCallback((lobbyId: string) => {
     send({ type: 'start_match', lobbyId });
   }, [send]);

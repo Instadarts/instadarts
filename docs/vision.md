@@ -1,8 +1,7 @@
 # The scoring pipeline
 
-A phone points at the board, and darts appear in the visit. This is how, what is covered by tests,
-and — the part worth reading before you change anything — what is **not**, and how to check those
-parts by hand.
+A phone points at the board and detected darts appear in the visit. This document explains the
+pipeline, what the automated tests cover, and what must be checked on real hardware.
 
 This repository is where the pipeline is developed. There is no upstream to defer to.
 
@@ -16,10 +15,8 @@ covered by the same GNU AGPL v3 as the code, in [`LICENSE`](../LICENSE), specifi
 
 The `.tflite` files are the preferred form for modifying and deploying these models.
 
-Worth stating explicitly because it is the question a reader of a repository that ships weights will
-have, and because the answer is not the usual one. Detection weights in this space are commonly
-Ultralytics-derived, which would drag AGPL obligations in from outside and constrain what the rest of
-the stack could be licensed as. That is not the situation here.
+This distinction matters because many detection weights are derived from externally licensed models.
+These are not, so no upstream model licence constrains the rest of the stack.
 
 The two differ only in input size — 960 and 1280 — and
 [`visionRuntime.ts`](../src/client/vision/visionRuntime.ts) picks between them. The training data
@@ -49,6 +46,28 @@ join mid-visit with nothing to reconcile.
 
 `lensGeometry.ts` is off to one side: it projects the board's spider back into the camera's picture
 so a person can slide the lens correction until the drawn lines sit on the real wires.
+
+## Server fusion and visit tracking
+
+A scoring device publishes **tips** (`BoardTip`) in board coordinates, never scores. The server
+groups reports about the same throw in a short **throw window**, fuses observations from the active
+cameras, and recomputes the dart score from the resulting coordinates. One **scoring session** per
+match and owning player holds this fusion state.
+
+The session's **tracked darts** are the darts believed to remain in the board. They stay tracked for
+the whole visit so a later frame cannot count the same dart again; a frame that temporarily misses a
+dart does not remove it. Undo and other corrections remain explicit user actions.
+
+An empty tip array from every active camera means **takeout**: the player has removed the darts. It
+is meaningful input and submits an armed visit automatically. A malformed report is discarded as a
+whole so it cannot be mistaken for takeout. The visit arms after two tracked darts with one camera,
+after one when multiple cameras agree, or after one when the game mode has locked the visit. A full
+or locked visit otherwise remains open so a mistaken dart can be corrected before takeout.
+
+The implementation is in [`server/scoring/`](../src/server/scoring/), principally
+[`throwWindow.ts`](../src/server/scoring/throwWindow.ts),
+[`tracker.ts`](../src/server/scoring/tracker.ts), and
+[`session.ts`](../src/server/scoring/session.ts).
 
 ## What the tests cover
 
@@ -163,21 +182,14 @@ settings ending up in a combination nothing ever measured.
 `gpu-cpu` — preprocess in the shader, infer on the CPU — is the interesting one. It has to move the
 input tensor from the GPU into WASM memory to run it: **11.1 MB at 960 px, 19.7 MB at 1280**. Whether
 that beats a CPU preprocess is genuinely a question about the device, which is why it is measured
-rather than assumed. It is opt-in per call, so callers that pass no options get exactly the old
-behaviour.
+rather than assumed. Preprocessing is selected per call: unless CPU preprocessing is forced, a
+runner uses GPU preprocessing when available and falls back to CPU if it fails.
 
 #### The WebGPU device is ours, when LiteRT has none
 
-Nothing here creates its own device: the preprocessing shader and the motion detector's analyzer both
-ask LiteRT for one. So when LiteRT's `createDefaultWebGpuDevice` comes back empty, three features
-lose their GPU path at once and each reports it as its own failure — which is exactly how a machine
-with a working graphics card ends up reporting `cpu` everywhere.
-
-`ensureLiteRtReady` now requests an adapter and hands LiteRT a device through `setWebGpuDevice` **when
-it has none of its own**, before the first model is compiled (`setWebGpuDevice` replaces the default
-environment, and a model compiled into the old one does not belong to the new one). It never replaces
-a working device: LiteRT asks its adapter for whatever its own inference needs, and a plainer device
-of ours could be worse.
+The preprocessing shader and motion analyzer use LiteRT's WebGPU device. `ensureLiteRtReady` first
+asks LiteRT for that device; when none exists, it requests an adapter and registers a device through
+`setWebGpuDevice` before compiling the first model. It never replaces a working LiteRT device.
 
 ### WebGPU
 
@@ -286,10 +298,26 @@ expected — both that throws are picked up and that it stays quiet when it shou
 
 ### Power management
 
-A scoring device switches its own camera off, and eventually itself, when nothing needs it — see
-[`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts). The rules are pinned by unit tests and the
-e2e suite drives the delays down to seconds, but three of the browser behaviours the design rests on
-are unreachable from a headless run:
+A scoring device owns two power timers through
+[`lib/scorerPower.ts`](../src/client/lib/scorerPower.ts):
+
+```
+short timer   runs while   !scoring        fires → camera and motion detector off
+long timer    runs while   !cameraActive   fires → wake lock released, socket closed
+```
+
+Both reset on a touch, key press, or owner command. The defaults are 2 and 30 minutes and are
+configurable on the device. Power stages only shut things down; they never start the camera.
+
+`scorer_state.scoring` is the server's answer to whether it would accept the device's tips. A camera
+starts automatically only when the device enters a new **scoring context**. The opaque
+`scoringContextId` identifies the match and board, remains stable across socket replacement, and
+changes for a new match, re-match, or board. [`scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts)
+classifies an arriving context as `started` or `resumed`. A resumed context restarts the camera only
+when the device's own timer stopped it, preserving an owner's manual camera-off choice.
+
+The e2e suite can shorten the timers through `?e2e=1&graceMs=…&standbyMs=…`; that seam is disabled in
+production. Several browser behaviours remain hardware-only:
 
 - **Re-opening a camera without a prompt.** After `track.stop()`, a later `getUserMedia` should
   resolve straight away because the origin's permission is already granted. The fake camera in tests
@@ -307,11 +335,8 @@ are unreachable from a headless run:
   deliberately on the way into standby, and the server's heartbeat
   ([`heartbeat.ts`](../src/server/heartbeat.ts)) reclaims anything that dies without closing.
 - **A real Wi-Fi blip, as against a heartbeat cut in a test.** A device that drops and comes back
-  must not read its own reconnect as a match starting — that is what
-  [`scoringContextId`](../src/shared/protocol.ts) and
-  [`lib/scorerReconnect.ts`](../src/client/lib/scorerReconnect.ts) are for, and the e2e suite covers
-  the mechanism. What it cannot produce is the real thing: a phone that loses its access point for
-  two minutes, with the camera off because its owner switched it off.
+  must resume the same scoring context without restarting a camera its owner switched off. The e2e
+  suite covers the state transition but cannot reproduce a real access-point outage.
 
 The screen going black is *not* one of these stages. The screensaver is a display state and nothing
 else — inference, motion gating and tips carry on underneath it, and **only a touch or a key on the
@@ -325,11 +350,11 @@ for — that the battery is in a reasonable state the next morning.
 
 ### Full screen
 
-There is no fullscreen button on iPhone, because Safari there has no element fullscreen at all —
-only a `<video>` can go fullscreen. [`FullscreenButton`](../src/client/components/FullscreenButton.tsx)
-renders nothing when `requestFullscreen` is missing rather than offering something that throws. The
-only route to a chrome-less app on that platform is Add to Home Screen with a web manifest, which
-this repository does not have.
+iPhone Safari does not support the Fullscreen API for ordinary elements; only a `<video>` can enter
+fullscreen. [`FullscreenButton`](../src/client/components/FullscreenButton.tsx) renders nothing when
+`requestFullscreen` is missing rather than offering a control that throws. The only route to a
+chrome-less app on that platform is Add to Home Screen with a web manifest, which this repository
+does not have.
 
 *To check:* on an iPhone, confirm no button appears and nothing looks broken by its absence. On
 Android, confirm the back gesture leaving full screen puts the button back into its "enter" state

@@ -29,11 +29,9 @@ They deliberately diverge after that:
 | Socket and state | match/lobby state | scorer projection and vision runtime |
 
 The scorer is a sibling application, not a route rendered inside `App`. Do not move it under the
-frontend router or layout-editor provider. Crossing from one to the other is therefore a page load:
-the home page's scoring-device link — for the device that opened `/` when it wanted `/scorer` — is a
-plain anchor, because a router link would look for a route that does not exist and bounce straight
-back home. It is the one home grid item rendered without a card, since it leads off the page rather
-than offering something to do on it.
+frontend router or layout-editor provider. Links between the applications use plain anchors and
+cause a page load. The home page's scoring-device link is the one grid item rendered without a card,
+since it navigates to the scorer rather than offering an action on the current page.
 
 ## Design-system ownership
 
@@ -49,157 +47,53 @@ rectangle. A scorer or overlay can use it directly.
 [`GridBox`](../src/client/layout/GridBox.tsx) adds the RGL fill classes and the match edit handle; it
 is not a general card replacement outside an RGL item.
 [`Wordmark`](../src/client/components/Wordmark.tsx) is the other shared surface: the mark, the name
-and its treatment, in the one place they are decided. Four screens show it — both headers, the home
-page and the screensaver — and two of those used to be duplicated markup.
+and its treatment, in the one place they are decided. [`mark.svg`](../src/client/components/mark.svg)
+is the canonical drawing. `Wordmark` inlines it so `currentColor` follows the surrounding theme;
+the favicon plugin in [`vite.config.ts`](../vite.config.ts) generates the tab icon from the same
+shapes.
 
-**The mark is drawn once**, in [`mark.svg`](../src/client/components/mark.svg), in `currentColor`. `Wordmark` inlines the file rather than pointing an `<img>` at it,
-because an image is a separate document and inherits nothing — inlining is what lets the mark take
-the accent tint in a header and go dim on the screensaver. A tab icon has neither a colour to inherit
-nor a page behind it, so the `favicon` plugin in [`vite.config.ts`](../vite.config.ts) wraps *those
-same shapes* in a ground and a colour, serving `/favicon.svg` in dev and writing it once at build.
-The tab icon is therefore not a second drawing that can drift; it was, and it did. Anything the
-shape needs must be set on the shape rather than on the file's root element, because the wrapper
-lifts the shapes out of it.
-
-The mark is sized in `em` and everything in the lockup is phrasing content, so the mark and the
-tracking scale from one font size. (The gap between them does not: it is `Group`'s fixed 1 rem.) That is what lets the home page pass it to
-[`AutoFitText`](../src/client/components/AutoFitText.tsx) and have the *drawing* shrink with the
-word: `Wordmark`'s `fitTo` takes a maximum in pixels instead of an `fz`, and the line is measured
-against its parent the same way the match headline is. It needs to. At a fixed `3rem` the lockup is
-434 px wide whatever is around it, and the home card is narrower than that below roughly 470 px of
-viewport, so the card's own `overflow: hidden` cut the end off the name. Two things about reusing
-`AutoFitText` this way are worth knowing, because both were silent:
-
-- the fit sets a **font size and nothing else**, so anything passed as children that is measured in
-  pixels will not scale, and a Mantine `Text` will not scale either — `Text` applies its own `md`
-  size rather than inheriting one. The word is a `Box` for that reason, and carries `Text`'s
-  truncation by hand, which the headers still need;
-- the host's `flex: 1 1 0` is right inside a row that shares its width and wrong inside a `Stack`,
-  where a flex basis of zero is a *height* of zero and the line vanishes into a host with no height
-  and `overflow: hidden`. `grow={false}` is the way out;
-- **it needs a box whose width does not depend on it.** A `centered` `AppCard` shrinks its content
-  box to fit, and a fitted line is usually the widest thing in that box — so the box is as wide as
-  the line, the line is fitted to the box, and the two settle on one size for every screen instead of
-  on the card's. The home page's welcome card is therefore not `centered`; its `Stack` centres its
-  own children. Watch for the symptom rather than the cause: a fit that no longer responds to the
-  window, and a box as wide as whatever the longest line of prose in it happens to be.
-
-Its detail is set by the smallest sizes it is used at rather than by how it looks in isolation — the
-two headers at about 21 px, where it is seen most, and 16 px on the screensaver. A third ring on the
-board merges into a blob under about 26 px, which is why there are two. Redraw it against the sizes
-in `mark.svg`'s comment, not against one large preview.
+The mark and name scale together from one font size. `Wordmark` uses
+[`AutoFitText`](../src/client/components/AutoFitText.tsx) when `fitTo` is set; the containing box must
+have a width independent of the fitted content. Check changes at the smallest header and
+screensaver sizes, not only in a large preview.
 
 Do not put RGL inside a box. The outer grid decides which boxes share a row; Mantine primitives
 decide how the contents of one box flow. Keeping that boundary makes a box reusable and prevents a
 page layout from leaking into its contents.
 
 There is no utility-CSS framework in this repository. Prefer a Mantine prop or component before
-adding CSS. A small inline style is appropriate when it expresses geometry that Mantine has no prop
-for — and inline style is where most specialized geometry ends up, so do not go looking for a
-stylesheet that does not exist. Mantine, RGL and react-resizable bring their own imported styles;
-within the application source, custom rule sets are authored in exactly two places.
+adding CSS. Use [`index.css`](../src/client/index.css) for document-level rules, RGL integration,
+shared geometry, presentation-zoom variables and reusable keyframe helpers. It contains no literal
+interface colours; rules that paint interface chrome use the palette tokens described below. Do not
+rebuild ordinary component or responsive layouts there.
 
-[`index.css`](../src/client/index.css) is the application stylesheet, and is intentionally short. It
-owns what has to apply to elements the components do not render themselves, or to the document root:
-
-- the `html`/`body`/`#root` reset, and the app-wide `user-select: none` with selection restored
-  inside text fields;
-- RGL item fill, overflow, edit outlines, drag cursors and resize handles;
-- `.frontend-board-area`, the size container the square dartboard is measured against;
-- `.app-main` and `.scorer-column`, the application background and the scorer's column width;
-- `.button-hint`, the pulsing ring any control can wear while it is the thing to press next — a
-  shared helper rather than one feature's rule, and here only because keyframes cannot be inline
-  style. Its ring colours are `--button-hint-ring` and `--button-hint-ring-fade`, so a second
-  highlight recolours itself on its own element instead of adding a second animation;
-- the root presentation-zoom variables for both applications;
-- `font-variant-numeric: tabular-nums` on the body, so a changing total stops shuffling the digits
-  beside it. Every number on these screens is a score being compared to another one.
-
-It carries **no colour of its own.** Every value it paints is a palette token — see
-[Theming](#theming) — so the stylesheet does not need a second copy of itself per colour scheme, and
-adding one would be the thing that made it long.
-
-Do not rebuild ordinary card, form or responsive layouts there, and do not add application `@media`
-breakpoints for the regular frontend.
-
-[`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) is the other one. A mode that animates needs
-keyframes, and keyframes cannot be expressed as inline style, so it portals a `<style>` element into
-`document.head` holding its own animations and their `prefers-reduced-motion` override. A new mode
-needing animation should follow the same pattern rather than adding to `index.css`.
-
-That block reaches two surfaces outside the mode's own panel, and the two are not the same kind of
-thing. It sets the board's active cursor through `[data-testid="dartboard"]` — a genuine reach,
-alongside the DOM lookup recorded in
-[the glossary's remaining leaks](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). It
-also decorates the visit row's last slot through `[data-visit-slots]`, which is **the sanctioned
-route**: `VisitInput` reflects each slot's semantic tone as `data-slot-tone`, so a mode styles its
-own contributed content by what it said about that content. The generic component knows about no
-mode; the mode-specific half is the selector, and it lives in the mode's file. A mode wanting to
-decorate what it sends should do it this way.
-
-That stylesheet is rendered, not static, so a rule can be **added and removed with the state it
-describes** — Whac-A-Mole appends one only while this visit's bonus throw is in play. It is the way
-to express what the slot's own tone cannot: several states send the same tone, and they are one rule
-apart if the mode's panel already knows them apart. It usually does, because a mode's panel is drawing
-that state anyway. Prefer it to reaching into the DOM, and prefer it to re-deriving a rule the server
-has already decided — reuse the fact you are already painting from, not the reasoning behind it.
-
-Everything else visual outside that mode-specific stylesheet is inline style plus Mantine props: the
-square camera viewport, the SVG board and its overlays, precision aiming, the canvas and video
-layers, and the screensaver's capture and reveal behavior. Not one of those components carries a
-`className` — `VirtualBoard`'s `.frontend-board-area` wrapper above is the single exception. Its
-container geometry could technically be inline too; the class keeps the shared board-area rule with
-the rest of the application stylesheet.
-
+Mode-specific animation styles stay with the mode and include a `prefers-reduced-motion` behavior.
+A mode may style contributed content through semantic data attributes exposed by a generic
+component. Keep the selector in the mode and do not make the generic component aware of that mode.
 
 ## Theming
 
-Colour is decided in one file and spent everywhere else.
 [`palette.ts`](../src/client/layout/palette.ts) holds an `AppPalette`: the Mantine colour tuples, the
 `white`/`black` pair, and one record of semantic tokens per colour scheme.
-[`appTheme.ts`](../src/client/layout/appTheme.ts) spends it. **To change the application's colours,
-edit that palette** — or write a second `AppPalette` beside it and change the one export at the
-bottom of the file. Nothing else has to move.
+[`appTheme.ts`](../src/client/layout/appTheme.ts) applies it. Change application colours in the
+palette rather than in components.
 
-It reaches the screen as two layers, and they do different jobs.
+The palette has two layers:
 
-**The tuples substitute Mantine's own, under Mantine's own names.** Every `bg="dark.8"`,
-`c="gray.6"`, `color="yellow"` and `var(--mantine-color-green-5)` in the application already resolves
-through `theme.colors`, so replacing `dark`, `gray`, `green`, `red`, `yellow`, `orange`, `blue` and
-`cyan` recolours nearly everything without a component being touched and without a prop being
-renamed. `theme.white` and `theme.black` are the same lever one level up: Mantine derives
-`--mantine-color-body` and `--mantine-color-text` from them, so those two strings set the ground of
-each scheme.
+**Mantine tuples** provide named shades such as `dark.8`, `gray.6` and `yellow`. `theme.white` and
+`theme.black` also determine Mantine's body and text colours. Use these values for fixed artwork or
+when a component specifically needs a shade.
 
-**The tokens are the semantic half, and they are what makes the bright scheme correct rather than
-merely inverted.** The two schemes do not stack their surfaces the same way, so no single shade
-number is right on both; a card asks for `var(--instadarts-surface)` and stops having an opinion.
-`appCssVariables` — a Mantine `cssVariablesResolver` — emits every token under `:root` and the two
-`[data-mantine-color-scheme]` selectors. That is why the application needs no PostCSS plugin
-(`light-dark()` and Mantine's `@mixin`s are unavailable here) and why a second scheme adds no rule
-set to `index.css`, which keeps the two-places rule above true.
+**Semantic tokens** describe interface roles that differ between bright and dark schemes. They use
+the `--instadarts-` prefix and cover application backgrounds, surfaces, borders, editing states,
+accents, hints, shadows and the text tones defined by
+[`modeText.ts`](../src/client/components/modeText.ts). `appCssVariables` exposes them through
+Mantine's `cssVariablesResolver`. Add a token when a role is shared by components or needs a
+different value between schemes.
 
-The vocabulary, all prefixed `--instadarts-`: `app-bg` and the two `app-glow-*` washes over it;
-`surface`, `surface-header`, `surface-raised`, `surface-sunken` and `header-bg`; `border` and
-`border-strong` — `--mantine-color-default-border` is redirected to the first, so every `withBorder`
-surface follows the palette from one line; `edit-outline` and `edit-overlay`; `accent` and `link`;
-`hint-ring` and `hint-ring-fade`; `score-glow`; the two `shadow-*` values that `theme.shadows` is
-written in terms of, so one shadow scale serves both schemes; and the twelve
-`tone-{default,muted,accent,positive,warning,danger}-{fg,bg}` values behind
-[`modeText.ts`](../src/client/components/modeText.ts). A new token earns its place by being asked for
-in more than one component, or by needing a different answer in each scheme.
+### Surface and text contrast
 
-One name in that prefix is not a palette token: `--instadarts-card-header-bg` is a hook `AppCard`
-leaves open, defaulting to `surface-header`. Mantine's `bg` prop is an **inline style**, so a
-stylesheet rule cannot repaint a surface a component painted that way — the edit-mode title bar
-overrides the variable instead. Reach for the same trick when a rule has to win over a `bg`.
-
-### Surface separation is a number, not a judgement
-
-Neighbouring surfaces have to be told apart, and a dark scheme is where that is easy to get wrong:
-shades picked by eye once left the page and the cards on it 5.3 apart in L*, which reads as one flat
-wash. Every element was where it should be, so no browser test noticed.
-[`palette.test.ts`](../tests/unit/palette.test.ts) holds the palette to these, in both schemes:
+[`palette.test.ts`](../tests/unit/palette.test.ts) enforces these minimums in both schemes:
 
 | Pair | Minimum |
 | --- | ---: |
@@ -210,57 +104,30 @@ wash. Every element was where it should be, so no browser test noticed.
 | a surface → `tone-muted-fg`, `accent` or `link` on it | contrast 4.5 / 3.5 |
 | each `tone-*-fg` → its own `tone-*-bg` | contrast 4.5 |
 
-The two measures answer different questions. Whether two large blocks *look* like separate surfaces
-is about perceived lightness, and L* is uniform enough to ask it with one threshold for both schemes
-— a WCAG ratio is not, because the same ratio buys far less separation near black than near white.
-Whether text can be *read* is a WCAG question, so text keeps the ratio.
+L* measures whether adjacent surfaces remain visibly separate in either scheme. WCAG contrast
+measures whether text remains readable against its background.
 
 ### Chrome is themed. Artwork is not.
 
-This is the boundary to check before recolouring anything. The board, a dart, a QR code and the
-scorer's camera overlays are objects rather than surfaces: they look the same whatever the interface
-is doing, and a QR code is only scannable black on white. Those keep literal colours, or a fixed
-`dark.N`/`gray.N` — **Mantine tuples are scheme-independent, so naming a shade is how something stays
-put** while a token is how something follows.
-
-Deliberately not themed today: `Dartboard`, `boardGeometry`, `PrecisionDart`, `DartMarker`,
-`dartboardPrecision`, `QrCode` and the white `Paper` that gives it its quiet zone, the scorer's
-`BoardOverlay`, `CalibrationView` canvas, `CameraPanel` HUD and `SquareCameraViewport` backing,
-`Screensaver`'s black, the dev latency chip on its black pill, and in
-[`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx) both the mole/earth/mallet artwork and the
-whole finale, which is a curtain drawn over the board rather than a surface inside a card. That
-mode's HUD, player rows and stat tiles *are* chrome and do follow the palette.
-
-Two e2e specs depend on this boundary holding: `match.spec.ts` asserts exact dart hex values and
-`scorer-screensaver.spec.ts` asserts `rgb(0, 0, 0)`. If either breaks after a palette change, the
-boundary was crossed rather than the test being stale.
+Interface surfaces and controls follow semantic palette tokens. Represented objects—including the
+dartboard, darts, QR codes, camera overlays and game artwork—keep fixed colours across schemes. QR
+codes also retain a white quiet zone. Exact-colour assertions in `match.spec.ts` and
+`scorer-screensaver.spec.ts` protect this boundary.
 
 ### Appearance
 
-Bright or dark, remembered per application, exactly the way presentation zoom is.
-[`appColorScheme.ts`](../src/client/layout/appColorScheme.ts) is the same shape as `appZoom.ts` — two
-`localStorage` keys, guarded reads and writes, `instadarts_frontend_color_scheme_v1` and
-`instadarts_scorer_color_scheme_v1` — plus an `appColorSchemeManager`, which is the
-`MantineColorSchemeManager` `MantineProvider` is given. Mantine's stock manager keeps one value for
-the whole origin, and that would make a phone propped at the board follow whatever the television
-last chose.
+Bright or dark appearance is remembered independently for the frontend and scorer.
+[`appColorScheme.ts`](../src/client/layout/appColorScheme.ts) provides guarded storage and the
+`MantineColorSchemeManager` used by `MantineProvider`. The default is dark, `auto` is not offered,
+and storage remains empty until the control is used.
 
-**The default is dark, and `auto` is not offered.** Nobody's application changes appearance because
-they upgraded; bright is something a person asks for. `defaultColorScheme` carries the default and
-the storage stays empty until the control is used.
+An inline script in [`index.html`](../src/client/index.html) applies the stored scheme before the
+first paint. The provider owns it after the application mounts.
 
-The scheme is applied twice, and both are needed. An inline script in
-[`index.html`](../src/client/index.html) sets `data-mantine-color-scheme` from the right key before
-anything is painted — `main.tsx` is a module and therefore deferred, so without it a dark
-installation flashes Mantine's light body on every load. It is the one place those key names are
-repeated, because nothing bundled runs early enough to be asked. The provider then owns the value
-for the page's lifetime.
-
-The control is [`AppearanceControl`](../src/client/components/AppearanceControl.tsx), shared by both
-settings menus and sitting directly above each one's zoom row in the same shape: a label, and the
-thing to press on the right. It writes through whichever provider is above it, so it does not know
-which application it is in. The icon shows the scheme in force and the accessible name says what
-pressing it will do, which is why that name changes with state.
+Both settings menus render
+[`AppearanceControl`](../src/client/components/AppearanceControl.tsx) directly above presentation
+zoom. It uses the nearest provider, shows the active scheme, and labels the action that pressing it
+will perform.
 
 ## Frontend page grids
 
@@ -331,8 +198,63 @@ and history row rather than leaving a visible hole. Removing an interior item fr
 layout can leave a gap, which is consistent with its free-placement behavior.
 
 Constraints such as `minW`, `minH`, `static` and `isBounded` belong to each canonical layout item.
-Current code replaces stored constraints with these current declarations when it restores a saved
-position, so old browser data cannot retain a rule that the application removed.
+Restoring a saved position reapplies these declarations; constraints are not loaded from storage.
+
+## The dartboard, and aiming at it with a finger
+
+[`Dartboard`](../src/client/components/Dartboard.tsx) is the manual input surface: a pointer press
+places a dart where it landed. What it produces is a board coordinate and nothing else, scored by
+the server exactly as a camera's tip is — the board is one of the two ways a dart arrives, not a
+second kind of dart.
+
+Its two coordinate systems, and why drawn labels are sized in SVG units, are in
+[development.md](./development.md#two-things-about-the-board-that-are-easy-to-get-wrong).
+
+### Precision aiming
+
+A bed is about 10 mm wide and a fingertip is not, so a press held for `HOLD_TO_AIM_MS` enters
+**precision aiming**: the board's viewBox narrows by `PRECISION_ZOOM`, and the dart being placed is
+drawn by [`PrecisionDart`](../src/client/components/PrecisionDart.tsx) with its needle on the exact
+coordinate that will be scored. Release places that coordinate. Both constants, and the reasoning
+for their values, are in
+[`dartboardPrecision.ts`](../src/client/components/dartboardPrecision.ts).
+
+Four properties are worth knowing before changing any of it:
+
+- **The tip sits at a fixed physical offset from the finger**, down and to the right, because the
+  point being aimed at is otherwise under the fingertip choosing it. That offset is measured in
+  screen pixels rather than board units, so it is the same distance however large the board is
+  drawn.
+- **It is honoured against the visible board, then against the board's own edge.** The desired
+  position is first kept inside the intersection of the SVG and the mobile visual viewport, inset so
+  the tip is never flush against an edge; the viewBox is then clamped to the 0–100 square. That
+  second clamp is the only remaining reason the offset can contract, and it does so only near an
+  outer coordinate edge.
+- **Dragging moves the tip with the finger, over less board.** The displacement is measured at
+  precision scale, so the tip tracks the finger one-for-one *on screen* — which is what holds the
+  offset steady for the whole drag — while covering `1 / PRECISION_ZOOM` as much board as the same
+  movement would without the zoom. That is the whole mechanic: the same hand movement, finer board
+  resolution. It is measured from where the hold began rather than accumulated frame by frame, and
+  the tip is clamped to the zoomed window, so dragging past its edge stops the tip rather than
+  panning.
+- **A gesture that can no longer land is cancelled, not completed.** A turn can lock remotely while
+  a finger is still down, and the board drops the held gesture when `canPlaceDart` goes false rather
+  than placing a dart the server would refuse.
+
+The board hides its cursor during a hold, and a `VisuallyHidden` `role="status"` region announces
+the segment currently under the tip, since the value being chosen changes without anything being
+committed.
+
+Precision aiming changes the viewBox on the live board, which is why a mode drawing an overlay onto
+it has to mirror that attribute rather than assume `0 0 100 100` — see
+[the optional second file](./game-modes.md#the-optional-second-file).
+
+Nothing here reaches the server: the dart submitted is the same `DartThrow` a plain tap produces, so
+a test that only needs *a* dart should tap. `match.spec.ts` covers the mechanic through
+`data-testid="precision-dart"` (carrying `data-score`, `data-board-x`/`-y` and `data-flight-color`)
+and `data-testid="precision-status"`. Assert offsets and distances through the board's measured
+size, never in fixed pixels — how many pixels of window the board was given is a property of the
+screen the suite runs on.
 
 ## The frontend header
 
@@ -355,8 +277,8 @@ plain `Box` rather than in `Menu.Item`s — only **Reset layout** is an item, an
 the right behavior for a one-shot action.
 
 The Layout section, the appearance toggle and presentation zoom are present on every route,
-including the home page. Only the match-layout controls — **Edit Match Layout**, the active breakpoint badge and **Reset layout**
-— appear while a match grid has registered itself; see below.
+including the home page. Only the match-layout controls — **Edit Match Layout**, the active
+breakpoint badge and **Reset layout** — appear while a match grid has registered itself; see below.
 
 ### The first-pairing nudge
 
@@ -368,8 +290,12 @@ that list is non-empty, three controls say so with the shared `.button-hint` rin
 start. All three call the same `startPairing`, and all three are gone once one device is paired; a
 second is added from the camera menu like any other.
 
-The control's accessible name stays `Cameras` either way. It opens the same menu whatever this
-browser has paired, and a great many e2e specs reach the camera menu by that name.
+The nudge changes only the control's appearance: it opens the same menu whatever this browser has
+paired. Its accessible name carries a different piece of state — `Cameras` on its own, and
+`Cameras · N` while N paired devices are claimed by this tab and online, which is also when the icon
+goes `light` rather than `default`. Playwright matches `getByRole`'s `name` as a substring, so the
+many specs that reach the menu by `Cameras` work at either label; a selector that needs the whole
+name has to allow the count, as `ui-features.spec.ts` does with `/^Cameras(?: · \d+)?$/`.
 
 ## Match layout editing and persistence
 
@@ -413,8 +339,8 @@ layouts remain in the profile map; an additive inactive map keeps the complete g
 optional cards so re-enabling one restores its last position and size at that breakpoint. Loading
 accepts only the current schema version, known profiles, known breakpoints and known box ids;
 inactive entries must also name a card declared optional, and title-bar entries must be boolean.
-Numeric positions are bounded, current constraints are reapplied, and newly introduced boxes use
-their canonical enabled and title-bar defaults. Whether a card is switched on is read from the ids
+Numeric positions are bounded, current constraints are reapplied, and boxes absent from stored data
+use their canonical enabled and title-bar defaults. Whether a card is switched on is read from the ids
 the stored profile names rather than from the entries that survived validation, so a card with an
 unusable saved position is repaired to its canonical geometry instead of being switched off.
 
@@ -459,10 +385,10 @@ own key per application, guarded storage, unrelated to any RGL profile. It is de
 ## Scorer presentation and sensitive geometry
 
 The paired scorer uses the same 52 px `AppShell` header as the frontend, then a static centred
-column. Its settings are a height-bounded, scrollable header menu, grouped `Layout` — appearance and
-presentation zoom — → `Camera and AI` → `Sharing and power` → `Device`, and in production a final
-`Links` → third-party notices, the same link the frontend menu carries. Onboarding hides the header and keeps its existing name →
-camera → self-test → optional aim state machine.
+column. Its height-bounded, scrollable settings menu has **Layout**, **Camera and AI**, **Sharing and
+power**, and **Device** sections. In production it also has **Links**, containing the same
+third-party notices link as the frontend. Onboarding hides the header and follows the name → camera
+→ self-test → optional aim sequence.
 
 The camera preview is not an ordinary responsive image. Scoring and onboarding share
 [`SquareCameraViewport.tsx`](../src/client/pages/scorer/SquareCameraViewport.tsx): a reserved square

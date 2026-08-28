@@ -27,6 +27,23 @@ Two rules follow from this and are worth stating on their own:
 
 ---
 
+## Match format around the mode
+
+A mode plays one **leg** and reports its winner. The match layer groups legs into sets according to
+`legsToWinSet` and groups sets into the match according to `setsToWinMatch`. The current leg's visits
+live in `MatchState.visits`; completed legs move to `MatchState.legs` with their winner. Standings
+are derived from that ordered history by [`matchFormat.ts`](../src/shared/matchFormat.ts), not stored
+separately.
+
+The starting player advances by one roster position for every completed leg, continuing across set
+boundaries. Within a leg, submitted visits advance to the next player who has not left the match.
+The mode neither chooses the next player nor sees the match format.
+
+When a match finishes, the summary is match-level: it shows the result, legs per set, and re-match
+state. The mode contributes the headline only; its live panel is not mounted on the summary.
+
+---
+
 ## What a mode may look at: `LegContext`
 
 A mode is a set of **pure functions** over one leg. It holds no state of its own: everything is
@@ -42,20 +59,13 @@ interface LegContext {
 }
 ```
 
-Note what is absent: no match, no set, no leg number, no socket, no ids beyond the players. A mode
-that cannot see the match structure cannot accidentally depend on it — which is why adding sets and
-legs to the match needed no change to any mode at all. The match layer hands over the current leg's
-visits and keeps the finished ones to itself.
+Note what is absent: no match, no set, no leg number, no socket, and no identifiers other than
+player IDs. A mode cannot depend on match structure because it cannot see it. The match layer passes
+the current leg's visits and retains the finished legs.
 
-**Why pure derivation.** Undo, reconnect, spectating and starting a fresh leg all become free: there
-is no second copy of the truth to keep in sync. x01 already worked this way for the
-remaining score; the one exception — a `doubleInMet` map living on the handler instance, outside the
-match state and never cleared — was exactly the thing that could not have survived a leg boundary.
-It is derived now: *a player has satisfied double-in iff they have a committed non-void visit whose
-darts contain a double.*
-
-If a future mode genuinely cannot derive its state by replay, add an explicit opaque per-leg state
-blob to `LegContext` — deliberately, and after establishing that replay really is impossible.
+Pure derivation leaves no second state to synchronize during undo, reconnect, spectating, or a new
+leg. For example, x01 derives double-in from whether a player has a committed non-void visit
+containing a double.
 
 ---
 
@@ -105,9 +115,6 @@ it the match cannot make a mode's play depend on the format.
 
 Deliberately **not** in the contract:
 
-- **`getRemainingScore`** — a countdown is an x01 concept. Nothing outside x01 needs it. (The camera
-  layer used to; it now asks `isVisitLocked` instead, which is the mode-agnostic question it was
-  really asking.)
 - **Any way to end the match.** A mode reports `legWinnerId`; the match layer decides what that means
   for the set and the match. A mode never writes `status`, `winnerId`, `finishedAt` or
   `currentPlayerIndex`.
@@ -119,7 +126,7 @@ Deliberately **not** in the contract:
 
 `isVisitLocked` means *"no further dart will be accepted in this visit"*. The visit stays open until
 it is submitted — by the player pressing Submit, or by the camera layer seeing a
-[takeout](./glossary.md#tip-throw-window-tracked-dart-takeout). That gap is deliberate: it is when a
+[takeout](./vision.md#server-fusion-and-visit-tracking). That gap is deliberate: it is when a
 misread third dart gets corrected.
 
 x01 locks on: the visit is full, the score reached zero, or the visit is already bust.
@@ -137,6 +144,7 @@ interface ModeDescriptor {
   defaults: ModeSettings;
   fields: SettingsField[];       // declarative, rendered generically
   bansMedia: readonly MediaFeature[];   // optional to declare, always present to read
+  maxPlayers: number | null;            // likewise: `null` is "declared none" and "said nothing"
 }
 
 type SettingsField =
@@ -172,7 +180,8 @@ Switching mode starts from the new mode's defaults — the outgoing mode's value
 validates a mode's own fields.
 
 **A field may be conditional, and leaving it out is what hides it.** x01 offers its `stats` knob —
-which of its two panel renderings to use, or neither — only in a development build
+`graphic`, `text` or `off`, which it spends on [`ModePanel.render`](#the-optional-second-file) and on
+returning no panel at all — only in a development build
 (`IS_DEV` in [`server/env.ts`](../src/server/env.ts)). Because the lobby and the validator read the
 same list, a field that is not declared is not merely absent from the form: it cannot be set at all,
 so no crafted message reaches it. The **default** is unconditional, so the setting still exists and
@@ -199,10 +208,10 @@ to tell "declined none" from "did not say", and both sides ask through `modeBans
 [`shared/settings.ts`](../src/shared/settings.ts), which **fails open**: a descriptor that has not
 arrived is not an instruction to withhold anything.
 
-**A ban is about a feature, not about media.** A mode that declined both would still declare its
-tier, join the mesh, take a roster and show the "Setting up match…" overlay exactly as any other —
-because `tier: 'disabled'` means *creates no peer identity*, which is a much larger thing, and
-because whatever is added to the mesh later should reach a mode that never asked to opt out of it.
+**A ban is about a feature, not about media.** Even if a mode bans both current features,
+participants still declare their tiers, join the mesh, receive rosters, and show the "Setting up
+match…" overlay. Disabling media entirely is a separate choice: `tier: 'disabled'` creates no peer
+identity.
 
 Where each ban bites, and why they differ:
 
@@ -219,20 +228,16 @@ The same shape as a media ban, for the same reason: a mode says one thing about 
 something else acts on it.
 
 ```ts
-readonly maxPlayers?: number;   // no shipped mode declares one
+readonly maxPlayers?: number;   // no current mode declares one
 ```
 
 **It is a fact about the mode's rules, not a setting.** A mode written for any number of players
-simply leaves it out, which all three shipped modes now do: a leg of x01 is a race of independent
-remaining scores, Whac-A-Mole counts turns rather than rounds, and count-up has barely a rule to
-its name — none of them has one that reads a second player's history while judging the first.
-Declaring a cap is not knowing that lobbies, users or connections exist — the same discipline as
-`fields` and `bansMedia`.
+simply leaves it out. Neither x01 nor Whac-A-Mole reads one player's history while judging another,
+and no registered mode declares a cap. Declaring one is not knowing that lobbies, users or
+connections exist — the same discipline as `fields` and `bansMedia`.
 
-The mechanism stays because it is the honest way for a mode to say so when its rules *are* written
-for a number, and the next one may be. Its behaviour is pinned by tests that register a capped mode
-for the purpose rather than by leaning on whichever shipped mode happens to declare one — which is
-what those tests used to do, and why they had to move twice.
+Tests register a capped mode to verify this optional part of the contract without depending on a
+production mode.
 
 **A mode narrows; it never widens.** The deployment's `server.maxPlayersPerMatch` (default 5) is the
 ceiling, and `effectiveMaxPlayers(serverMax, modeMax)` in
@@ -283,7 +288,8 @@ sweep it away before anybody saw it. Whac-A-Mole's curtain call is exactly that 
 is written `!over && allowance === 0` for that reason.
 
 The overview keeps `headline` on one line and measures it into the width left by the spectator
-badge, when there is one, and the **Leave** button. Its tone hint is honored, while its font size and weight belong to the overview.
+badge, when there is one, and the **Leave** button. Its tone hint is honoured, while its font size and
+weight belong to the overview.
 Keep the text concise: the fitter retains a readable minimum rather than shrinking an arbitrarily
 long headline into illegibility.
 
@@ -321,11 +327,11 @@ presentation lives. Note what this depends on: a tone used as a flag must actual
 that row, and it is the mode's job to keep it so.
 
 Why hints and not markup: the view is JSON on a WebSocket, and React elements do not survive
-`JSON.stringify`. A mode that needs real markup has the [panel](#the-match-screen) for it.
+`JSON.stringify`. A mode that needs real markup can provide an
+[optional client component](#the-optional-second-file).
 
-Note what this buys beyond looks — **the screen stops inferring.** It used to decide a card score was
-a verdict by testing whether the string was numeric, and colour a dart slot by checking whether the
-dart scored above zero. Both were the screen guessing at x01's rules. Now x01 says so.
+The screen does not infer mode meaning from text or score values. A mode supplies the relevant
+semantic tone explicitly.
 
 The page-level boxes are arranged by the responsive match grid rather than a fixed DOM order:
 
@@ -339,8 +345,8 @@ The page-level boxes are arranged by the responsive match grid rather than a fix
 | 6 | Visit history | optional live card, disabled by default at every breakpoint | `history`, newest first |
 
 Every match-card title bar is user-hideable at each responsive breakpoint. A mode must therefore
-treat `notice`, `panel.title`, and any future header badge or action as supplemental presentation,
-never as the only place for information or a control required to play. Whac-A-Mole satisfies this:
+treat `notice` and `panel.title` as supplemental presentation, never as the only place for
+information or a control required to play. Whac-A-Mole satisfies this:
 removing its mode-panel title loses no rules or state, all of which remain in the overview and the
 panel's own HUD.
 
@@ -365,8 +371,7 @@ What this looks like in practice:
 - **A breakpoint or explicit layout edit may change the size; content may not.** What must not
   happen is the same match layout changing under itself because a score or statistic changed.
 
-This is good practice rather than an enforced rule, and there are places that do not follow it yet.
-Anything new on the match screen should.
+Preserve these constraints when adding match-screen content.
 
 ### The summary
 
@@ -384,9 +389,7 @@ means the same whatever was played. The re-match in particular is **not** a mode
 an ordinary new match with the same settings and participants, and no mode is consulted.
 
 The summary has its own `match-summary` RGL profile, distinct from the live screen's `match-live`
-profile. That is presentation state only and does not widen the game-mode contract. If a future
-summary needs mode statistics, add that surface deliberately rather than assuming the live panel is
-still mounted.
+profile. That presentation state does not widen the game-mode contract.
 
 This is also why a finished match needs no special handling on the mode side: its current leg is
 empty, and there is nothing left for the mode to describe.
@@ -398,7 +401,7 @@ Notes:
   semantic tone, while the card automatically chooses the largest font that fits in both axes.
 - **Slot contents default sensibly.** Without `slots`, the screen renders the dart's own label —
   `T20 (60)` — which is the right thing for most modes. A mode overrides it only if it needs to.
-- **The mode panel** (element 3) is the mode's own block, described as data:
+- **The mode panel** (element 5) is the mode's own block, described as data:
 
   ```ts
   interface ModePanel {
@@ -406,6 +409,7 @@ Notes:
     lines?: ViewText[];                                    // facts about the leg, not about a player
     rows: { label: string; values: Record<PlayerId, ViewText> }[];
     custom?: unknown;                                      // only if the mode ships a component too
+    render?: 'auto' | 'table';                             // 'table' asks for the rows even where a component exists
   }
   ```
 
@@ -438,19 +442,8 @@ Two consequences worth knowing:
 
 ### The development-only mode
 
-`count-up` is installed in development builds and in the test runner, and **not in production**:
-`registry.ts` imports it behind `IS_DEV`, the same switch that hides x01's `stats` field. Expect to
-see it in the lobby under `npm run dev` and not on a deployed server.
-
-It was added when x01 and Whac-A-Mole both capped themselves at two players
-([Limiting the player count](#limiting-the-player-count)) and nothing could exercise a match of
-three or more. Both have since been migrated, so a deployed server plays five-handed without it;
-what count-up still gives the test suite is a mode with **no rules to get in the way** — every dart
-adds its face value, first to `targetScore` takes the leg, no busts and no finishing rule. Keeping
-it out of production is what lets it stay that thin.
-
-It is the one exception to "a mode is a file plus one line": the line is conditional. Anything else
-about it is an ordinary mode.
+`count-up` is registered only in development and tests through the `IS_DEV` branch in `registry.ts`;
+production registers x01 and Whac-A-Mole.
 
 ### Writing one
 
@@ -475,10 +468,20 @@ export const highscore: GameMode = {
 
   finalizeVisit(ctx: LegContext): FinalizedVisit {
     const darts = ctx.currentVisit?.darts ?? [];
-    const visit: Visit = { playerId: ctx.currentPlayerId, darts, visitNumber: ctx.visits.length + 1, voided: false };
+    const visit: Visit = {
+      playerId: ctx.currentPlayerId,
+      darts,
+      visitNumber: ctx.visits.length + 1,
+      voided: false,
+    };
     const total = scored(ctx.visits, ctx.currentPlayerId) + points(darts);
     // A leg always ends with a winner. That guarantee is what the match layer is built on.
-    return { visit, legWinnerId: total >= numberOr(ctx.settings, 'target', 200) ? ctx.currentPlayerId : null };
+    return {
+      visit,
+      legWinnerId: total >= numberOr(ctx.settings, 'target', 200)
+        ? ctx.currentPlayerId
+        : null,
+    };
   },
 
   view(ctx: LegContext): ModeView { /* headline, playerScores, visitTotal, dartsPerVisit, history */ },
@@ -509,9 +512,9 @@ Things that catch people:
 
 A mode may add `src/client/modes/<id>.tsx`, exporting a component as default. It is picked up by
 filename — no registry to edit on this half, since Vite's `import.meta.glob` resolves the directory
-when the client is built ([`panels.ts`](../src/client/modes/panels.ts)) — and **replaces** the
-generic table, receiving the whole panel: the same rows, plus whatever the mode put in `custom` for
-its own use.
+when the client is built ([`panels.ts`](../src/client/modes/panels.ts)) — and by default **replaces**
+the generic table, receiving the whole panel: the same rows, plus whatever the mode put in `custom`
+for its own use.
 
 The two halves degrade into each other, which is the property to preserve when writing one:
 
@@ -520,33 +523,33 @@ The two halves degrade into each other, which is the property to preserve when w
 | the rows | drawn however the mode likes | a plain table |
 | `custom` | drawn | ignored |
 
+**`ModePanel.render` is how a mode asks for the table anyway.** `auto`, the default, is what the
+table above describes: the component where the deployment has one, the table where it does not. `'table'` asks for
+the table at both ends, which is what x01's development-only `stats: 'text'` selects. It is a
+preference rather than an instruction, because the server half of a mode cannot see whether its
+client half was built in — so `auto` can only ever promise the component where there is one to use.
+
 **Whac-A-Mole is the worked example of taking that further**
 ([`whac-a-mole.tsx`](../src/client/modes/whac-a-mole.tsx)). Its panel draws a heads-up display in the
 slot it was given, and then portals two more surfaces: an overlay into the live dartboard's own
-wrapper — mirroring its viewBox, so it follows the precision-aim zoom, and `pointer-events: none`, so
+wrapper — mirroring its viewBox, so it follows the
+[precision-aim zoom](./ui.md#precision-aiming), and `pointer-events: none`, so
 every click still reaches the board underneath — and a closing screen sized to exactly that same
 square, which is what keeps the score cards and the Submit button it asks you to press uncovered.
-Nothing in the match screen was changed to allow it; the board is found through
-`[data-testid="dartboard"]`, which is recorded as a leak in the
-[glossary's table](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers). Delete the file
-and the mode is still playable off its rows.
+It finds the board through `[data-testid="dartboard"]`, which is the current integration limit for a
+mode drawing outside its panel. Without the client file, the mode remains playable through its
+generic rows.
 
 **x01 is the worked example of the ordinary case** ([`x01.tsx`](../src/client/modes/x01.tsx)). It
-lays the same rows out per player rather than per statistic, highlights whoever leads each one — knowing that *fewer* darts
-is better, which is the sort of thing only a mode can know — and draws recent visit scores as bars
-from the `custom` payload, a shape a table has no way to express. Delete the file and the panel is a
-table of the same six numbers; nothing is lost but the presentation.
+lays the same rows out per player rather than per statistic, highlights whoever leads each one —
+knowing that *fewer* darts is better, which is the sort of thing only a mode can know — and draws
+recent visit scores as bars from the `custom` payload, a shape a table has no way to express. Delete
+the file and the panel falls back to a table of the same six numbers; only the presentation changes.
 
 That file is the *only* reason a mode is ever more than one file, and it needs a client build to take
 effect, not just a restart.
 
-Nothing else in the app should need to change. The standing check is
-
-```
-grep -rE 'startScore|doubleIn|doubleOut|bust' src
-```
-
-— outside `server/modes/x01.ts` that should return nothing but comments and dartboard geometry. If your mode forces a change elsewhere, that is a leak: record it in the
-glossary's
-[mode-specific vocabulary table](./glossary.md#mode-specific-vocabulary-in-mode-agnostic-layers)
+Nothing else in the app should need to change. Search `src/` for `startScore`, `doubleIn`,
+`doubleOut`, and `bust`; outside `server/modes/x01.ts`, results should be limited to comments and
+dartboard geometry. If a mode requires a change in a generic layer, document that boundary here
 rather than working around it quietly.

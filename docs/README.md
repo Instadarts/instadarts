@@ -3,36 +3,34 @@
 Internal documentation for people (and agents) developing this app — not end-user documentation.
 
 Ground rule: **the implementation is the source of truth.** These documents describe what exists.
-Anything agreed but not yet built is marked ⏳ and must not be written about as if it were there.
+Use a temporary `plan-<topic>.md` for implementation steps while an imminent change is active, then
+remove it when the work is completed or cancelled. Product-level planned outcomes belong in the
+root [`ROADMAP.md`](../ROADMAP.md), not in the current-state documentation.
 
 ## Contents
 
-- [Glossary](./glossary.md) — the domain vocabulary: user, player, lobby, match, game mode, leg, set,
-  visit, dart, scoring device. Read this first; it also records where the code's names disagree with
-  the words we use, and which mode-specific words have leaked into mode-agnostic layers.
-- [User-interface architecture](./ui.md) — the shared Mantine design system, the palette and its
-  tokens, bright and dark, the frontend's responsive box grids, match layout editing and persistence,
-  application zoom, scorer layout, and the boundary around specialized visual CSS. Read this before
-  changing a screen.
-- [Game modes](./game-modes.md) — the contract a game mode implements, what it may look at, and how
-  the match screen is split between universal chrome and mode-provided values. Read this before
-  adding a mode or touching the match screen.
-- [The scoring pipeline](./vision.md) — how a camera turns a thrown dart into a number, what the
-  tests cover, and the parts only real hardware can check. Read this before touching anything under
-  `vision/`.
-- [Media](./media.md) — the optional peer-to-peer video feature: who the server lets connect to whom
-  and why that one rule is the whole security model, why a link carries no video track, and how to
-  turn it off. It also covers shipped dart-evidence stills and live remote boards in online matches.
-- [Working on this app](./development.md) — how to run the app, how a deployment is tuned, what a
-  release is and what the workflow checks before publishing one, how the built client is served, the
-  tests and the typechecks, how to check a UI change, and the traps that have caught people here.
-  Read this first if you are about to run something.
+- [Glossary](./glossary.md) — domain vocabulary and naming conventions.
+- [Match lifecycle and session ownership](./match-lifecycle.md) — lobbies, matches, seats,
+  reconnects, departures, re-matches, and deadlines.
+- [User-interface architecture](./ui.md) — the design system, themes, responsive grids, layout
+  editing, the dartboard, and scorer UI.
+- [Game modes](./game-modes.md) — the mode contract, settings, match-screen integration, and layer
+  boundaries.
+- [The scoring pipeline](./vision.md) — the camera and model pipeline, test coverage, and checks that
+  require real hardware.
+- [Media](./media.md) — peer-to-peer connections, authorization, dart-evidence stills, and live board
+  video.
+- [Working on this app](./development.md) — setup, configuration, releases, tests, and common
+  contributor pitfalls.
 
-Changing something from outside the project? [CONTRIBUTING.md](../CONTRIBUTING.md) covers what a
-pull request has to arrive with — its scope, its tests, and which of these documents it has to keep
-true. These documents are what it should be written against.
+Want to contribute? See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to report issues and submit
+pull requests. See [ROADMAP.md](../ROADMAP.md) for planned product work and
+[CHANGELOG.md](../CHANGELOG.md) for notable completed changes.
 
 Deployment settings live in one optional file, described in
 [development.md](./development.md#settings) and shown with every knob at its default in
 [`instadarts.config.example.jsonc`](../instadarts.config.example.jsonc). There are no configuration
-environment variables — `NODE_ENV` decides whether a build is a development one, and that is all.
+values in environment variables: `INSTADARTS_CONFIG` and `INSTADARTS_DIR` only locate the settings
+file. The environment variables that remain describe the run rather than the deployment —
+`NODE_ENV` selects the build environment, `CLIENT_DIR` names the built client to serve (and naming
+it is what asks for it to be served at all), and `QUIET` suppresses startup chatter.

@@ -33,6 +33,10 @@ Use `npm run dev` for the API/WebSocket server and Vite client together. Run `np
 suite and `npm run test:e2e` for the browser suite. The internal documentation starts at
 [docs/README.md](docs/README.md).
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) before submitting an issue or pull request. Planned
+user-facing work is listed in [ROADMAP.md](ROADMAP.md), and notable completed changes are recorded in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 InstaDarts is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE).

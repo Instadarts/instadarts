@@ -17,11 +17,9 @@ first player each user added, so two players one user brought share a slot and t
 once for both. One user holding the whole roster is that rule at its extreme: one slot, every player
 standing at it.
 
-**The mesh is built for at most two boards**, which covers every shape that plays: one user with any
-number of players at one board, and two users however they split theirs — one each, or two and one,
-or two and two. The peers are the same in each case, because the peers are the frontends and their
-cameras rather than the players. Nothing here asks how the match was created; it asks how many
-boards are in play.
+**The mesh supports at most two boards:** one user with any number of players at one board, or two
+users however they split their players. The peers are frontends and scoring devices rather than
+players, so the topology depends on the number of boards, not how the match was created.
 
 A match with a third board gets **no session at all**: `startMediaForMatch` returns without creating
 one, which is the state a deployment with `media.enabled: false` already produces, so every client
@@ -29,13 +27,9 @@ path handles it. It is not a mesh with nobody in it — no peer identity is ever
 mesh is a topology nobody has designed; this is where that decision would be made.
 
 The match messages carry **`mediaDisabled`** so the frontend does not announce itself into a session
-that is never coming. That is now its only client-side effect — it gates `useMediaMesh`'s `matchId`
-in [`App.tsx`](../src/client/App.tsx) and nothing else. **The screen does not mention it.** It used
-to carry a "video off · more than two boards" badge, on the reasoning that missing video would
-otherwise read as a fault; the badge was removed because nothing is missing to a player looking at
-the screen. No feed is offered, no placeholder is drawn, and the match plays on the virtual board
-exactly as a two-board match does when its peers cannot connect. Explaining an absence nobody
-notices cost a line of the overview at every width.
+that is never coming. It gates `useMediaMesh`'s `matchId` in
+[`App.tsx`](../src/client/App.tsx). The screen shows no media status for this case: no feed is
+offered, and the match continues on the virtual board.
 
 Each frontend declares its current choice after it receives a running match:
 
@@ -47,21 +41,28 @@ The declaration is idempotent and is repeated after match start, rematch, page r
 entry, WebSocket replacement, and an explicit media/camera change. `tier: 'disabled'` with a null
 camera is a complete declaration: it counts toward setup but creates no peer identity.
 
+`MediaTier` is the scoring device's offer: `disabled`, `stills`, or `video`. The frontend separately
+nominates at most one claimed device as its `boardCamera`; none is valid. A device becomes a media
+source only when its own tier and the frontend's nomination both allow it. The frontend's media
+switch controls whether that browser participates at all, while the board-camera choice controls
+only whether it publishes its board.
+
 Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A scoring phone may
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
 does not create mesh state.
 
-On every finish path—victory, cancellation, permanent leave, or idle expiry—the server sends inactive
-source directives, publishes empty rosters, and destroys the media session immediately. A rematch
-creates a fresh mesh and clients resubmit their stored choices; the server copies no source selection.
+On every finish path — victory, cancellation, permanent leave, or idle expiry — the server sends
+inactive source directives, publishes empty rosters, and destroys the media session immediately. A
+rematch creates a fresh mesh and clients resubmit their stored choices; the server copies no source
+selection.
 
 A [game mode](./game-modes.md#declining-a-media-feature) may decline a feature: `bansMedia` names
 `boardVideo`, `dartEvidence`, or both. The session reads it once at creation and it changes nothing
-about the mesh—the same declarations, peer ids, roster and setup overlay—because a ban is about one
-feature and not about media. Board video is refused where it is granted, at the source directive, so
-a declined feed is never offered and the camera stays in every roster with its stills and director
-edges intact. A still request never reaches the server, so that ban is honoured by the frontend not
-asking.
+about the mesh — the same declarations, peer IDs, roster and setup overlay — because a ban is about
+one feature and not about media. Board video is refused where it is granted, at the source directive,
+so a declined feed is never offered and the camera stays in every roster with its stills and
+director edges intact. A still request never reaches the server, so that ban is honoured by the
+frontend not asking.
 
 ## Identities and topology
 
@@ -120,8 +121,8 @@ Repeating an active directive with the same epoch is idempotent. A new match, sc
 incarnation, source selection, or tier reactivation creates a new epoch. The scorer creates one feed
 UUID for that epoch.
 
-The participant frontend no longer sends `video_start` or `video_stop`. The server-owned directive is
-why an owner's temporary socket loss does not stop a healthy scorer feeding other recipients.
+The participant frontend does not send `video_start` or `video_stop`. The server-owned directive
+means an owner's temporary socket loss does not stop a healthy scorer feeding other recipients.
 Explicit opt-out, source change, device withdrawal, scorer replacement, or match finish ends the old
 epoch.
 
@@ -141,6 +142,43 @@ roster removal, role loss, decline, feed end, source-epoch change, or match end.
 `still_request`, still responses, `video_region`, accept/decline, feed lifecycle, pings, and keyframe
 requests remain peer-to-peer. A scorer accepts still and director commands only over its exact `own`
 roster edge.
+
+Audience values are `owner`, `opponent`, and `spectator`. They authorize an offer, not delivery: a
+recipient must still accept the exact feed, remain in the roster, and be eligible for the current
+source epoch. Missing, empty, or invalid audience input is clamped to `owner`, never expanded to
+every role.
+
+### Regions, stills, and dart evidence
+
+A `Region` is a square in normalized board space, described by its centre and side length in
+`[0, 1]`. `{ x: 0.5, y: 0.5, size: 1 }` means the whole board. It describes what to show rather than
+camera pixels, so the same request works from every camera angle. `clampRegion` moves an outlying
+centre inward until the square fits instead of rejecting or shrinking the request.
+
+A still is one square JPEG of a region, captured on request and returned on the reliable control
+channel. Only the selected camera's owner may request one, and the request names the audience for
+the response. Output size comes from `media.still.size`; mime type and quality are fixed in
+[`shared/media.ts`](../src/shared/media.ts).
+
+**Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
+it when a dart appears, every eligible viewer receives the same image, undo removes it with the
+dart, and submitting clears it with the visit.
+
+### Director commands and the virtual camera
+
+`video_region` asks the selected camera to show a board region, optionally naming a transition time
+and how long to hold the shot before returning to the full-board crop. It is an owner-only command.
+The dart-evidence path sends it beside each still request so remote video follows the photographed
+dart.
+
+Commands are fire-and-forget, so a shot has a reset deadline. Omitting the transition cuts directly;
+omitting the reset uses `media.virtualCamera.resetMs`; `resetMs: 0` means the caller will send the
+release itself.
+
+The **virtual camera** implements the move as an interpolated `drawImage` source rectangle. It
+re-resolves the requested board region on every frame, allowing a feed to start on the centred base
+crop and move into place once board geometry is available. A command that interrupts another begins
+from the current interpolated position.
 
 ### Live board video
 

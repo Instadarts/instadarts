@@ -7,8 +7,9 @@
 // arithmetic in it is exercised by tests/unit/still.test.ts, but whether the pieces fit together is
 // only answerable here.
 //
-// Lives in the `heavy` project (see playwright.config.ts) because it drives a model, and that is the
-// load that provokes the scorer-power flake documented in docs/development.md.
+// Lives in the `heavy` project because it drives a model, and that is the load that starves a
+// scoring device's page into missing a heartbeat — which fails `scorer-power`, not this file. The
+// project ordering and the reasoning are in playwright.config.ts.
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';

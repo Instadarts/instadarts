@@ -34,8 +34,8 @@ const MAX_DARTS = 3;
 
 /**
  * x01's own settings, read out of the untyped bag the mode is handed. Values arriving from a client
- * have already been validated against the fields x01 declares in shared/modes/catalog.ts; the
- * fallbacks here are for a settings object built by anything else.
+ * have already been validated against the `fields` x01 declares below; the fallbacks here are for a
+ * settings object built by anything else.
  */
 interface X01Settings {
   startScore: number;

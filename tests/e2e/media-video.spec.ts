@@ -7,9 +7,10 @@
 // frames, that turns only change which received feed is displayed, that only the owner can command
 // it, and that a director's region actually moves the shot.
 //
-// Lives in the `heavy` project (see playwright.config.ts) because it drives a model and a software
-// encoder at once, which is the load that provokes the scorer-power flake documented in
-// docs/development.md.
+// Lives in the `heavy` project because it drives a model and a software encoder at once, which is
+// the load that starves a scoring device's page into missing a heartbeat — which fails
+// `scorer-power`, not this file. The project ordering and the reasoning are in
+// playwright.config.ts.
 
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';

@@ -109,16 +109,20 @@ export default defineConfig({
    * headless container — `media-stills` drives a detection model to solve a homography before it can
    * crop anything, `media-video` does both at once, and `scorer-onboarding` runs the device
    * self-test for real: five model loads and some thirty inferences on a CPU that has no GPU to fall
-   * back from. Any of them beside the specs that are
-   * already driving a model is enough contention
-   * to starve a scoring device's page until it misses a heartbeat, and a scoring
-   * device that reconnects mid-match restarts a camera its owner had switched off
-   * (`useScorerLink` clears `scoring` on disconnect; `useScorerPower` reads its return as a match
-   * beginning). The test that then fails is `scorer-power`, which has nothing to do with any of it.
+   * back from. Any of them beside the specs that are already driving a model is enough contention to
+   * starve a scoring device's page until it misses the server heartbeat and is cut. The test that
+   * then fails is `scorer-power`, which has nothing to do with any of it.
    *
-   * That underlying behaviour is a separate question and is deliberately not addressed here. This
-   * only stops the expensive newcomers from being the thing that provokes it: `dependencies` makes
-   * the `heavy` project wait until everything else has finished.
+   * The mechanism this comment used to blame — a device reading its own reconnect as a match start
+   * and restarting a camera its owner had switched off — is fixed, and the fix is what
+   * `scorer-power` now guards: `scorerReconnect.ts` classifies a fresh `scorer_state` as `started`
+   * or `resumed` against the scoring context it already had, and `useScorerPower` restarts on a
+   * `resumed` only where its own timer was what stopped the camera. See docs/vision.md, "Power
+   * management". What is left here is the starvation itself.
+   *
+   * That is a separate question and is deliberately not addressed here. This only stops the
+   * expensive newcomers from being the thing that provokes it: `dependencies` makes the `heavy`
+   * project wait until everything else has finished.
    *
    * Note worker count is *not* the lever — the suite has failed at eight workers and passed at
    * thirteen. What matters is which files happen to overlap, not how many run at once.

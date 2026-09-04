@@ -1,0 +1,197 @@
+/* disable user select */
+body {
+  user-select: none;
+}
+
+/* Restore text selection inside fields after the app-wide interaction default. */
+input[type="text"],
+input[type="search"],
+textarea {
+  user-select: text;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  /* Every number on screen is a score being compared to another one, so they are tabular
+     everywhere: a changing total stops shuffling the digits beside it. */
+  font-variant-numeric: tabular-nums;
+}
+
+.frontend-grid-host,
+.frontend-grid {
+  width: 100%;
+}
+
+.frontend-grid-content,
+.frontend-grid-content > .frontend-grid-box {
+  height: 100%;
+  min-height: 0;
+}
+
+.frontend-grid-box {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.frontend-grid-box__header {
+  flex: 0 0 auto;
+}
+
+/* A hidden title bar returns as an edit overlay without changing the box's body geometry. */
+.frontend-grid-box--edit-header-overlay {
+  position: relative;
+}
+
+/*
+ * The strip takes its own pointer events rather than letting them through.
+ *
+ * It is translucent, so the body stays readable underneath — and that is the whole reason it must
+ * not be transparent to the pointer. Overview hides its title bar by default and is only four rows
+ * tall, which put this overlay across 30 of the Leave button's 36 pixels: a click meant for the
+ * title bar landed on Leave and ended the match, and leaving is final. What shows through the strip
+ * while editing is context, not a target, so those top pixels are deliberately inert until edit
+ * mode is switched off.
+ *
+ * It recolours the bar by setting `--instadarts-card-header-bg` rather than `background`, because
+ * `AppCard` paints the title bar with Mantine's `bg` prop and that is an inline style: a rule here
+ * would lose to it. The variable is the hook AppCard leaves open for exactly this.
+ */
+.frontend-grid-box--edit-header-overlay > .frontend-grid-box__header {
+  --instadarts-card-header-bg: var(--instadarts-edit-overlay);
+  inset: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+}
+
+.frontend-grid-box--edit-header-overlay > [data-app-card-header-divider] {
+  display: none;
+}
+
+.frontend-grid-box__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.frontend-grid-box__content {
+  min-width: 0;
+  width: 100%;
+}
+
+.frontend-grid-content--fixed .frontend-grid-box__content {
+  height: 100%;
+  min-height: 0;
+}
+
+.frontend-grid-content--auto .frontend-grid-box__body {
+  justify-content: center;
+}
+
+.frontend-grid-content--auto > .frontend-grid-box,
+.frontend-grid-content--auto .frontend-grid-box__body {
+  overflow: visible;
+}
+
+.frontend-grid-drag-handle {
+  cursor: grab;
+  line-height: 1;
+  touch-action: none;
+}
+
+.frontend-grid-drag-handle:active {
+  cursor: grabbing;
+}
+
+.frontend-board-area {
+  container-type: size;
+  display: grid;
+  flex: 0 0 auto;
+  height: 100%;
+  min-height: 0;
+  place-items: center;
+  width: 100%;
+}
+
+.match-overview__headline-group {
+  flex: 1 1 0;
+  overflow: clip;
+}
+
+.frontend-grid--editing .react-grid-item:not(.react-grid-placeholder) {
+  outline: 1px dashed var(--instadarts-edit-outline);
+  outline-offset: 2px;
+}
+
+.frontend-grid--editing .react-resizable-handle::after {
+  border-color: var(--instadarts-edit-outline);
+  border-width: 0 3px 3px 0;
+  height: 10px;
+  width: 10px;
+}
+
+/*
+ * The application background: the page colour with two soft washes over it — the brand green
+ * from the top left and brass from the bottom right. Both are palette tokens, so the wash follows
+ * the colour scheme instead of being a green tint that only ever suited a dark page.
+ */
+.app-main {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 15% 0%, var(--instadarts-app-glow-a), transparent 34rem),
+    radial-gradient(circle at 85% 100%, var(--instadarts-app-glow-b), transparent 38rem),
+    var(--instadarts-app-bg);
+}
+
+.scorer-column {
+  width: 100%;
+  max-width: 28rem;
+}
+
+html[data-app="frontend"] #root {
+  zoom: var(--instadarts-frontend-zoom, 100%);
+}
+
+html[data-app="scorer"] #root {
+  zoom: var(--instadarts-scorer-zoom, 100%);
+}
+
+/*
+ * The pulsing ring a control wears while it is the thing somebody should press next.
+ *
+ * A ring and nothing else: an element wearing this neither grows nor moves what is beside it, so
+ * the class can be handed to a button that is already laid out without the layout knowing. Both
+ * colours are custom properties, so a second highlight somewhere else overrides them on its own
+ * element rather than growing a second set of keyframes.
+ *
+ * It lives here because keyframes are the one thing inline style cannot express. Today's caller is
+ * the first-pairing nudge — the top bar's camera control, the pairing button inside its menu, and
+ * the home page's Pair a Scoring Device — all of which drop it once this browser has paired one
+ * device.
+ */
+@keyframes instadarts-button-hint {
+  0%, 100% { box-shadow: 0 0 0 0 var(--button-hint-ring); }
+  70% { box-shadow: 0 0 0 8px var(--button-hint-ring-fade); }
+}
+
+.button-hint {
+  --button-hint-ring: var(--instadarts-hint-ring);
+  --button-hint-ring-fade: var(--instadarts-hint-ring-fade);
+  animation: instadarts-button-hint 2.4s ease-out infinite;
+}
+
+/* The same statement, held still: what it points at matters more than the motion that pointed. */
+@media (prefers-reduced-motion: reduce) {
+  .button-hint {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--button-hint-ring);
+  }
+}

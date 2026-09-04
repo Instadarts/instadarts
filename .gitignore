@@ -1,0 +1,30 @@
+# Dependencies, generated builds, and test output.
+node_modules/
+/dist/
+/release/
+/coverage/
+/test-results/
+/playwright-report/
+*.tsbuildinfo
+*.log
+
+# Local work and editor/OS metadata.
+/plans/
+/tmp/
+/.vscode/
+/.idea/
+.DS_Store
+Thumbs.db
+
+# Local environment and deployment settings. The committed configuration template is
+# instadarts.config.example.jsonc.
+/.env
+/.env.*
+!/.env.example
+/instadarts.config.jsonc
+/instadarts.config.json
+
+# The certificate the server makes for itself when HTTPS is enabled without a configured
+# certificate. It belongs only to the machine that generated it.
+/instadarts-selfsigned.pem
+/instadarts-selfsigned.key

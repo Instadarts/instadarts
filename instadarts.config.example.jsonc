@@ -1,0 +1,163 @@
+// InstaDarts settings — every knob there is, set to what it already does.
+//
+// To use it: copy this file to `instadarts.config.jsonc`, beside the executable or in the directory
+// you start it from, and change what you want changed. Copied as it stands it changes nothing —
+// every value below is the one the server would have used anyway.
+//
+// **Delete a line to go back to following the default.** That is not the same as setting it to the
+// number printed here: a deleted setting follows whatever a future version decides is right, and one
+// left in place keeps this number for good. If you have no opinion about a setting, deleting it is
+// the better answer.
+//
+// The file itself is optional too. With no file at all, all of this is what you get.
+//
+// `.jsonc` is JSON with comments — which is what this is, and why it is not named `.json`: an editor
+// told it is reading JSON is right to object to the lines below. `instadarts.config.json` is
+// accepted too, if you prefer the familiar name.
+//
+// Don't worry about the commas. A comma left dangling before a `}` or a `]` — which is what deleting
+// or commenting out the last setting in a section leaves behind — is understood and ignored.
+//
+// One thing that is deliberately NOT here: whether this is a development or a production build. That
+// is decided when the program is built, not when it is run.
+//
+// A value that is the wrong type or out of range is ignored and reported at startup — the default
+// stands and the server carries on. A file that cannot be read as JSON at all stops the server, and
+// says which line it gave up on, because a deployment that thinks it is configured and is not is
+// worse than one that will not start.
+
+{
+  // ── The process itself ──────────────────────────────────────────────
+  "server": {
+    // Plain HTTP. Leave it on behind a reverse proxy that terminates TLS for you — a second
+    // handshake here would be overhead and nothing else.
+    "http": {
+      "enabled": true,
+      "port": 3000
+    },
+
+    // HTTPS, which a phone needs before its browser will open a camera: `getUserMedia` is refused
+    // outside a secure context, and a plain address on the local network is not one.
+    //
+    // With no certificate named the server makes its own, valid for the addresses it is listening
+    // on, and keeps it beside this file. Browsers warn about it once per device because nothing
+    // vouches for it — accept the warning and the camera works. Name a real certificate below and
+    // none of that happens.
+    //
+    // Paths are relative to this file, or absolute. Both or neither.
+    "https": {
+      "enabled": true,
+      "port": 3001,
+      "cert": null,
+      "key": null
+    },
+
+    // How big this deployment is sized for. The one number that scales the server: every limit it
+    // refuses or evicts by is derived from this, so this is the only figure to change.
+    "maxMatches": 10000,
+
+    // Most players a match on this server may hold, across all users. Game modes may narrow this
+    // for themselves, but no mode may raise it.
+    "maxPlayersPerMatch": 5
+  },
+
+  // ── The playing browser ─────────────────────────────────────────────
+  // Nothing to set yet.
+  "frontend": {},
+
+  // ── A paired phone watching a board ─────────────────────────────────
+  "scorer": {
+    // Frames a second to ask the camera for. An ideal, not a demand: a camera that cannot manage it
+    // gives what it can. Higher costs battery for pictures the motion gate mostly discards; lower
+    // risks a dart landing between two frames.
+    "cameraFrameRate": 15
+  },
+
+  // ── Shared by every device in a match ───────────────────────────────
+  // These cannot be per-device settings: two ends of a link have to agree on them, so the server
+  // hands the same answer to everybody.
+  "media": {
+    // Whether this deployment carries video and stills between the devices in a match at all.
+    // Off, the server relays nothing and neither app shows a thing.
+    "enabled": true,
+
+    // Where devices look up their own public address, so that two behind different routers can
+    // find each other. "internal" is the STUN server this deployment carries itself, and is the
+    // default — naming a public one instead means telling a stranger every player's address.
+    //
+    // Whatever is listed here is the whole list, so "internal" has to stay in it to be used:
+    //   ["internal"]                                    as shipped
+    //   ["internal", "stun:stun.example.org:19302"]     ours first, theirs as a fallback
+    //   ["stun:stun.example.org:19302"]                 theirs only; nothing runs here
+    //   []                                              neither: devices on one network only
+    //
+    // None of this is needed for a match. It only decides whether two people in different houses
+    // can see each other's board, and even with it there is no TURN and no relay: some pairs of
+    // home routers simply cannot be connected, and the app treats that as ordinary.
+    "iceUrls": ["internal"],
+
+    // The UDP port the internal STUN server answers on.
+    //
+    // It has to be reachable from the devices as UDP, which is the one part of a deployment a
+    // reverse proxy does not arrange — proxies forward TCP. Behind one, this port needs its own
+    // firewall rule straight to this machine. On a home network it is reachable already and does
+    // nothing useful, which is why it is safe to leave on.
+    "stunPort": 3478,
+
+    // Presentation-only wait at match entry. Gameplay continues when it expires.
+    "setupTimeoutMs": 4000,
+
+    // One photograph of part of the board: the close-up under a dart, and what a viewer is sent
+    // when they ask what the board looks like.
+    "still": {
+      // Side of the delivered image, in pixels. Square.
+      "size": 320
+    },
+
+    // The live picture a board camera publishes.
+    "video": {
+      // Side of the encoded picture, in pixels. Square, like everything else a camera here sends.
+      "size": 320,
+      "frameRate": 15,
+      // Bits per second. Fixed rather than adaptive: there is no bandwidth estimator to feed one.
+      "bitrate": 500000
+    },
+
+    // Pointing the live feed at part of the board. There is no lens that moves — the shot is a
+    // rectangle eased across the picture the camera already has — and these are what a command that
+    // does not say for itself gets. Anything that has an opinion sends its own; dartEvidence below
+    // sends both of them.
+    "virtualCamera": {
+      // How long the camera takes to reach the shot. 0 is a cut: not saying how to move means do
+      // not move, be there.
+      "transitionMs": 0,
+
+      // How long it stays there before going back to the whole board.
+      //
+      // Not saying how long to stay does NOT mean stay forever: pointing the camera is
+      // fire-and-forget, nothing guarantees a second message releasing it, and a camera left staring
+      // at something the match has moved past is worse than any framing. 0 turns the expiry off,
+      // which is the one outcome this exists to prevent — ask for it deliberately.
+      "resetMs": 2000
+    },
+
+    // The close-up shown under each dart as it lands.
+    "dartEvidence": {
+      // How much of the board it shows, as a fraction: enough to see which side of a wire a dart
+      // is on. Smaller is a tighter crop.
+      "regionSize": 0.25,
+
+      // What this one use overrides "virtualCamera" with. A camera swinging onto a dart reads as
+      // somebody looking at it, where the general default is a cut.
+      "transitionMs": 500,
+
+      // How long it stays on the dart before going back to the whole board. Said outright rather
+      // than left to "virtualCamera" above, because how long a dart is worth looking at is a
+      // question about darts — shorter than the general default, since three darts land in quick
+      // succession and a shot that outlasts the next one is in the way. 0 means it never goes back
+      // on its own, and nothing else will send it back — so the camera would sit on that dart for
+      // the rest of the match.
+      "resetMs": 1000
+    }
+  }
+}

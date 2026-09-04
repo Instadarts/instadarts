@@ -1,0 +1,40 @@
+{
+  "name": "instadarts",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/dev.ts",
+    "build": "vite build && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.node.json --noEmit && node scripts/third-party-notices.mjs --client-only dist/client/THIRD-PARTY-NOTICES.txt",
+    "start": "node --import tsx src/server/start.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "tsx": "^4.23.7",
+    "ws": "^8.21.2"
+  },
+  "devDependencies": {
+    "@litertjs/core": "^2.5.3",
+    "@mantine/core": "^9.5.1",
+    "@playwright/test": "^1.62.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@webgpu/types": "^0.1.71",
+    "esbuild": "^0.28.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-grid-layout": "^2.2.4",
+    "react-router": "^8.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,34 @@
+# Publishing is currently blocked by `private: true` in package.json. These rules define the
+# package boundary if that guard is deliberately removed later. Source, production build output,
+# build scripts, documentation, and the example configuration are intentionally retained.
+
+# Repository and contributor-only files.
+/.github/
+/.vscode/
+/.idea/
+/plans/
+/tmp/
+/tests/
+/test-results/
+/playwright-report/
+/coverage/
+/release/
+/CONTRIBUTING.md
+/playwright.config.ts
+/vitest.config.ts
+
+# Installed dependencies and local/generated debris.
+node_modules/
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+
+# Machine-local environment, deployment settings, and generated certificates.
+/.env
+/.env.*
+!/.env.example
+/instadarts.config.jsonc
+/instadarts.config.json
+/instadarts-selfsigned.pem
+/instadarts-selfsigned.key

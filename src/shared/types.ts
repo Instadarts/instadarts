@@ -1,0 +1,282 @@
+// --- Scoring ---
+
+export interface ScoreResult {
+  label: string;
+  points: number;
+  mult: number;
+  base: number;
+}
+
+// --- Match entities ---
+
+export interface Player {
+  id: string;
+  name: string;
+  /**
+   * The user (frontend connection) that added this player. One user may hold several: every player
+   * in a match nobody else joined, and as many as it added in one they did.
+   *
+   * **Server-side only, and absent from every Player a client has ever held.** A lobby and a match
+   * go on the wire whole — to everyone in the room, spectators with them — so this is stripped on
+   * the way out (`lobbyMessage` / `matchMessage`). Nobody outside the server has a use for another
+   * user's session id: "are these players mine?" is answered by `yourPlayerIds`, which is only ever
+   * told to the connection it belongs to.
+   */
+  sessionId?: string;
+  /**
+   * The board this player throws at, named by the first player of the user who owns it. Players a
+   * single user added share one — which may be the whole roster. Public, unlike `sessionId`:
+   * it is a player id the whole room already has, and the screen needs it to know whose camera shows
+   * the thrower.
+   */
+  boardId?: string;
+}
+
+/**
+ * The boards in play, in roster order — one per user, since a user has one dartboard in front of
+ * them, named by the first of their players standing at it.
+ *
+ * Reads whichever owner identity the caller happens to hold: the server has `sessionId`, and the
+ * client has `boardId`, which `publicPlayers` derives from it on the way out. Both group the same
+ * players together, so both name the same boards in the same order.
+ */
+export function boardsOf(players: Player[]): string[] {
+  const seen = new Set<string>();
+  const boards: string[] = [];
+  for (const player of players) {
+    const owner = player.boardId ?? player.sessionId ?? player.id;
+    if (seen.has(owner)) continue;
+    seen.add(owner);
+    boards.push(player.boardId ?? player.id);
+  }
+  return boards;
+}
+
+/** How many boards are in play. */
+export function boardCount(players: Player[]): number {
+  return boardsOf(players).length;
+}
+
+export interface DartThrow {
+  x: number;
+  y: number;
+  score: ScoreResult;
+}
+
+export interface Visit {
+  darts: DartThrow[];
+  playerId: string;
+  visitNumber: number;
+  /** This visit scored nothing. The game mode decides when — x01 calls it a bust. */
+  voided: boolean;
+}
+
+export interface CurrentVisit {
+  playerId: string;
+  darts: DartThrow[];
+  locked: boolean;
+}
+
+// --- Match configuration ---
+
+export type { ModeSettings } from './settings';
+import type { ModeSettings } from './settings';
+
+/**
+ * Match-level settings. The format and the mode are universal; everything the mode itself needs
+ * lives under `modeSettings`, declared by the mode itself.
+ *
+ * Both counts have a minimum — and a default — of 1, so "first to 1 set, first to 1 leg" is a single
+ * play-through and needs no special case anywhere.
+ */
+export interface MatchSettings {
+  mode: string;
+  modeSettings: ModeSettings;
+  /** Legs a player must win to take a set. */
+  legsToWinSet: number;
+  /** Sets a player must win to take the match. */
+  setsToWinMatch: number;
+}
+
+// --- What the game mode contributes to the match screen ---
+
+/**
+ * How a piece of a mode's text should read.
+ *
+ * Deliberately semantic, not CSS: a mode says *what it means*, and the screen decides what that
+ * looks like in the element it lands in. `danger` is a red word in the history and a red-backed slot
+ * on the board, and a redesign changes both in one place. Raw colours would also not survive the
+ * wire — the whole view is JSON.
+ */
+export type TextTone = 'default' | 'muted' | 'accent' | 'positive' | 'warning' | 'danger';
+
+/**
+ * Any text a mode supplies. A mode may express semantic meaning through tone; sizing, weight and
+ * every other presentation choice belong to the client element that renders it.
+ */
+export type ViewText = string | { text: string; tone?: TextTone };
+
+/** The text of a `ViewText`, whichever form it came in. */
+export function textOf(value: ViewText | undefined): string {
+  if (value === undefined) return '';
+  return typeof value === 'string' ? value : value.text;
+}
+
+/** The semantic tone of a `ViewText`, if its mode supplied one. */
+export function toneOf(value: ViewText | undefined): TextTone | undefined {
+  return value === undefined || typeof value === 'string' ? undefined : value.tone;
+}
+
+/**
+ * Everything mode-specific the match screen displays, computed by the mode on the server and shipped
+ * with the match state. The screen holds no rules: it renders these values and nothing else knows
+ * what they mean.
+ *
+ * See docs/game-modes.md for which screen element each field feeds.
+ */
+export interface ModeView {
+  /** Headline text. x01: "501 — Double Out". */
+  headline: ViewText;
+  /** Optional visit-header notice. x01 uses it for the double-in prompt. */
+  notice?: ViewText;
+  /**
+   * Player card score, by player id. Text, not a number: it is what lets x01 put "Bust!" where a
+   * score goes without the screen knowing what a bust is. A mode may set its semantic tone; the
+   * card owns its geometry and automatically fits the text to the available space.
+   */
+  playerScores: Record<string, ViewText>;
+  /** The `Visit: <total>` line. Empty text hides the line entirely. */
+  visitTotal: ViewText;
+  dartsPerVisit: number;
+  /** Optional dart slot contents. Omitted → the screen renders each dart's own label. */
+  slots?: ViewText[];
+  /** Visit history, newest first, one entry per committed visit; shown by an optional live card. */
+  history: ViewText[];
+  /**
+   * This visit has nothing in it for the player whose turn it is, so the screen submits it for them
+   * rather than waiting on a button nobody has a reason to press.
+   *
+   * The only field here that asks for an action rather than describing something to draw, and the
+   * only one a mode must be careful with: *not throwing* and *nothing to wait for* are different
+   * states. A closing screen the mode wants read is also a visit with no darts in it, and setting
+   * this on one would skip it before anybody saw it. Say it only for a turn that is genuinely
+   * empty — Whac-A-Mole sets it for a player whose darts are all down the burrow, and deliberately
+   * not for its curtain call.
+   *
+   * The screen owns the pacing, and only the client holding that player submits.
+   */
+  autoSubmit?: boolean;
+}
+
+// --- Match state ---
+
+export type MatchStatus = 'in_progress' | 'finished';
+
+/** A leg that has been played out. The ordered list of these is what standings are derived from. */
+export interface CompletedLeg {
+  visits: Visit[];
+  winnerId: string;
+}
+
+export interface MatchState {
+  id: string;
+  status: MatchStatus;
+  settings: MatchSettings;
+  players: Player[];
+  /** The **current leg's** visits. Finished legs are in `legs`. */
+  visits: Visit[];
+  /** Every finished leg, in order. See shared/matchFormat.ts — standings are derived from it. */
+  legs: CompletedLeg[];
+  currentPlayerIndex: number;
+  /** Null on a finished match means it was cancelled rather than won. */
+  winnerId: string | null;
+  createdAt: number;
+  finishedAt: number | null;
+  currentVisit?: CurrentVisit;
+  /**
+   * Participants who have left. Leaving is final: they cannot rejoin, and it counts as declining a
+   * re-match, so a match anybody has left can never start one.
+   */
+  departed: string[];
+  /**
+   * Each player's answer to a re-match. A player with no entry has not answered yet. Everyone
+   * accepting starts one; a single decline settles it for good.
+   */
+  rematchVotes: Record<string, RematchAnswer>;
+  /**
+   * When this match dies unless something happens first.
+   *
+   * While it is being played, that is the idle timeout: any input pushes it back. Once it is over,
+   * it is the summary deadline — at which point unanswered re-match votes become declines and the
+   * match is torn down, so no match can linger on the server without an end.
+   */
+  expiresAt: number;
+}
+
+export type RematchAnswer = 'accepted' | 'declined';
+
+// --- Lobby ---
+
+export interface Lobby {
+  id: string;
+  players: Player[];
+  settings: MatchSettings;
+  inviteCode: string | null;
+  /**
+   * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the
+   * same reason `Player.sessionId` is: a lobby goes to everyone in it. A client asking "am I the
+   * creator?" is answered by `youAreHost`, which is told to one connection rather than to the room.
+   */
+  hostSessionId?: string | null;
+  /**
+   * Whether this lobby advertises an invite code and admits newcomers.
+   *
+   * Decided when it is created and never afterwards. A lobby that says no is minted without a code
+   * at all, so there is nothing to find it by — what the UI offers as a "Local Match". Nothing else
+   * follows from it: how a match is played is decided by who ended up in it, not by this.
+   */
+  acceptsJoins: boolean;
+  /** The effective cap this lobby enforces: the deployment's, narrowed by the mode's. */
+  maxPlayers: number;
+  /** Distinct user connections in this lobby. */
+  userCount: number;
+  /**
+   * Whether another user could still take a place — the server's own join rule, answered rather than
+   * described, so the screen cannot come to a different conclusion from the handler that enforces it.
+   */
+  admitting: boolean;
+  createdAt: number;
+  /** When this lobby is abandoned unless something happens first. Any input pushes it back. */
+  expiresAt: number;
+}
+
+// --- What a game mode contributes to the match screen, beyond one leg ---
+
+/**
+ * A mode's own block on the match screen — its vehicle for extending the match UI.
+ *
+ * Owned by the **match**, not by a leg: the mode is handed the whole match to build it, and can only
+ * ever return something to draw. That is what makes it safe to show it everything — nothing it
+ * returns here can affect how a leg is played.
+ *
+ * Declarative, so a mode needs no code in the client. A mode that genuinely must draw something this
+ * cannot express puts a payload in `custom` and ships a component for it.
+ */
+export interface ModePanel {
+  title?: string;
+  /** Facts about the match or the leg rather than about a player — a round number, a phase. */
+  lines?: ViewText[];
+  /** One row per statistic; one value per player id. */
+  rows: { label: string; values: Record<string, ViewText> }[];
+  /** For a mode that also ships a client component. Rendered below the rows. */
+  custom?: unknown;
+  /**
+   * How the mode would like the body drawn.
+   *
+   * `auto` (the default) uses the mode's own component where the deployment has one, and the
+   * generic table where it does not; `table` asks for the table either way. A preference and not an
+   * instruction: the server half of a mode cannot see whether its client half is installed, so
+   * `auto` can promise the component only where there is one to use.
+   */
+  render?: 'auto' | 'table';
+}

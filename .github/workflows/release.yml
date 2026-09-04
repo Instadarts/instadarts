@@ -1,0 +1,64 @@
+# Verify the tagged source, then publish the GitHub release.
+#
+# Nothing is built for distribution here. A release is the source itself — GitHub attaches the
+# "Source code" archives to every tag on its own — and the downloader installs the dependencies and
+# runs the production build locally. That keeps dist/ and node_modules out of Git, out of the
+# release, and out of any licence obligation of ours.
+#
+# Triggered by a version tag — `git tag v0.1.0 && git push --tags` — or by hand from the Actions
+# tab, which runs the same checks and publishes nothing. That is the dry run: it proves the source
+# a downloader would get still installs, tests and builds, without a release existing.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The major package.json declares. A release is verified on the Node line it claims to run
+      # on, at whatever patch that line is currently at.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # `npm ci` prints its advisory count and exits 0 whatever that count is, so the count only
+      # stops a release if it is asked to. `info` rather than a louder floor, because the number
+      # this mirrors is the total one that install itself reports.
+      #
+      # The dev half of the tree counts here. A source release is built by whoever downloads it, so
+      # their `npm install` pulls devDependencies too — an advisory in one of those is theirs to
+      # run, not ours to wave through as build-only.
+      #
+      # Checked at release time against the registry as it stands then, which means a tag can fail
+      # on an advisory published long after the code was written. That is the point: the question
+      # is whether this is safe to hand out today, not whether it was safe when it was merged.
+      - name: Audit dependencies
+        run: npm audit --audit-level=info
+
+      # Exercise the same source the user receives, the same way they will: the production build
+      # includes both typechecks and generation of dist/client/THIRD-PARTY-NOTICES.txt. Together
+      # with the audit above, this is the whole job — if it passes, the commit is fit to be a
+      # release.
+      - name: Test and build
+        run: |
+          npm test
+          npm run build
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes

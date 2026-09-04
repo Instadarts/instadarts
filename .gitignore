@@ -1,24 +1,30 @@
-plans
-tmp
-node_modules
-.vscode
-test-results
-playwright-report
-
-# Local build and archive output. GitHub Releases contain a source snapshot, so neither generated
-# client files nor release archives belong in the repository.
-dist
-release
-
-# A deployment's own settings, under either accepted name. The committed file is
-# instadarts.config.example.jsonc.
-instadarts.config.jsonc
-instadarts.config.json
-
-# The certificate the server makes for itself when https is on and none is configured. Belongs to
-# the machine that generated it, and naming the machine's addresses is the whole point of it.
-instadarts-selfsigned.pem
-instadarts-selfsigned.key
-
-#logs
+# Dependencies, generated builds, and test output.
+node_modules/
+/dist/
+/release/
+/coverage/
+/test-results/
+/playwright-report/
+*.tsbuildinfo
 *.log
+
+# Local work and editor/OS metadata.
+/plans/
+/tmp/
+/.vscode/
+/.idea/
+.DS_Store
+Thumbs.db
+
+# Local environment and deployment settings. The committed configuration template is
+# instadarts.config.example.jsonc.
+/.env
+/.env.*
+!/.env.example
+/instadarts.config.jsonc
+/instadarts.config.json
+
+# The certificate the server makes for itself when HTTPS is enabled without a configured
+# certificate. It belongs only to the machine that generated it.
+/instadarts-selfsigned.pem
+/instadarts-selfsigned.key

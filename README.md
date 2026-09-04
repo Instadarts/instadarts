@@ -39,19 +39,21 @@ For an online match, the host shares the invite code or link shown in the lobby.
 
 ## Screenshots
 
-### A 501 match in progress
+### A 301 match in progress
 
 ![A two-player x01 match with three camera-scored darts and a close-up evidence image for each dart](docs/assets/screenshots/match-with-dart-evidence.png)
 
+### Customizing the match layout
+
+![An animated demonstration of customizing a 301 match layout: shortening and moving the board card, then expanding the scores card into the open space, with all three dart evidence images visible](docs/assets/screenshots/customizing-match-layout.gif)
+
 ### The scoring device
 
-<p align="center">
-  <img src="docs/assets/screenshots/scoring-device.png" width="390" alt="The phone scoring interface showing a live dartboard camera view with three darts detected">
-</p>
+![The phone scoring interface showing a live dartboard camera view with three darts detected](docs/assets/screenshots/scoring-device.png)
 
 ### A Whac-A-Mole match in progress
 
-![A Whac-A-Mole match showing live moles, 11 holes, and a successful hit on the inner 1 mole](docs/assets/screenshots/whac-a-mole.png)
+![A Whac-A-Mole match showing three dart evidence images, live moles, 11 holes, and a successful mole hit](docs/assets/screenshots/whac-a-mole.png)
 
 ## Included game modes
 

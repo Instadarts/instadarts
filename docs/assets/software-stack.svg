@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 590" role="img" aria-labelledby="title desc">
+  <title id="title">How the InstaDarts software stack fits together</title>
+  <desc id="desc">Browser match frontends and browser scoring devices connect to an authoritative match server. Optional images and video travel directly between match devices.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#070b0a"/>
+      <stop offset="1" stop-color="#1f2b27"/>
+    </linearGradient>
+    <linearGradient id="server" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#166f42"/>
+      <stop offset="1" stop-color="#0c4728"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".35"/>
+    </filter>
+    <marker id="green-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6bc994"/>
+    </marker>
+    <marker id="blue-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8ed4d5"/>
+    </marker>
+    <!-- Flat, numberless pieces of the app's virtual board, sized for the scorer card. -->
+    <path id="mini-dark-sector" d="M 0 0 L -5.08 -32.09 A 32.49 32.49 0 0 1 5.08 -32.09 Z"/>
+    <path id="mini-red-triple" d="M -2.90 -18.29 L -3.20 -20.20 A 20.45 20.45 0 0 1 3.20 -20.20 L 2.90 -18.29 A 18.52 18.52 0 0 0 -2.90 -18.29 Z"/>
+    <path id="mini-red-double" d="M -4.78 -30.20 L -5.08 -32.09 A 32.49 32.49 0 0 1 5.08 -32.09 L 4.78 -30.20 A 30.58 30.58 0 0 0 -4.78 -30.20 Z"/>
+    <line id="mini-sector-divider" x1="0" y1="-3.06" x2="0" y2="-32.49"/>
+    <style>
+      .heading { fill: #dde5e1; font: 800 25px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .eyebrow { fill: #7dd3a1; font: 800 13px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 2px; }
+      .copy { fill: #bcc7c2; font: 500 17px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: #a3b1aa; font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .flow { fill: none; stroke: #6bc994; stroke-width: 3; stroke-linecap: round; marker-start: url(#green-arrow); marker-end: url(#green-arrow); }
+      .media { fill: none; stroke: #8ed4d5; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 8 8; marker-start: url(#blue-arrow); marker-end: url(#blue-arrow); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="590" rx="24" fill="url(#bg)"/>
+  <circle cx="590" cy="280" r="260" fill="#2aa465" opacity=".035"/>
+
+  <text x="600" y="51" text-anchor="middle" class="heading">One server keeps every client in sync.</text>
+  <text x="600" y="77" text-anchor="middle" class="small">Game state stays synchronized; Camera devices feed the match.</text>
+
+  <!-- Connecting flows -->
+  <path d="M366 274H480" class="flow"/>
+  <path d="M720 274H834" class="flow"/>
+  <text x="423" y="248" text-anchor="middle" class="small">match state</text>
+  <text x="777" y="248" text-anchor="middle" class="small">dart coordinates</text>
+
+  <!-- Frontends -->
+  <g transform="translate(70 142)" filter="url(#shadow)">
+    <rect width="296" height="264" rx="18" fill="#1f2b27" stroke="#3f4f49" stroke-width="2"/>
+    <rect width="296" height="50" rx="18" fill="#2a3730"/>
+    <path d="M0 32V18Q0 0 18 0H278Q296 0 296 18V50H0Z" fill="#2a3730"/>
+    <circle cx="28" cy="25" r="7" fill="#44b678"/>
+    <text x="48" y="31" class="eyebrow">MATCH FRONTENDS</text>
+
+    <g transform="translate(26 77)">
+      <rect width="110" height="78" rx="7" fill="#121a18" stroke="#5a6b64" stroke-width="3"/>
+      <rect x="9" y="9" width="92" height="60" rx="3" fill="#104144"/>
+      <rect x="22" y="18" width="29" height="18" rx="3" fill="#0c4728"/>
+      <rect x="58" y="18" width="30" height="18" rx="3" fill="#35443f"/>
+      <circle cx="39" cy="53" r="10" fill="none" stroke="#cfc6b4" stroke-width="2"/>
+      <circle cx="39" cy="53" r="3" fill="#ce2431"/>
+      <path d="M55 80V92M29 92H81" fill="none" stroke="#5a6b64" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(174 86)">
+      <rect width="80" height="112" rx="9" fill="#121a18" stroke="#5a6b64" stroke-width="3"/>
+      <rect x="8" y="12" width="64" height="84" rx="3" fill="#104144"/>
+      <circle cx="40" cy="104" r="3" fill="#5a6b64"/>
+    </g>
+
+    <text x="26" y="225" class="copy">PC · Laptop · Tablet · TV</text>
+    <text x="26" y="245" class="small">Lobby, match setup, scores, spectators</text>
+  </g>
+
+  <!-- Server -->
+  <g transform="translate(480 124)" filter="url(#shadow)">
+    <rect width="240" height="300" rx="24" fill="url(#server)" stroke="#44b678" stroke-width="2.5"/>
+    <g transform="translate(90 28)" fill="none" stroke="#9bdcb5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <ellipse cx="30" cy="13" rx="30" ry="11"/>
+      <path d="M0 13v22c0 6 13 11 30 11s30-5 30-11V13M0 35v22c0 6 13 11 30 11s30-5 30-11V35"/>
+    </g>
+    <text x="120" y="124" text-anchor="middle" class="eyebrow">online or local</text>
+    <text x="120" y="158" text-anchor="middle" class="heading">MATCH SERVER</text>
+    <line x1="34" y1="180" x2="206" y2="180" stroke="#6bc994" opacity=".55"/>
+    <g class="copy">
+      <text x="42" y="208">✓ Game rules</text>
+      <text x="42" y="234">✓ Players &amp; turns</text>
+      <text x="42" y="260">✓ Sets &amp; legs</text>
+      <text x="42" y="286">✓ Camera fusion</text>
+    </g>
+  </g>
+
+  <!-- Scorers -->
+  <g transform="translate(834 142)" filter="url(#shadow)">
+    <rect width="296" height="264" rx="18" fill="#1f2b27" stroke="#3f4f49" stroke-width="2"/>
+    <rect width="296" height="50" rx="18" fill="#2a3730"/>
+    <path d="M0 32V18Q0 0 18 0H278Q296 0 296 18V50H0Z" fill="#2a3730"/>
+    <circle cx="28" cy="25" r="7" fill="#8ed4d5"/>
+    <text x="48" y="31" class="eyebrow">SCORER DEVICES</text>
+
+    <g transform="translate(35 69)">
+      <rect width="82" height="132" rx="13" fill="#121a18" stroke="#5a6b64" stroke-width="3"/>
+      <rect x="9" y="17" width="64" height="92" rx="4" fill="#104144"/>
+      <circle cx="41" cy="63" r="24" fill="none" stroke="#8ed4d5" stroke-width="2.5"/>
+      <circle cx="41" cy="63" r="5" fill="#44b678"/>
+      <circle cx="41" cy="120" r="3" fill="#5a6b64"/>
+    </g>
+    <g transform="translate(140 62), scale(1.5)">
+      <g transform="translate(46 48)">
+        <circle r="43" fill="#16181b"/>
+        <circle r="41.8" fill="none" stroke="#3c4046" stroke-width="1.5"/>
+        <circle r="32.49" fill="#ecdfbe"/>
+
+        <!-- Dark single beds; the green rings below remain visible in the alternating gaps. -->
+        <g fill="#1c1c20">
+          <use href="#mini-dark-sector"/>
+          <use href="#mini-dark-sector" transform="rotate(36)"/>
+          <use href="#mini-dark-sector" transform="rotate(72)"/>
+          <use href="#mini-dark-sector" transform="rotate(108)"/>
+          <use href="#mini-dark-sector" transform="rotate(144)"/>
+          <use href="#mini-dark-sector" transform="rotate(180)"/>
+          <use href="#mini-dark-sector" transform="rotate(216)"/>
+          <use href="#mini-dark-sector" transform="rotate(252)"/>
+          <use href="#mini-dark-sector" transform="rotate(288)"/>
+          <use href="#mini-dark-sector" transform="rotate(324)"/>
+        </g>
+
+        <circle r="19.49" fill="none" stroke="#1e7c3f" stroke-width="1.93"/>
+        <circle r="31.54" fill="none" stroke="#1e7c3f" stroke-width="1.91"/>
+        <g fill="#ce2431">
+          <use href="#mini-red-triple"/>
+          <use href="#mini-red-triple" transform="rotate(36)"/>
+          <use href="#mini-red-triple" transform="rotate(72)"/>
+          <use href="#mini-red-triple" transform="rotate(108)"/>
+          <use href="#mini-red-triple" transform="rotate(144)"/>
+          <use href="#mini-red-triple" transform="rotate(180)"/>
+          <use href="#mini-red-triple" transform="rotate(216)"/>
+          <use href="#mini-red-triple" transform="rotate(252)"/>
+          <use href="#mini-red-triple" transform="rotate(288)"/>
+          <use href="#mini-red-triple" transform="rotate(324)"/>
+          <use href="#mini-red-double"/>
+          <use href="#mini-red-double" transform="rotate(36)"/>
+          <use href="#mini-red-double" transform="rotate(72)"/>
+          <use href="#mini-red-double" transform="rotate(108)"/>
+          <use href="#mini-red-double" transform="rotate(144)"/>
+          <use href="#mini-red-double" transform="rotate(180)"/>
+          <use href="#mini-red-double" transform="rotate(216)"/>
+          <use href="#mini-red-double" transform="rotate(252)"/>
+          <use href="#mini-red-double" transform="rotate(288)"/>
+          <use href="#mini-red-double" transform="rotate(324)"/>
+        </g>
+
+        <circle r="3.06" fill="#1e7c3f"/>
+        <circle r="1.24" fill="#ce2431"/>
+        <g fill="none" stroke="#b9c0c7" stroke-width=".7">
+          <use href="#mini-sector-divider" transform="rotate(-9)"/>
+          <use href="#mini-sector-divider" transform="rotate(9)"/>
+          <use href="#mini-sector-divider" transform="rotate(27)"/>
+          <use href="#mini-sector-divider" transform="rotate(45)"/>
+          <use href="#mini-sector-divider" transform="rotate(63)"/>
+          <use href="#mini-sector-divider" transform="rotate(81)"/>
+          <use href="#mini-sector-divider" transform="rotate(99)"/>
+          <use href="#mini-sector-divider" transform="rotate(117)"/>
+          <use href="#mini-sector-divider" transform="rotate(135)"/>
+          <use href="#mini-sector-divider" transform="rotate(153)"/>
+          <use href="#mini-sector-divider" transform="rotate(171)"/>
+          <use href="#mini-sector-divider" transform="rotate(189)"/>
+          <use href="#mini-sector-divider" transform="rotate(207)"/>
+          <use href="#mini-sector-divider" transform="rotate(225)"/>
+          <use href="#mini-sector-divider" transform="rotate(243)"/>
+          <use href="#mini-sector-divider" transform="rotate(261)"/>
+          <use href="#mini-sector-divider" transform="rotate(279)"/>
+          <use href="#mini-sector-divider" transform="rotate(297)"/>
+          <use href="#mini-sector-divider" transform="rotate(315)"/>
+          <use href="#mini-sector-divider" transform="rotate(333)"/>
+          <circle r="1.24"/>
+          <circle r="3.06"/>
+          <circle r="18.52"/>
+          <circle r="20.45"/>
+          <circle r="30.58"/>
+          <circle r="32.49" stroke-width=".95"/>
+        </g>
+
+        <g fill="#00ff88" stroke="#fff" stroke-width=".6" opacity=".85">
+          <circle cx="10" cy="-14" r="2.3"/>
+          <circle cx="19" cy="3" r="2.3"/>
+          <circle cx="-10" cy="19" r="2.3"/>
+        </g>
+      </g>
+    </g>
+
+    <text x="26" y="225" class="copy">Phone · Webcams</text>
+    <text x="26" y="245" class="small">On-device AI detects dart tips</text>
+  </g>
+
+  <!-- Direct media path -->
+  <path d="M218 426C218 526 982 526 982 426" class="media"/>
+  <rect x="335" y="473" width="530" height="66" rx="18" fill="#104144" stroke="#16595c"/>
+  <text x="600" y="500" text-anchor="middle" fill="#8ed4d5" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="700">OPTIONAL PEER-TO-PEER MEDIA</text>
+  <text x="600" y="524" text-anchor="middle" class="small">Live board video and close-up stills do not pass through the server</text>
+</svg>

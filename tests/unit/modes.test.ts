@@ -142,8 +142,28 @@ describe('the x01 panel', () => {
     // Alice scored 180 off five darts: a full visit of 100, then out on the second dart of the next.
     expect(rows['3-dart average'].p1).toBe('108.0');
     expect(rows['3-dart average'].p2).toBe('60.0');
-    expect(rows['Legs won']).toEqual({ p1: '1', p2: '0' });
+    expect(rows['Best visit']).toEqual({ p1: '100', p2: '60' });
+    expect(rows['Best checkout']).toEqual({ p1: '80', p2: '—' });
     expect(rows['Best leg (darts)']).toEqual({ p1: '5', p2: '—' });
+  });
+
+  it('reports the highest checkout visit across completed legs', () => {
+    let match = makeMatch({ settings: { startScore: 501, legsToWinSet: 3 } });
+    match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // 180, leaves 321
+    match = playVisit(match, 'p2', []);
+    match = playVisit(match, 'p1', ['T20', 'T17', 'D20']); // 151, leaves 170
+    match = playVisit(match, 'p2', []);
+    match = playVisit(match, 'p1', ['T20', 'T20', 'DB']);  // 170 checkout
+
+    match = playVisit(match, 'p2', []);                     // Bob opens leg two
+    match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // 180, leaves 321
+    match = playVisit(match, 'p2', []);
+    match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // 180, leaves 141
+    match = playVisit(match, 'p2', []);
+    match = playVisit(match, 'p1', ['T17', 'DB', 'D20']);  // 141 checkout
+
+    expect(rowsOf(match)['Best visit']).toEqual({ p1: '180', p2: '0' });
+    expect(rowsOf(match)['Best checkout']).toEqual({ p1: '170', p2: '—' });
   });
 
   it('stops counting darts at the one that won the leg', () => {
@@ -194,26 +214,6 @@ describe('the x01 panel', () => {
     expect(round(match)).toBe('Round 3');
   });
 
-  it('counts a submitted visit as three darts however it ended', () => {
-    const darts = (match: MatchState) => rowsOf(match)['Darts this leg'];
-    // 40 left: a treble twenty busts on the first dart, and the visit is over.
-    let match = makeMatch({ settings: { startScore: 40 } });
-    match = playVisit(match, 'p1', ['T20']);
-    expect(match.visits[0].darts).toHaveLength(1); // one dart was actually thrown
-    expect(darts(match).p1).toBe('3');             // but it cost a whole visit
-
-    // Darts in hand count as they land.
-    match = throwDart(match, 'p2', 'T20').match;
-    expect(darts(match).p2).toBe('1');
-  });
-
-  it('counts darts for the current leg only', () => {
-    let match = makeMatch({ settings: { startScore: 180, doubleOut: false, legsToWinSet: 2 } });
-    match = playVisit(match, 'p1', ['T20', 'T20', 'T20']); // wins the leg
-    expect(match.legs).toHaveLength(1);
-    expect(rowsOf(match)['Darts this leg'].p1).toBe('0'); // a new leg, nothing thrown in it
-  });
-
   it('leaves out visits thrown below 170, where a player is finishing rather than scoring', () => {
     const scoring = (match: MatchState) => rowsOf(match)['Scoring average'];
 
@@ -238,21 +238,21 @@ describe('the x01 panel', () => {
     expect(rowsOf(match)['Scoring average'].p1).toBe('—');
   });
 
-  it('reports nothing about the current leg once the match is over', () => {
+  it('drops the round but keeps the same lifetime statistics once the match is over', () => {
     const match = playVisit(makeMatch({ settings: { startScore: 180, doubleOut: false } }), 'p1', ['T20', 'T20', 'T20']);
     expect(match.status).toBe('finished');
 
     const panel = panelOf(match)!;
     expect(panel.lines).toBeUndefined();
-    expect(panel.rows.map((r) => r.label)).not.toContain('Darts this leg');
-    expect(panel.rows.map((r) => r.label)).toContain('Legs won');
+    expect(rowsOf(match)['Best visit'].p1).toBe('180');
+    expect(rowsOf(match)['Best checkout'].p1).toBe('180');
   });
 
   it('is there before a dart is thrown, so the screen does not jump when one is', () => {
     const rows = rowsOf(makeMatch());
-    expect(rows['Darts this leg']).toEqual({ p1: '0', p2: '0' });
     expect(rows['3-dart average']).toEqual({ p1: '—', p2: '—' });
-    expect(rows['Legs won']).toEqual({ p1: '0', p2: '0' });
+    expect(rows['Best visit']).toEqual({ p1: '—', p2: '—' });
+    expect(rows['Best checkout']).toEqual({ p1: '—', p2: '—' });
   });
 
   it('draws itself the way the match asked, or not at all', () => {
@@ -264,6 +264,14 @@ describe('the x01 panel', () => {
     const text = panelOf(makeMatch({ settings: { stats: 'text' } }))!;
     expect(text.render).toBe('table');
     expect(text.rows.map((r) => r.label)).toEqual(graphic.rows.map((r) => r.label));
+    expect(text.rows.map((r) => r.label)).toEqual([
+      '3-dart average',
+      'Scoring average',
+      'Best visit',
+      'Best checkout',
+      '180s',
+      'Best leg (darts)',
+    ]);
 
     // Off is not a hidden panel: there is no panel, so nothing is computed and nothing is sent.
     expect(panelOf(makeMatch({ settings: { stats: 'off' } }))).toBeUndefined();
@@ -302,7 +310,7 @@ describe('the x01 panel', () => {
       expect(round(match)).toBe('Round 2');
     });
 
-    it('reports legs won across the whole roster', () => {
+    it('reports best visits and checkouts across the whole roster', () => {
       let match = makeMatch({
         players: roster(3),
         settings: { startScore: 40, doubleOut: false, legsToWinSet: 3 },
@@ -310,7 +318,8 @@ describe('the x01 panel', () => {
       match = playVisit(match, 'p1', ['D20']); // takes leg 1
       match = playVisit(match, 'p2', ['D20']); // takes leg 2
 
-      expect(rowsOf(match)['Legs won']).toEqual({ p1: '1', p2: '1', p3: '0' });
+      expect(rowsOf(match)['Best visit']).toEqual({ p1: '40', p2: '40', p3: '—' });
+      expect(rowsOf(match)['Best checkout']).toEqual({ p1: '40', p2: '40', p3: '—' });
       expect(rowsOf(match)['Best leg (darts)']).toEqual({ p1: '1', p2: '1', p3: '—' });
     });
   });

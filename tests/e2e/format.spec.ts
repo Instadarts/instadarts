@@ -99,7 +99,11 @@ test.describe('Game modes', () => {
     await expect(cards).toHaveCount(2);
     await expect(cards.first()).toContainText('180.0');   // Alice
     await expect(cards.first()).toContainText('Scoring average');
+    await expect(cards.first()).toContainText('Best visit');
+    await expect(cards.first()).toContainText('Best checkout');
     await expect(cards.first()).toContainText('180s');
+    await expect(cards.first()).not.toContainText('Darts this leg');
+    await expect(cards.first()).not.toContainText('Legs won');
     // Bob has not thrown, so he has no average to report rather than an average of nothing.
     await expect(cards.last()).toContainText('—');
   });

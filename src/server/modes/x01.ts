@@ -315,12 +315,12 @@ export const x01: GameMode = {
       // still gets the rows above, so nothing here is load-bearing.
       custom: { recent: recentScores(match), max: MAX_VISIT },
       rows: [
-        ...(playing ? [{ label: 'Darts this leg', values: dartsThisLeg(match) }] : []),
         { label: '3-dart average', values: threeDartAverages(match) },
         { label: 'Scoring average', values: scoringAverages(match) },
+        { label: 'Best visit', values: bestVisits(match) },
+        { label: 'Best checkout', values: bestCheckouts(match) },
         { label: '180s', values: byPlayer((own) => String(own.filter((v) => !v.voided && pointsOf(v.darts) === 180).length)) },
         { label: 'Best leg (darts)', values: bestLegDarts(match) },
-        { label: 'Legs won', values: legsWon(match) },
       ],
     };
   },
@@ -353,21 +353,6 @@ function legsOf(match: MatchState): Visit[][] {
  */
 function roundNumber(match: MatchState): number {
   return Math.ceil((match.visits.length + 1) / Math.max(1, match.players.length));
-}
-
-/**
- * Darts thrown in the current leg.
- *
- * A submitted visit is three darts whatever happened in it — a visit cut short by a bust still cost
- * the player their turn, and counting it as one or two would flatter the average.
- */
-function dartsThisLeg(match: MatchState): Record<string, ViewText> {
-  const cv = match.currentVisit;
-  return Object.fromEntries(match.players.map((player) => {
-    const submitted = match.visits.filter((v) => v.playerId === player.id).length * MAX_DARTS;
-    const inHand = cv?.playerId === player.id ? cv.darts.length : 0;
-    return [player.id, String(submitted + inHand)];
-  }));
 }
 
 /**
@@ -443,6 +428,36 @@ function threeDartAverages(match: MatchState): Record<string, ViewText> {
   }));
 }
 
+/** Each player's highest effective score in a submitted visit, across the whole match. */
+function bestVisits(match: MatchState): Record<string, ViewText> {
+  const visits = legsOf(match).flat();
+  return Object.fromEntries(match.players.map((player) => {
+    const own = visits.filter((visit) => visit.playerId === player.id);
+    if (own.length === 0) return [player.id, '—'];
+    return [player.id, String(Math.max(...own.map((visit) => (visit.voided ? 0 : pointsOf(visit.darts)))))];
+  }));
+}
+
+/**
+ * Each player's highest checkout: the score of the visit that won one of their completed legs.
+ *
+ * Looking at the leg winner, rather than guessing from a final score, keeps this a pure replay of
+ * the settled match history and works for straight-out, double-out, and double-in alike.
+ */
+function bestCheckouts(match: MatchState): Record<string, ViewText> {
+  const best: Record<string, number> = {};
+  for (const leg of match.legs) {
+    const checkout = leg.visits.at(-1);
+    if (!checkout || checkout.playerId !== leg.winnerId || checkout.voided) continue;
+    const score = pointsOf(checkout.darts);
+    best[leg.winnerId] = Math.max(best[leg.winnerId] ?? 0, score);
+  }
+  return Object.fromEntries(match.players.map((player) => [
+    player.id,
+    best[player.id] === undefined ? '—' : String(best[player.id]),
+  ]));
+}
+
 /** The fewest darts a player took to win a leg. Only won legs count; an unfinished one has no total. */
 function bestLegDarts(match: MatchState): Record<string, ViewText> {
   const best: Record<string, number> = {};
@@ -469,12 +484,6 @@ function recentScores(match: MatchState): Record<string, number[]> {
       .slice(-RECENT_VISITS)
       .map((visit) => (visit.voided ? 0 : pointsOf(visit.darts))),
   ]));
-}
-
-function legsWon(match: MatchState): Record<string, ViewText> {
-  const won: Record<string, number> = {};
-  for (const leg of match.legs) won[leg.winnerId] = (won[leg.winnerId] ?? 0) + 1;
-  return Object.fromEntries(match.players.map((p) => [p.id, String(won[p.id] ?? 0)]));
 }
 
 /**

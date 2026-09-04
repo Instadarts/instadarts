@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">A typical InstaDarts room setup</title>
+  <desc id="desc">One or more mounted phones watch a real dartboard while a larger browser screen shows the match.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#070b0a"/>
+      <stop offset="1" stop-color="#1f2b27"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" x2="1">
+      <stop offset="0" stop-color="#44b678" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#44b678" stop-opacity=".04"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".4"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#e4bf64"/>
+    </marker>
+    <!-- One top-centred sector, in the proportions used by the virtual board. The alternating
+         versions are reused around the circle below. -->
+    <g id="sector-dark">
+      <path d="M -1.67 -10.54 L -10.12 -63.87 A 64.67 64.67 0 0 1 10.12 -63.87 L 1.67 -10.54 A 10.67 10.67 0 0 0 -1.67 -10.54 Z" fill="#1c1c20"/>
+      <path d="M -10.12 -63.87 L -11.16 -70.46 A 71.34 71.34 0 0 1 11.16 -70.46 L 10.12 -63.87 A 64.67 64.67 0 0 0 -10.12 -63.87 Z" fill="#ce2431"/>
+      <path d="M -11.16 -70.46 L -16.68 -105.34 A 106.65 106.65 0 0 1 16.68 -105.34 L 11.16 -70.46 A 71.34 71.34 0 0 0 -11.16 -70.46 Z" fill="#1c1c20"/>
+      <path d="M -16.68 -105.34 L -17.72 -111.91 A 113.3 113.3 0 0 1 17.72 -111.91 L 16.68 -105.34 A 106.65 106.65 0 0 0 -16.68 -105.34 Z" fill="#ce2431"/>
+    </g>
+    <g id="sector-light">
+      <path d="M -1.67 -10.54 L -10.12 -63.87 A 64.67 64.67 0 0 1 10.12 -63.87 L 1.67 -10.54 A 10.67 10.67 0 0 0 -1.67 -10.54 Z" fill="#ecdfbe"/>
+      <path d="M -10.12 -63.87 L -11.16 -70.46 A 71.34 71.34 0 0 1 11.16 -70.46 L 10.12 -63.87 A 64.67 64.67 0 0 0 -10.12 -63.87 Z" fill="#1e7c3f"/>
+      <path d="M -11.16 -70.46 L -16.68 -105.34 A 106.65 106.65 0 0 1 16.68 -105.34 L 11.16 -70.46 A 71.34 71.34 0 0 0 -11.16 -70.46 Z" fill="#ecdfbe"/>
+      <path d="M -16.68 -105.34 L -17.72 -111.91 A 113.3 113.3 0 0 1 17.72 -111.91 L 16.68 -105.34 A 106.65 106.65 0 0 0 -16.68 -105.34 Z" fill="#1e7c3f"/>
+    </g>
+    <line id="sector-divider" x1="0" y1="-10.67" x2="0" y2="-113.3"/>
+    <style>
+      .label { fill: #dde5e1; font: 700 22px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: #a3b1aa; font: 500 16px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .tiny { fill: #a3b1aa; font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; }
+      .line { fill: none; stroke: #e4bf64; stroke-width: 2.5; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="560" rx="24" fill="url(#bg)"/>
+  <circle cx="161" cy="86" r="180" fill="#2aa465" opacity=".06"/>
+  <circle cx="1080" cy="510" r="260" fill="#b8861f" opacity=".045"/>
+
+  <!-- Camera fields of view -->
+  <path d="M165 176 L400 180 L400 480 L184 449 Z" fill="url(#beam)" stroke="#44b678" stroke-width="1.5" stroke-dasharray="7 7" opacity=".9"/>
+  <path d="M692 176 L460 180 L460 480 L692 449 Z" fill="url(#beam)" stroke="#44b678" stroke-width="1.5" stroke-dasharray="7 7" opacity=".75"/>
+
+  <!-- Dartboard -->
+  <g transform="translate(430 330)">
+    <!-- Flat surround and rim: no number ring, sheen, grain, texture, or shadow. -->
+    <circle r="150" fill="#16181b"/>
+    <circle r="147" fill="none" stroke="#3c4046" stroke-width="3"/>
+
+    <!-- Twenty alternating virtual-board sectors. -->
+    <use href="#sector-dark"/>
+    <use href="#sector-light" transform="rotate(18)"/>
+    <use href="#sector-dark" transform="rotate(36)"/>
+    <use href="#sector-light" transform="rotate(54)"/>
+    <use href="#sector-dark" transform="rotate(72)"/>
+    <use href="#sector-light" transform="rotate(90)"/>
+    <use href="#sector-dark" transform="rotate(108)"/>
+    <use href="#sector-light" transform="rotate(126)"/>
+    <use href="#sector-dark" transform="rotate(144)"/>
+    <use href="#sector-light" transform="rotate(162)"/>
+    <use href="#sector-dark" transform="rotate(180)"/>
+    <use href="#sector-light" transform="rotate(198)"/>
+    <use href="#sector-dark" transform="rotate(216)"/>
+    <use href="#sector-light" transform="rotate(234)"/>
+    <use href="#sector-dark" transform="rotate(252)"/>
+    <use href="#sector-light" transform="rotate(270)"/>
+    <use href="#sector-dark" transform="rotate(288)"/>
+    <use href="#sector-light" transform="rotate(306)"/>
+    <use href="#sector-dark" transform="rotate(324)"/>
+    <use href="#sector-light" transform="rotate(342)"/>
+
+    <!-- Bulls and one flat wire pass. -->
+    <circle r="10.67" fill="#1e7c3f"/>
+    <circle r="4.33" fill="#ce2431"/>
+    <g fill="none" stroke="#b9c0c7" stroke-width="1.35">
+      <use href="#sector-divider" transform="rotate(-9)"/>
+      <use href="#sector-divider" transform="rotate(9)"/>
+      <use href="#sector-divider" transform="rotate(27)"/>
+      <use href="#sector-divider" transform="rotate(45)"/>
+      <use href="#sector-divider" transform="rotate(63)"/>
+      <use href="#sector-divider" transform="rotate(81)"/>
+      <use href="#sector-divider" transform="rotate(99)"/>
+      <use href="#sector-divider" transform="rotate(117)"/>
+      <use href="#sector-divider" transform="rotate(135)"/>
+      <use href="#sector-divider" transform="rotate(153)"/>
+      <use href="#sector-divider" transform="rotate(171)"/>
+      <use href="#sector-divider" transform="rotate(189)"/>
+      <use href="#sector-divider" transform="rotate(207)"/>
+      <use href="#sector-divider" transform="rotate(225)"/>
+      <use href="#sector-divider" transform="rotate(243)"/>
+      <use href="#sector-divider" transform="rotate(261)"/>
+      <use href="#sector-divider" transform="rotate(279)"/>
+      <use href="#sector-divider" transform="rotate(297)"/>
+      <use href="#sector-divider" transform="rotate(315)"/>
+      <use href="#sector-divider" transform="rotate(333)"/>
+      <circle r="4.33"/>
+      <circle r="10.67"/>
+      <circle r="64.67"/>
+      <circle r="71.34"/>
+      <circle r="106.65"/>
+      <circle r="113.3" stroke-width="1.8"/>
+    </g>
+
+    <!-- Simplified landing markers in the virtual board's colors. -->
+    <g fill="#00ff88" stroke="#fff" stroke-width="1" opacity=".85">
+      <circle cx="7" cy="-51" r="5"/>
+      <circle cx="31" cy="-5" r="5"/>
+      <circle cx="-29" cy="33" r="5"/>
+    </g>
+  </g>
+
+  <!-- Left scorer phone and mount -->
+  <g transform="translate(70 112) rotate(-7 68 72)" filter="url(#shadow)">
+    <rect x="28" y="5" width="82" height="145" rx="14" fill="#121a18" stroke="#5a6b64" stroke-width="4"/>
+    <rect x="36" y="23" width="66" height="104" rx="5" fill="#104144"/>
+    <circle cx="69" cy="136" r="5" fill="#5a6b64"/>
+    <circle cx="69" cy="73" r="28" fill="none" stroke="#8ed4d5" stroke-width="3"/>
+    <circle cx="69" cy="73" r="5" fill="#44b678"/>
+    <path d="M69 150V202M39 220L69 202L99 220" fill="none" stroke="#736a5e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Right scorer phone and mount -->
+  <g transform="translate(646 112) rotate(7 68 72)" filter="url(#shadow)">
+    <rect x="28" y="5" width="82" height="145" rx="14" fill="#121a18" stroke="#5a6b64" stroke-width="4"/>
+    <rect x="36" y="23" width="66" height="104" rx="5" fill="#104144"/>
+    <circle cx="69" cy="136" r="5" fill="#5a6b64"/>
+    <circle cx="69" cy="73" r="28" fill="none" stroke="#8ed4d5" stroke-width="3"/>
+    <circle cx="69" cy="73" r="5" fill="#44b678"/>
+    <path d="M69 150V202M39 220L69 202L99 220" fill="none" stroke="#736a5e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Match display -->
+  <g transform="translate(815 130)" filter="url(#shadow)">
+    <rect width="330" height="235" rx="14" fill="#121a18" stroke="#5a6b64" stroke-width="5"/>
+    <rect x="15" y="15" width="300" height="205" rx="7" fill="#1f2b27"/>
+    <rect x="27" y="27" width="276" height="34" rx="6" fill="#141d1a"/>
+    <circle cx="47" cy="44" r="8" fill="#44b678"/>
+    <text x="65" y="51" fill="#7dd3a1" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="800" letter-spacing="1.5">INSTADARTS</text>
+    <rect x="27" y="75" width="128" height="68" rx="7" fill="#0c4728" stroke="#44b678"/>
+    <rect x="167" y="75" width="136" height="68" rx="7" fill="#35443f" stroke="#3f4f49"/>
+    <text x="91" y="99" text-anchor="middle" fill="#9bdcb5" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">ALEX</text>
+    <text x="91" y="129" text-anchor="middle" fill="#e4bf64" font-family="ui-monospace, monospace" font-size="26" font-weight="700">241</text>
+    <text x="235" y="99" text-anchor="middle" fill="#bcc7c2" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">SAM</text>
+    <text x="235" y="129" text-anchor="middle" fill="#a3b1aa" font-family="ui-monospace, monospace" font-size="26" font-weight="700">308</text>
+    <rect x="27" y="156" width="276" height="50" rx="7" fill="#2a3730"/>
+    <circle cx="61" cy="181" r="15" fill="none" stroke="#cfc6b4" stroke-width="3"/>
+    <circle cx="61" cy="181" r="4" fill="#ce2431"/>
+    <text x="91" y="187" fill="#dde5e1" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="15">Live visit · T20 · 20</text>
+  </g>
+
+  <!-- Labels -->
+  <text x="70" y="55" class="label">Scorer devices</text>
+  <text x="90" y="79" class="small">one or multiple</text>
+  <path d="M165 90L157 121" class="line" marker-end="url(#arrow)"/>
+
+  <text x="910" y="425" class="label">Match screen</text>
+  <text x="840" y="451" class="small">lobby, match setup, scores, live view</text>
+  <path d="M980 408L980 378" class="line" marker-end="url(#arrow)"/>
+</svg>

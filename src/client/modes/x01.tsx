@@ -31,9 +31,9 @@ const HEADLINE = '3-dart average';
 const BETTER: Record<string, 'higher' | 'lower'> = {
   '3-dart average': 'higher',
   'Scoring average': 'higher',
+  'Best visit': 'higher',
+  'Best checkout': 'higher',
   '180s': 'higher',
-  'Legs won': 'higher',
-  'Darts this leg': 'lower',
   'Best leg (darts)': 'lower',
 };
 

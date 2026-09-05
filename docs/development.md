@@ -173,6 +173,11 @@ curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is hel
 curl -sk 'https://[::1]:3001/server-stats' # the same, over the TLS listener
 ```
 
+`/server-stats` is a public, unauthenticated endpoint on both enabled listeners. It reports derived
+capacity limits, resource counts, process memory usage and uptime. Omitting `server` from
+`app_config` does not make these statistics private. A deployment that needs restricted access to
+this endpoint must enforce that at its reverse proxy; the app has no access-control setting for it.
+
 `maxMatches` is the only capacity number a deployment sets; everything the server refuses or evicts
 by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
 

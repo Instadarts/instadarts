@@ -556,9 +556,9 @@ export interface ScorerRefusedMessage {
  * How this deployment is tuned, sent on connect to frontends and scoring devices alike — the same
  * moment and the same reason as `mode_catalog`.
  *
- * Everything a client is entitled to, in one message: what it may do with media, and the handful of
- * numbers a phone or a browser runs by. The server's own section is deliberately not in it — how big
- * this server is sized for is nobody's business at the other end of a socket.
+ * The frontend, scorer and media settings a browser needs. The `server` configuration section is
+ * omitted because it configures the server itself. This is not a privacy boundary: the public
+ * `/server-stats` endpoint exposes derived capacity limits, resource counts, memory usage and uptime.
  *
  * Sent even when media is off, so a client learns the answer rather than waiting for a message that
  * will never arrive.

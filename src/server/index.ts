@@ -32,8 +32,8 @@ if (CONFIG_FATAL) {
 }
 reportConfig();
 
-// Find the installed game modes. A deployment adds or removes one by adding or removing a file in
-// src/server/modes/ — and one without x01 is not a deployment we will start.
+// Validate the modes registered by the imports in src/server/modes/registry.ts. Adding or removing
+// a mode requires updating that registry; x01 is required for startup.
 const installedModes = await loadModes();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 

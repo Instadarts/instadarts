@@ -354,7 +354,8 @@ export interface LobbyStateMessage {
  * Which game modes this deployment has, and what each calls its settings.
  *
  * Sent once on connect. It is what lets the lobby offer modes and render their settings without
- * importing a line of any mode's code — a mode is installed by adding a file to the server.
+ * importing a line of any mode's code. Server modes register when imported by modes/registry.ts;
+ * adding a mode requires its implementation file and an import in that registry.
  */
 export interface ModeCatalogMessage {
   type: 'mode_catalog';

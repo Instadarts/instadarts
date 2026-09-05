@@ -10,21 +10,18 @@ import type { Client } from '../../src/server/types';
 import '../helpers'; // registers the x01 mode
 
 /**
- * Whether watching a match can be turned into playing it.
+ * Regression coverage for turning spectator-visible state into a participant claim.
  *
- * `requireMatch` refuses every input from a connection flagged `isSpectator`, and that flag is the
- * only thing between an audience and the board. So the question these tests ask is not "does the
- * flag work" but **"can a spectator get a connection that never had the flag set?"** — which is
- * exactly what editing `/spectate/<id>` to `/match/<id>` in the address bar produces: a page load, a
- * brand-new socket, and the `reconnect` the frontend sends on open.
+ * The historical reconnect protocol accepted a match id and a player id without private proof.
+ * Both ids appear in spectator-visible state, so a spectator could present them on a fresh socket
+ * that had never been flagged `isSpectator`. Checking that flag alone did not establish ownership.
  *
- * `reconnect` is an identity claim carrying no proof: a match id and a player id, both of which
- * every spectator is handed in the ordinary match broadcast. That makes these tests about the
- * message, not about the flag.
+ * The current protocol requires a private seat token, and gameplay guards require the session to
+ * hold the seat in its room. The forged legacy messages below must be refused even on a connection
+ * whose client record claims to be a participant. Public player ids are not credentials.
  *
- * The last test is the one that constrains the fix rather than describing the bug. A page reload
- * mints a *new session id*, so the server cannot recognise the real player by session either — the
- * legitimate tab has to present something a spectator has never been given.
+ * Legitimate reload and takeover cases verify the other side: a new session presenting the real
+ * token can resume its seat, and a replaced session loses authority. Spectators receive no token.
  */
 
 let sessionCounter = 0;
@@ -110,9 +107,9 @@ function spectatorOf(matchId: string): Conn {
 /**
  * Editing the URL from `/spectate/<id>` to `/match/<id>`.
  *
- * The browser loads the page again: the spectating socket closes, a new one opens under a new
- * session id, and the frontend resumes the session its tab saved. All the attacker supplies is a
- * player id, and the match state they were watching is where they read it.
+ * Simulate the historical attack on a fresh socket by explicitly sending a forged legacy reconnect
+ * with a public player id. The current frontend does not construct this message: a spectator has
+ * no saved seat token, and changing the URL alone cannot make it a participant.
  */
 function editUrlToMatch(spectator: Conn, matchId: string, playerId: string): Conn {
   spectator.close();
@@ -297,9 +294,8 @@ describe('a spectator of an online match', () => {
 
 describe('a spectator of a local lobby', () => {
   it('cannot take the host seat by reloading onto /lobby/<id>', () => {
-    // The lobby branch of `reconnect` has the identical hole, and a local lobby gives the seat away
-    // without even a player id to name. The host seat is who may change the settings and remove
-    // players, so it is worth as much as a turn at the board.
+    // The historical lobby reconnect accepted a lobby id alone. Today the host seat requires its
+    // private token, so knowing a local lobby's public id must not grant control of its settings.
     const host = connect();
     host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
@@ -322,8 +318,8 @@ describe('a spectator of a local lobby', () => {
 
 describe('a spectator asking on the socket it is already watching from', () => {
   it('stays a spectator, and leaves the player\'s session where it was', () => {
-    // No reload needed for the second half: the `isSpectator` flag survives on this socket and still
-    // refuses the darts, but the same unproven claim rebinds the player to this session regardless.
+    // The historical handler could also rebind a player's session from an existing spectator
+    // socket. Reject the tokenless claim without changing either ownership or spectator status.
     const { host, matchId, players } = localMatch('Alice', 'Bob');
     const spec = spectatorOf(matchId);
 
@@ -398,8 +394,8 @@ describe('a duplicated tab', () => {
   });
 
   it('is what a reload is not', () => {
-    // A reload presents the same token from a new session, and there is nobody to take it from —
-    // the old socket is gone. Nothing is announced to anybody.
+    // This helper removes the old socket immediately, so only the returning socket can receive a
+    // reply. The production disconnect-grace path is not exercised by this case.
     const { host, matchId } = localMatch('Alice', 'Bob');
     const token = host.last('resume')!.token;
     host.close();

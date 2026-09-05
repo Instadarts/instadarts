@@ -12,7 +12,7 @@ A lobby and a match are separate server objects:
 | --- | --- | --- |
 | Lobby | Configure players, match format, and game mode | The host starts play, leaves, or the lobby expires |
 | Match in progress | Play legs and sets with a fixed roster and settings | A winner is decided, the match is cancelled, or it expires |
-| Match finished | Show the result and collect re-match votes | A re-match starts or the summary expires |
+| Match finished | Show the result and collect re-match votes | The summary expires, including after a re-match starts |
 
 Starting play consumes the lobby and creates a `MatchState` with status `in_progress`. A finished
 match has status `finished`; `winnerId` is present for a win and absent for a cancellation.
@@ -98,10 +98,16 @@ A finished match shows a summary while each participant's re-match vote is neutr
 declined. Any decline settles the result as no re-match. Neutral votes become declines when the
 summary expires.
 
-When every participant accepts, `createRematch` creates a new match immediately with the same
+When every participant accepts and room capacity is available, `createRematch` creates a new match with the same
 participants and settings and rotates the player order by one. Scores, visits, completed legs, and
 media state do not carry over. Participant seat tokens carry into the new match, and connected
 spectators move to it.
+
+The previous match and its seats remain stored until that match's original summary deadline.
+`carrySeats` copies the seats into the new match without removing the old entries. The retained
+summary still counts toward the shared lobby/match capacity, so a re-match requires an additional
+room slot. Expiring the old summary removes only that room and its seats; clients already on the
+re-match stay there.
 
 ## Deadlines and reclamation
 
@@ -111,7 +117,7 @@ spectators move to it.
 | --- | --- | --- |
 | Lobby | 10 minutes idle | Abandoned and deleted; connected clients return home |
 | Match in progress | 10 minutes idle | Cancelled and moved to its summary |
-| Match finished | 2 minutes | Neutral votes decline, clients return home, and the match is deleted |
+| Match finished | 2 minutes | Neutral votes decline, clients still on that summary return home, and the match is deleted |
 
 Participant input resets an idle deadline. Spectating and reconnecting do not, and the
 finished-match deadline is fixed. Each ending path removes its own room and related scoring state;

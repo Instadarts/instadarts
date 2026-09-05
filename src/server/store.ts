@@ -165,6 +165,9 @@ export function createMatch(lobby: Lobby): MatchState {
  * Nothing else carries over — it is an ordinary new match that happens to skip the lobby, not a
  * continuation. Nothing anywhere needs to know it came from another match, which is why this
  * function does not record that it did.
+ *
+ * The previous match and its seats remain until its summary expires. `carrySeats` copies the
+ * credentials into the new room, so creating a re-match consumes an additional room slot.
  */
 export function createRematch(previous: MatchState): MatchState {
   const players = previous.players.length > 1

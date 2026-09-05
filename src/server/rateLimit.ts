@@ -36,9 +36,9 @@ const TIPS: Budget = { burst: 90, perSecond: 30 };
 
 /**
  * The media plane gets its own too, for the opposite reason to tips: not because it is chatty, but
- * because it arrives in bursts. A peer connection takes one offer and one answer — a link's whole
- * signaling life — so a client joining a match negotiates every link it has at once and then says
- * nothing for the rest of the evening. Spending that from the general bucket would cost it the
+ * because it arrives in bursts. A client joining a match negotiates its links together, exchanging
+ * an offer and an answer for each. ICE recovery can trigger further negotiations during play.
+ * Spending those messages from the general bucket would cost it the
  * gameplay messages it sends in the same second, which is what it was doing: `media_join` appeared
  * in nearly every one of the busiest seconds measured, beside the darts it was competing with.
  */

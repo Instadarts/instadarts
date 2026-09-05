@@ -131,45 +131,45 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setNotice(null);
   }, [send]);
 
-  const joinLobby = useCallback((inviteCode: string, playerName: string) => {
-    send({ type: 'join_lobby', inviteCode, playerName });
+  const joinLobby = useCallback((inviteCode: string) => {
+    send({ type: 'join_lobby', inviteCode });
     setError(null);
     setNotice(null);
   }, [send]);
 
-  const addLocalPlayer = useCallback((lobbyId: string, playerName: string) => {
-    send({ type: 'add_local_player', lobbyId, playerName });
+  const addLocalPlayer = useCallback((playerName: string) => {
+    send({ type: 'add_local_player', playerName });
   }, [send]);
 
-  const removePlayer = useCallback((lobbyId: string, playerId: string) => {
-    send({ type: 'remove_player', lobbyId, playerId });
+  const removePlayer = useCallback((playerId: string) => {
+    send({ type: 'remove_player', playerId });
   }, [send]);
 
-  const updateSettings = useCallback((lobbyId: string, settings: any) => {
-    send({ type: 'update_settings', lobbyId, settings });
+  const updateSettings = useCallback((settings: any) => {
+    send({ type: 'update_settings', settings });
   }, [send]);
 
-  const startMatch = useCallback((lobbyId: string) => {
-    send({ type: 'start_match', lobbyId });
+  const startMatch = useCallback(() => {
+    send({ type: 'start_match' });
   }, [send]);
 
-  const addDart = useCallback((matchId: string, dart: { x: number; y: number; score: any }) => {
-    send({ type: 'add_dart', matchId, dart });
+  const addDart = useCallback((dart: { x: number; y: number; score: any }) => {
+    send({ type: 'add_dart', dart });
   }, [send]);
 
-  const undoDart = useCallback((matchId: string) => {
-    send({ type: 'undo_dart', matchId });
+  const undoDart = useCallback(() => {
+    send({ type: 'undo_dart' });
   }, [send]);
 
   // No optimistic clear: the view travels with the match state, and clearing the visit locally
   // would leave the mode's strings describing a visit that is no longer on screen. Every dart
   // already round-trips, so the reply that clears it arrives on the same path as the rest.
-  const submitVisit = useCallback((matchId: string) => {
-    send({ type: 'submit_visit', matchId });
+  const submitVisit = useCallback(() => {
+    send({ type: 'submit_visit' });
   }, [send]);
 
-  const leaveMatch = useCallback((matchId: string) => {
-    send({ type: 'leave_match', matchId });
+  const leaveMatch = useCallback(() => {
+    send({ type: 'leave_match' });
     setMatch(null);
     setView(null);
     setLobby(null);
@@ -188,12 +188,12 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setIsSpectator(true);
   }, [send]);
 
-  const voteRematch = useCallback((matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => {
-    send({ type: 'rematch_vote', matchId, playerId, answer });
+  const voteRematch = useCallback((playerId: string, answer: RematchAnswer | 'neutral') => {
+    send({ type: 'rematch_vote', playerId, answer });
   }, [send]);
 
-  const reorderPlayer = useCallback((lobbyId: string, playerId: string, direction: 'up' | 'down') => {
-    send({ type: 'reorder_player', lobbyId, playerId, direction });
+  const reorderPlayer = useCallback((playerId: string, direction: 'up' | 'down') => {
+    send({ type: 'reorder_player', playerId, direction });
   }, [send]);
 
   return {

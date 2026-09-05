@@ -81,7 +81,7 @@ function onlineMatch() {
 
   const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
   const guest = connect();
-  guest.send({ type: 'join_lobby', inviteCode, playerName: 'Bob' });
+  guest.send({ type: 'join_lobby', inviteCode });
   guest.send({ type: 'add_local_player', playerName: 'Bob' });
 
   host.send({ type: 'update_settings', settings: QUICK_MATCH });

@@ -7,7 +7,7 @@ import { GridBox } from '../layout/GridBox';
 import { JOIN_LAYOUTS } from '../layout/frontendLayout';
 
 interface JoinHandlerProps {
-  onJoin: (code: string, playerName: string) => void;
+  onJoin: (code: string) => void;
   lobby: Lobby | null;
   error: string | null;
 }
@@ -21,7 +21,7 @@ export function JoinHandler({ onJoin, lobby, error }: JoinHandlerProps) {
 
   useEffect(() => {
     if (code) {
-      onJoin(code.toUpperCase(), '');
+      onJoin(code.toUpperCase());
       // Safety timeout: if lobby never arrives, go home
       timerRef.current = setTimeout(() => {
         navigate('/', { replace: true });

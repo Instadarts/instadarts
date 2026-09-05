@@ -6,6 +6,9 @@ import type { ClientConfig } from './config';
 
 // ============================================================
 // Client → Server messages
+//
+// Gameplay commands act on the connection's current room, subject to seat/role checks. They do
+// not carry a room selector. Joining, spectating and reconnecting explicitly identify a destination.
 // ============================================================
 
 export interface CreateLobbyMessage {
@@ -21,62 +24,54 @@ export interface CreateLobbyMessage {
  * accepted — but an id is public where a code is not: it is in the spectate URL, so anyone handed
  * something to watch could have named it to join instead. The code is the thing the host chose to
  * share, and a lobby that admits nobody is minted without one at all.
+ * Joining takes a seat without adding a player; names are supplied through `add_local_player`.
  */
 export interface JoinLobbyMessage {
   type: 'join_lobby';
   inviteCode: string;
-  playerName: string;
 }
 
 export interface AddLocalPlayerMessage {
   type: 'add_local_player';
-  lobbyId: string;
   playerName: string;
 }
 
 export interface RemovePlayerMessage {
   type: 'remove_player';
-  lobbyId: string;
   playerId: string;
 }
 
 export interface UpdateSettingsMessage {
   type: 'update_settings';
-  lobbyId: string;
   settings: MatchSettings;
 }
 
 export interface SetPlayerNameMessage {
   type: 'set_player_name';
-  lobbyId: string;
   playerId: string;
   name: string;
 }
 
 export interface AddDartMessage {
   type: 'add_dart';
-  matchId: string;
   dart: DartThrow;
 }
 
 export interface UndoDartMessage {
   type: 'undo_dart';
-  matchId: string;
 }
 
 export interface SubmitVisitMessage {
   type: 'submit_visit';
-  matchId: string;
 }
 
 export interface StartMatchMessage {
   type: 'start_match';
-  lobbyId: string;
 }
 
+/** Leave the current lobby or match, including when spectating. */
 export interface LeaveMatchMessage {
   type: 'leave_match';
-  matchId: string;
 }
 
 /**
@@ -102,7 +97,6 @@ export interface SpectateMessage {
 
 export interface ReorderPlayerMessage {
   type: 'reorder_player';
-  lobbyId: string;
   playerId: string;
   direction: 'up' | 'down';
 }
@@ -114,7 +108,6 @@ export interface ReorderPlayerMessage {
  */
 export interface RematchVoteMessage {
   type: 'rematch_vote';
-  matchId: string;
   playerId: string;
   /** 'neutral' takes an answer back; the deadline turns anything still neutral into a decline. */
   answer: 'accepted' | 'declined' | 'neutral';

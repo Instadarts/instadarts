@@ -335,12 +335,12 @@ interface LobbyWrapperProps {
   isSpectator: boolean;
   /** Whether this user created the lobby — the server's answer, sent to this connection alone. */
   isHost: boolean;
-  startMatch: (lobbyId: string) => void;
-  leaveMatch: (matchId: string) => void;
-  updateSettings: (lobbyId: string, settings: any) => void;
-  addLocalPlayer: (lobbyId: string, name: string) => void;
-  removePlayer: (lobbyId: string, playerId: string) => void;
-  reorderPlayer: (lobbyId: string, playerId: string, direction: 'up' | 'down') => void;
+  startMatch: () => void;
+  leaveMatch: () => void;
+  updateSettings: (settings: any) => void;
+  addLocalPlayer: (name: string) => void;
+  removePlayer: (playerId: string) => void;
+  reorderPlayer: (playerId: string, direction: 'up' | 'down') => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
 }
@@ -357,12 +357,12 @@ function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMa
       isCreator={isHost}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
-      onStartGame={() => startMatch(lobby.id)}
-      onLeave={() => { leaveMatch(lobby.id); navigate('/'); }}
-      onUpdateSettings={(s: any) => updateSettings(lobby.id, s)}
-      onAddLocalPlayer={(n: string) => addLocalPlayer(lobby.id, n)}
-      onRemovePlayer={(p: string) => removePlayer(lobby.id, p)}
-      onReorderPlayer={(playerId, direction) => reorderPlayer(lobby.id, playerId, direction)}
+      onStartGame={startMatch}
+      onLeave={() => { leaveMatch(); navigate('/'); }}
+      onUpdateSettings={updateSettings}
+      onAddLocalPlayer={addLocalPlayer}
+      onRemovePlayer={removePlayer}
+      onReorderPlayer={reorderPlayer}
     />
   );
 }
@@ -373,11 +373,11 @@ interface MatchWrapperProps {
   panel?: ModePanel;
   ownPlayerIds: string[];
   isSpectator: boolean;
-  leaveMatch: (matchId: string) => void;
-  addDart: (matchId: string, dart: any) => void;
-  undoDart: (matchId: string) => void;
-  submitVisit: (matchId: string) => void;
-  onVoteRematch: (matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => void;
+  leaveMatch: () => void;
+  addDart: (dart: any) => void;
+  undoDart: () => void;
+  submitVisit: () => void;
+  onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
   videoOffers: readonly VideoFeedView[];
@@ -398,11 +398,11 @@ function MatchWrapper({ match, view, panel, ownPlayerIds, isSpectator, evidence,
       panel={panel}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
-      onLeave={() => { leaveMatch(match.id); navigate('/'); }}
-      onAddDart={(gid: string, dart: any) => addDart(gid, dart)}
-      onUndoDart={() => undoDart(match.id)}
-      onSubmitVisit={() => submitVisit(match.id)}
-      onVoteRematch={(playerId: string, answer: RematchAnswer | 'neutral') => onVoteRematch(match.id, playerId, answer)}
+      onLeave={() => { leaveMatch(); navigate('/'); }}
+      onAddDart={addDart}
+      onUndoDart={undoDart}
+      onSubmitVisit={submitVisit}
+      onVoteRematch={onVoteRematch}
       evidence={evidence}
       liveFeed={liveFeed}
       videoOffers={videoOffers}
@@ -421,7 +421,7 @@ interface SpectateWrapperProps {
   view: ModeView | null;
   panel?: ModePanel;
   modes: ModeDescriptor[];
-  leaveMatch: (matchId: string) => void;
+  leaveMatch: () => void;
   navigate: (path: string, opts?: { replace?: boolean }) => void;
   error: string | null;
   evidence: (string | undefined)[] | null;
@@ -451,7 +451,7 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
   }, [id, connected, connectionGeneration, spectate]);
 
   const handleLeave = () => {
-    leaveMatch(lobby?.id ?? match?.id ?? '');
+    leaveMatch();
     navigate('/');
   };
 

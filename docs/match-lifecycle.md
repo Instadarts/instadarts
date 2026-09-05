@@ -27,6 +27,12 @@ Connection-specific messages provide the conclusions a client needs: `yourPlayer
 `youAreHost`, and `youAreSpectator`. They are sent to one connection rather than broadcast to the
 room.
 
+Gameplay commands act on the connection's current room; they do not select a room by ID. Joining
+uses an invite code, while spectating and reconnecting identify their destination explicitly.
+`join_lobby` takes a seat without adding a player; `add_local_player` supplies each player's name.
+Despite its name, `leave_match` leaves the current lobby or match, for participants and spectators.
+Legacy extra room-ID fields on gameplay commands are ignored; they do not reject stale commands.
+
 ## Seats and authorization
 
 A **seat** is a place in one lobby or match and the private token that proves control of it. It

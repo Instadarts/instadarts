@@ -325,19 +325,19 @@ export function handleMessage(ws: WebSocket, raw: string): void {
       handleSetPlayerName(ws, msg);
       break;
     case 'start_match':
-      handleStartMatch(ws, msg);
+      handleStartMatch(ws);
       break;
     case 'add_dart':
       handleAddDart(ws, msg);
       break;
     case 'undo_dart':
-      handleUndoDart(ws, msg);
+      handleUndoDart(ws);
       break;
     case 'submit_visit':
-      handleSubmitVisit(ws, msg);
+      handleSubmitVisit(ws);
       break;
     case 'leave_match':
-      handleLeaveMatch(ws, msg);
+      handleLeaveMatch(ws);
       break;
     case 'reconnect':
       handleReconnect(ws, msg);
@@ -725,7 +725,7 @@ function handleSetPlayerName(ws: WebSocket, msg: any): void {
   broadcastToLobby(lobby.id, lobbyMessage(lobby));
 }
 
-function handleStartMatch(ws: WebSocket, _msg: any): void {
+function handleStartMatch(ws: WebSocket): void {
   const seated = seatedInLobby(ws);
   if (!seated) return;
   const { client } = seated;
@@ -829,7 +829,7 @@ function handleAddDart(ws: WebSocket, msg: any): void {
   commitScoredMatch(result.match);
 }
 
-function handleUndoDart(ws: WebSocket, _msg: any): void {
+function handleUndoDart(ws: WebSocket): void {
   const req = requireMatch(ws);
   if (!req) return;
   const { client, match } = req;
@@ -847,7 +847,7 @@ function handleUndoDart(ws: WebSocket, _msg: any): void {
   commitScoredMatch(result.match);
 }
 
-function handleSubmitVisit(ws: WebSocket, _msg: any): void {
+function handleSubmitVisit(ws: WebSocket): void {
   const req = requireMatch(ws);
   if (!req) return;
   const { client, match } = req;
@@ -864,7 +864,7 @@ function handleSubmitVisit(ws: WebSocket, _msg: any): void {
   commitScoredMatch(submitResult.match);
 }
 
-function handleLeaveMatch(ws: WebSocket, _msg: any): void {
+function handleLeaveMatch(ws: WebSocket): void {
   handleClientLeave(ws);
 }
 

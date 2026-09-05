@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
 import { textOf, toneOf } from '../../shared/types';
@@ -24,9 +24,9 @@ interface MatchScreenProps {
   view: ModeView;
   panel?: ModePanel;
   onLeave: () => void;
-  onAddDart: (matchId: string, dart: DartThrow) => void;
-  onUndoDart: (matchId: string) => void;
-  onSubmitVisit: (matchId: string) => void;
+  onAddDart: (dart: DartThrow) => void;
+  onUndoDart: () => void;
+  onSubmitVisit: () => void;
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   ownPlayerIds: string[];
   isSpectator: boolean;
@@ -62,9 +62,6 @@ export function MatchScreen({
   const visitLocked = match.currentVisit?.locked ?? false;
   const canAddDart = isMyTurn && !visitLocked && currentDarts.length < view.dartsPerVisit && match.status === 'in_progress';
 
-  const handleAddDart = useCallback((dart: DartThrow) => onAddDart(match.id, dart), [match.id, onAddDart]);
-  const handleUndo = useCallback(() => onUndoDart(match.id), [match.id, onUndoDart]);
-  const handleSubmit = useCallback(() => onSubmitVisit(match.id), [match.id, onSubmitVisit]);
   const over = match.status === 'finished';
 
   useAutoSubmit({
@@ -73,7 +70,7 @@ export function MatchScreen({
     // any. The count of committed visits is what numbers it, and it ticks the moment this submit
     // lands, so the guard cannot fire twice for the same turn or miss the next one.
     visitKey: `${match.id}:${match.visits.length}`,
-    onSubmit: handleSubmit,
+    onSubmit: onSubmitVisit,
   });
   const { c: headlineColor, fw: headlineWeight } = modeTextProps(view.headline, {
     tone: 'accent',
@@ -166,7 +163,7 @@ export function MatchScreen({
           <VirtualBoard
             darts={currentDarts}
             dartsPerVisit={view.dartsPerVisit}
-            onAddDart={isSpectator ? () => {} : handleAddDart}
+            onAddDart={isSpectator ? () => {} : onAddDart}
             disabled={!canAddDart}
             liveBoard={liveBoard}
             videoOffers={videoOffers}
@@ -200,8 +197,8 @@ export function MatchScreen({
             dartsPerVisit={view.dartsPerVisit}
             slots={view.slots}
             visitTotal={view.visitTotal}
-            onUndoDart={isSpectator ? () => {} : handleUndo}
-            onSubmit={isSpectator ? () => {} : handleSubmit}
+            onUndoDart={isSpectator ? () => {} : onUndoDart}
+            onSubmit={isSpectator ? () => {} : onSubmitVisit}
             readOnly={!isMyTurn || isSpectator}
             hideActions={isSpectator}
           />

@@ -83,7 +83,7 @@ function setup(options: { oneBoard?: boolean; startScore?: number } = {}) {
     // Two boards means two users, so the opponent needs a connection of their own.
     const inviteCode = frontend.last('lobby_state')!.lobby.inviteCode!;
     opponent = connect();
-    opponent.send({ type: 'join_lobby', inviteCode, playerName: 'Bob' });
+    opponent.send({ type: 'join_lobby', inviteCode });
     opponent.send({ type: 'add_local_player', playerName: 'Bob' });
   }
 

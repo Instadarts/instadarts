@@ -117,7 +117,7 @@ function listener(server: Server): Server {
  * Lobby and match counts follow room deadlines; `heldMatches` includes finished summaries waiting
  * to expire. Connections can remain while a browser is idle and answering heartbeat pings.
  * `connectedClients` counts sockets held by `wss`, not entries in the application client registry
- * used for admission, so it cannot reveal closed connections retained in that registry.
+ * used for admission, which also holds closed connections during their three-second cleanup grace.
  */
 function serverStats() {
   const lobbies = getAllLobbies();

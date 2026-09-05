@@ -68,8 +68,11 @@ flushing messages queued during the outage. Redeeming the token restores the hel
 role and binds the seat to the new session.
 
 A closed frontend connection receives a three-second grace period before it is treated as a leave.
-Redeeming its seat cancels that pending departure. A spectator has no seat to redeem and instead
-re-enters the room through `spectate` on the replacement connection.
+Redeeming its seat transfers ownership to the new session, so the old connection's deferred leave
+does not affect it. The cleanup callback still runs at the original deadline to release the closed
+connection and its session resources. Each closed socket has an independent timer, including lobby
+occupants who have not added players. A spectator has no seat to redeem and instead re-enters the
+room through `spectate` on the replacement connection.
 
 Connections that disappear without a close frame are detected by
 [`heartbeat.ts`](../src/server/heartbeat.ts). The server pings every 30 seconds and terminates a
@@ -151,8 +154,8 @@ after the tested expiry sequences; its cleanup explicitly removes mock clients. 
 production connection reclamation.
 
 Connections have a separate lifetime: an idle browser that answers heartbeat pings may stay
-connected after its room expires. There is also a known cleanup defect: resuming a seat within the
-disconnect grace cancels the callback that would remove the old closed connection's client record.
-Room expiry and heartbeat do not collect that record. `/server-stats.connectedClients` reports
-the WebSocket server's socket set, whereas admission counts the application client registry, so
-that statistic does not expose the leak.
+connected after its room expires. Closed connections awaiting their three-second cleanup deadline
+still count toward admission. `/server-stats.connectedClients` reports the WebSocket server's socket
+set, so it can be lower than the application client registry count during that grace period.
+[`disconnect.test.ts`](../tests/unit/disconnect.test.ts) checks deferred connection reclamation and
+seat ownership through handler-level reload, takeover and unresumed-departure sequences.

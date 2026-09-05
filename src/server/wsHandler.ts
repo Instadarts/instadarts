@@ -84,36 +84,16 @@ import {
 // ============================================================
 
 const DISCONNECT_GRACE_MS = 3000;
-const pendingDisconnects = new Map<string, ReturnType<typeof setTimeout>>();
-
-function disconnectKey(client: Client): string | null {
-  const pid = playersOf(client)[0] ?? '';
-  if (client.lobbyId && pid) return `lobby:${client.lobbyId}:${pid}`;
-  if (client.lobbyId) return `lobby:${client.lobbyId}:`;
-  if (client.matchId && pid) return `match:${client.matchId}:${pid}`;
-  return null;
-}
 
 export function scheduleDisconnect(ws: WebSocket, onTimeout: () => void): void {
   const client = getClient(ws);
-  if (!client) { onTimeout(); return; }
+  const needsGrace = client && (client.lobbyId || (client.matchId && playersOf(client).length > 0));
+  if (!needsGrace) { onTimeout(); return; }
 
-  const key = disconnectKey(client);
-  if (!key) { onTimeout(); return; }
-
-  const timer = setTimeout(() => {
-    pendingDisconnects.delete(key);
-    onTimeout();
-  }, DISCONNECT_GRACE_MS);
-  pendingDisconnects.set(key, timer);
-}
-
-function cancelDisconnect(key: string): void {
-  const timer = pendingDisconnects.get(key);
-  if (timer) {
-    clearTimeout(timer);
-    pendingDisconnects.delete(key);
-  }
+  // This callback also releases the closed connection's resources, so a reconnect must never
+  // cancel it. handleClientLeave checks seat ownership when it runs: a resumed seat belongs to
+  // the new session and is left alone. Each socket has its own timer, including empty lobby seats.
+  setTimeout(onTimeout, DISCONNECT_GRACE_MS);
 }
 
 export function registerClient(ws: WebSocket, client: Client): void {
@@ -1094,9 +1074,6 @@ function handleReconnect(ws: WebSocket, msg: any): void {
 
 /** Page reload during the lobby phase. */
 function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: Seat): void {
-  // Cancel any pending disconnect for this player (page reload recovery)
-  cancelDisconnect(seat.playerIds[0] ? `lobby:${lobbyId}:${seat.playerIds[0]}` : `lobby:${lobbyId}:`);
-
   const lobby = getLobby(lobbyId);
   if (!lobby) {
     send(ws, { type: 'error', message: 'Lobby not found' });
@@ -1130,8 +1107,6 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
 
 /** Page reload during the match. */
 function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: Seat): void {
-  if (seat.playerIds[0]) cancelDisconnect(`match:${matchId}:${seat.playerIds[0]}`);
-
   const match = getMatch(matchId);
   if (!match) {
     send(ws, { type: 'error', message: 'Match not found' });

@@ -110,6 +110,8 @@ snapshot and there is nothing a round trip could add.
 one file to run with no npm involved. It embeds the client and inlines the server dependencies into
 `instadarts.mjs`, so that archive *does* redistribute other people's code and carries the full
 notice — both beside the program and inside it, from the same generated file.
+The archive's `README.md` comes from `scripts/standalone-README.md` and explains running
+`node instadarts.mjs`; the repository README describes installing from source.
 
 ### Settings
 

@@ -10,7 +10,7 @@
 #   instadarts.config.example.jsonc every setting, at its default
 #   LICENSE                         ours: the GNU AGPL v3
 #   THIRD-PARTY-NOTICES.txt         what the bundled licences ask us to carry
-#   README.md
+#   README.md                      standalone startup and configuration instructions
 #
 # What the reader has to do with that is install Node and run `node instadarts.mjs`. **No npm
 # install**, no node_modules, no network after the download — which is the whole point, because
@@ -152,11 +152,7 @@ npx esbuild src/server/index.ts \
 # ── 5. What the reader reads ─────────────────────────────────────────
 
 cp instadarts.config.example.jsonc "$STAGE/"
-if [ -f README.md ]; then
-  cp README.md "$STAGE/"
-else
-  echo "!!! no README.md — the archive will ship without one"
-fi
+cp scripts/standalone-README.md "$STAGE/README.md"
 
 # ── 6. The archive ───────────────────────────────────────────────────
 

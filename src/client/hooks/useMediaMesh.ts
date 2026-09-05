@@ -138,7 +138,6 @@ export function useMediaMesh(
     if (!config?.enabled) return null;
     return createMesh({
       iceServers: config.iceServers,
-      video: config.video,
       signal: (to, description) => sendRef.current({ type: 'media_signal', to, description }),
       onChange: () => setLinks(meshRef.current?.links() ?? []),
       onControl: (from, message, payload) => {

@@ -17,6 +17,10 @@ A lobby and a match are separate server objects:
 Starting play consumes the lobby and creates a `MatchState` with status `in_progress`. A finished
 match has status `finished`; `winnerId` is present for a win and absent for a cancellation.
 
+Lobbies and matches share the `server.maxMatches` room budget. Starting an existing lobby has no
+net room cost and is allowed even at that limit. New lobbies and re-matches need a free slot;
+the latter retain the previous summary until its deadline.
+
 ## Connections and private identity
 
 Every WebSocket connection receives a new random `sessionId`. It identifies that live connection,

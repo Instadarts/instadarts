@@ -39,7 +39,7 @@ import {
 import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatedPlayerIds, updateSeat, type Seat } from './seats';
 import { allModes, describeMode, getMode } from './modes/types';
-import { canCreateLobby, canCreateMatch } from './capacity';
+import { canAddRoom } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {
   addClient,
@@ -500,7 +500,7 @@ const ROOM_CHANGING_TYPES = new Set([
 // ============================================================
 
 function handleCreateLobby(ws: WebSocket, msg: any): void {
-  if (!canCreateLobby()) {
+  if (!canAddRoom()) {
     send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }
@@ -743,11 +743,6 @@ function handleStartMatch(ws: WebSocket): void {
     return;
   }
 
-  if (!canCreateMatch()) {
-    send(ws, { type: 'error', message: 'Server is full, try again later' });
-    return;
-  }
-
   // Nothing unowned goes into a match. A player belongs to the seat that holds it, and the rosters
   // go immutable at `createMatch` — so this is the last moment an orphan can be taken out, and it
   // runs before the counts below so they see the roster that will actually play.
@@ -785,6 +780,7 @@ function handleStartMatch(ws: WebSocket): void {
     c.isSpectator = true;
   }
 
+  // This replaces the existing lobby, so a full room budget does not prevent it from starting.
   const match = createMatch(lobby);
   startMediaForMatch(match);
 
@@ -1202,7 +1198,7 @@ function resolveRematch(ws: WebSocket | null, match: MatchState): void {
     return;
   }
 
-  if (!canCreateMatch()) {
+  if (!canAddRoom()) {
     if (ws) send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }

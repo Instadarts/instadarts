@@ -5,7 +5,6 @@ import type { MatchSettings } from '../../src/shared/types';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import type { WebSocket } from 'ws';
-import { canCreateLobby, canCreateMatch } from '../../src/server/capacity';
 
 // ============================================================
 // Player name sanitization
@@ -351,21 +350,5 @@ describe('rate limiting', () => {
 
     releaseRateLimit(id1, null);
     releaseRateLimit(id2, null);
-  });
-});
-
-// ============================================================
-// Concurrency limits
-// ============================================================
-
-describe('concurrency limits', () => {
-  it('canCreateLobby and canCreateMatch return booleans', () => {
-    expect(typeof canCreateLobby()).toBe('boolean');
-    expect(typeof canCreateMatch()).toBe('boolean');
-  });
-
-  it('initially allows creation (store is empty)', () => {
-    expect(canCreateLobby()).toBe(true);
-    expect(canCreateMatch()).toBe(true);
   });
 });

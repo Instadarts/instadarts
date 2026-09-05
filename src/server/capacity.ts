@@ -114,12 +114,11 @@ export const MEDIA_VIEWERS_PER_ROOM = 2;
 // The questions the server asks
 // ============================================================
 
-/** Both are the same question — a lobby and a match occupy the same seat. */
-export function canCreateLobby(): boolean {
-  return roomCount() < MAX_ROOMS;
-}
-
-export function canCreateMatch(): boolean {
+/**
+ * Can one more room be retained? New lobbies and rematches need a slot; starting an existing
+ * lobby replaces it with a match and needs no additional room, so it does not ask this question.
+ */
+export function canAddRoom(): boolean {
   return roomCount() < MAX_ROOMS;
 }
 

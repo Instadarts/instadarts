@@ -135,9 +135,9 @@ export function holdsSeat(roomId: string, sessionId: string): boolean {
  * comes back as it. `start_match` reconciles the lobby against this before the lists go immutable,
  * so an orphan produced by any path at all is taken out rather than played around.
  *
- * Asked of the seats and deliberately not of the connections: a tab inside its disconnect grace has
- * left the client registry but still holds its place, and reconciling against live clients would
- * delete the players of anybody mid-reload.
+ * Asked of the seats because a tab inside its disconnect grace still holds its place even though
+ * its socket is closed. The client record remains until deferred cleanup; socket readiness must
+ * not decide whether that player's seat belongs in the roster.
  */
 export function seatedPlayerIds(roomId: string): Set<string> {
   const ids = new Set<string>();

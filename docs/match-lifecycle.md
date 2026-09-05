@@ -120,5 +120,14 @@ re-match stay there.
 | Match finished | 2 minutes | Neutral votes decline, clients still on that summary return home, and the match is deleted |
 
 Participant input resets an idle deadline. Spectating and reconnecting do not, and the
-finished-match deadline is fixed. Each ending path removes its own room and related scoring state;
-[`retention.test.ts`](../tests/unit/retention.test.ts) verifies that the stores are empty afterwards.
+finished-match deadline is fixed. Room-ending handlers remove room, seat, scoring and media state.
+[`retention.test.ts`](../tests/unit/retention.test.ts) checks the lobby, match and scoring stores
+after the tested expiry sequences; its cleanup explicitly removes mock clients. It does not verify
+production connection reclamation.
+
+Connections have a separate lifetime: an idle browser that answers heartbeat pings may stay
+connected after its room expires. There is also a known cleanup defect: resuming a seat within the
+disconnect grace cancels the callback that would remove the old closed connection's client record.
+Room expiry and heartbeat do not collect that record. `/server-stats.connectedClients` reports
+the WebSocket server's socket set, whereas admission counts the application client registry, so
+that statistic does not expose the leak.

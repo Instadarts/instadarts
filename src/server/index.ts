@@ -37,8 +37,7 @@ reportConfig();
 const installedModes = await loadModes();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
-// The clock that gives every lobby and match a definite end. There is no collector besides it:
-// nothing here is reclaimed by being noticed later, only by its own deadline arriving.
+// Sweep lobby and match deadlines. Socket cleanup and heartbeat detection have separate lifetimes.
 startLifecycle();
 
 // The STUN server, if this deployment carries one. Before the HTTP listener rather than after, so
@@ -115,10 +114,10 @@ function listener(server: Server): Server {
  * Also the readiness probe the e2e run waits on, so it must stay cheap and must not depend on
  * anything that is still starting up.
  *
- * These are retention numbers rather than activity numbers. Every object counted here has a
- * deadline, so each should return to zero on an idle server; one that climbs while nothing is being
- * played is the shape a leak would take. `heldMatches` above `runningMatches` is only summaries
- * counting down — it is the two together, staying up, that would mean something.
+ * Lobby and match counts follow room deadlines; `heldMatches` includes finished summaries waiting
+ * to expire. Connections can remain while a browser is idle and answering heartbeat pings.
+ * `connectedClients` counts sockets held by `wss`, not entries in the application client registry
+ * used for admission, so it cannot reveal closed connections retained in that registry.
  */
 function serverStats() {
   const lobbies = getAllLobbies();

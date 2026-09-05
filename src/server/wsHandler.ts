@@ -646,9 +646,8 @@ function handleRemovePlayer(ws: WebSocket, msg: any): void {
   // kick, which is the case that used to go wrong.
   const ownerWs = player.sessionId ? findSessionSocket(player.sessionId) : null;
   const owner = ownerWs ? getClient(ownerWs) : null;
-  // Taken off the seat, which is where it was held — and off it even when no live connection answers
-  // for the session: a tab inside its disconnect grace has no usable client record but still holds
-  // its place, and that seat is what its reload comes back on.
+  // Remove it from the seat even if the owner's socket is closed. During disconnect grace the
+  // client record remains, but cannot receive the update; a reload reads the corrected seat.
   const held = player.sessionId ? heldSeat(lobby.id, player.sessionId) : null;
   if (held) {
     updateSeat(lobby.id, held.token, {

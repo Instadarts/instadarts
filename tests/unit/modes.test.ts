@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_MODE, allModes, describeMode, getMode, loadModes, registerMode } from '../../src/server/modes/types';
-import { modeBans } from '../../src/shared/settings';
+import { DEFAULT_MODE, allModes, describeMode, getMode, validateModeCatalog, registerMode } from '../../src/server/modes/types';
+import { effectiveMaxPlayers, modeBans } from '../../src/shared/settings';
 import { panelOf } from '../../src/server/match';
 import { textOf } from '../../src/shared/types';
 import { makeMatch, playVisit, throwDart } from '../helpers';
@@ -15,31 +15,31 @@ import type { MatchState } from '../../src/shared/types';
 registerMode({ ...countUp, id: 'two-only', label: 'Two Only', maxPlayers: 2 });
 
 /**
- * Installing a mode is adding a file to src/server/modes/. These tests exercise the finding of them,
- * and what a found mode is then able to say for itself.
+ * Mode modules register themselves when explicitly imported. These tests exercise the registered
+ * catalog, its required default, and what each mode can describe to the lobby.
  */
 
 describe('installed modes', () => {
-  it('are found by scanning the directory', async () => {
-    const modes = await loadModes();
-    expect(modes.map((m) => m.id)).toContain('x01');
+  it('returns registered modes in stable order', () => {
+    const modes = validateModeCatalog();
+    expect(modes.map((m) => m.id)).toEqual(['count-up', 'two-only', 'whac-a-mole', 'x01']);
     expect(getMode('x01')).toBeDefined();
   });
 
-  it('do not include the contract file itself', async () => {
-    const modes = await loadModes();
-    expect(modes.map((m) => m.id)).not.toContain('types');
+  it('refuses a catalog without the required default mode', async () => {
+    vi.resetModules();
+    try {
+      const registry = await import('../../src/server/modes/types');
+      registry.registerMode(countUp);
+      expect(() => registry.validateModeCatalog()).toThrow(`The ${DEFAULT_MODE} game mode is required`);
+      registry.registerMode(getMode(DEFAULT_MODE)!);
+      expect(() => registry.validateModeCatalog()).not.toThrow();
+    } finally {
+      vi.resetModules();
+    }
   });
 
-  it('include x01, which a deployment may not be without', async () => {
-    // loadModes throws when it is missing; that it returns at all is the assertion.
-    await expect(loadModes()).resolves.toBeDefined();
-    expect(DEFAULT_MODE).toBe('x01');
-    expect(getMode(DEFAULT_MODE)).toBeDefined();
-  });
-
-  it('describe themselves well enough for a lobby to offer them', async () => {
-    await loadModes();
+  it('describe themselves well enough for a lobby to offer them', () => {
     const described = allModes().map(describeMode);
 
     const x01 = described.find((d) => d.id === 'x01')!;
@@ -49,8 +49,7 @@ describe('installed modes', () => {
     expect(x01.maxPlayers).toBe(null);
   });
 
-  it('declares maxPlayers, normalises silence to null, and narrows server cap', async () => {
-    await loadModes();
+  it('declares maxPlayers, normalises silence to null, and narrows server cap', () => {
     const described = allModes().map(describeMode);
 
     // No shipped mode declares one any more: x01 is a race of independent scores and Whac-A-Mole
@@ -61,15 +60,13 @@ describe('installed modes', () => {
     }
     expect(described.find((d) => d.id === 'two-only')!.maxPlayers).toBe(2);
 
-    const { effectiveMaxPlayers } = await import('../../src/shared/settings');
     expect(effectiveMaxPlayers(5, 2)).toBe(2);
     expect(effectiveMaxPlayers(5, null)).toBe(5);
     expect(effectiveMaxPlayers(5, undefined)).toBe(5);
     expect(effectiveMaxPlayers(2, 5)).toBe(2);
   });
 
-  it('say which media features they do not want, and default to wanting all of them', async () => {
-    await loadModes();
+  it('say which media features they do not want, and default to wanting all of them', () => {
     const described = allModes().map(describeMode);
 
     // Optional to declare, always present to read: nobody consuming a descriptor has to tell

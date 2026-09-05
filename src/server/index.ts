@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 // tell people when a deadline passes, and it says so to `lifecycle` on load.
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import './modes/registry.js';
-import { loadModes } from './modes/types';
+import { validateModeCatalog } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
 import { mediaPeerCount, reportInternalStun, startInternalStun } from './media';
@@ -34,7 +34,7 @@ reportConfig();
 
 // Validate the modes registered by the imports in src/server/modes/registry.ts. Adding or removing
 // a mode requires updating that registry; x01 is required for startup.
-const installedModes = await loadModes();
+const installedModes = validateModeCatalog();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
 // Sweep lobby and match deadlines. Socket cleanup and heartbeat detection have separate lifetimes.

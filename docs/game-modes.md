@@ -437,7 +437,7 @@ Two consequences worth knowing:
 - **A mode nobody imported is simply absent.** Nothing scans, so a file in the directory that
   `registry.ts` does not name is dead source — it never registers, and the server starts happily
   without it. The symptom is a mode missing from the lobby, not an error at boot.
-- **x01 is mandatory.** It is the default a new lobby starts on, and `loadModes` refuses to start a
+- **x01 is mandatory.** It is the default a new lobby starts on, and `validateModeCatalog` refuses to start a
   server that does not have it registered.
 
 ### The development-only mode

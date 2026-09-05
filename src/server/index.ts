@@ -173,6 +173,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 startHeartbeat(wss);
 
 wss.on('connection', (ws) => {
+  // ws closes transport failures (including oversized messages and malformed frames) itself.
+  // Handle its error event so it cannot terminate the process; the normal close handler below
+  // owns application cleanup. Refused sockets also need this listener while their close is pending.
+  ws.on('error', (err) => {
+    if (!QUIET) console.warn('WebSocket error:', err.message);
+  });
+
   // Refused here rather than later: a connection turned away at the handshake costs nothing to
   // hold, and holding it is the resource that ran out. 1013 is "try again later", which the
   // client's reconnect already treats as a reason to come back.

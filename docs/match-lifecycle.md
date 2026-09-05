@@ -71,6 +71,10 @@ Connections that disappear without a close frame are detected by
 [`heartbeat.ts`](../src/server/heartbeat.ts). The server pings every 30 seconds and terminates a
 connection that misses a round, sending it through the ordinary close and grace-period path.
 
+WebSocket messages are limited to 16 KiB. An oversized message or malformed frame closes only
+the offending connection; admitted clients follow the ordinary disconnect cleanup path. Transport
+errors are handled even on sockets being refused for capacity, so they cannot terminate the server.
+
 ## Lobby ownership and admission
 
 The user that creates a lobby is its host. The host may change settings, reorder players, remove

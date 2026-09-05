@@ -16,6 +16,7 @@ src/shared/     types.ts        the match, the visit, the mode's view of both �
                 settings.ts     how a setting declares itself, and how to read one out of the bag
                 matchFormat.ts  sets and legs: standings, the winner, whose throw it is
                 scoring.ts      board coordinates → a dart's score. The one authority on what was hit
+                boardGeometry.ts physical dimensions, sector order and coordinate scale
                 vision/         geometry and constants the camera pipeline shares with the server
 
 src/server/     index.ts        boot: modes, the HTTP router, the socket server, the clocks
@@ -444,20 +445,23 @@ preferably in a temporary worktree, before assuming the current change caused it
 
 **Re-check the mode boundary.** Search `src/` for `startScore`, `doubleIn`, `doubleOut`, and `bust`
 outside `src/server/modes/x01.ts`. Every result should be a comment or the dartboard's physical ring
-radii (`doubleOuter`, `doubleInner` in `scoring.ts` and `boardGeometry.ts`, which are millimetres and
-not the x01 setting). Anything else is a leak. See [game modes](./game-modes.md) for the boundary.
+radii (`doubleOuter`, `doubleInner` from `shared/boardGeometry.ts`, converted to each consumer's
+coordinate units). Anything else is a leak. See [game modes](./game-modes.md) for the boundary.
 
 ## Two things about the board that are easy to get wrong
 
 **There are two coordinate systems.** Board units (0–1,000,000, y-up, centre at 500,000) are the wire
 — a dart's `x`/`y`, the scoring rules, the camera. SVG units (0–100, y-down) are only how the picture
-is drawn. `toSvg` and `toBoard` in `boardGeometry.ts` are the only crossings, and there are exactly
-two: a marker going in and a click coming out.
+is drawn. `toSvg` and `toBoard` in `client/components/boardGeometry.ts` are the only crossings, and
+there are exactly two: a marker going in and a click coming out.
 
 The drawing has its own system because of text. **Chrome clamps `font-size` at 10,000**, so in a
 million-unit viewBox a readable label is not expressible. Size drawn labels in SVG units; a label of
 `4` is about 4% of the board's width at any rendered size. Express physical geometry in millimetres
-and multiply it by `MM`, as the ring radii and wire thicknesses do.
+in `shared/boardGeometry.ts`; `boardRadii(width)` converts the ring radii to the consumer's width
+(1 for normalized geometry, 100 for SVG). The reference extent is 451mm across and the drawn board
+has a 225mm radius. Scoring, drawing, vision and Whac-a-Mole share those dimensions and sector
+order. For SVG decoration such as wire thicknesses, multiply millimetres by the drawing's `MM`.
 
 **The screen should not jump.** An element is its final size from the first frame, not the size of
 what it currently has to show. That rule and what it looks like in practice are written up under

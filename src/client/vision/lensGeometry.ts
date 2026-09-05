@@ -5,10 +5,11 @@
 // that on a frozen frame is what makes lens calibration possible — you slide k1 until the drawn
 // spider sits on the real board's wires.
 //
-// Self-contained: it builds its own board reference points and inverts its own homography, so it
-// never meets the board coordinates the rest of the app scores in. Its numbers are normalized
-// image space throughout, [0,1] on both axes.
+// It shares physical dimensions with scoring, but builds its own board reference points and
+// inverts its own homography. Coordinates stay normalized, [0,1] and y-down in both board and
+// image space, separate from the integer y-up coordinates the rest of the app scores in.
 
+import { NORMALIZED_RADII as BOARD_RADII, SECTOR_ORDER as BOARD_SECTOR_ORDER } from '../../shared/boardGeometry';
 import type { Keypoint } from '../../shared/vision/types';
 
 /** A point in normalized image or board space. */
@@ -55,24 +56,9 @@ export type BoardSpaceDetection = {
 };
 
 type BoardKeypoint = { classId: number; x: number; y: number };
-const BOARD_SECTOR_ORDER = Object.freeze([
-  20, 1, 18, 4, 13,
-  6, 10, 15, 2, 17,
-  3, 19, 7, 16, 8,
-  11, 14, 9, 12, 5,
-]);
 const BOARD_KEYPOINT_NAMES = Object.freeze(["18-4", "4-13", "10-15", "15-2", "7-16", "16-8", "14-9", "9-12"]);
 const BOARD_KEYPOINT_PAIRS = Object.freeze([[0, 1], [2, 3], [4, 5], [6, 7]]);
 const BOARD_CENTER = Object.freeze([0.5, 0.5]);
-const MM_TO_BOARD_UNIT = 0.5 / 225.5;
-const BOARD_RADII = Object.freeze({
-  doubleOuter: 170.0 * MM_TO_BOARD_UNIT,
-  doubleInner: 160.0 * MM_TO_BOARD_UNIT,
-  tripleOuter: 107.0 * MM_TO_BOARD_UNIT,
-  tripleInner: 97.0 * MM_TO_BOARD_UNIT,
-  outerBull: (32.0 / 2.0) * MM_TO_BOARD_UNIT,
-  innerBull: (13.0 / 2.0) * MM_TO_BOARD_UNIT,
-});
 const BOARD_REFERENCE_POINTS = buildBoardReferencePoints();
 const RADIAL_SAMPLE_COUNT = 48;
 const SECTION_ARC_SAMPLE_COUNT = 12;

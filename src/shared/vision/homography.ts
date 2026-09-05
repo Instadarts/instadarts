@@ -18,15 +18,12 @@
 //     six we need for sub-unit board accuracy. The absolute 1e-10 / 1e-12 epsilons below become
 //     relatively *more* conservative at this scale, not less.
 
-import { BOARD_MAX, BOARD_CENTER } from '../scoring';
+import { BOARD_MAX, BOARD_CENTER, NORMALIZED_RADII, SECTOR_ORDER } from '../boardGeometry';
 import type { Keypoint, Matrix3x3, Point2D } from './types';
 
 const HOMOGRAPHY_INLIER_SCALE_RATIO = 0.005;
 const MIN_VISIBLE_KEYPOINTS = 4;
 const MIN_COVERED_PAIRS = 3;
-
-/** Dartboard sectors in clockwise order, starting at the top. */
-const SECTOR_ORDER = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5];
 
 /** The eight keypoint classes, each a sector boundary on the outside of the double ring. */
 const KEYPOINT_NAMES = ['18-4', '4-13', '10-15', '15-2', '7-16', '16-8', '14-9', '9-12'];
@@ -36,7 +33,7 @@ const CLASS_PAIRS = [[0, 1], [2, 3], [4, 5], [6, 7]] as const;
 
 /** Where each keypoint class sits on a real board, in instadarts board coordinates. */
 export const REFERENCE_POINTS: Point2D[] = (() => {
-  const radius = 170.0 * (0.5 / 225.5) * BOARD_MAX; // outside of the double ring
+  const radius = NORMALIZED_RADII.doubleOuter * BOARD_MAX;
   const centerAngles = new Map(SECTOR_ORDER.map((n, i) => [n, i * 18]));
   return KEYPOINT_NAMES.map((name) => {
     const [left, right] = name.split('-').map(Number);

@@ -3,6 +3,7 @@ import type {
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { numberOr, stringOr } from '../../shared/settings';
+import { BOARD_MAX, NORMALIZED_RADII, SECTOR_ORDER } from '../../shared/boardGeometry';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
 import { registerMode } from './types';
 
@@ -62,22 +63,13 @@ type AreaId = string;
 /** The middle of the board. Never a mole's target — it is where they all came from. */
 const THE_BURROW = 'BULL';
 
-const SECTOR_ORDER = [
-  20, 1, 18, 4, 13, 6, 10, 15, 2, 17,
-  3, 19, 7, 16, 8, 11, 14, 9, 12, 5,
-];
-
 /**
  * Where the triple ring ends, as a fraction of the board's width.
  *
- * Mirrors `RADII.tripleOuter` in shared/scoring.ts, which is private to that file. It is the one
- * number this mode needs and cannot ask for: a `ScoreResult` says `S18` for both singles, so telling
- * the outer from the inner one takes the dart's coordinates and this radius.
+ * A `ScoreResult` says `S18` for both singles, so telling the outer from the inner one takes the
+ * dart's coordinates and the shared physical radius.
  */
-const TRIPLE_OUTER = 107.0 * (0.5 / 225.5);
-
-/** The wire's coordinate space — `BOARD_MAX` in shared/scoring.ts, by definition. */
-const BOARD_MAX = 1_000_000;
+const TRIPLE_OUTER = NORMALIZED_RADII.tripleOuter;
 
 const OUTER_SINGLES = SECTOR_ORDER.map((n) => `S${n}o`);
 const INNER_SINGLES = SECTOR_ORDER.map((n) => `S${n}i`);

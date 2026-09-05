@@ -59,10 +59,7 @@ describe('scoreFromBoardCoords', () => {
   });
 
   describe('sector rotation', () => {
-    it('sector 3 is to the right from center', () => {
-      // Sector 3 is 90° clockwise from top (20). Index in SECTOR_ORDER: 20(0°),1(18°),18(36°),4(54°),13(72°),6(90°),10(108°),15(126°),2(144°),17(162°),3(180°),...
-      // Wait, 3 is at index 10 → 10 * 18 = 180°. So sector 3 is at 180° (bottom, at y < C).
-      // Let me check: sector 6 is at 90° (right). SECTOR_ORDER index 5 = 6.
+    it('sector 6 is to the right from center', () => {
       const r = 200_000;
       expect(s(C + r, C).base).toBe(6); // 90° clockwise = right
     });

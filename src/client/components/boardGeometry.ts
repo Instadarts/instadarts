@@ -15,8 +15,12 @@
 // multiples of a millimetre, and the only integers in the old system were the dart positions, which
 // are converted at the two functions below and stay whole numbers on the wire.
 
-/** The wire's coordinate space. See `BOARD_MAX` in shared/scoring — the same number, by definition. */
-export const BOARD_SIZE = 1_000_000;
+import { BOARD_MAX, boardRadii, MM_TO_NORMALIZED } from '../../shared/boardGeometry';
+
+export { SECTOR_ORDER } from '../../shared/boardGeometry';
+
+/** The wire's coordinate space. */
+export const BOARD_SIZE = BOARD_MAX;
 
 /** The drawing's coordinate space: the whole board, including the miss area, across 100 units. */
 export const SVG_SIZE = 100;
@@ -24,23 +28,15 @@ export const SVG_SIZE = 100;
 const SVG_PER_BOARD = SVG_SIZE / BOARD_SIZE;
 
 /**
- * A millimetre in SVG units. The board is 451mm across, which is `SVG_SIZE` wide.
+ * A millimetre in SVG units. The 451mm reference extent is `SVG_SIZE` wide.
  *
  * Exported because the decoration is measured in millimetres too — the width of a wire, the ring
  * the sisal ends at, how coarse the fibre grain is. A number taken off a photograph of a real
  * board arrives in millimetres and has to be brought into this space before it means anything.
  */
-export const MM = 0.5 / 225.5 * SVG_SIZE;
+export const MM = MM_TO_NORMALIZED * SVG_SIZE;
 
-export const RADII = {
-  boardOuter: 225.0 * MM,        // ~49.89 — full board including miss area
-  doubleOuter: 170.0 * MM,       // ~37.69
-  doubleInner: 160.0 * MM,       // ~35.48
-  tripleOuter: 107.0 * MM,       // ~23.73
-  tripleInner: 97.0 * MM,        // ~21.51
-  outerBull: (32.0 / 2.0) * MM,  // ~3.55
-  innerBull: (13.0 / 2.0) * MM,  // ~1.44
-};
+export const RADII = boardRadii(SVG_SIZE);
 
 export const CENTER = SVG_SIZE / 2;
 
@@ -74,12 +70,6 @@ export const WIRE_PASSES = [
   { stroke: '#b9c0c7', width: 1, opacity: 1 },
   { stroke: '#eef2f5', width: 0.38, opacity: 0.9 },
 ] as const;
-
-// Sector order clockwise from top (y-up)
-export const SECTOR_ORDER = [
-  20, 1, 18, 4, 13, 6, 10, 15, 2, 17,
-  3, 19, 7, 16, 8, 11, 14, 9, 12, 5,
-];
 
 // Colors per sector index (alternating)
 // Black sectors → red doubles/triples, cream sectors → green doubles/triples

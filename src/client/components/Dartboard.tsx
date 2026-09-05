@@ -465,7 +465,7 @@ export function Dartboard({ darts, maxDarts, onDartClick, disabled, children }: 
 
         {/* Dart markers */}
         {darts.map((dart, i) => (
-          <DartMarker key={i} dart={dart} index={i} />
+          <DartMarker key={i} dart={dart} />
         ))}
 
         {/* During a hold this replaces the fingertip-obscured dot. Its needle starts at the exact

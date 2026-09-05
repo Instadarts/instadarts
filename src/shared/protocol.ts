@@ -1,4 +1,4 @@
-import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
+import type { DartThrow, MatchSettings, Lobby, MatchState, ModePanel, ModeView } from './types';
 import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
 import type { MediaPeer, MediaRole, MediaTier, SignalDescription } from './media';

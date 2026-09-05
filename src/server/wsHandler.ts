@@ -39,7 +39,6 @@ import {
 import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatedPlayerIds, updateSeat, type Seat } from './seats';
 import { allModes, describeMode, getMode } from './modes/types';
-import { effectiveMaxPlayers } from '../shared/settings';
 import { canCreateLobby, canCreateMatch } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
 import {

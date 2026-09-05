@@ -151,7 +151,7 @@ every role.
 ### Regions, stills, and dart evidence
 
 A `Region` is a square in normalized board space, described by its centre and side length in
-`[0, 1]`. `{ x: 0.5, y: 0.5, size: 1 }` means the whole board. It describes what to show rather than
+`[0, 1]`. `{ cx: 0.5, cy: 0.5, size: 1 }` means the whole board. It describes what to show rather than
 camera pixels, so the same request works from every camera angle. `clampRegion` moves an outlying
 centre inward until the square fits instead of rejecting or shrinking the request.
 

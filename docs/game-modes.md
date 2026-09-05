@@ -173,6 +173,8 @@ Declared by the mode itself, and used by both sides:
 Validation returns a *complete* settings object, filling gaps from what the lobby already has. Only a
 malformed payload or an unknown mode is rejected outright; a single value that fails its field's
 rules is dropped and the current one kept, so one bad number cannot discard the rest of the form.
+Numeric fields require finite integer JSON numbers within their declared bounds, and toggles require
+JSON booleans. Numeric strings, arrays, objects and other types are not coerced into setting values.
 Switching mode starts from the new mode's defaults — the outgoing mode's values mean nothing to it.
 
 `MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to

@@ -22,6 +22,7 @@ import { generateInviteCode } from './invite';
 import { nameIsTaken, sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkMediaRateLimit, checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { CONFIG } from './config';
+import { QUIET } from './env';
 import {
   handleMediaLeave,
   handleMediaJoin,
@@ -255,6 +256,18 @@ function requireLobby(ws: WebSocket): { client: Client; lobby: Lobby } | null {
 const MEDIA_PLANE = new Set(['media_signal', 'media_join', 'media_ready', 'media_leave']);
 
 export function handleMessage(ws: WebSocket, raw: string): void {
+  if (ws.readyState !== ws.OPEN) return;
+  try {
+    dispatchMessage(ws, raw);
+  } catch (err) {
+    // Last resort for unexpected synchronous handler failures, separate from ws transport errors.
+    // Do not expose details or keep processing this connection after a potentially partial update.
+    if (!QUIET) console.error('WebSocket message handler failed:', err);
+    ws.close(1011, 'Unable to process message');
+  }
+}
+
+function dispatchMessage(ws: WebSocket, raw: string): void {
   const client = getClient(ws);
 
   const msg = parseMessage(raw);

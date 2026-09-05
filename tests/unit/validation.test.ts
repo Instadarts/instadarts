@@ -1,10 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import '../helpers'; // installs the x01 game mode
-import { sanitizeName, validateSettings, validateDartThrow } from '../../src/server/validation';
+import { sanitizeName, validateSettings, validateDartThrow, validateDeviceClaims, validateTips } from '../../src/server/validation';
 import type { MatchSettings } from '../../src/shared/types';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import type { WebSocket } from 'ws';
+
+const nonNumbers = [
+  { label: 'numeric string', value: '301' },
+  { label: 'fraction string', value: '0.5' },
+  { label: 'null', value: null },
+  { label: 'boolean', value: true },
+  { label: 'empty array', value: [] },
+  { label: 'numeric array', value: [301] },
+  { label: 'object with non-callable toString', value: { toString: null } },
+  { label: 'nested coercion trap', value: [{ toString: null }] },
+];
 
 // ============================================================
 // Player name sanitization
@@ -66,7 +77,7 @@ describe('sanitizeName', () => {
 // ============================================================
 
 describe('validateSettings', () => {
-  // Settings are validated against what the mode declares in shared/modes/catalog.ts, so nothing
+  // Settings are validated against the registered mode's field declarations, so nothing
   // here — and nothing in validation.ts — names an x01 setting except the fixtures.
   const current: MatchSettings = {
     mode: 'x01',
@@ -93,7 +104,7 @@ describe('validateSettings', () => {
     expect(format({ setsToWinMatch: 0 }).setsToWinMatch).toBe(1);
     expect(format({ setsToWinMatch: 1.5 }).setsToWinMatch).toBe(1);
     expect(format({ setsToWinMatch: 999 }).setsToWinMatch).toBe(1); // above the cap, so dropped
-    expect(format({ setsToWinMatch: '3' }).setsToWinMatch).toBe(3); // coerced, then checked
+    expect(format({ setsToWinMatch: '3' }).setsToWinMatch).toBe(1); // wrong type → current value
   });
 
   it('fills the gaps from the current settings', () => {
@@ -124,7 +135,7 @@ describe('validateSettings', () => {
 
     expect(startScore(101)).toBe(101);
     expect(startScore(999)).toBe(999);
-    expect(startScore('501')).toBe(501); // coerced, then checked
+    expect(startScore('301')).toBe(501); // wrong type → current value
     // Out of range or not an integer → the field is dropped and the current value kept.
     expect(startScore(0)).toBe(501);
     expect(startScore(-1)).toBe(501);
@@ -141,14 +152,27 @@ describe('validateSettings', () => {
     expect(validateSettings({ mode: 123 }, current)).toEqual(current); // not a string → mode unchanged
   });
 
-  it('coerces toggle fields', () => {
+  it('requires boolean toggle fields', () => {
     const doubleIn = (value: unknown) =>
       validateSettings(settings({ doubleIn: value }), current)!.modeSettings.doubleIn;
 
     expect(doubleIn(true)).toBe(true);
     expect(doubleIn(false)).toBe(false);
-    expect(doubleIn(1)).toBe(true);
+    expect(doubleIn(1)).toBe(false);
     expect(doubleIn(0)).toBe(false);
+  });
+
+  it.each(nonNumbers)('drops invalid numeric settings without coercing $label', ({ value }) => {
+    const result = validateSettings({
+      modeSettings: { startScore: value, doubleIn: true },
+      setsToWinMatch: value,
+      legsToWinSet: 3,
+    }, current);
+    expect(result).toEqual({ ...current, legsToWinSet: 3, modeSettings: { ...current.modeSettings, doubleIn: true } });
+  });
+
+  it.each(['false', 'true', 0, 1, null, [], {}, { toString: null }].map((value) => ({ value })))('preserves both toggle defaults for non-booleans ($value)', ({ value }) => {
+    expect(validateSettings(settings({ doubleIn: value, doubleOut: value }), current)).toEqual(current);
   });
 
   it('holds a select field to its declared options', () => {
@@ -238,9 +262,37 @@ describe('validateDartThrow', () => {
     expect(validateDartThrow({})).toBeNull();
   });
 
-  it('accepts string coordinates (Number coercion)', () => {
-    expect(validateDartThrow({ x: '500000', y: 500_000 })).not.toBeNull();
-    expect(validateDartThrow({ x: 500_000, y: '500000' })).not.toBeNull();
+  it('rejects string coordinates', () => {
+    expect(validateDartThrow({ x: '500000', y: 500_000 })).toBeNull();
+    expect(validateDartThrow({ x: 500_000, y: '500000' })).toBeNull();
+  });
+
+  it.each(nonNumbers)('rejects dart coordinates containing $label without coercion', ({ value }) => {
+    expect(validateDartThrow({ x: value, y: 500_000 })).toBeNull();
+    expect(validateDartThrow({ x: 500_000, y: value })).toBeNull();
+  });
+});
+
+describe('numeric device reports', () => {
+  const tip = { x: 500_000, y: 500_000, confidence: 0.9 };
+  const claim = { deviceId: 'device-id-1234567', tokenHash: 'a'.repeat(64), grabbedAt: 123.5 };
+
+  it.each(nonNumbers)('rejects a whole tip report containing $label', ({ value }) => {
+    for (const field of ['x', 'y', 'confidence']) {
+      expect(validateTips([tip, { ...tip, [field]: value }])).toBeNull();
+    }
+  });
+
+  it.each(nonNumbers)('drops a device claim with $label while keeping valid siblings', ({ value }) => {
+    expect(validateDeviceClaims([{ ...claim, grabbedAt: value }, claim])).toEqual([claim]);
+  });
+
+  it('accepts numeric zero and fractional values and rejects non-finite timestamps', () => {
+    expect(validateDeviceClaims([{ ...claim, grabbedAt: 0 }, claim])).toEqual([{ ...claim, grabbedAt: 0 }, claim]);
+    for (const value of [undefined, NaN, Infinity, -Infinity]) {
+      expect(validateDeviceClaims([{ ...claim, grabbedAt: value }])).toEqual([]);
+    }
+    expect(validateTips([{ x: 0, y: 1_000_000, confidence: 0 }, { ...tip, x: 500_000.5 }])).toHaveLength(2);
   });
 });
 

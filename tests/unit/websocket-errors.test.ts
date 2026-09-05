@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import type { ServerMessage } from '../../src/shared/protocol';
 
-// Run the production entry point in a child: an unhandled socket error must fail a test, not
+// Run the production entry point in a child: an unhandled transport or handler error must fail a test, not
 // terminate the test runner. No browser or built frontend is needed for these wire regressions.
 const root = fileURLToPath(new URL('../..', import.meta.url));
 let child: ChildProcess;
@@ -91,7 +91,18 @@ async function stats() {
   return response.json();
 }
 
-describe('WebSocket transport errors', () => {
+describe('WebSocket error isolation', () => {
+  it('survives a JSON device claim that cannot be converted to a number', async () => {
+    const client = await connect();
+    client.send({ type: 'activate_devices', devices: [{
+      deviceId: 'device-id-1234567', tokenHash: 'a'.repeat(64), grabbedAt: { toString: null },
+    }] });
+    expect((await client.message('devices_state')).devices).toEqual([]);
+    client.send({ type: 'create_lobby' });
+    expect((await client.message('lobby_state')).lobby.id).toBeTruthy();
+    expect((await stats()).openLobbies).toBe(1);
+  });
+
   it('accepts a valid message exactly at the 16 KiB limit', async () => {
     const client = await connect();
     client.ws.send(JSON.stringify({ type: 'create_lobby' }).padEnd(16 * 1024, ' '));

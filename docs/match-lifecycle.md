@@ -75,6 +75,13 @@ WebSocket messages are limited to 16 KiB. An oversized message or malformed fram
 the offending connection; admitted clients follow the ordinary disconnect cleanup path. Transport
 errors are handled even on sockets being refused for capacity, so they cannot terminate the server.
 
+Numeric fields in gameplay and device reports require JSON numbers; settings toggles require JSON
+booleans. Invalid settings fields retain their current values, invalid darts are refused, invalid
+tip reports are dropped whole, and malformed device claims are skipped individually. An unexpected
+synchronous message-handler exception closes that connection with code 1011 and a generic reason;
+the normal disconnect path handles cleanup. This exception boundary does not roll back state that
+a handler changed before failing.
+
 ## Lobby ownership and admission
 
 The user that creates a lobby is its host. The host may change settings, reorder players, remove

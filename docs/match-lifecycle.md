@@ -47,6 +47,10 @@ Seats are the authority for gameplay permissions. `playersOf` and `holdsPlayer` 
 client and player records do not maintain a second ownership list. A connection without the current
 seat cannot throw, submit, start, vote, or leave on behalf of its former occupant.
 
+Submitting a visit requires ownership of its player, including a zero-dart visit. Before a visit
+exists, the current player owns that turn. A local seat holding several players may submit for
+whichever of them is up; another participant cannot use an empty submit to skip their turn.
+
 Seat tokens are sent only to their holder and stored in `sessionStorage`. Independently opened tabs
 therefore receive separate seats. Duplicating a tab copies the token; presenting it transfers the
 seat to the new connection and sends `seat_taken_over` to the previous holder.

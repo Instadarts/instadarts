@@ -861,8 +861,9 @@ function handleSubmitVisit(ws: WebSocket): void {
   if (!req) return;
   const { client, match } = req;
 
-  const cv = match.currentVisit;
-  if (cv && !holdsPlayer(client, cv.playerId)) {
+  // An empty visit has no currentVisit yet, but still belongs to the player whose turn it is.
+  const playerId = match.currentVisit?.playerId ?? match.players[match.currentPlayerIndex]?.id;
+  if (!playerId || !holdsPlayer(client, playerId)) {
     send(ws, { type: 'error', message: 'You can only submit your own visit' });
     return;
   }

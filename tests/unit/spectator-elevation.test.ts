@@ -22,6 +22,7 @@ import '../helpers'; // registers the x01 mode
  *
  * Legitimate reload and takeover cases verify the other side: a new session presenting the real
  * token can resume its seat, and a replaced session loses authority. Spectators receive no token.
+ * Participant checks also ensure a valid seat cannot submit another player's visit, even when empty.
  */
 
 let sessionCounter = 0;
@@ -128,6 +129,68 @@ afterEach(() => {
   openSockets.clear();
   for (const id of [...getAllLobbies().keys()]) deleteLobby(id);
   for (const id of [...getAllMatches().keys()]) deleteMatch(id);
+});
+
+// ============================================================
+// What a participant may submit
+// ============================================================
+
+describe('visit ownership between participants', () => {
+  it.each([
+    { phase: 'the first empty turn', advance: false },
+    { phase: 'the next empty turn', advance: true },
+  ])('refuses an opponent submitting $phase', ({ advance }) => {
+    const { alice, bob, matchId } = onlineMatch();
+    if (advance) alice.send({ type: 'submit_visit' });
+    const before = getMatch(matchId)!;
+    expect(before.currentVisit).toBeUndefined();
+    expect(before.currentPlayerIndex).toBe(advance ? 1 : 0);
+    const visits = [...before.visits];
+
+    const opponent = advance ? alice : bob;
+    opponent.send({ type: 'submit_visit' });
+
+    const after = getMatch(matchId)!;
+    expect(after.currentPlayerIndex).toBe(before.currentPlayerIndex);
+    expect(after.currentVisit).toBeUndefined();
+    expect(after.visits).toEqual(visits);
+    expect(opponent.last('error')?.message).toBe('You can only submit your own visit');
+  });
+
+  it('continues to refuse an opponent once the visit has a dart', () => {
+    const { alice, bob, matchId } = onlineMatch();
+    alice.send({ type: 'add_dart', dart: DART });
+    const visit = getMatch(matchId)!.currentVisit;
+
+    bob.send({ type: 'submit_visit' });
+
+    expect(bob.last('error')?.message).toBe('You can only submit your own visit');
+    expect(getMatch(matchId)!.currentVisit).toEqual(visit);
+    expect(getMatch(matchId)!.visits).toEqual([]);
+    expect(getMatch(matchId)!.currentPlayerIndex).toBe(0);
+  });
+
+  it('lets each current player submit an empty visit', () => {
+    const { alice, bob, matchId, players } = onlineMatch();
+    for (const [index, owner] of [alice, bob].entries()) {
+      owner.send({ type: 'submit_visit' });
+      expect(owner.last('error')).toBeUndefined();
+      const match = getMatch(matchId)!;
+      expect(match.visits).toHaveLength(index + 1);
+      expect(match.visits[index].playerId).toBe(players[index].id);
+      expect(match.visits[index].darts.map((dart) => dart.score.label)).toEqual(['miss', 'miss', 'miss']);
+      expect(match.currentPlayerIndex).toBe((index + 1) % 2);
+    }
+  });
+
+  it('lets one local seat submit empty visits for all its players', () => {
+    const { host, matchId, players } = localMatch('Alice', 'Bob');
+    host.send({ type: 'submit_visit' });
+    host.send({ type: 'submit_visit' });
+    expect(host.last('error')).toBeUndefined();
+    expect(getMatch(matchId)!.visits.map((visit) => visit.playerId)).toEqual(players.map((player) => player.id));
+    expect(getMatch(matchId)!.currentPlayerIndex).toBe(0);
+  });
 });
 
 // ============================================================

@@ -1,12 +1,11 @@
 // When a lobby or a match dies.
 //
-// Every lobby and every match carries an `expiresAt`, and this is the only thing that reads it. The
-// point is that there is no way to sit on the server forever: a match is either being actively
-// played, or it is counting down to a definite end.
+// Every lobby and match carries an `expiresAt`. Participant input renews idle deadlines; finished
+// matches have a fixed summary deadline. This sweeper acts on those deadlines.
 //
 //   · **A lobby idle for 10 minutes is abandoned.** Everyone in it goes home.
-//   · **A match idle for 10 minutes is cancelled** — finished, with no winner, exactly as if the
-//     player had left. It then gets a summary like any other finished match.
+//   · **A match idle for 10 minutes is cancelled** — finished, with no winner.
+//     It then gets a summary like any other finished match.
 //   · **A finished match is torn down 2 minutes later.** Unanswered re-match votes become declines
 //     at that moment, and everyone still watching — players and spectators alike — goes home.
 //

@@ -147,7 +147,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
+| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `maxMatches`, `maxPlayersPerMatch` — excluded from `app_config`; derived capacity is public via `/server-stats` |
 | `frontend` | reserved and currently empty |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |

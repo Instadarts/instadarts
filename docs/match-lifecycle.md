@@ -111,7 +111,9 @@ Outgoing application messages have a 4 MiB per-connection threshold for queued W
 plus the next serialized message's UTF-8 bytes. A send that would cross it terminates that socket
 without waiting for a close handshake to drain the backlog; normal disconnect cleanup still runs.
 Broadcasts continue to other recipients. This also refuses a single snapshot larger than 4 MiB;
-it does not cap stored match history or the temporary memory used to serialize a snapshot.
+it does not itself cap stored match history or the temporary memory used to serialize a snapshot.
+The separate visit/format limits below bound history by count, not bytes: a sufficiently large
+match snapshot can still hit this send limit before the visit budget is exhausted.
 
 Numeric fields in gameplay and device reports require JSON numbers; settings toggles require JSON
 booleans. Invalid settings fields retain their current values, invalid darts are refused, invalid

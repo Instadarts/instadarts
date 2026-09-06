@@ -479,12 +479,13 @@ const INPUT_TYPES = new Set([
  *
  * Every one of these either moves a connection between a lobby and a match, changes who is in one,
  * or changes which scoring devices a session holds — and a media roster is derived from exactly
- * those three things. Anything not listed here cannot change one, so it is not worth asking.
+ * those three things. Media handlers perform their own refreshes outside this fallback list.
  *
  * Deliberately generous rather than exact: an unchanged roster is not published, so a type listed
  * here that turns out not to have moved anything costs one derivation. Media handlers publish their
  * affected sessions themselves and must not receive a second refresh here. `add_local_player`
- * and `set_player_name` are here because a roster carries player names and ids, not merely who is in it.
+ * and `set_player_name` are retained as conservative refresh triggers; media rosters identify
+ * player slots by id and do not carry player names.
  */
 const ROOM_CHANGING_TYPES = new Set([
   'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'reorder_player',

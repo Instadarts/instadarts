@@ -27,8 +27,8 @@ function isFailure(value: GameMode | Failure): value is Failure {
  * The current leg, as the mode sees it — one leg, with no sight of the match around it.
  *
  * A new leg needs no reset: it starts with an empty visit list, and everything the mode derives
- * starts over with it. A finished match has an empty current leg too, and that is fine — the summary
- * screen is the match's, not the mode's, so there is nothing left for the mode to describe.
+ * starts over with it. Completed legs move into `match.legs`; cancellation can retain unfinished
+ * current-leg history. The match layer owns the summary screen in either case.
  */
 export function legContext(match: MatchState): LegContext {
   return {

@@ -768,15 +768,15 @@ export const whacAMole: GameMode = {
 
   /**
    * The mode's own block. Everything the screen draws comes from here, and it is handed the match
-   * rather than a leg because a finished one has already moved its visits out of the current leg.
+   * rather than a leg so it can also read completed-leg history.
    *
    * `rows` is not decoration: a deployment without the client half renders them as a plain table, and
    * the run is still perfectly playable off it.
    */
   panel(match: MatchState): ModePanel | undefined {
     const finished = match.status !== 'in_progress';
-    // A finished match has already moved its leg into `legs`, so replaying the current one would
-    // describe a run nobody played. The last completed leg is the one that just ended.
+    // For a finished match, prefer the last completed leg when one exists; otherwise use the
+    // retained current-leg visits. The frontend does not mount this panel on the summary screen.
     const visits = finished && match.legs.length > 0
       ? match.legs[match.legs.length - 1].visits
       : match.visits;

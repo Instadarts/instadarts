@@ -7,8 +7,7 @@ import '../helpers';
 // The helpers register x01. Whac-A-Mole is installed the way a deployment installs it, because it
 // is the mode that declines board video and the only way to exercise a ban is to have one.
 import '../../src/server/modes/whac-a-mole';
-// And count-up, because it is the only installed mode that takes more than two players — which is
-// what a test about boards versus players needs.
+// Count-up supplies the multi-player fixtures used to distinguish boards from players.
 import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
@@ -97,8 +96,8 @@ function onlineLobby() {
 }
 
 /**
- * An online count-up match, one connection per user, each adding the names listed for it. The mode
- * matters: x01 caps itself at two players, and every shape worth testing here has more.
+ * An online count-up match, one connection per user, each adding the names listed for it.
+ * Both count-up and x01 follow the deployment's player cap; these fixtures use count-up.
  */
 function startBoards(names: string[][]) {
   const host = connect();

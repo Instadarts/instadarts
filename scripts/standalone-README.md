@@ -30,6 +30,21 @@ Settings are optional. Copy [instadarts.config.example.jsonc](instadarts.config.
 The example explains ports, certificates, capacity, scoring and media options. A custom settings
 file can also be selected through the `INSTADARTS_CONFIG` environment variable.
 
+### Public deployments
+
+Require HTTPS for the app and WSS for its WebSocket connection. Two common setups are:
+
+- **Direct hosting:** keep `server.https.enabled` true, provide a valid certificate and its private
+  key through `server.https.cert` and `server.https.key`, and set `server.http.enabled` to false.
+- **Behind a reverse proxy:** terminate public TLS at the proxy with a valid certificate, redirect
+  or reject public HTTP, and forward `/ws` WebSocket upgrades over the secure public connection.
+  Restrict access to the backend listeners to the proxy. If the proxy uses HTTP to the backend,
+  keep `server.http.enabled` true; `server.https.enabled` can be false, but leaving it enabled is
+  fine if that listener is also restricted. Set `server.allowedOrigins` to the public origin, for
+  example `["https://darts.example"]`, and preserve the browser's `Origin` header.
+
+Enabling HTTPS does not automatically disable or redirect the app's HTTP listener.
+
 ## Licenses
 
 InstaDarts is licensed under the GNU AGPL v3; see [LICENSE](LICENSE). Bundled dependencies and their

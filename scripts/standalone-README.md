@@ -5,7 +5,7 @@ included. No npm installation or build step is needed.
 
 ## Run
 
-1. Install a current patch release of Node.js 22 or newer.
+1. Install Node.js 22.22.0 or newer.
 2. Extract the entire archive and open a terminal in the extracted folder.
 3. Start the server:
 

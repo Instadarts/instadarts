@@ -93,7 +93,7 @@ echo "=== Reading server dependencies ==="
 npx esbuild src/server/index.ts \
   --bundle \
   --platform=node \
-  --target=node22 \
+  --target=node22.22.0 \
   --format=esm \
   --external:vite \
   --metafile="$OUT/server-meta.json" \
@@ -111,7 +111,7 @@ node scripts/bundle-client.mjs dist/client src/server/embeddedAssetsBundle.ts
 #    client assets, so the archive needs no dependencies or external
 #    static files of its own.
 #
-#    --target=node22 is the floor the banner enforces, not whatever
+#    --target=node22.22.0 is the floor the banner enforces, not whatever
 #    Node happens to be building: a newer local Node must not emit
 #    syntax the archive then claims to accept.
 #
@@ -125,8 +125,8 @@ node scripts/bundle-client.mjs dist/client src/server/embeddedAssetsBundle.ts
 #    It is a place to look and not a demand: nothing there means the
 #    working directory is tried next, exactly as without it.
 
-banner="const [__nodeMajor] = (process.versions.node || '').split('.').map(Number);"
-banner+="if (!__nodeMajor || __nodeMajor < 22) { console.error('InstaDarts requires Node.js 22 or later (currently running on Node.js ' + (process.version || 'unknown') + ').'); process.exit(1); }"
+banner="const [__nodeMajor, __nodeMinor] = (process.versions.node || '').split('.').map(Number);"
+banner+="if (!(__nodeMajor > 22 || (__nodeMajor === 22 && __nodeMinor >= 22))) { console.error('InstaDarts requires Node.js 22.22.0 or later (currently running on Node.js ' + (process.version || 'unknown') + ').'); process.exit(1); }"
 banner+="import { fileURLToPath as __toPath } from 'node:url';"
 banner+="import { dirname as __dir } from 'node:path';"
 banner+="import { createRequire as __createRequire } from 'node:module';"
@@ -143,7 +143,7 @@ echo "=== Bundling server ==="
 npx esbuild src/server/index.ts \
   --bundle \
   --platform=node \
-  --target=node22 \
+  --target=node22.22.0 \
   --format=esm \
   --external:vite \
   --banner:js="$banner" \

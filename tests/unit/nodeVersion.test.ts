@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { isSupportedNodeVersion, enforceNodeVersion, MIN_NODE_MAJOR } from '../../src/server/nodeVersion';
+import { isSupportedNodeVersion, enforceNodeVersion, MIN_NODE_VERSION } from '../../src/server/nodeVersion';
 
 describe('Node version check', () => {
-  it('identifies Node 22+ as supported', () => {
-    expect(isSupportedNodeVersion('22.0.0')).toBe(true);
-    expect(isSupportedNodeVersion('22.14.0')).toBe(true);
+  it('identifies Node 22.22.0+ as supported', () => {
+    expect(isSupportedNodeVersion('22.22.0')).toBe(true);
+    expect(isSupportedNodeVersion('22.22.1')).toBe(true);
     expect(isSupportedNodeVersion('23.0.0')).toBe(true);
     expect(isSupportedNodeVersion('24.1.0')).toBe(true);
   });
 
-  it('identifies Node < 22 as unsupported', () => {
-    expect(isSupportedNodeVersion('20.18.0')).toBe(false);
-    expect(isSupportedNodeVersion('18.20.0')).toBe(false);
+  it('identifies Node < 22.22.0 as unsupported', () => {
+    expect(isSupportedNodeVersion('22.0.0')).toBe(false);
+    expect(isSupportedNodeVersion('22.21.1')).toBe(false);
     expect(isSupportedNodeVersion('16.0.0')).toBe(false);
     expect(isSupportedNodeVersion('')).toBe(false);
     expect(isSupportedNodeVersion('invalid')).toBe(false);
@@ -24,7 +24,7 @@ describe('Node version check', () => {
     enforceNodeVersion('20.0.0');
 
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining(`InstaDarts requires Node.js ${MIN_NODE_MAJOR} or later`),
+      expect.stringContaining(`InstaDarts requires Node.js ${MIN_NODE_VERSION} or later`),
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
 
@@ -36,7 +36,7 @@ describe('Node version check', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined as never));
 
-    enforceNodeVersion('22.0.0');
+    enforceNodeVersion('22.22.0');
 
     expect(errorSpy).not.toHaveBeenCalled();
     expect(exitSpy).not.toHaveBeenCalled();

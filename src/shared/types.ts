@@ -221,6 +221,7 @@ export interface Lobby {
   id: string;
   players: Player[];
   settings: MatchSettings;
+  /** Admission credential. Sent only to current lobby participants; null for spectators or a closed lobby. */
   inviteCode: string | null;
   /**
    * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the

@@ -322,6 +322,7 @@ export type ClientMessage =
 
 export interface LobbyStateMessage {
   type: 'lobby_state';
+  /** Invite codes are filtered per recipient, including broadcasts: only current seated participants receive one. */
   lobby: Lobby;
   yourPlayerIds?: string[];
   /**

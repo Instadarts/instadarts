@@ -57,6 +57,12 @@ seat to the new connection and sends `seat_taken_over` to the previous holder.
 
 Spectators receive no seat. Explicitly leaving a match revokes the seat and is final.
 
+An open lobby's invite code is a separate admission credential. Only current seated participants
+receive it, including participants who have not added players. Spectator snapshots and broadcasts
+carry `inviteCode: null`; knowing the public lobby id grants viewing access without revealing a
+joining credential. Filtering happens per recipient, so participants still receive refreshed codes
+when the last guest leaves and regain code access when they resume their seat.
+
 The implementation is in [`seats.ts`](../src/server/seats.ts), with permission checks in
 [`connections.ts`](../src/server/connections.ts) and
 [`wsHandler.ts`](../src/server/wsHandler.ts).

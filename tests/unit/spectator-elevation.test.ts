@@ -269,6 +269,92 @@ describe('what watching a match tells you', () => {
 });
 
 // ============================================================
+// Invite credentials
+// ============================================================
+
+describe('lobby invite credentials', () => {
+  function openLobby() {
+    const host = connect();
+    host.send({ type: 'create_lobby', acceptsJoins: true });
+    const { id: lobbyId, inviteCode } = host.last('lobby_state')!.lobby;
+    return { host, lobbyId, inviteCode: inviteCode! };
+  }
+
+  it('does not let a spectator obtain a joining credential from the initial snapshot', () => {
+    const { host, lobbyId } = openLobby();
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    const spec = spectatorOf(lobbyId);
+    const intruder = connect();
+    intruder.send({ type: 'join_lobby', inviteCode: spec.last('lobby_state')!.lobby.inviteCode });
+    intruder.send({ type: 'add_local_player', playerName: 'Watcher' });
+
+    expect(getLobby(lobbyId)!.players.map((p) => p.name)).toEqual(['Alice']);
+    expect(intruder.last('resume')).toBeUndefined();
+    expect(spec.last('lobby_state')!.lobby.inviteCode).toBeNull();
+  });
+
+  it.each(['join', 'add', 'remove', 'settings', 'rename', 'reorder', 'leave'] as const)(
+    'keeps invite codes out of spectator broadcasts after %s', (action) => {
+      const { host, lobbyId, inviteCode } = openLobby();
+      host.send({ type: 'add_local_player', playerName: 'Alice' });
+      host.send({ type: 'add_local_player', playerName: 'Bob' });
+      const spec = spectatorOf(lobbyId);
+      const guest = connect();
+      guest.send({ type: 'join_lobby', inviteCode });
+      spec.received.length = 0;
+
+      switch (action) {
+        case 'join': connect().send({ type: 'join_lobby', inviteCode }); break;
+        case 'add': host.send({ type: 'add_local_player', playerName: 'Carol' }); break;
+        case 'remove': host.send({ type: 'remove_player', playerId: getLobby(lobbyId)!.players[0].id }); break;
+        case 'settings': host.send({ type: 'update_settings', settings: { legsToWinSet: 2 } }); break;
+        case 'rename': host.send({ type: 'set_player_name', playerId: getLobby(lobbyId)!.players[0].id, name: 'Alicia' }); break;
+        case 'reorder': host.send({ type: 'reorder_player', playerId: getLobby(lobbyId)!.players[1].id, direction: 'up' }); break;
+        case 'leave': guest.send({ type: 'leave_match' }); break;
+      }
+
+      const snapshots = spec.received.filter((m) => m.type === 'lobby_state');
+      expect(snapshots.length).toBeGreaterThan(0);
+      for (const snapshot of snapshots) {
+        expect(snapshot.lobby.inviteCode).toBeNull();
+        expect(JSON.stringify(snapshot)).not.toContain(inviteCode);
+      }
+      // Filtering one recipient must not mutate the shared broadcast or the server's code.
+      const currentCode = getLobby(lobbyId)!.inviteCode;
+      expect(currentCode).toBeTruthy();
+      expect(host.last('lobby_state')!.lobby.inviteCode).toBe(currentCode);
+      if (action !== 'leave') {
+        // An empty guest seat is still allowed to share the code.
+        expect(guest.last('lobby_state')!.lobby.inviteCode).toBe(currentCode);
+      } else {
+        expect(currentCode).not.toBe(inviteCode);
+        const invited = connect();
+        invited.send({ type: 'join_lobby', inviteCode: currentCode });
+        expect(invited.last('resume')).toBeDefined();
+      }
+    },
+  );
+
+  it.each(['host', 'guest'] as const)('restores invite access when the %s resumes a seat', (role) => {
+    const { host, lobbyId, inviteCode } = openLobby();
+    const guest = connect();
+    guest.send({ type: 'join_lobby', inviteCode });
+    const returning = spectatorOf(lobbyId);
+    expect(returning.last('lobby_state')!.lobby.inviteCode).toBeNull();
+    returning.send({ type: 'reconnect', lobbyId, token: (role === 'host' ? host : guest).last('resume')!.token });
+    expect(returning.last('lobby_state')!.lobby.inviteCode).toBe(inviteCode);
+    expect(returning.last('lobby_state')!.youAreSpectator).toBe(false);
+  });
+
+  it('does not disclose a code to a connection whose lobby record has no seat', () => {
+    const { host, lobbyId } = openLobby();
+    const unseated = connect({ lobbyId });
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    expect(unseated.last('lobby_state')!.lobby.inviteCode).toBeNull();
+  });
+});
+
+// ============================================================
 // Local matches
 // ============================================================
 

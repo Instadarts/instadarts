@@ -131,6 +131,11 @@ lobby that does not has no code and cannot be joined. Spectating remains availab
 The server computes `userCount`, the effective player limit, and whether another user can be
 admitted for each lobby response.
 
+Invite codes contain six characters from an alphabet of 32 unambiguous letters and digits, chosen
+with cryptographic randomness. Generation retries codes held by any existing lobby, including the
+same lobby's current code during rotation. Codes are unique among existing lobbies; retired codes
+are not reserved forever.
+
 Before starting, the server reconciles the roster with the seats: players held by no seat are
 removed, seat entries naming no player are pruned, and a connected user without a player becomes a
 spectator. The roster and settings are fixed after the match is created. Participant seats carry

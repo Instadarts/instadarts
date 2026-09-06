@@ -25,7 +25,7 @@ interface Budget {
   perSecond: number;
 }
 
-/** Everything a frontend or a device says that is not media or tips — gameplay included. */
+/** Gameplay, malformed messages and everything else that is not a media or tips message. */
 const GENERAL: Budget = { burst: 60, perSecond: 10 };
 
 /**
@@ -91,8 +91,8 @@ function take(store: Map<string, Bucket>, id: string, { burst, perSecond }: Budg
 /**
  * Give back what a departing connection was spending from.
  *
- * The two budgets are keyed differently — a frontend by its session, a scoring device by its
- * device — so both are named here rather than assuming one key fits both.
+ * The general budget uses the session id for both frontends and devices. Media uses the device id
+ * when present, and tips always use it, so cleanup needs both identities.
  *
  * Not load bearing: the sweep below reclaims an idle bucket within a minute whatever happens, which
  * is what covers a connection that never says goodbye. This just does not wait for it.

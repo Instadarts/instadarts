@@ -76,8 +76,15 @@ export function holdsPlayer(client: Client, playerId: string): boolean {
 // Addressing
 // ============================================================
 
+/** Maximum queued WebSocket data plus the next serialized application message, per connection. */
+const MAX_OUTBOUND_BUFFER_BYTES = 4 * 1024 * 1024;
+
 export function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) {
+    if (ws.bufferedAmount > MAX_OUTBOUND_BUFFER_BYTES) {
+      ws.terminate();
+      return;
+    }
     if (msg.type === 'lobby_state') {
       // An invite admits a new participant. Filter at the recipient boundary so both direct
       // replies and room broadcasts keep it private, regardless of the addressed role fields.
@@ -89,7 +96,14 @@ export function send(ws: WebSocket, msg: ServerMessage): void {
         msg = { ...msg, lobby: { ...msg.lobby, inviteCode: null } };
       }
     }
-    ws.send(formatMessage(msg));
+    const raw = formatMessage(msg);
+    if (ws.bufferedAmount + Buffer.byteLength(raw) > MAX_OUTBOUND_BUFFER_BYTES) {
+      // A close handshake would queue behind the backlog. Terminate instead; the ordinary close
+      // listener still owns departure and resource cleanup. Other broadcast recipients continue.
+      ws.terminate();
+      return;
+    }
+    ws.send(raw);
   }
 }
 

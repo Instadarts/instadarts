@@ -101,6 +101,18 @@ WebSocket messages are limited to 16 KiB. An oversized message or malformed fram
 the offending connection; admitted clients follow the ordinary disconnect cleanup path. Transport
 errors are handled even on sockets being refused for capacity, so they cannot terminate the server.
 
+Malformed JSON and messages without a string `type` share the general message budget: a burst of
+60 and a refill of 10 per second, per connection. Exhausting it closes the sender with code 1013;
+queued messages on the closing socket are ignored. Valid media and camera-tip messages retain
+their separate budgets. Parsing determines the budget, but an invalid message is charged before
+its error reply is sent.
+
+Outgoing application messages have a 4 MiB per-connection threshold for queued WebSocket bytes
+plus the next serialized message's UTF-8 bytes. A send that would cross it terminates that socket
+without waiting for a close handshake to drain the backlog; normal disconnect cleanup still runs.
+Broadcasts continue to other recipients. This also refuses a single snapshot larger than 4 MiB;
+it does not cap stored match history or the temporary memory used to serialize a snapshot.
+
 Numeric fields in gameplay and device reports require JSON numbers; settings toggles require JSON
 booleans. Invalid settings fields retain their current values, invalid darts are refused, invalid
 tip reports are dropped whole, and malformed device claims are skipped individually. An unexpected

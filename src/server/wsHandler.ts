@@ -249,23 +249,20 @@ export function handleMessage(ws: WebSocket, raw: string): void {
 
 function dispatchMessage(ws: WebSocket, raw: string): void {
   const client = getClient(ws);
+  if (!client) return;
 
   const msg = parseMessage(raw);
-  if (!msg) {
-    send(ws, { type: 'error', message: 'Invalid message format' });
-    return;
-  }
 
   // Tips get their own budget. A camera on a fast phone publishes faster than a person clicks, and
   // one of the reports it would lose to the shared bucket is the empty one that ends the visit.
-  if (msg.type === 'scorer_tips') {
-    if (!client?.deviceId || !checkTipsRateLimit(client.deviceId)) return;
-  } else if (MEDIA_PLANE.has(msg.type)) {
+  if (msg?.type === 'scorer_tips') {
+    if (!client.deviceId || !checkTipsRateLimit(client.deviceId)) return;
+  } else if (msg && MEDIA_PLANE.has(msg.type)) {
     // Its own budget, because the media plane arrives in bursts: a client joining a match announces
     // itself and negotiates every link it has in one breath, then says nothing all evening. None of
     // that may cost it a dart, which is what sharing the general bucket was quietly doing.
-    if (!checkMediaRateLimit(client?.deviceId ?? client?.sessionId ?? '')) return;
-  } else if (!checkRateLimit(client?.sessionId ?? `anon_${Math.random()}`)) {
+    if (!checkMediaRateLimit(client.deviceId ?? client.sessionId)) return;
+  } else if (!checkRateLimit(client.sessionId)) {
     // Closed, not dropped. The budget's burst is set well above anything a person or the interface
     // can produce, so a client that reaches it is broken or hostile rather than quick — and dropping
     // one message is the worst answer to either. It leaves an honest client quietly diverged from
@@ -274,6 +271,13 @@ function dispatchMessage(ws: WebSocket, raw: string): void {
     // answer to the first: a seat is what resumes a session, so an honest client comes back and
     // resyncs. 1013 is "try again later", which the client's own reconnect already treats that way.
     ws.close(1013, 'Rate limit exceeded');
+    return;
+  }
+
+  // Invalid JSON and missing/invalid type fields spend the general budget too. In particular,
+  // do not answer a malformed-message flood before charging it; closing stops queued parsing.
+  if (!msg) {
+    send(ws, { type: 'error', message: 'Invalid message format' });
     return;
   }
 

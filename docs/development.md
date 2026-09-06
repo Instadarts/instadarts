@@ -415,11 +415,10 @@ Common selector and synchronization constraints:
   `data-player` or a functional test id inside it. Do not encode RGL transforms, DOM depth, sibling
   order or a canonical `x`/`y` unless the layout itself is under test.
 - **A message the server refuses is not always a message the screen mentions.** Several handlers
-  return without answering — `start_match` from a connection holding no seat is one — and a
-  `Rate limit exceeded` reply is not drawn on the match screen at all. The symptom is a press that
-  does nothing, for as long as you care to wait, with no error anywhere: it looks like a dead button
-  or a broken selector, and it is neither. Before chasing the UI, log inbound messages on the server
-  and see whether the press arrived and what was done with it.
+  return without answering — `start_match` from a connection holding no seat is one. Exhausting
+  the general message budget closes the socket with code 1013 rather than sending an error reply;
+  malformed input spends that budget too. Before chasing a silent button or unexpected reconnect,
+  log inbound messages and socket closes to see what the server did with the request.
 - **Assertions on mode-provided strings follow the mode contract.** If you edit
   `src/server/modes/*.ts`, search the unit and end-to-end specs for the strings you changed.
 - **`getByText` needs the text to be visible; a `data-testid` does not.** Some text on the scoring

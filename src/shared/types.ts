@@ -58,6 +58,8 @@ export function boardCount(players: Player[]): number {
 }
 
 export interface DartThrow {
+  /** Assigned by the server on acceptance; absent on an uncommitted input or synthetic miss. */
+  id?: string;
   x: number;
   y: number;
   score: ScoreResult;
@@ -72,6 +74,8 @@ export interface Visit {
 }
 
 export interface CurrentVisit {
+  /** Assigned on the first accepted dart. Evidence requires this identity, not just the player id. */
+  id?: string;
   playerId: string;
   darts: DartThrow[];
   locked: boolean;

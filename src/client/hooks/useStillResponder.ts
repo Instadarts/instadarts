@@ -21,6 +21,8 @@ import { e2eEnabled } from '../lib/e2e';
 /** Whatever can currently take a picture. Null while no camera is running. */
 export interface StillSource {
   capture: (region: Region) => Promise<Capture | null>;
+  /** Stable across renders, different for each camera stream; null while stopped. */
+  identity: () => unknown | null;
   /** Whether the board has been located, so a failure can say which failure it was. */
   located: () => boolean;
 }
@@ -28,6 +30,9 @@ export interface StillSource {
 interface Pending {
   id: string;
   from: string;
+  mesh: Mesh;
+  ownerLink: NonNullable<ReturnType<Mesh['link']>>;
+  sourceIdentity: unknown;
   region?: Region;
   tag?: unknown;
   /** Which kinds of viewer this picture is for. Read off the request, never assumed. */
@@ -77,20 +82,27 @@ export function useStillResponder(
     meshRef.current?.link(to)?.sendControl({ kind: 'still_refused', id, reason });
   }, [meshRef]);
 
+  // A mesh can be reused after reconnection, so compare the exact owner link as well. Read the
+  // stream identity through the current wrapper: rendering alone must not cancel a capture.
+  const isCurrent = useCallback((job: Pending) =>
+    meshRef.current === job.mesh && job.mesh.isOwn(job.from)
+    && job.mesh.link(job.from) === job.ownerLink
+    && sourceRef.current?.identity() === job.sourceIdentity,
+  [meshRef, sourceRef]);
+
   const drain = useCallback(async () => {
     if (working.current) return;
     working.current = true;
     try {
       while (queue.current.length > 0) {
         const job = queue.current.shift()!;
-        const mesh = meshRef.current;
+        const mesh = job.mesh;
         const source = sourceRef.current;
-        if (!mesh) continue;
-
-        if (!source) { refuse(job.from, job.id, 'no_frame'); continue; }
+        if (!source || !isCurrent(job)) continue;
 
         const startedAt = performance.now();
         const capture = await source.capture(job.region ?? { cx: 0.5, cy: 0.5, size: 1 });
+        if (!isCurrent(job)) continue;
         if (!capture) {
           // Which failure it was matters to whoever is looking: a camera that is off is a different
           // problem from one that cannot find the board.
@@ -107,6 +119,7 @@ export function useStillResponder(
           mime: STILL.mime,
         };
         const payload = new Uint8Array(await capture.blob.arrayBuffer());
+        if (!isCurrent(job)) continue;
         if (measuring) {
           timings.current = [...timings.current, {
             waitMs: Math.round(startedAt - job.at),
@@ -130,13 +143,22 @@ export function useStillResponder(
     } finally {
       working.current = false;
     }
-  }, [meshRef, sourceRef, refuse]);
+  }, [sourceRef, refuse, isCurrent]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     if (message.kind !== 'still_request') return;
     // Silence, not a refusal: a peer with no business asking learns nothing from an answer, and an
     // error frame would only tell it that it reached something.
-    if (!meshRef.current?.isOwn(from)) return;
+    const mesh = meshRef.current;
+    if (!mesh?.isOwn(from)) return;
+    const ownerLink = mesh.link(from);
+    if (!ownerLink) return;
+
+    const sourceIdentity = sourceRef.current?.identity();
+    if (sourceIdentity == null) {
+      refuse(from, message.id, 'no_frame');
+      return;
+    }
 
     if (queue.current.length >= MAX_PENDING_STILLS) {
       refuse(from, message.id, 'busy');
@@ -147,6 +169,9 @@ export function useStillResponder(
     queue.current.push({
       id: message.id,
       from,
+      mesh,
+      ownerLink,
+      sourceIdentity,
       region: message.region,
       tag: message.tag,
       // Clamped on arrival rather than at the point of use: the audience is a value from another
@@ -155,7 +180,7 @@ export function useStillResponder(
       at: performance.now(),
     });
     void drain();
-  }, [meshRef, refuse, drain]);
+  }, [meshRef, sourceRef, refuse, drain]);
 
   return { handleControl, timings };
 }

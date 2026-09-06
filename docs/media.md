@@ -159,10 +159,25 @@ A still is one square JPEG of a region, captured on request and returned on the 
 channel. Only the selected camera's owner may request one, and the request names the audience for
 the response. Output size comes from `media.still.size`; mime type and quality are fixed in
 [`shared/media.ts`](../src/shared/media.ts).
+Queued captures retain the requesting owner link, mesh and camera-stream identity. The scorer
+rechecks all three and current ownership before capture and after each asynchronous step; a
+restart, roster removal or replacement owner link discards the old work.
 
 **Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
 it when a dart appears, every eligible viewer receives the same image, undo removes it with the
 dart, and submitting clears it with the visit.
+
+Each accepted dart receives a server-assigned `id`; the first dart also establishes the current
+visit's `id`. Appending and undo preserve the remaining identities, while a replacement dart gets
+a new one even at identical coordinates. Evidence requests carry
+`{ kind: 'dart_evidence', matchId, boardId, visitId, dartId, dart }` in the opaque still `tag`, with
+`dart` the zero-based slot. The scorer echoes the tag without interpreting it. Receivers require
+the identities to match the current match state and the sender to be the roster's selected camera
+for that board. The requesting owner also checks the response `id` against its pending request;
+observers receive the fan-out without issuing their own requests. Duplicate replies cannot replace
+an accepted image. Missing or outdated identity tags are ignored, including index-only tags from
+older clients. A change of board, visit or camera link clears evidence; undo/replacement removes
+only affected dart images and requests fresh ones where needed.
 
 ### Director commands and the virtual camera
 

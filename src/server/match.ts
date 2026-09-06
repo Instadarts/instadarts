@@ -63,7 +63,11 @@ export function addDartToMatch(
     return { success: true, match, locked: true };
   }
 
-  const next: MatchState = { ...match, currentVisit: { playerId, darts: [...cv.darts, dart], locked: false } };
+  const next: MatchState = { ...match, currentVisit: {
+    id: cv.id ?? crypto.randomUUID(), playerId,
+    // Input cannot choose an evidence identity, even when replacing identical coordinates.
+    darts: [...cv.darts, { ...dart, id: crypto.randomUUID() }], locked: false,
+  } };
   const locked = lockedNow(mode, next);
   next.currentVisit = { ...next.currentVisit!, locked };
   return { success: true, match: next, locked };

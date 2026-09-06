@@ -132,9 +132,12 @@ export function App() {
   const videoFeeds = labelVideoFeedsForMatch(feed.feeds, match);
   const displayFeed = { ...feed, feeds: videoFeeds };
 
+  const currentBoardId = match?.players.find((p) => p.id === (match.currentVisit?.playerId ?? currentPlayer?.id))?.boardId ?? null;
   const evidence = useDartEvidence({
     mesh: media.mesh,
     links: media.links,
+    matchId: match?.id ?? null,
+    boardId: currentBoardId,
     currentVisit: match?.currentVisit,
     isThrower: Boolean(isThrower),
     // Every dart the evidence asks about is also a shot the director calls, at the same square. Two
@@ -150,7 +153,6 @@ export function App() {
   const evidenceImages = evidence.available ? evidence.images : null;
 
   const ownBoardId = match?.players.find((p) => ownPlayerIds.includes(p.id))?.boardId ?? null;
-  const currentBoardId = currentPlayer?.boardId ?? null;
   const liveFeed = selectVideoFeed(videoFeeds, currentBoardId, ownBoardId, isSpectator);
   const pendingVideoOffer = liveVideoActive
     ? videoFeeds.find((candidate) => candidate.choice === 'pending') ?? null

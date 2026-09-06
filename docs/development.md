@@ -147,7 +147,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
+| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
 | `frontend` | reserved and currently empty |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |
@@ -170,6 +170,8 @@ A value of the wrong type or out of range is ignored, the default stands, and it
 the way past; an unrecognised key is named for the same reason. A file that cannot be parsed at all
 stops the server with one line and no stack, quoting the line it gave up on — a deployment that
 believes it is configured and is not is worse than one that will not start.
+An invalid `server.allowedOrigins` is also fatal; falling back could change the intended browser
+admission policy.
 
 ```sh
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
@@ -206,9 +208,28 @@ they say where to look for the file, and set nothing in it.
 **The server answers on both http and https, and either can be turned off.** They are the same
 application over the same rules; the only difference is the TLS. Plain http stays on by default
 because a deployment behind a reverse proxy on a real domain has TLS terminated for it already, and
-a second handshake there is overhead and nothing else. Turning *both* off is the one settings
-mistake that stops the server rather than being reported — a process that starts and listens
-nowhere is worse than one that says why it will not.
+a second handshake there is overhead and nothing else. Turning *both* off stops the server — a
+process that starts and listens nowhere is worse than one that says why it will not.
+
+**WebSocket browser origins are checked before `/ws` upgrades.** With `server.allowedOrigins: null`
+(the default), the browser's HTTP(S) Origin must match the request's Host and actual TLS scheme,
+including its effective port. This supports localhost, LAN addresses and direct HTTPS without a
+hostname list. Foreign, malformed, duplicate and opaque (`null`) Origin headers receive HTTP 403
+before a WebSocket or application session is created. Clients without Origin remain accepted for
+native protocol clients; this is browser-origin filtering, not client authentication.
+
+Behind a TLS-terminating reverse proxy, set `server.allowedOrigins` to the public browser origins,
+for example `["https://darts.example"]`. An explicit list replaces automatic same-origin permission;
+include every address from which browsers should connect. Entries are exact HTTP(S) origins without
+credentials, paths, trailing slashes, queries, fragments or wildcards. Default ports and hostname
+case are normalized. An empty list denies all browser origins. The server does not trust `Forwarded`
+or `X-Forwarded-*` to decide an origin. Proxies must preserve the browser's Origin header; removing
+it would bypass this check. Invalid policy configuration stops startup.
+
+An explicit list also restricts which browser hostnames can be used. The default derives the origin
+from Host and does not provide a DNS-rebinding defense. Non-browser clients can forge Origin, so
+seat/device credentials and protocol admission checks still apply. This policy covers the app's
+`/ws` endpoint; Vite's separate development hot-reload socket retains Vite's own handling.
 
 **Https exists for the camera.** `getUserMedia` is refused outside a secure context, and a plain
 address on the local network is not one — so without it the scoring device's whole job is behind a

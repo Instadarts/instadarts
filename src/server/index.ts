@@ -21,6 +21,7 @@ import { listenAddresses, listenUrls } from './listenUrls';
 import { createClientServing } from './staticServing';
 import { createDevClient } from './devClient';
 import { resolveCertificate, type ResolvedCertificate } from './certificate';
+import { isWebSocketOriginAllowed } from './websocketOrigin';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -97,6 +98,10 @@ upgrades.on('upgrade', (req, socket, head) => {
     // upgrade neither of us wants is left to time out rather than risk closing a hot-reload
     // connection out from under it.
     if (!DEV_CLIENT) socket.destroy();
+    return;
+  }
+  if (!isWebSocketOriginAllowed(req, CONFIG.server.allowedOrigins)) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n', () => socket.destroy());
     return;
   }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));

@@ -61,6 +61,8 @@ export interface HttpsListenerConfig extends HttpListenerConfig {
 export interface ServerConfig {
   http: HttpListenerConfig;
   https: HttpsListenerConfig;
+  /** Null checks the request's own origin; a list permits only those exact browser origins. */
+  allowedOrigins: string[] | null;
   /**
    * How many matches this deployment is sized for — the one number that scales the server.
    *
@@ -222,6 +224,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
   server: {
     http: { enabled: true, port: 3000 },
     https: { enabled: true, port: 3001, cert: null, key: null },
+    allowedOrigins: null,
     maxMatches: 10_000,
     maxPlayersPerMatch: 5,
   },

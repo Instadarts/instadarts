@@ -12,6 +12,7 @@ import { CONFIG_DEFAULTS } from '../../src/shared/config';
  * running what its operator believes, which is worse than one that refuses to start — so the two
  * halves worth pinning are that a good value arrives intact, and that a bad one is both ignored
  * *and* complained about rather than quietly taken.
+ * Invalid security policies instead stop startup, so they cannot silently become another policy.
  */
 
 const dir = mkdtempSync(join(tmpdir(), 'instadarts-config-'));
@@ -75,6 +76,22 @@ describe('what the file says', () => {
     expect(CONFIG_COMPLAINTS).toEqual([]);
   });
 
+  it('reads an explicit WebSocket origin allowlist, including an empty list', async () => {
+    const configured = await load('{ "server": { "allowedOrigins": ["https://darts.example", "http://localhost:3000"] } }');
+    expect(configured.CONFIG.server.allowedOrigins).toEqual(['https://darts.example', 'http://localhost:3000']);
+    expect(configured.CONFIG_COMPLAINTS).toEqual([]);
+    const empty = await load('{ "server": { "allowedOrigins": [] } }');
+    expect(empty.CONFIG.server.allowedOrigins).toEqual([]);
+    const automatic = await load('{ "server": { "allowedOrigins": null } }');
+    expect(automatic.CONFIG.server.allowedOrigins).toBeNull();
+  });
+
+  it.each(['"*"', '["*"]', '["null"]', '["https://darts.example/path"]', '["https://darts.example", 1]'])
+  ('refuses invalid origin policy %s instead of falling back to a different policy', async (value) => {
+    const { CONFIG_FATAL } = await load(`{ "server": { "allowedOrigins": ${value} } }`);
+    expect(CONFIG_FATAL).toContain('server.allowedOrigins');
+  });
+
   it('can turn media off, which is the setting that has to work', async () => {
     const { CONFIG } = await load('{ "media": { "enabled": false } }');
     expect(CONFIG.media.enabled).toBe(false);
@@ -117,9 +134,8 @@ describe('what the file says', () => {
   });
 
   /**
-   * The one settings mistake that stops the server instead of being reported. Everything else in
-   * this file leaves something running that can be asked what it thinks it was told; this leaves a
-   * process listening nowhere, which is worse than one that will not start.
+   * Turning both listeners off leaves a process listening nowhere, which is worse than one that
+   * will not start. Invalid security policies are also fatal, as covered above.
    */
   it('refuses a file that turns off both listeners', async () => {
     const { CONFIG_FATAL } = await load(`{

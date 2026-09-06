@@ -61,8 +61,8 @@ afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-async function connect() {
-  const ws = new WebSocket(url.replace('http:', 'ws:') + '/ws');
+async function connect(origin?: string) {
+  const ws = new WebSocket(url.replace('http:', 'ws:') + '/ws', { origin });
   sockets.push(ws);
   const messages: ServerMessage[] = [];
   ws.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
@@ -92,6 +92,27 @@ async function stats() {
 }
 
 describe('WebSocket error isolation', () => {
+  it('refuses foreign and opaque browser origins before registering a client', async () => {
+    for (const origin of ['https://unrelated.example', 'null']) {
+      const ws = new WebSocket(url.replace('http:', 'ws:') + '/ws', { origin });
+      sockets.push(ws);
+      ws.on('error', () => {});
+      const status = await new Promise<number>((resolve) => {
+        ws.once('open', () => resolve(101));
+        ws.once('unexpected-response', (_request, response) => {
+          response.resume();
+          ws.terminate();
+          resolve(response.statusCode!);
+        });
+      });
+      expect(status).toBe(403);
+    }
+    expect((await stats()).connectedClients).toBe(0);
+    const browser = await connect(url);
+    await browser.message('mode_catalog');
+    expect((await stats()).connectedClients).toBe(1);
+  });
+
   it('survives a JSON device claim that cannot be converted to a number', async () => {
     const client = await connect();
     client.send({ type: 'activate_devices', devices: [{

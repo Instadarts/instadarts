@@ -25,6 +25,7 @@
 // stands and the server carries on. A file that cannot be read as JSON at all stops the server, and
 // says which line it gave up on, because a deployment that thinks it is configured and is not is
 // worse than one that will not start.
+// Invalid server.allowedOrigins also stops startup rather than silently changing the policy.
 
 {
   // ── The process itself ──────────────────────────────────────────────
@@ -51,6 +52,13 @@
       "cert": null,
       "key": null
     },
+
+    // Browser origins allowed to upgrade /ws. Null requires the request's own HTTP(S) origin,
+    // using Host and the actual TLS connection. For a TLS reverse proxy, name the public origin:
+    // ["https://darts.example"]. A list replaces automatic same-origin permission; [] denies all
+    // browser origins. Use exact origins without paths or trailing slashes; no wildcards.
+    // Forwarded headers are not trusted. Non-browser clients may omit Origin and remain allowed.
+    "allowedOrigins": null,
 
     // How big this deployment is sized for. The one number that scales the server: every limit it
     // refuses or evicts by is derived from this, so this is the only figure to change.

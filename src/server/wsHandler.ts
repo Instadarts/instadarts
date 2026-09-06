@@ -38,7 +38,7 @@ import {
   finishMediaForMatch,
 } from './media';
 import { dropScoringSessions } from './scoring/store';
-import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatedPlayerIds, updateSeat, type Seat } from './seats';
+import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatForToken, seatedPlayerIds, updateSeat, type Seat } from './seats';
 import { allModes, describeMode, getMode } from './modes/types';
 import { canAddRoom } from './capacity';
 import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
@@ -482,7 +482,7 @@ const INPUT_TYPES = new Set([
  * and `set_player_name` are here because a roster carries player names and ids, not merely who is in it.
  */
 const ROOM_CHANGING_TYPES = new Set([
-  'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'reorder_player',
+  'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'reorder_player',
   'start_match', 'rematch_vote', 'leave_match', 'spectate', 'reconnect',
   'activate_devices', 'deactivate_device', 'scorer_pair', 'scorer_hello', 'scorer_unpair', 'scorer_name',
   'media_ready', 'media_leave', 'media_join',
@@ -492,24 +492,41 @@ const ROOM_CHANGING_TYPES = new Set([
 // Handlers
 // ============================================================
 
+/** Enter a validated destination, applying ordinary departure before replacing room or role. */
+function enterRoom(ws: WebSocket, client: Client, lobbyId: string | null, matchId: string | null, spectator: boolean): void {
+  if (client.lobbyId === lobbyId && client.matchId === matchId && client.isSpectator === spectator) return;
+  handleClientLeave(ws);
+  client.lobbyId = lobbyId;
+  client.matchId = matchId;
+  client.isSpectator = spectator;
+}
+
 function handleCreateLobby(ws: WebSocket, msg: any): void {
-  if (!canAddRoom()) {
+  const client = getClient(ws);
+  if (!client) return;
+  const seated = seatedInLobby(ws);
+  const current = seated ? getLobby(seated.lobbyId) : undefined;
+  const owned = current?.hostSessionId === client.sessionId ? current : undefined;
+  if (owned && owned.acceptsJoins === (msg.acceptsJoins === true)) {
+    sendResume(ws, { lobbyId: owned.id }, heldSeat(owned.id, client.sessionId)!.token);
+    send(ws, lobbyMessage(owned, { playerIds: playersOf(client), host: true }));
+    return;
+  }
+  // Leaving an owned lobby deletes it. A guest's lobby or a match summary remains allocated.
+  if (!owned && !canAddRoom()) {
     send(ws, { type: 'error', message: 'Server is full, try again later' });
     return;
   }
 
+  enterRoom(ws, client, null, null, false);
   const lobby = createLobby();
   // Absent means no, so a bare `create_lobby` is the closed one — which is the button most people
   // press, and the safer default besides.
   lobby.acceptsJoins = msg.acceptsJoins === true;
-  const client = getClient(ws);
-  if (client) {
-    client.lobbyId = lobby.id;
-    lobby.hostSessionId = client.sessionId;
-    // The host chair before there is a player to sit in it: a lobby is created empty, and a reload
-    // in that gap must still come back as its creator.
-    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host: true }));
-  }
+  enterRoom(ws, client, lobby.id, null, false);
+  lobby.hostSessionId = client.sessionId;
+  // The host chair exists before the host adds any players.
+  sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: [], host: true }));
 
   // A closed lobby is minted without a code at all. That is the enforcement, not a decoration: a
   // code nobody has cannot be presented, and `findLobbyByInviteCode` has nothing to match.
@@ -518,6 +535,8 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
 }
 
 function handleJoinLobby(ws: WebSocket, msg: any): void {
+  const client = getClient(ws);
+  if (!client) return;
   const lobby = findLobbyByInviteCode(msg.inviteCode);
 
   if (!lobby) {
@@ -525,29 +544,24 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const refusal = joinRefusal(lobby);
+  const alreadySeated = seatedInLobby(ws)?.lobbyId === lobby.id;
+  const refusal = alreadySeated ? null : joinRefusal(lobby);
   if (refusal) {
     send(ws, { type: 'error', message: refusal });
     return;
   }
 
   // Associate client with lobby — players are added via add_local_player
-  const client = getClient(ws);
-  if (client) {
-    // A connection already in this lobby is re-announcing itself rather than arriving, so its seat
-    // keeps whatever it already holds — minus anything no longer on the roster, which is the seat
-    // hygiene every other mutation site also does.
-    const held = heldSeat(lobby.id, client.sessionId);
-    const mine = (held?.seat.playerIds ?? []).filter((id) => lobby.players.some((p) => p.id === id));
-    client.lobbyId = lobby.id;
-    const host = client.sessionId === lobby.hostSessionId;
-    if (held) updateSeat(lobby.id, held.token, { playerIds: mine });
-    sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: mine, host }));
-  }
+  enterRoom(ws, client, lobby.id, null, false);
+  // A repeated join retains its seat and players, including when the lobby is now full.
+  const held = heldSeat(lobby.id, client.sessionId);
+  const mine = (held?.seat.playerIds ?? []).filter((id) => lobby.players.some((p) => p.id === id));
+  const host = client.sessionId === lobby.hostSessionId;
+  if (held) updateSeat(lobby.id, held.token, { playerIds: mine });
+  sendResume(ws, { lobbyId: lobby.id }, claimSeat(lobby.id, client, { playerIds: mine, host }));
 
   send(ws, lobbyMessage(lobby, {
-    playerIds: client ? playersOf(client) : [],
-    host: client?.sessionId === lobby.hostSessionId,
+    playerIds: playersOf(client), host,
   }));
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
@@ -980,6 +994,7 @@ function leaveLobby(ws: WebSocket, client: Client): void {
       if (otherWs !== ws && otherClient.lobbyId === lobby.id) {
         send(otherWs, { type: 'lobby_abandoned' });
         otherClient.lobbyId = null;
+        otherClient.isSpectator = false;
       }
     }
     deleteLobby(lobby.id);
@@ -1005,8 +1020,10 @@ function leaveLobby(ws: WebSocket, client: Client): void {
 }
 
 function handleSpectate(ws: WebSocket, msg: any): void {
-  const id = msg.id as string;
-  if (!id) {
+  const client = getClient(ws);
+  if (!client) return;
+  const id: unknown = msg.id;
+  if (typeof id !== 'string' || !id) {
     send(ws, { type: 'error', message: 'Invalid spectate ID' });
     return;
   }
@@ -1014,10 +1031,13 @@ function handleSpectate(ws: WebSocket, msg: any): void {
   // Try to find as lobby first, then as match
   const lobby = getLobby(id);
   if (lobby) {
-    const client = getClient(ws);
-    if (client) {
-      client.lobbyId = lobby.id;
-      client.isSpectator = true;
+    enterRoom(ws, client, lobby.id, null, true);
+    // Giving up the host seat abandons this very lobby, so there is nothing left to watch.
+    if (!getLobby(lobby.id)) {
+      client.lobbyId = null;
+      client.isSpectator = false;
+      send(ws, { type: 'lobby_abandoned' });
+      return;
     }
     send(ws, lobbyMessage(lobby, { host: false, spectator: true }));
     return;
@@ -1025,11 +1045,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
 
   const match = getMatch(id);
   if (match) {
-    const client = getClient(ws);
-    if (client) {
-      client.matchId = match.id;
-      client.isSpectator = true;
-    }
+    enterRoom(ws, client, null, match.id, true);
     send(ws, matchMessage('match_state', match, { spectator: true }));
     return;
   }
@@ -1059,6 +1075,23 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     return;
   }
 
+  const lobby = msg.lobbyId ? getLobby(roomId) : undefined;
+  const match = msg.lobbyId ? undefined : getMatch(roomId);
+  const seat = seatForToken(roomId, msg.token);
+  if ((msg.lobbyId && msg.matchId) || (!lobby && !match) || !seat) {
+    send(ws, { type: 'error', message: 'Cannot resume this session' });
+    return;
+  }
+  if (match && seat.playerIds.length > 0 && seat.playerIds.every((id) => match.departed.includes(id))) {
+    send(ws, { type: 'error', message: 'You have already left this match' });
+    return;
+  }
+  const currentSeat = heldSeat(roomId, client.sessionId);
+  if (currentSeat && currentSeat.token !== msg.token) {
+    send(ws, { type: 'error', message: 'Leave your current seat before taking another in this room' });
+    return;
+  }
+  enterRoom(ws, client, lobby ? roomId : null, match ? roomId : null, false);
   const redeemed = redeemSeat(roomId, msg.token, client.sessionId);
   if (!redeemed) {
     send(ws, { type: 'error', message: 'Cannot resume this session' });
@@ -1070,6 +1103,7 @@ function handleReconnect(ws: WebSocket, msg: any): void {
 
   if (msg.lobbyId) reconnectToLobby(ws, client, msg.lobbyId, redeemed.seat);
   else reconnectToMatch(ws, client, roomId, redeemed.seat);
+  if (match) publishScorerStateFor(devicesScoringInto(match.id));
 }
 
 /** Page reload during the lobby phase. */
@@ -1080,10 +1114,6 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
     return;
   }
 
-  client.lobbyId = lobby.id;
-  // Whatever this connection was before the reload, the seat is what it is now — and a seat is only
-  // ever a participant's.
-  client.isSpectator = false;
   if (seat.host) lobby.hostSessionId = client.sessionId;
 
   // A seat with no player is an ordinary state, not a failure: a lobby taken before anybody was
@@ -1112,16 +1142,6 @@ function reconnectToMatch(ws: WebSocket, client: Client, matchId: string, seat: 
     send(ws, { type: 'error', message: 'Match not found' });
     return;
   }
-
-  if (seat.playerIds.length > 0 && seat.playerIds.every((id) => match.departed.includes(id))) {
-    send(ws, { type: 'error', message: 'You have already left this match' });
-    return;
-  }
-
-
-  client.lobbyId = null;
-  client.matchId = match.id;
-  client.isSpectator = false;
 
   // A match roster never changes, so the seat already names exactly the right players. All that is
   // left is to point them at the session this tab came back on.

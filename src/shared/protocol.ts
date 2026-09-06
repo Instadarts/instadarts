@@ -9,6 +9,8 @@ import type { ClientConfig } from './config';
 //
 // Gameplay commands act on the connection's current room, subject to seat/role checks. They do
 // not carry a room selector. Joining, spectating and reconnecting explicitly identify a destination.
+// Accepted room/role changes apply ordinary leave rules to the previous room first. Repeating a
+// create with the current host lobby's join policy, or joining an already-held lobby, keeps its seat.
 // ============================================================
 
 export interface CreateLobbyMessage {

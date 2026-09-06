@@ -115,8 +115,8 @@ export const MEDIA_VIEWERS_PER_ROOM = 2;
 // ============================================================
 
 /**
- * Can one more room be retained? New lobbies and rematches need a slot; starting an existing
- * lobby replaces it with a match and needs no additional room, so it does not ask this question.
+ * Can one more room be retained? Additional lobbies and rematches need a slot. Replacing an owned
+ * lobby, or starting its match, needs no additional room, so neither asks this question.
  */
 export function canAddRoom(): boolean {
   return roomCount() < MAX_ROOMS;

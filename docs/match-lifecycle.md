@@ -18,7 +18,7 @@ Starting play consumes the lobby and creates a `MatchState` with status `in_prog
 match has status `finished`; `winnerId` is present for a win and absent for a cancellation.
 
 Lobbies and matches share the `server.maxMatches` room budget. Starting an existing lobby has no
-net room cost and is allowed even at that limit. New lobbies and re-matches need a free slot;
+net room cost and is allowed even at that limit. Additional lobbies and re-matches need a free slot;
 the latter retain the previous summary until its deadline.
 
 ## Connections and private identity
@@ -36,6 +36,19 @@ uses an invite code, while spectating and reconnecting identify their destinatio
 `join_lobby` takes a seat without adding a player; `add_local_player` supplies each player's name.
 Despite its name, `leave_match` leaves the current lobby or match, for participants and spectators.
 Legacy extra room-ID fields on gameplay commands are ignored; they do not reject stale commands.
+
+Create, join, spectate and reconnect validate their destination and admission requirements before
+changing the current room. Successful changes apply the ordinary leave rules first: a match seat
+concedes, a lobby guest's players are removed, and a departing host abandons its lobby. The new
+state contains one room and one role. Watching your own match therefore concedes before showing
+the summary; watching your own hosted lobby abandons it and returns everyone home.
+
+Repeating `create_lobby` with the current host lobby's join policy returns that lobby, roster and
+seat. Changing the policy creates a replacement lobby; deletion of the owned lobby frees its slot
+even at capacity. Repeating `join_lobby` for an already-held seat preserves it even when full.
+Reconnect checks the room type and token before transferring ownership. Taking a different seat
+in the same room requires an explicit leave first. Failed requests preserve the current room and
+seat; the frontend clears participant credentials only when a spectator reply is accepted.
 
 ## Seats and authorization
 

@@ -89,6 +89,16 @@ export function updateSeat(roomId: string, token: string, patch: Partial<Seat>):
 }
 
 /**
+ * Inspect a resume credential without transferring it. Room transitions validate the destination
+ * and seat before leaving the current room or displacing another connection.
+ */
+export function seatForToken(roomId: string, token: unknown): Seat | null {
+  if (typeof token !== 'string' || token.length === 0) return null;
+  const held = rooms.get(roomId)?.get(token);
+  return held ? { playerIds: [...held.playerIds], host: held.host } : null;
+}
+
+/**
  * Present a token. Returns the seat it stands for, or null — which is every failure there is: an
  * unknown room, an unknown token, a token from a room that has since closed.
  *

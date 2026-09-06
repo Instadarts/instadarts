@@ -40,6 +40,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const handleMessage = useCallback((msg: any) => {
     extraHandlerRef.current?.(msg);
 
+    if ((msg.type === 'lobby_state' || msg.type === 'match_state' || msg.type === 'match_started')
+      && msg.youAreSpectator === true) {
+      // Drop participant identity only after the server accepts the role change.
+      clearReconnectInfo();
+      setOwnPlayerIds([]);
+      setIsHost(false);
+    }
+
     switch (msg.type) {
       // What to present if this tab is loaded again. The server sends it only to a connection that
       // holds a place in the room, which is what keeps a spectator's tab from storing a claim on a
@@ -49,6 +57,10 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         break;
       case 'lobby_state':
         setLobby(msg.lobby);
+        setMatch(null);
+        setView(null);
+        setPanel(undefined);
+        setMediaDisabled(false);
         // Only a message addressed to this connection names its players; a broadcast names nobody's.
         // So "mine is gone" cannot be said by the absence of the field — it is the player itself no
         // longer being in the lobby, which is what removing your own player looks like from here.
@@ -181,11 +193,9 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   }, [send]);
 
   const spectate = useCallback((id: string) => {
-    // Watching is not a place in the room, so whatever this tab was holding is not what it is now.
-    clearReconnectInfo();
+    // A rejected destination must leave the current role and resume credential intact.
     send({ type: 'spectate', id });
     setRoomGeneration((value) => value + 1);
-    setIsSpectator(true);
   }, [send]);
 
   const voteRematch = useCallback((playerId: string, answer: RematchAnswer | 'neutral') => {

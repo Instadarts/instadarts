@@ -153,8 +153,8 @@ export function handleScorerTips(ws: WebSocket, msg: any): void {
  * Used by manual darts and camera darts alike — there is only one way a match moves.
  */
 export function commitScoredMatch(match: MatchState): void {
-  // A dart is input, so it pushes the idle deadline back; a match the mode has just decided swaps
-  // that deadline for its summary clock.
+  // Input pushes the idle deadline back; a win or the global visit limit swaps that deadline for
+  // the summary clock.
   if (match.status === 'in_progress') {
     touch(match);
   } else {

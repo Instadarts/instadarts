@@ -107,6 +107,11 @@ describe('validateSettings', () => {
     expect(format({ setsToWinMatch: '3' }).setsToWinMatch).toBe(1); // wrong type → current value
   });
 
+  it.each(['legsToWinSet', 'setsToWinMatch'] as const)('accepts 10 but rejects 11 for %s', (field) => {
+    expect(validateSettings({ [field]: 10 }, current)?.[field]).toBe(10);
+    expect(validateSettings({ [field]: 11 }, current)?.[field]).toBe(1);
+  });
+
   it('fills the gaps from the current settings', () => {
     expect(validateSettings(settings({ startScore: 301 }), current)).toEqual({
       ...current,

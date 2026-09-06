@@ -969,8 +969,8 @@ function leaveMatch(_ws: WebSocket, client: Client): void {
 /**
  * A match is over: record how, and start its summary clock.
  *
- * Every route to a finished match goes through here, so every finished match has a deadline and none
- * can sit on the server unfinished.
+ * Departure and idle cancellation use this path; scoring outcomes and the visit limit use
+ * commitScoredMatch. Both install the summary deadline and release scoring/media resources.
  */
 function endMatch(match: MatchState, winnerId: string | null): void {
   match.status = 'finished';

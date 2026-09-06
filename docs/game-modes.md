@@ -35,6 +35,13 @@ live in `MatchState.visits`; completed legs move to `MatchState.legs` with their
 are derived from that ordered history by [`matchFormat.ts`](../src/shared/matchFormat.ts), not stored
 separately.
 
+Both format settings range from 1 to 10 wins. Independently of the mode, each leg is limited to
+500 submitted visits, including empty, scoring and voided visits. A leg win on visit 500 counts
+normally and the next leg starts with a fresh budget. If visit 500 produces no leg winner, the
+match is cancelled without a winner and enters the usual summary/rematch flow. Modes cannot
+override this limit. The unfinished leg's visits remain in `MatchState.visits`; it is not awarded
+as a drawn or won leg.
+
 The starting player advances by one roster position for every completed leg, continuing across set
 boundaries. Within a leg, submitted visits advance to the next player who has not left the match.
 The mode neither chooses the next player nor sees the match format.

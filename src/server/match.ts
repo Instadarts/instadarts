@@ -6,7 +6,7 @@
 
 import type { DartThrow, MatchState, ModePanel, ModeView } from '../shared/types';
 import { boardCount } from '../shared/types';
-import { matchWinnerOf, standingsOf, starterIndex } from '../shared/matchFormat';
+import { matchWinnerOf, standingsOf, starterIndex, MAX_VISITS_PER_LEG } from '../shared/matchFormat';
 import { getMode } from './modes/types';
 import type { GameMode, LegContext } from './modes/types';
 
@@ -118,13 +118,22 @@ export function submitVisitToMatch(
   const { visit, legWinnerId } = mode.finalizeVisit(legContext(match));
 
   if (legWinnerId === null) {
+    const visits = [...match.visits, visit];
+    // Empty, voided and scoring visits all consume the same budget. A mode cannot keep an
+    // unwinnable leg alive indefinitely. Preserve the final visit and use the normal summary path.
+    if (visits.length >= MAX_VISITS_PER_LEG) {
+      return { success: true, match: {
+        ...match, visits, currentVisit: undefined,
+        status: 'finished', winnerId: null, finishedAt: Date.now(),
+      } };
+    }
     // A submitted visit always passes the board on. That a visit is exactly one player's turn is a
     // property of the app, not of any mode.
     return {
       success: true,
       match: {
         ...match,
-        visits: [...match.visits, visit],
+        visits,
         currentVisit: undefined,
         currentPlayerIndex: nextActiveIndex(match, match.currentPlayerIndex),
       },

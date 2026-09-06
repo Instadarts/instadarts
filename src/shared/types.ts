@@ -96,9 +96,9 @@ import type { ModeSettings } from './settings';
 export interface MatchSettings {
   mode: string;
   modeSettings: ModeSettings;
-  /** Legs a player must win to take a set. */
+  /** Legs a player must win to take a set, from 1 to 10. */
   legsToWinSet: number;
-  /** Sets a player must win to take the match. */
+  /** Sets a player must win to take the match, from 1 to 10. */
   setsToWinMatch: number;
 }
 

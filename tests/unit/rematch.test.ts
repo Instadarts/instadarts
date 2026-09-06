@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from '../../src/server/wsHandler';
 import { getMatch } from '../../src/server/store';
-import { sweepLifecycle } from '../../src/server/lifecycle';
+import { sweepLifecycle, SUMMARY_TTL_MS } from '../../src/server/lifecycle';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import type { ServerMessage } from '../../src/shared/protocol';
 import '../helpers'; // registers the x01 mode
@@ -148,6 +148,41 @@ describe('resuming a finished summary', () => {
       vi.useRealTimers();
     }
   });
+});
+
+describe('the visit limit summary', () => {
+  it('retains the normal summary deadline and rematch flow after the visit limit', () => {
+    vi.useFakeTimers();
+    try {
+      const { user, match } = localMatch();
+      const id = match().id;
+      getMatch(id)!.visits = Array.from({ length: 499 }, (_, index) => ({
+        darts: [], playerId: match().players[index % 2].id, visitNumber: index + 1, voided: false,
+      }));
+      user.send({ type: 'submit_visit' });
+      const summary = match();
+      expect(summary.status).toBe('finished');
+      expect(summary.winnerId).toBeNull();
+      expect(summary.visits).toHaveLength(500);
+      expect(summary.expiresAt).toBe(Date.now() + SUMMARY_TTL_MS);
+
+      vi.advanceTimersByTime(1000);
+      user.send({ type: 'submit_visit' });
+      expect(getMatch(id)!.visits).toHaveLength(500);
+      expect(getMatch(id)!.expiresAt).toBe(summary.expiresAt);
+      for (const player of summary.players) {
+        user.send({ type: 'rematch_vote', playerId: player.id, answer: 'accepted' });
+      }
+      const rematch = user.last('match_started')!.match;
+      expect(rematch.id).not.toBe(id);
+      expect(rematch.status).toBe('in_progress');
+      expect(rematch.visits).toEqual([]);
+      expect(rematch.legs).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
 
 describe('leaving a match', () => {

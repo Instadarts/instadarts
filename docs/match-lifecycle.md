@@ -158,6 +158,13 @@ A spectator leaving only stops watching and does not alter match state.
 
 ## Finished matches and re-matches
 
+Each leg has a hard limit of 500 submitted visits, shared by all game modes and both manual and
+camera scoring. If visit 500 does not win the leg, the match is cancelled without a winner;
+a winning visit at the limit is resolved normally. Every new leg starts a fresh visit budget.
+Both format settings, legs to win a set and sets to win a match, are limited to 10. These are win
+thresholds, so five players can play at most 46 legs per set and 46 sets per match: at most
+1,058,000 submitted visits. For a roster of P players the bound is `500 × (9P + 1)²`.
+
 A finished match shows a summary while each participant's re-match vote is neutral, accepted, or
 declined. Any decline settles the result as no re-match. Neutral votes become declines when the
 summary expires.

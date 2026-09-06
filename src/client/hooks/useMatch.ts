@@ -93,7 +93,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setView(msg.view);
         setPanel(msg.panel);
         setMediaDisabled(Boolean(msg.mediaDisabled));
-        clearReconnectInfo();
+        // The seat still participates in the summary and rematch vote. Keep its resume token
+        // until leaving, takeover, spectator admission or room closure ends that participation.
         break;
       // Another tab took this one's place — duplicating a tab copies the token that holds it. The
       // server has already taken this connection out of the room; all that is left is to stop

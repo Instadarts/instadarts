@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMatch } from '../../src/client/hooks/useMatch';
-import { clearReconnectInfo } from '../../src/client/lib/ws';
+import * as reconnectStorage from '../../src/client/lib/ws';
+import { clearReconnectInfo, loadReconnectInfo } from '../../src/client/lib/ws';
 
 // Run this hook's synchronous state/message logic without a browser or a transport. Slot values
 // survive render() calls; effects and DOM behavior are outside these tests.
@@ -22,7 +23,6 @@ vi.mock('../../src/client/hooks/useWebSocket', () => ({
     return { send: harness.send, connected: true, generation: 1, sessionId: 'client' };
   },
 }));
-vi.mock('../../src/client/lib/ws', () => ({ clearReconnectInfo: vi.fn(), saveReconnectInfo: vi.fn() }));
 
 function render() {
   harness.cursor = 0;
@@ -32,9 +32,21 @@ function render() {
 beforeEach(() => {
   harness.slots = [];
   vi.clearAllMocks();
+  const storage = new Map<string, string>();
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
+  vi.spyOn(reconnectStorage, 'clearReconnectInfo');
   render();
   harness.receive({ type: 'match_state', match: { id: 'old', players: [] }, view: {}, panel: {},
     yourPlayerIds: ['alice'], youAreSpectator: false, mediaDisabled: true });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('client room transitions', () => {
@@ -63,5 +75,53 @@ describe('client room transitions', () => {
     expect(render().isSpectator).toBe(true);
     expect(render().ownPlayerIds).toEqual([]);
     expect(render().isHost).toBe(false);
+  });
+});
+
+describe('summary reconnect credentials', () => {
+  const resume = { type: 'resume', matchId: 'old', token: 'private-seat-token' };
+  const finished = { id: 'old', status: 'finished', players: [] };
+
+  it.each(['match_finished', 'match_state'])('retains the saved seat when a summary arrives through %s', (type) => {
+    harness.receive(resume);
+    harness.receive({ type, match: finished, view: {}, panel: {} });
+    // This is the real storage reader used by the replacement socket's onopen callback.
+    expect(loadReconnectInfo()).toEqual({ matchId: 'old', token: resume.token });
+    expect(render().match).toEqual(finished);
+    expect(render().ownPlayerIds).toEqual(['alice']);
+    expect(render().isSpectator).toBe(false);
+  });
+
+  it('keeps the summary credential across a page reload that discards hook state', () => {
+    harness.receive(resume);
+    harness.receive({ type: 'match_finished', match: finished });
+    harness.slots = [];
+    expect(render().match).toBeNull();
+    expect(loadReconnectInfo()).toEqual({ matchId: 'old', token: resume.token });
+  });
+
+  it.each(['leave', 'seat_taken_over', 'lobby_abandoned', 'match_closed'])(
+    'still clears the credential on %s', (ending) => {
+      harness.receive(resume);
+      if (ending === 'leave') render().leaveMatch();
+      else harness.receive({ type: ending });
+      expect(loadReconnectInfo()).toBeNull();
+    },
+  );
+
+  it('replaces the saved room when the rematch resume arrives', () => {
+    harness.receive(resume);
+    harness.receive({ type: 'match_finished', match: finished });
+    harness.receive({ type: 'resume', matchId: 'rematch', token: resume.token });
+    harness.receive({ type: 'match_started', match: { id: 'rematch', players: [] },
+      yourPlayerIds: ['alice'], youAreSpectator: false });
+    expect(loadReconnectInfo()).toEqual({ matchId: 'rematch', token: resume.token });
+  });
+
+  it('does not invent a credential for a spectator receiving the summary', () => {
+    harness.receive({ type: 'match_state', match: finished, youAreSpectator: true });
+    harness.receive({ type: 'match_finished', match: finished });
+    expect(loadReconnectInfo()).toBeNull();
+    expect(render().isSpectator).toBe(true);
   });
 });

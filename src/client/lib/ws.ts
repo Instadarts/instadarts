@@ -14,7 +14,8 @@ interface ReconnectInfo {
 }
 
 /**
- * Store reconnect info in sessionStorage so a page refresh can restore state.
+ * Store reconnect info in sessionStorage so a page refresh can restore state, including a finished
+ * match's summary and rematch vote. A rematch's resume message replaces the stored room id.
  */
 export function saveReconnectInfo(info: ReconnectInfo): void {
   try {

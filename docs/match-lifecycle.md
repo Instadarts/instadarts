@@ -157,6 +157,12 @@ A finished match shows a summary while each participant's re-match vote is neutr
 declined. Any decline settles the result as no re-match. Neutral votes become declines when the
 summary expires.
 
+The frontend retains its saved seat token through this summary, whether it arrives as
+`match_state` (including a scored finish) or `match_finished` (such as idle cancellation).
+A reload or replacement socket can therefore resume the summary before sending a rematch vote.
+Explicit leave, takeover, spectator admission or room closure clears the credential; the rematch's
+`resume` message replaces its saved room id. Spectators receive no participant credential.
+
 When every participant accepts and room capacity is available, `createRematch` creates a new match with the same
 participants and settings and rotates the player order by one. Scores, visits, completed legs, and
 media state do not carry over. Participant seat tokens carry into the new match, and connected

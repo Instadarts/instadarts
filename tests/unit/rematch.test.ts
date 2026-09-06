@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import { handleMessage, registerClient, removeClient, handleClientLeave } from '../../src/server/wsHandler';
+import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from '../../src/server/wsHandler';
+import { getMatch } from '../../src/server/store';
+import { sweepLifecycle } from '../../src/server/lifecycle';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import type { ServerMessage } from '../../src/shared/protocol';
 import '../helpers'; // registers the x01 mode
@@ -110,6 +112,43 @@ function winIt(conn: Conn, matchId: string) {
 // ============================================================
 // Tests
 // ============================================================
+
+describe('resuming a finished summary', () => {
+  it('accepts the retained token after an idle cancellation and lets the replacement start a rematch', () => {
+    vi.useFakeTimers();
+    try {
+      const { user, match } = localMatch();
+      const original = match();
+      const token = user.last('resume')!.token;
+      getMatch(original.id)!.expiresAt = Date.now() - 1;
+      sweepLifecycle();
+      const summary = user.last('match_finished')!.match;
+      expect(summary.status).toBe('finished');
+
+      Object.defineProperty(user.ws, 'readyState', { value: 3 });
+      scheduleDisconnect(user.ws, () => { handleClientLeave(user.ws); removeClient(user.ws); });
+      const returning = connect();
+      returning.send({ type: 'reconnect', matchId: summary.id, token });
+      expect(returning.last('match_state')!.youAreSpectator).toBe(false);
+      expect(returning.last('match_state')!.yourPlayerIds).toEqual(summary.players.map((p) => p.id));
+      expect(getMatch(summary.id)!.expiresAt).toBe(summary.expiresAt);
+      vi.advanceTimersByTime(3_000);
+      expect(getMatch(summary.id)!.departed).toEqual([]);
+
+      // Same ordering as a replacement socket: resume first, then votes queued during the outage.
+      for (const player of summary.players) {
+        returning.send({ type: 'rematch_vote', playerId: player.id, answer: 'accepted' });
+      }
+      const rematch = returning.last('match_started')!.match;
+      expect(returning.last('error')).toBeUndefined();
+      expect(rematch.id).not.toBe(summary.id);
+      expect(rematch.status).toBe('in_progress');
+      expect(returning.last('resume')).toMatchObject({ matchId: rematch.id, token });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('leaving a match', () => {
   it('cancels a local match: no winner, and the state says so', () => {

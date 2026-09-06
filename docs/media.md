@@ -51,6 +51,14 @@ Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
 does not create mesh state.
 
+`media_ready` is retained on the connection even before pairing, then applied when the scorer
+proves its identity. Unpaired connections cause no topology planning, and repeating the same
+normalized tier causes no owner publication or planning. A changed tier updates the owner's
+camera picker and replans only matches that nominated that device. Source nominations are checked
+even when the device has no current peer binding, so readiness can reactivate a disabled source.
+Device leave and identity synchronization likewise refresh selected matches rather than every
+session. The dispatcher does not repeat the refresh already performed by a media handler.
+
 On every finish path — victory, cancellation, permanent leave, or idle expiry — the server sends
 inactive source directives, publishes empty rosters, and destroys the media session immediately. A
 rematch creates a fresh mesh and clients resubmit their stored choices; the server copies no source

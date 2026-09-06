@@ -409,9 +409,9 @@ function dispatchMessage(ws: WebSocket, raw: string): void {
     if (match && match.status === 'in_progress') touch(match);
   }
 
-  // Somebody may have moved. Cheap to ask needlessly: an unchanged roster sends nothing. A
-  // re-match is deliberately different — startMediaForMatch gives it a fresh mesh and every client
-  // declaration below rebuilds its links from scratch.
+  // Somebody may have moved: refresh the affected rooms. Media handlers already publish their
+  // own changes and are excluded from this fallback. A rematch has a fresh mesh and its clients
+  // declare again to rebuild links.
   if (ROOM_CHANGING_TYPES.has(msg.type)) publishMediaFor(ws, previousRoom);
 }
 
@@ -482,14 +482,14 @@ const INPUT_TYPES = new Set([
  * those three things. Anything not listed here cannot change one, so it is not worth asking.
  *
  * Deliberately generous rather than exact: an unchanged roster is not published, so a type listed
- * here that turns out not to have moved anything costs one derivation and no traffic. `add_local_player`
+ * here that turns out not to have moved anything costs one derivation. Media handlers publish their
+ * affected sessions themselves and must not receive a second refresh here. `add_local_player`
  * and `set_player_name` are here because a roster carries player names and ids, not merely who is in it.
  */
 const ROOM_CHANGING_TYPES = new Set([
   'create_lobby', 'join_lobby', 'add_local_player', 'remove_player', 'set_player_name', 'reorder_player',
   'start_match', 'rematch_vote', 'leave_match', 'spectate', 'reconnect',
   'activate_devices', 'deactivate_device', 'scorer_pair', 'scorer_hello', 'scorer_unpair', 'scorer_name',
-  'media_ready', 'media_leave', 'media_join',
 ]);
 
 // ============================================================

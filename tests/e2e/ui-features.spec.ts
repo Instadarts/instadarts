@@ -333,7 +333,7 @@ test.describe('responsive UI branch features', () => {
     const visit = page.locator('[data-grid-item="visit"]');
     const body = visit.locator('.frontend-grid-box__body');
     const content = visit.locator('[data-grid-box-content]');
-    const slots = visit.locator('[data-visit-slots]');
+    const slots = visit.locator('[data-visit-slot]').first();
     const footer = visit.getByTestId('visit-footer');
 
     await expect.poll(() => body.evaluate((element) => element.scrollHeight <= element.clientHeight))

@@ -245,7 +245,7 @@ export function useDartEvidence({
     // A board camera in the room at all — ours if we are throwing, the thrower's if we are watching.
     // Asked of the roster rather than of what has arrived, so the answer is stable from the first
     // frame of the visit rather than appearing with the first picture. A mode that declined evidence
-    // reads as no camera, which is already the everyday case and already draws no strip.
+    // reads as no camera, so the visit shows unavailable-evidence placeholders.
     available: enabled && Boolean(camera),
   };
 }

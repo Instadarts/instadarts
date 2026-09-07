@@ -1,4 +1,5 @@
-import { Box, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Box, Button, Group, Modal, Paper, Stack, Text } from '@mantine/core';
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { DartThrow, ViewText } from '../../shared/types';
 import { textOf, toneOf } from '../../shared/types';
 import { DartEvidence } from './DartEvidence';
@@ -16,9 +17,6 @@ interface VisitInputProps {
   evidence: (string | undefined)[] | null;
 }
 
-const VISIT_COLUMN_SPACING = 12;
-const MINIMUM_EVIDENCE_SIZE = 48;
-
 export function VisitInput({
   darts,
   dartsPerVisit,
@@ -31,54 +29,95 @@ export function VisitInput({
   evidence,
 }: VisitInputProps) {
   const filled: ViewText[] = slots ?? darts.map((dart) => `${dart.score.label} (${dart.score.points})`);
-  const empty = Math.max(0, dartsPerVisit - filled.length);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const visitTotalVisible = textOf(visitTotal) !== '';
   const footerVisible = visitTotalVisible || !hideActions;
 
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const grid = root.querySelector<HTMLElement>('[data-visit-slots]')!;
+    const labels = Array.from(root.querySelectorAll<HTMLElement>('[data-visit-slot]'));
+    const footer = root.querySelector<HTMLElement>('[data-testid="visit-footer"]');
+    let disposed = false;
+    const fit = () => {
+      if (disposed) return;
+      // The root keeps the allocated card height even when its children need to scroll.
+      // Probe the same labels at each width; wrapped mode text can change the winning layout.
+      const width = root.clientWidth;
+      const gap = Number.parseFloat(getComputedStyle(root).gap);
+      const itemGap = Number.parseFloat(getComputedStyle(grid).gap);
+      const height = root.clientHeight - (footer ? footer.offsetHeight + gap : 0);
+      root.style.setProperty('--visit-slot-height', 'auto');
+      const measure = (direction: 'row' | 'column') => {
+        root.dataset.visitDirection = direction;
+        const labelHeight = Math.max(0, ...labels.map((label) => label.offsetHeight));
+        const column = direction === 'column';
+        const cellWidth = column ? width : (width - itemGap * (dartsPerVisit - 1)) / dartsPerVisit;
+        const cellHeight = column ? (height - itemGap * (dartsPerVisit - 1)) / dartsPerVisit : height;
+        return { labelHeight, size: Math.max(0, Math.min(cellWidth, cellHeight - labelHeight - gap)) };
+      };
+      const row = measure('row');
+      const column = measure('column');
+      const useColumn = column.size > row.size + 1;
+      root.dataset.visitDirection = useColumn ? 'column' : 'row';
+      root.style.setProperty('--visit-slot-height', `${(useColumn ? column : row).labelHeight}px`);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(root);
+    if (footer) observer.observe(footer);
+    void document.fonts.ready.then(fit);
+    document.fonts.addEventListener('loadingdone', fit);
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      document.fonts.removeEventListener('loadingdone', fit);
+    };
+  });
+
   return (
     <Stack
+      ref={rootRef}
+      className="visit-input"
       gap="sm"
       h="100%"
       align="stretch"
-      style={{ minHeight: 'max-content' }}
+      style={{ '--visit-count': dartsPerVisit } as CSSProperties}
     >
-      <SimpleGrid cols={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} data-visit-slots>
-        {filled.map((slot, index) => (
-          <Paper
-            key={index}
-            py={5}
-            px="xs"
-            radius="sm"
-            ta="center"
-            ff="monospace"
-            // The slot's semantic tone, reflected so a mode's own stylesheet can decorate on it.
-            // Generic on purpose: this says what the mode said, and knows about no mode.
-            data-slot-tone={toneOf(slot) ?? 'default'}
-            style={slotStyle(slot, { size: 'lg' })}
-          >
-            {textOf(slot)}
-          </Paper>
-        ))}
-        {Array.from({ length: empty }).map((_, index) => (
-          <Paper key={`empty-${index}`} py={5} px="xs" radius="sm" ta="center" ff="monospace" bg="var(--instadarts-surface-raised)" c="dimmed" fz="lg">
-            --
-          </Paper>
-        ))}
-      </SimpleGrid>
-
-      <Box
-        data-testid="visit-evidence-space"
-        style={{
-          containerType: 'size',
-          display: 'grid',
-          flex: '1 1 0',
-          minHeight: evidence ? MINIMUM_EVIDENCE_SIZE : 0,
-          placeItems: 'center',
-        }}
-      >
-        {evidence && (
-          <DartEvidence images={evidence} slots={dartsPerVisit} spacing={VISIT_COLUMN_SPACING} />
-        )}
+      <Box className="visit-input__darts" data-visit-slots>
+        {Array.from({ length: dartsPerVisit }, (_, index) => {
+          const slot = filled[index];
+          return (
+            <Box key={index} className="visit-input__dart">
+              <Paper
+                data-visit-slot
+                py={5}
+                px="xs"
+                radius="sm"
+                ta="center"
+                ff="monospace"
+                // Keep semantic decoration on the score, separate from its evidence.
+                data-slot-tone={toneOf(slot) ?? 'default'}
+                bg={slot === undefined ? 'var(--instadarts-surface-raised)' : undefined}
+                c={slot === undefined ? 'dimmed' : undefined}
+                fz="lg"
+                style={slot === undefined ? undefined : slotStyle(slot, { size: 'lg' })}
+              >
+                {slot === undefined ? '--' : textOf(slot)}
+              </Paper>
+              <Box className="visit-input__evidence-space" data-testid="visit-evidence-space">
+                <DartEvidence
+                  image={evidence?.[index]}
+                  index={index}
+                  unavailable={evidence === null || Boolean(darts[index])}
+                  onOpen={setOpen}
+                />
+              </Box>
+            </Box>
+          );
+        })}
       </Box>
 
       {footerVisible && (
@@ -100,6 +139,9 @@ export function VisitInput({
           )}
         </Stack>
       )}
+      <Modal opened={open !== null} onClose={() => setOpen(null)} title="Dart evidence" centered size="auto">
+        {open && <img src={open} alt="" style={{ display: 'block', maxWidth: '90vw', maxHeight: '80dvh', objectFit: 'contain' }} />}
+      </Modal>
     </Stack>
   );
 }

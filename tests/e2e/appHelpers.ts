@@ -158,7 +158,7 @@ export async function startScorerCamera(
 const visitState = (page: Page) => page.evaluate(() => [
   document.querySelector('[data-visit-slots]') ? 'live' : 'gone',
   document.querySelector('[data-player][aria-current="true"]')?.getAttribute('data-player') ?? '-',
-  [...document.querySelectorAll('[data-visit-slots] > *')]
+  [...document.querySelectorAll('[data-visit-slot]')]
     .map((slot) => slot.textContent?.trim() ?? '')
     .join(','),
 ].join(' '));

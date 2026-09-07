@@ -1,9 +1,9 @@
-export function CameraIcon() {
+export function CameraIcon({ size = 20, crossedOut = false }: { size?: number | string; crossedOut?: boolean }) {
   return (
     <svg
       viewBox="0 0 16 16"
-      width={20}
-      height={20}
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.5}
@@ -13,6 +13,7 @@ export function CameraIcon() {
     >
       <path d="M2 4.75h2.1l1-1.5h5.8l1 1.5H14v8H2z" />
       <circle cx="8" cy="8.75" r="2.4" />
+      {crossedOut && <path d="M2 2l12 12" />}
     </svg>
   );
 }

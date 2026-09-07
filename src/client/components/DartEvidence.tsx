@@ -1,57 +1,44 @@
-import { AspectRatio, Box, Modal, SimpleGrid, UnstyledButton } from '@mantine/core';
-import { useState } from 'react';
+import { AspectRatio, Box, UnstyledButton } from '@mantine/core';
+import { CameraIcon } from './AppIcons';
 
 interface DartEvidenceProps {
-  images: (string | undefined)[];
-  slots: number;
-  spacing: number;
+  image?: string;
+  index: number;
+  unavailable: boolean;
+  onOpen: (image: string) => void;
 }
 
-export function DartEvidence({ images, slots, spacing }: DartEvidenceProps) {
-  const [open, setOpen] = useState<string | null>(null);
-
+export function DartEvidence({ image, index, unavailable, onOpen }: DartEvidenceProps) {
   return (
-    <>
-      <SimpleGrid
-        cols={slots}
-        spacing={spacing}
-        w="100%"
-        data-testid="dart-evidence"
-      >
-        {Array.from({ length: slots }).map((_, index) => {
-          const src = images[index];
-          return (
-            <AspectRatio
-              key={index}
-              ratio={1}
-              bg="var(--instadarts-surface-raised)"
-              w="100%"
-              style={{
-                // The full-width grid matches the slot columns. Each square is centred inside its
-                // own column and cannot grow taller than the flexible middle space around the row.
-                borderRadius: 'var(--mantine-radius-sm)',
-                marginInline: 'auto',
-                maxWidth: '100cqh',
-                overflow: 'hidden',
-              }}
-            >
-              {src ? (
-                <UnstyledButton
-                  onClick={() => setOpen(src)}
-                  aria-label={`Dart ${index + 1} evidence`}
-                  style={{ cursor: 'zoom-in', display: 'block' }}
-                >
-                  <img src={src} alt="" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
-                </UnstyledButton>
-              ) : <Box />}
-            </AspectRatio>
-          );
-        })}
-      </SimpleGrid>
-
-      <Modal opened={open !== null} onClose={() => setOpen(null)} title="Dart evidence" centered size="auto">
-        {open && <img src={open} alt="" style={{ display: 'block', maxWidth: '90vw', maxHeight: '80dvh', objectFit: 'contain' }} />}
-      </Modal>
-    </>
+    <AspectRatio
+      ratio={1}
+      bg="var(--instadarts-surface-raised)"
+      w="100%"
+      data-testid="dart-evidence"
+      style={{
+        borderRadius: 'var(--mantine-radius-sm)',
+        maxWidth: '100cqh',
+        overflow: 'hidden',
+      }}
+    >
+      {image ? (
+        <UnstyledButton
+          onClick={() => onOpen(image)}
+          aria-label={`Dart ${index + 1} evidence`}
+          style={{ cursor: 'zoom-in', display: 'block' }}
+        >
+          <img src={image} alt="" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+        </UnstyledButton>
+      ) : (
+        <Box
+          role={unavailable ? 'img' : undefined}
+          aria-label={unavailable ? `Dart ${index + 1} evidence unavailable` : undefined}
+          c="var(--instadarts-surface)"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          {unavailable && <CameraIcon crossedOut size="40%" />}
+        </Box>
+      )}
+    </AspectRatio>
   );
 }

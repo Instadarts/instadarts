@@ -40,7 +40,7 @@ Do not report security vulnerabilities in a public issue or pull request. Use Gi
 
 ### Set up the project
 
-InstaDarts requires Node.js 22 or newer.
+InstaDarts requires Node.js 22.22.0 or newer, matching the minimum required by React Router.
 
 ```sh
 npm ci

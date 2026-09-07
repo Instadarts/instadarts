@@ -7,26 +7,10 @@
  * Internally normalizes to [0-1] with center [0.5, 0.5] for geometry math.
  */
 
-// --- Board geometry (normalized [0-1] space) ---
-
-const MM_TO_BOARD = 0.5 / 225.5;
-
-const RADII = Object.freeze({
-  doubleOuter: 170.0 * MM_TO_BOARD,
-  doubleInner: 160.0 * MM_TO_BOARD,
-  tripleOuter: 107.0 * MM_TO_BOARD,
-  tripleInner: 97.0 * MM_TO_BOARD,
-  outerBull: (32.0 / 2.0) * MM_TO_BOARD,
-  innerBull: (13.0 / 2.0) * MM_TO_BOARD,
-});
-
-const SECTOR_ORDER = Object.freeze([
-  20, 1, 18, 4, 13, 6, 10, 15, 2, 17,
-  3, 19, 7, 16, 8, 11, 14, 9, 12, 5,
-]);
-
+import { BOARD_MAX, NORMALIZED_RADII as RADII, SECTOR_ORDER } from './boardGeometry';
 import type { ScoreResult } from './types';
 
+export { BOARD_MAX, BOARD_CENTER } from './boardGeometry';
 export type { ScoreResult };
 
 // --- Label parsing ---
@@ -45,9 +29,6 @@ function parseLabel(label: string): ScoreResult {
 }
 
 // --- Public API ---
-
-export const BOARD_MAX = 1_000_000;
-export const BOARD_CENTER = BOARD_MAX / 2;
 
 /**
  * Score a dart from integer board coordinates.

@@ -375,10 +375,25 @@ export function mediaRoomOf(ws: WebSocket): string | null {
 
 export function publishMediaFor(ws: WebSocket, previousMatch?: string | null): void {
   if (!MEDIA_ENABLED) return;
-  if (previousMatch) publishSession(previousMatch);
-  const current = getClient(ws)?.matchId;
-  if (current && current !== previousMatch) publishSession(current);
-  if (getClient(ws)?.deviceId) for (const matchId of sessions.keys()) publishSession(matchId);
+  const affected = new Set<string>();
+  if (previousMatch) affected.add(previousMatch);
+  const client = getClient(ws);
+  if (client?.matchId) affected.add(client.matchId);
+  if (client?.deviceId) {
+    for (const matchId of matchesSelectingDevice(client.deviceId)) affected.add(matchId);
+  }
+  for (const matchId of affected) publishSession(matchId);
+}
+
+/** Inspect source nominations once; only selected matches need a full topology plan. */
+function matchesSelectingDevice(deviceId: string): string[] {
+  const affected: string[] = [];
+  for (const session of sessions.values()) {
+    if ([...session.sources.values()].some((source) => source.deviceId === deviceId)) {
+      affected.push(session.matchId);
+    }
+  }
+  return affected;
 }
 
 export function publishMediaForRoom(matchId: string): void {
@@ -409,11 +424,15 @@ export function sendAppConfig(ws: WebSocket): void {
 /** Device capability announcement. It creates no identity until a running match selects it. */
 export function handleMediaReady(ws: WebSocket, msg: any): void {
   if (!MEDIA_ENABLED) return;
-  const tier = validateTier(msg.tier);
-  deviceTiers.set(ws, tier);
   const client = getClient(ws);
-  if (client?.deviceId) noteDeviceTier(client.deviceId, tier);
-  for (const matchId of sessions.keys()) publishSession(matchId);
+  if (!client) return;
+  const tier = validateTier(msg.tier);
+  if (deviceTiers.get(ws) === tier) return;
+  deviceTiers.set(ws, tier);
+  // A phone may declare before pairing. Keep its capability, but it cannot affect any source yet.
+  if (!client.deviceId) return;
+  noteDeviceTier(client.deviceId, tier);
+  for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
 }
 
 function validateTier(raw: unknown): MediaTier {
@@ -430,17 +449,20 @@ export function syncDeviceTier(ws: WebSocket): void {
   if (!MEDIA_ENABLED) return;
   const client = getClient(ws);
   const tier = deviceTiers.get(ws);
-  if (client?.deviceId && tier) noteDeviceTier(client.deviceId, tier);
-  for (const matchId of sessions.keys()) publishSession(matchId);
+  if (!client?.deviceId) return;
+  if (tier) noteDeviceTier(client.deviceId, tier);
+  // Identity may have just changed even though the socket's cached tier did not.
+  for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
 }
 
 export function handleMediaLeave(ws: WebSocket): void {
   const client = getClient(ws);
   if (client?.deviceId) {
+    if (deviceTiers.get(ws) === 'disabled') return;
     noteDeviceTier(client.deviceId, 'disabled');
     deviceTiers.set(ws, 'disabled');
     removeBinding(ws);
-    for (const matchId of sessions.keys()) publishSession(matchId);
+    for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
     return;
   }
   const join = frontendJoins.get(ws);

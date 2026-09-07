@@ -5,17 +5,17 @@
 //
 // ## Two things here are not the usual WebRTC recipe
 //
-// **A description is not sent until ICE gathering has finished.** The ordinary pattern trickles
+// **Candidates travel inside descriptions.** The ordinary pattern trickles
 // candidates as they arrive, which means a message per candidate and a signaling server that has to
-// relay them. Waiting instead folds every candidate into the one description, so a link's entire
-// signaling life is one offer and one answer — see shared/media.ts for why that is affordable. With
-// no STUN configured, gathering finishes in milliseconds; the timeout below is what bounds a
-// configured STUN server that is slow or gone.
+// relay them. Gathering instead folds candidates into each offer or answer, with no separate
+// candidate messages — see shared/media.ts for why that is affordable. With no STUN configured,
+// gathering finishes in milliseconds; the timeout below bounds a slow or unreachable STUN server
+// and sends the candidates gathered so far.
 //
-// **There are no media tracks.** Media travels as encoded chunks over the channels. The
-// renegotiation machinery below is therefore never triggered by anything in this app — it is kept
-// deliberately, because it is what a video track would need if WebCodecs ever disappoints on a real
-// phone, and it is far cheaper to keep thirty lines than to reason them out again later.
+// **There are no media tracks.** Media travels as encoded chunks over the channels. Negotiation
+// establishes those channels and also carries ICE restarts: after a failed connection, the
+// impolite side calls restartIce() and exchanges a fresh offer and answer. The negotiation and
+// collision handling below support that recovery throughout the link's lifetime.
 
 import type { ControlMessage, IceServerConfig, SignalDescription } from '../../shared/media';
 import { CONTROL_CHANNEL, FALLBACK_MAX_MESSAGE_BYTES, MEDIA_CHANNEL } from '../../shared/media';

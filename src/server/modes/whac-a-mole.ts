@@ -3,6 +3,7 @@ import type {
 } from '../../shared/types';
 import type { ModeSettings, SettingsField } from '../../shared/settings';
 import { numberOr, stringOr } from '../../shared/settings';
+import { BOARD_MAX, NORMALIZED_RADII, SECTOR_ORDER } from '../../shared/boardGeometry';
 import type { FinalizedVisit, GameMode, LegContext } from './types';
 import { registerMode } from './types';
 
@@ -62,22 +63,13 @@ type AreaId = string;
 /** The middle of the board. Never a mole's target — it is where they all came from. */
 const THE_BURROW = 'BULL';
 
-const SECTOR_ORDER = [
-  20, 1, 18, 4, 13, 6, 10, 15, 2, 17,
-  3, 19, 7, 16, 8, 11, 14, 9, 12, 5,
-];
-
 /**
  * Where the triple ring ends, as a fraction of the board's width.
  *
- * Mirrors `RADII.tripleOuter` in shared/scoring.ts, which is private to that file. It is the one
- * number this mode needs and cannot ask for: a `ScoreResult` says `S18` for both singles, so telling
- * the outer from the inner one takes the dart's coordinates and this radius.
+ * A `ScoreResult` says `S18` for both singles, so telling the outer from the inner one takes the
+ * dart's coordinates and the shared physical radius.
  */
-const TRIPLE_OUTER = 107.0 * (0.5 / 225.5);
-
-/** The wire's coordinate space — `BOARD_MAX` in shared/scoring.ts, by definition. */
-const BOARD_MAX = 1_000_000;
+const TRIPLE_OUTER = NORMALIZED_RADII.tripleOuter;
 
 const OUTER_SINGLES = SECTOR_ORDER.map((n) => `S${n}o`);
 const INNER_SINGLES = SECTOR_ORDER.map((n) => `S${n}i`);
@@ -776,15 +768,15 @@ export const whacAMole: GameMode = {
 
   /**
    * The mode's own block. Everything the screen draws comes from here, and it is handed the match
-   * rather than a leg because a finished one has already moved its visits out of the current leg.
+   * rather than a leg so it can also read completed-leg history.
    *
    * `rows` is not decoration: a deployment without the client half renders them as a plain table, and
    * the run is still perfectly playable off it.
    */
   panel(match: MatchState): ModePanel | undefined {
     const finished = match.status !== 'in_progress';
-    // A finished match has already moved its leg into `legs`, so replaying the current one would
-    // describe a run nobody played. The last completed leg is the one that just ended.
+    // For a finished match, prefer the last completed leg when one exists; otherwise use the
+    // retained current-leg visits. The frontend does not mount this panel on the summary screen.
     const visits = finished && match.legs.length > 0
       ? match.legs[match.legs.length - 1].visits
       : match.visits;

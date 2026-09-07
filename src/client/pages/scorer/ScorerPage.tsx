@@ -153,7 +153,11 @@ export function ScorerPage({
 
   // Assigned during render rather than in an effect: a still request can arrive before effects have
   // run, and the honest answer to one is the camera as it is now.
-  stillSource.current = { capture: vision.captureStill, located: vision.located };
+  stillSource.current = {
+    capture: vision.captureStill,
+    located: vision.located,
+    identity: () => vision.videoElement()?.srcObject ?? null,
+  };
   videoSource.current = { grab: vision.grabVideoFrame, element: vision.videoElement };
   directVideo.current = vision.directVideo;
   const [settings, setSettings] = useState(() => loadSettings());

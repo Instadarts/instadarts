@@ -35,6 +35,13 @@ live in `MatchState.visits`; completed legs move to `MatchState.legs` with their
 are derived from that ordered history by [`matchFormat.ts`](../src/shared/matchFormat.ts), not stored
 separately.
 
+Both format settings range from 1 to 10 wins. Independently of the mode, each leg is limited to
+500 submitted visits, including empty, scoring and voided visits. A leg win on visit 500 counts
+normally and the next leg starts with a fresh budget. If visit 500 produces no leg winner, the
+match is cancelled without a winner and enters the usual summary/rematch flow. Modes cannot
+override this limit. The unfinished leg's visits remain in `MatchState.visits`; it is not awarded
+as a drawn or won leg.
+
 The starting player advances by one roster position for every completed leg, continuing across set
 boundaries. Within a leg, submitted visits advance to the next player who has not left the match.
 The mode neither chooses the next player nor sees the match format.
@@ -173,6 +180,8 @@ Declared by the mode itself, and used by both sides:
 Validation returns a *complete* settings object, filling gaps from what the lobby already has. Only a
 malformed payload or an unknown mode is rejected outright; a single value that fails its field's
 rules is dropped and the current one kept, so one bad number cannot discard the rest of the form.
+Numeric fields require finite integer JSON numbers within their declared bounds, and toggles require
+JSON booleans. Numeric strings, arrays, objects and other types are not coerced into setting values.
 Switching mode starts from the new mode's defaults — the outgoing mode's values mean nothing to it.
 
 `MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to
@@ -437,7 +446,7 @@ Two consequences worth knowing:
 - **A mode nobody imported is simply absent.** Nothing scans, so a file in the directory that
   `registry.ts` does not name is dead source — it never registers, and the server starts happily
   without it. The symptom is a mode missing from the lobby, not an error at boot.
-- **x01 is mandatory.** It is the default a new lobby starts on, and `loadModes` refuses to start a
+- **x01 is mandatory.** It is the default a new lobby starts on, and `validateModeCatalog` refuses to start a
   server that does not have it registered.
 
 ### The development-only mode

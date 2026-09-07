@@ -125,8 +125,8 @@ export function TopBar({
             <Menu position="bottom-end" withinPortal shadow="xl" closeOnItemClick={false}>
               <Menu.Target>
                 <ActionIcon
-                  variant={unpaired ? 'filled' : scoring > 0 ? 'light' : 'default'}
-                  color="green"
+                  variant="filled"
+                  color={unpaired ? 'red' : scoring > 0 ? 'green' : 'orange'}
                   size="lg"
                   title={camerasLabel}
                   aria-label={camerasLabel}

@@ -244,10 +244,11 @@ export function videoProfile(config: VideoConfig): VideoProfile {
 
 /**
  * One end of a negotiation. There is no candidate message anywhere in this protocol: a description
- * is not sent until ICE gathering has finished, so it already carries every candidate.
+ * is sent after ICE gathering completes or its timeout expires, carrying the candidates gathered
+ * so far.
  *
- * That is affordable here because a link has no tracks, which means its SDP is written once and
- * never changes — a link's entire signaling life is one offer and one answer.
+ * A link has only data channels, keeping its SDP small. Initial setup exchanges an offer and an
+ * answer; ICE recovery can exchange further descriptions on the same link.
  */
 export interface SignalDescription {
   type: 'offer' | 'answer';

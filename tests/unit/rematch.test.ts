@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import { handleMessage, registerClient, removeClient, handleClientLeave } from '../../src/server/wsHandler';
+import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from '../../src/server/wsHandler';
+import { getMatch } from '../../src/server/store';
+import { sweepLifecycle, SUMMARY_TTL_MS } from '../../src/server/lifecycle';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import type { ServerMessage } from '../../src/shared/protocol';
 import '../helpers'; // registers the x01 mode
@@ -81,7 +83,7 @@ function onlineMatch() {
 
   const inviteCode = host.last('lobby_state')!.lobby.inviteCode!;
   const guest = connect();
-  guest.send({ type: 'join_lobby', inviteCode, playerName: 'Bob' });
+  guest.send({ type: 'join_lobby', inviteCode });
   guest.send({ type: 'add_local_player', playerName: 'Bob' });
 
   host.send({ type: 'update_settings', settings: QUICK_MATCH });
@@ -110,6 +112,78 @@ function winIt(conn: Conn, matchId: string) {
 // ============================================================
 // Tests
 // ============================================================
+
+describe('resuming a finished summary', () => {
+  it('accepts the retained token after an idle cancellation and lets the replacement start a rematch', () => {
+    vi.useFakeTimers();
+    try {
+      const { user, match } = localMatch();
+      const original = match();
+      const token = user.last('resume')!.token;
+      getMatch(original.id)!.expiresAt = Date.now() - 1;
+      sweepLifecycle();
+      const summary = user.last('match_finished')!.match;
+      expect(summary.status).toBe('finished');
+
+      Object.defineProperty(user.ws, 'readyState', { value: 3 });
+      scheduleDisconnect(user.ws, () => { handleClientLeave(user.ws); removeClient(user.ws); });
+      const returning = connect();
+      returning.send({ type: 'reconnect', matchId: summary.id, token });
+      expect(returning.last('match_state')!.youAreSpectator).toBe(false);
+      expect(returning.last('match_state')!.yourPlayerIds).toEqual(summary.players.map((p) => p.id));
+      expect(getMatch(summary.id)!.expiresAt).toBe(summary.expiresAt);
+      vi.advanceTimersByTime(3_000);
+      expect(getMatch(summary.id)!.departed).toEqual([]);
+
+      // Same ordering as a replacement socket: resume first, then votes queued during the outage.
+      for (const player of summary.players) {
+        returning.send({ type: 'rematch_vote', playerId: player.id, answer: 'accepted' });
+      }
+      const rematch = returning.last('match_started')!.match;
+      expect(returning.last('error')).toBeUndefined();
+      expect(rematch.id).not.toBe(summary.id);
+      expect(rematch.status).toBe('in_progress');
+      expect(returning.last('resume')).toMatchObject({ matchId: rematch.id, token });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the visit limit summary', () => {
+  it('retains the normal summary deadline and rematch flow after the visit limit', () => {
+    vi.useFakeTimers();
+    try {
+      const { user, match } = localMatch();
+      const id = match().id;
+      getMatch(id)!.visits = Array.from({ length: 499 }, (_, index) => ({
+        darts: [], playerId: match().players[index % 2].id, visitNumber: index + 1, voided: false,
+      }));
+      user.send({ type: 'submit_visit' });
+      const summary = match();
+      expect(summary.status).toBe('finished');
+      expect(summary.winnerId).toBeNull();
+      expect(summary.visits).toHaveLength(500);
+      expect(summary.expiresAt).toBe(Date.now() + SUMMARY_TTL_MS);
+
+      vi.advanceTimersByTime(1000);
+      user.send({ type: 'submit_visit' });
+      expect(getMatch(id)!.visits).toHaveLength(500);
+      expect(getMatch(id)!.expiresAt).toBe(summary.expiresAt);
+      for (const player of summary.players) {
+        user.send({ type: 'rematch_vote', playerId: player.id, answer: 'accepted' });
+      }
+      const rematch = user.last('match_started')!.match;
+      expect(rematch.id).not.toBe(id);
+      expect(rematch.status).toBe('in_progress');
+      expect(rematch.visits).toEqual([]);
+      expect(rematch.legs).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+});
 
 describe('leaving a match', () => {
   it('cancels a local match: no winner, and the state says so', () => {

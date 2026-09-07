@@ -151,6 +151,21 @@ describe('ScoringSession — whose darts', () => {
 // ============================================================
 
 describe('ScoringSession — takeout', () => {
+  it('finishes the match when camera takeout commits visit 500 without a winner', () => {
+    const visits = Array.from({ length: 499 }, (_, index) => ({
+      darts: [], playerId: 'p1', visitNumber: index + 1, voided: false,
+    }));
+    const h = harness({ visits });
+    h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
+    h.see('cam-a');
+    expect(h.match.status).toBe('finished');
+    expect(h.match.visits).toHaveLength(500);
+    expect(h.match.winnerId).toBeNull();
+    h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));
+    expect(h.match.currentVisit).toBeUndefined();
+    expect(h.match.visits).toHaveLength(500);
+  });
+
   it('submits the visit when the darts come out', () => {
     const h = harness();
     h.see('cam-a', ...T20_GROUP.map((p) => tip(p)));

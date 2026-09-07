@@ -40,6 +40,14 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const handleMessage = useCallback((msg: any) => {
     extraHandlerRef.current?.(msg);
 
+    if ((msg.type === 'lobby_state' || msg.type === 'match_state' || msg.type === 'match_started')
+      && msg.youAreSpectator === true) {
+      // Drop participant identity only after the server accepts the role change.
+      clearReconnectInfo();
+      setOwnPlayerIds([]);
+      setIsHost(false);
+    }
+
     switch (msg.type) {
       // What to present if this tab is loaded again. The server sends it only to a connection that
       // holds a place in the room, which is what keeps a spectator's tab from storing a claim on a
@@ -49,6 +57,10 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         break;
       case 'lobby_state':
         setLobby(msg.lobby);
+        setMatch(null);
+        setView(null);
+        setPanel(undefined);
+        setMediaDisabled(false);
         // Only a message addressed to this connection names its players; a broadcast names nobody's.
         // So "mine is gone" cannot be said by the absence of the field — it is the player itself no
         // longer being in the lobby, which is what removing your own player looks like from here.
@@ -81,7 +93,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setView(msg.view);
         setPanel(msg.panel);
         setMediaDisabled(Boolean(msg.mediaDisabled));
-        clearReconnectInfo();
+        // The seat still participates in the summary and rematch vote. Keep its resume token
+        // until leaving, takeover, spectator admission or room closure ends that participation.
         break;
       // Another tab took this one's place — duplicating a tab copies the token that holds it. The
       // server has already taken this connection out of the room; all that is left is to stop
@@ -131,45 +144,45 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setNotice(null);
   }, [send]);
 
-  const joinLobby = useCallback((inviteCode: string, playerName: string) => {
-    send({ type: 'join_lobby', inviteCode, playerName });
+  const joinLobby = useCallback((inviteCode: string) => {
+    send({ type: 'join_lobby', inviteCode });
     setError(null);
     setNotice(null);
   }, [send]);
 
-  const addLocalPlayer = useCallback((lobbyId: string, playerName: string) => {
-    send({ type: 'add_local_player', lobbyId, playerName });
+  const addLocalPlayer = useCallback((playerName: string) => {
+    send({ type: 'add_local_player', playerName });
   }, [send]);
 
-  const removePlayer = useCallback((lobbyId: string, playerId: string) => {
-    send({ type: 'remove_player', lobbyId, playerId });
+  const removePlayer = useCallback((playerId: string) => {
+    send({ type: 'remove_player', playerId });
   }, [send]);
 
-  const updateSettings = useCallback((lobbyId: string, settings: any) => {
-    send({ type: 'update_settings', lobbyId, settings });
+  const updateSettings = useCallback((settings: any) => {
+    send({ type: 'update_settings', settings });
   }, [send]);
 
-  const startMatch = useCallback((lobbyId: string) => {
-    send({ type: 'start_match', lobbyId });
+  const startMatch = useCallback(() => {
+    send({ type: 'start_match' });
   }, [send]);
 
-  const addDart = useCallback((matchId: string, dart: { x: number; y: number; score: any }) => {
-    send({ type: 'add_dart', matchId, dart });
+  const addDart = useCallback((dart: { x: number; y: number; score: any }) => {
+    send({ type: 'add_dart', dart });
   }, [send]);
 
-  const undoDart = useCallback((matchId: string) => {
-    send({ type: 'undo_dart', matchId });
+  const undoDart = useCallback(() => {
+    send({ type: 'undo_dart' });
   }, [send]);
 
   // No optimistic clear: the view travels with the match state, and clearing the visit locally
   // would leave the mode's strings describing a visit that is no longer on screen. Every dart
   // already round-trips, so the reply that clears it arrives on the same path as the rest.
-  const submitVisit = useCallback((matchId: string) => {
-    send({ type: 'submit_visit', matchId });
+  const submitVisit = useCallback(() => {
+    send({ type: 'submit_visit' });
   }, [send]);
 
-  const leaveMatch = useCallback((matchId: string) => {
-    send({ type: 'leave_match', matchId });
+  const leaveMatch = useCallback(() => {
+    send({ type: 'leave_match' });
     setMatch(null);
     setView(null);
     setLobby(null);
@@ -181,19 +194,17 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   }, [send]);
 
   const spectate = useCallback((id: string) => {
-    // Watching is not a place in the room, so whatever this tab was holding is not what it is now.
-    clearReconnectInfo();
+    // A rejected destination must leave the current role and resume credential intact.
     send({ type: 'spectate', id });
     setRoomGeneration((value) => value + 1);
-    setIsSpectator(true);
   }, [send]);
 
-  const voteRematch = useCallback((matchId: string, playerId: string, answer: RematchAnswer | 'neutral') => {
-    send({ type: 'rematch_vote', matchId, playerId, answer });
+  const voteRematch = useCallback((playerId: string, answer: RematchAnswer | 'neutral') => {
+    send({ type: 'rematch_vote', playerId, answer });
   }, [send]);
 
-  const reorderPlayer = useCallback((lobbyId: string, playerId: string, direction: 'up' | 'down') => {
-    send({ type: 'reorder_player', lobbyId, playerId, direction });
+  const reorderPlayer = useCallback((playerId: string, direction: 'up' | 'down') => {
+    send({ type: 'reorder_player', playerId, direction });
   }, [send]);
 
   return {

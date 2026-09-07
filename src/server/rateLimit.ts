@@ -25,7 +25,7 @@ interface Budget {
   perSecond: number;
 }
 
-/** Everything a frontend or a device says that is not media or tips — gameplay included. */
+/** Gameplay, malformed messages and everything else that is not a media or tips message. */
 const GENERAL: Budget = { burst: 60, perSecond: 10 };
 
 /**
@@ -36,9 +36,9 @@ const TIPS: Budget = { burst: 90, perSecond: 30 };
 
 /**
  * The media plane gets its own too, for the opposite reason to tips: not because it is chatty, but
- * because it arrives in bursts. A peer connection takes one offer and one answer — a link's whole
- * signaling life — so a client joining a match negotiates every link it has at once and then says
- * nothing for the rest of the evening. Spending that from the general bucket would cost it the
+ * because it arrives in bursts. A client joining a match negotiates its links together, exchanging
+ * an offer and an answer for each. ICE recovery can trigger further negotiations during play.
+ * Spending those messages from the general bucket would cost it the
  * gameplay messages it sends in the same second, which is what it was doing: `media_join` appeared
  * in nearly every one of the busiest seconds measured, beside the darts it was competing with.
  */
@@ -91,8 +91,8 @@ function take(store: Map<string, Bucket>, id: string, { burst, perSecond }: Budg
 /**
  * Give back what a departing connection was spending from.
  *
- * The two budgets are keyed differently — a frontend by its session, a scoring device by its
- * device — so both are named here rather than assuming one key fits both.
+ * The general budget uses the session id for both frontends and devices. Media uses the device id
+ * when present, and tips always use it, so cleanup needs both identities.
  *
  * Not load bearing: the sweep below reclaims an idle bucket within a minute whatever happens, which
  * is what covers a connection that never says goodbye. This just does not wait for it.

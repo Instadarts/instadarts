@@ -29,11 +29,13 @@
 // ignored, the default stands, and it says so on the way past, because one fat-fingered number
 // should not take a server down. An unrecognised key is reported for the same reason: silently doing
 // nothing is the one behaviour a configuration file must never have.
+// Invalid origin policies are fatal: falling back would change the operator's security boundary.
 
 import { readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { CONFIG_DEFAULTS, INTERNAL_ICE, type AppConfig } from '../shared/config';
 import { QUIET } from './env';
+import { parseWebOrigin } from './websocketOrigin';
 
 /** Preferred first. Both are the same format; only the name differs. */
 const FILE_NAMES = ['instadarts.config.jsonc', 'instadarts.config.json'];
@@ -142,6 +144,17 @@ function complain(message: string): void {
 }
 
 type Raw = Record<string, unknown>;
+
+function allowedOrigins(raw: Raw): string[] | null {
+  const value = raw.allowedOrigins;
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) throw new Error('server.allowedOrigins must be null or an array of HTTP(S) origins');
+  return value.map((entry) => {
+    const origin = parseWebOrigin(entry);
+    if (!origin) throw new Error('server.allowedOrigins entries must be HTTP(S) origins without paths, credentials, queries or fragments');
+    return origin;
+  });
+}
 
 function section(raw: Raw, key: string): Raw {
   const value = raw[key];
@@ -315,7 +328,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(raw, '', ['server', 'frontend', 'scorer', 'media']);
 
   const rawServer = section(raw, 'server');
-  reportUnknown(rawServer, 'server', ['http', 'https', 'maxMatches', 'maxPlayersPerMatch']);
+  reportUnknown(rawServer, 'server', ['http', 'https', 'allowedOrigins', 'maxMatches', 'maxPlayersPerMatch']);
 
   const rawHttp = section(rawServer, 'http');
   reportUnknown(rawHttp, 'server.http', ['enabled', 'port']);
@@ -348,6 +361,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
     from,
     config: {
       server: {
+        allowedOrigins: allowedOrigins(rawServer),
         http: {
           enabled: bool(rawHttp, 'server.http', 'enabled', defaults.server.http.enabled),
           port: positiveInt(rawHttp, 'server.http', 'port', defaults.server.http.port),
@@ -406,9 +420,7 @@ let config = CONFIG_DEFAULTS;
 let from: string | null = null;
 try {
   ({ config, from } = readConfig());
-  // The one combination worth refusing rather than reporting. Every other mistake in the file
-  // leaves a server that runs and can be asked what it thinks it was told; this one leaves a
-  // process that starts, holds a port nowhere, and answers nothing.
+  // Refuse a combination that would leave the process holding no port and answering nothing.
   if (!config.server.http.enabled && !config.server.https.enabled) {
     throw new Error(
       `${from ?? 'The settings'} turns off both server.http and server.https, which leaves nothing listening`,

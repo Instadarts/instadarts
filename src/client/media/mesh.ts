@@ -9,21 +9,12 @@
 // encoder writes through. Not a link: encoding once and writing the same chunks to every addressed
 // media channel is the entire reason a link carries no video track.
 
-import type { ControlMessage, MediaPeer, MediaRole, SignalDescription, VideoProfile } from '../../shared/media';
+import type { ControlMessage, MediaPeer, MediaRole, SignalDescription } from '../../shared/media';
 import { createPeerLink, type LinkState, type PeerLink } from './peerLink';
 import type { IceServerConfig } from '../../shared/media';
 
 export interface MeshOptions {
   iceServers: IceServerConfig[];
-  /**
-   * How a publisher should encode.
-   *
-   * Carried and not read here: the publisher is configured from the same `VideoProfile` off
-   * `MediaConfig`, and it sits beside the mesh rather than inside it. Kept on the options because a
-   * mesh is the natural place to ask what one encode looks like, and moving it would only mean
-   * threading the same value through a second path.
-   */
-  video: VideoProfile;
   /** Send one end of a negotiation to a peer, through whatever socket the app owns. */
   signal: (to: string, description: SignalDescription) => void;
   /** Something about the links changed and anything watching should look again. */

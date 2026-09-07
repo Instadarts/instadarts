@@ -40,6 +40,21 @@ const MATCH_LAYOUT_PROFILES: readonly MatchLayoutProfile[] = ['match-live', 'mat
 
 const MAX_SAVED_GRID_VALUE = 10_000;
 
+/** Validate item membership in the canonical card set and return its lg layout. */
+export function validateResponsiveBoxItems(
+  items: readonly { id: string }[],
+  defaultLayouts: ResponsiveLayouts<FrontendBreakpoint>,
+): Layout {
+  const defaultLayout = defaultLayouts.lg;
+  if (!defaultLayout) throw new Error('ResponsiveBoxGrid requires an lg default layout');
+
+  // Everything downstream derives from the lg map rather than from `items`. An item missing an
+  // entry would render nowhere in a match grid and land wherever RGL chose in a document grid.
+  const orphan = items.find((item) => !defaultLayout.some((placed) => placed.i === item.id));
+  if (orphan) throw new Error(`ResponsiveBoxGrid item "${orphan.id}" has no lg default layout`);
+  return defaultLayout;
+}
+
 interface CenteredStackItem {
   i: string;
   h: number;

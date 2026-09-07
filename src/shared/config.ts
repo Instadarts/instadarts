@@ -7,7 +7,7 @@
 //
 // Four sections, split by whose knob it is rather than by where the value ends up being used:
 //
-//   · **server**   the process itself. Never leaves it.
+//   · **server**   process configuration, excluded from app_config.
 //   · **frontend** the playing browser. Nothing yet — the section exists so the first one has an
 //                  obvious home rather than being wedged into a neighbour.
 //   · **scorer**   a paired phone watching a board.
@@ -16,8 +16,8 @@
 //
 // Three of the four are needed by code running in a browser, which has no file to read — so the
 // server reads the file and ships what a client is entitled to as `app_config`, on connect. That is
-// what `ClientConfig` below is. The server section is not in it: a browser has no business knowing
-// how big the server is.
+// what `ClientConfig` below is. The server section is not in it, though /server-stats separately
+// exposes derived capacity limits and resource counts.
 
 import type { IceServerConfig, VideoProfile } from './media';
 
@@ -61,6 +61,8 @@ export interface HttpsListenerConfig extends HttpListenerConfig {
 export interface ServerConfig {
   http: HttpListenerConfig;
   https: HttpsListenerConfig;
+  /** Null checks the request's own origin; a list permits only those exact browser origins. */
+  allowedOrigins: string[] | null;
   /**
    * How many matches this deployment is sized for — the one number that scales the server.
    *
@@ -222,6 +224,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
   server: {
     http: { enabled: true, port: 3000 },
     https: { enabled: true, port: 3001, cert: null, key: null },
+    allowedOrigins: null,
     maxMatches: 10_000,
     maxPlayersPerMatch: 5,
   },

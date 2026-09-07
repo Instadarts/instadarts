@@ -12,10 +12,14 @@ A lobby and a match are separate server objects:
 | --- | --- | --- |
 | Lobby | Configure players, match format, and game mode | The host starts play, leaves, or the lobby expires |
 | Match in progress | Play legs and sets with a fixed roster and settings | A winner is decided, the match is cancelled, or it expires |
-| Match finished | Show the result and collect re-match votes | A re-match starts or the summary expires |
+| Match finished | Show the result and collect re-match votes | The summary expires, including after a re-match starts |
 
 Starting play consumes the lobby and creates a `MatchState` with status `in_progress`. A finished
 match has status `finished`; `winnerId` is present for a win and absent for a cancellation.
+
+Lobbies and matches share the `server.maxMatches` room budget. Starting an existing lobby has no
+net room cost and is allowed even at that limit. Additional lobbies and re-matches need a free slot;
+the latter retain the previous summary until its deadline.
 
 ## Connections and private identity
 
@@ -27,6 +31,25 @@ Connection-specific messages provide the conclusions a client needs: `yourPlayer
 `youAreHost`, and `youAreSpectator`. They are sent to one connection rather than broadcast to the
 room.
 
+Gameplay commands act on the connection's current room; they do not select a room by ID. Joining
+uses an invite code, while spectating and reconnecting identify their destination explicitly.
+`join_lobby` takes a seat without adding a player; `add_local_player` supplies each player's name.
+Despite its name, `leave_match` leaves the current lobby or match, for participants and spectators.
+Legacy extra room-ID fields on gameplay commands are ignored; they do not reject stale commands.
+
+Create, join, spectate and reconnect validate their destination and admission requirements before
+changing the current room. Successful changes apply the ordinary leave rules first: a match seat
+concedes, a lobby guest's players are removed, and a departing host abandons its lobby. The new
+state contains one room and one role. Watching your own match therefore concedes before showing
+the summary; watching your own hosted lobby abandons it and returns everyone home.
+
+Repeating `create_lobby` with the current host lobby's join policy returns that lobby, roster and
+seat. Changing the policy creates a replacement lobby; deletion of the owned lobby frees its slot
+even at capacity. Repeating `join_lobby` for an already-held seat preserves it even when full.
+Reconnect checks the room type and token before transferring ownership. Taking a different seat
+in the same room requires an explicit leave first. Failed requests preserve the current room and
+seat; the frontend clears participant credentials only when a spectator reply is accepted.
+
 ## Seats and authorization
 
 A **seat** is a place in one lobby or match and the private token that proves control of it. It
@@ -37,11 +60,21 @@ Seats are the authority for gameplay permissions. `playersOf` and `holdsPlayer` 
 client and player records do not maintain a second ownership list. A connection without the current
 seat cannot throw, submit, start, vote, or leave on behalf of its former occupant.
 
+Submitting a visit requires ownership of its player, including a zero-dart visit. Before a visit
+exists, the current player owns that turn. A local seat holding several players may submit for
+whichever of them is up; another participant cannot use an empty submit to skip their turn.
+
 Seat tokens are sent only to their holder and stored in `sessionStorage`. Independently opened tabs
 therefore receive separate seats. Duplicating a tab copies the token; presenting it transfers the
 seat to the new connection and sends `seat_taken_over` to the previous holder.
 
 Spectators receive no seat. Explicitly leaving a match revokes the seat and is final.
+
+An open lobby's invite code is a separate admission credential. Only current seated participants
+receive it, including participants who have not added players. Spectator snapshots and broadcasts
+carry `inviteCode: null`; knowing the public lobby id grants viewing access without revealing a
+joining credential. Filtering happens per recipient, so participants still receive refreshed codes
+when the last guest leaves and regain code access when they resume their seat.
 
 The implementation is in [`seats.ts`](../src/server/seats.ts), with permission checks in
 [`connections.ts`](../src/server/connections.ts) and
@@ -54,12 +87,40 @@ flushing messages queued during the outage. Redeeming the token restores the hel
 role and binds the seat to the new session.
 
 A closed frontend connection receives a three-second grace period before it is treated as a leave.
-Redeeming its seat cancels that pending departure. A spectator has no seat to redeem and instead
-re-enters the room through `spectate` on the replacement connection.
+Redeeming its seat transfers ownership to the new session, so the old connection's deferred leave
+does not affect it. The cleanup callback still runs at the original deadline to release the closed
+connection and its session resources. Each closed socket has an independent timer, including lobby
+occupants who have not added players. A spectator has no seat to redeem and instead re-enters the
+room through `spectate` on the replacement connection.
 
 Connections that disappear without a close frame are detected by
 [`heartbeat.ts`](../src/server/heartbeat.ts). The server pings every 30 seconds and terminates a
 connection that misses a round, sending it through the ordinary close and grace-period path.
+
+WebSocket messages are limited to 16 KiB. An oversized message or malformed frame closes only
+the offending connection; admitted clients follow the ordinary disconnect cleanup path. Transport
+errors are handled even on sockets being refused for capacity, so they cannot terminate the server.
+
+Malformed JSON and messages without a string `type` share the general message budget: a burst of
+60 and a refill of 10 per second, per connection. Exhausting it closes the sender with code 1013;
+queued messages on the closing socket are ignored. Valid media and camera-tip messages retain
+their separate budgets. Parsing determines the budget, but an invalid message is charged before
+its error reply is sent.
+
+Outgoing application messages have a 4 MiB per-connection threshold for queued WebSocket bytes
+plus the next serialized message's UTF-8 bytes. A send that would cross it terminates that socket
+without waiting for a close handshake to drain the backlog; normal disconnect cleanup still runs.
+Broadcasts continue to other recipients. This also refuses a single snapshot larger than 4 MiB;
+it does not itself cap stored match history or the temporary memory used to serialize a snapshot.
+The separate visit/format limits below bound history by count, not bytes: a sufficiently large
+match snapshot can still hit this send limit before the visit budget is exhausted.
+
+Numeric fields in gameplay and device reports require JSON numbers; settings toggles require JSON
+booleans. Invalid settings fields retain their current values, invalid darts are refused, invalid
+tip reports are dropped whole, and malformed device claims are skipped individually. An unexpected
+synchronous message-handler exception closes that connection with code 1011 and a generic reason;
+the normal disconnect path handles cleanup. This exception boundary does not roll back state that
+a handler changed before failing.
 
 ## Lobby ownership and admission
 
@@ -71,6 +132,11 @@ seat.
 lobby that does not has no code and cannot be joined. Spectating remains available in either case.
 The server computes `userCount`, the effective player limit, and whether another user can be
 admitted for each lobby response.
+
+Invite codes contain six characters from an alphabet of 32 unambiguous letters and digits, chosen
+with cryptographic randomness. Generation retries codes held by any existing lobby, including the
+same lobby's current code during rotation. Codes are unique among existing lobbies; retired codes
+are not reserved forever.
 
 Before starting, the server reconciles the roster with the seats: players held by no seat are
 removed, seat entries naming no player are pruned, and a connected user without a player becomes a
@@ -94,14 +160,33 @@ A spectator leaving only stops watching and does not alter match state.
 
 ## Finished matches and re-matches
 
+Each leg has a hard limit of 500 submitted visits, shared by all game modes and both manual and
+camera scoring. If visit 500 does not win the leg, the match is cancelled without a winner;
+a winning visit at the limit is resolved normally. Every new leg starts a fresh visit budget.
+Both format settings, legs to win a set and sets to win a match, are limited to 10. These are win
+thresholds, so five players can play at most 46 legs per set and 46 sets per match: at most
+1,058,000 submitted visits. For a roster of P players the bound is `500 × (9P + 1)²`.
+
 A finished match shows a summary while each participant's re-match vote is neutral, accepted, or
 declined. Any decline settles the result as no re-match. Neutral votes become declines when the
 summary expires.
 
-When every participant accepts, `createRematch` creates a new match immediately with the same
+The frontend retains its saved seat token through this summary, whether it arrives as
+`match_state` (including a scored finish) or `match_finished` (such as idle cancellation).
+A reload or replacement socket can therefore resume the summary before sending a rematch vote.
+Explicit leave, takeover, spectator admission or room closure clears the credential; the rematch's
+`resume` message replaces its saved room id. Spectators receive no participant credential.
+
+When every participant accepts and room capacity is available, `createRematch` creates a new match with the same
 participants and settings and rotates the player order by one. Scores, visits, completed legs, and
 media state do not carry over. Participant seat tokens carry into the new match, and connected
 spectators move to it.
+
+The previous match and its seats remain stored until that match's original summary deadline.
+`carrySeats` copies the seats into the new match without removing the old entries. The retained
+summary still counts toward the shared lobby/match capacity, so a re-match requires an additional
+room slot. Expiring the old summary removes only that room and its seats; clients already on the
+re-match stay there.
 
 ## Deadlines and reclamation
 
@@ -111,8 +196,17 @@ spectators move to it.
 | --- | --- | --- |
 | Lobby | 10 minutes idle | Abandoned and deleted; connected clients return home |
 | Match in progress | 10 minutes idle | Cancelled and moved to its summary |
-| Match finished | 2 minutes | Neutral votes decline, clients return home, and the match is deleted |
+| Match finished | 2 minutes | Neutral votes decline, clients still on that summary return home, and the match is deleted |
 
 Participant input resets an idle deadline. Spectating and reconnecting do not, and the
-finished-match deadline is fixed. Each ending path removes its own room and related scoring state;
-[`retention.test.ts`](../tests/unit/retention.test.ts) verifies that the stores are empty afterwards.
+finished-match deadline is fixed. Room-ending handlers remove room, seat, scoring and media state.
+[`retention.test.ts`](../tests/unit/retention.test.ts) checks the lobby, match and scoring stores
+after the tested expiry sequences; its cleanup explicitly removes mock clients. It does not verify
+production connection reclamation.
+
+Connections have a separate lifetime: an idle browser that answers heartbeat pings may stay
+connected after its room expires. Closed connections awaiting their three-second cleanup deadline
+still count toward admission. `/server-stats.connectedClients` reports the WebSocket server's socket
+set, so it can be lower than the application client registry count during that grace period.
+[`disconnect.test.ts`](../tests/unit/disconnect.test.ts) checks deferred connection reclamation and
+seat ownership through handler-level reload, takeover and unresumed-departure sequences.

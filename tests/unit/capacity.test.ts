@@ -11,8 +11,7 @@ import {
   TYPICAL_USERS_PER_MATCH,
   canAcceptConnection,
   canAcceptDevice,
-  canCreateLobby,
-  canCreateMatch,
+  canAddRoom,
   roomCount,
 } from '../../src/server/capacity';
 import { CONFIG } from '../../src/server/config';
@@ -77,15 +76,10 @@ describe('the room budget', () => {
     expect(roomCount()).toBe(before);
   });
 
-  it('asks one question for both kinds of room', () => {
-    expect(canCreateLobby()).toBe(canCreateMatch());
-  });
-
   it('says yes on an empty server', () => {
     for (const id of [...getAllLobbies().keys()]) deleteLobby(id);
     for (const id of [...getAllMatches().keys()]) deleteMatch(id);
-    expect(canCreateLobby()).toBe(true);
-    expect(canCreateMatch()).toBe(true);
+    expect(canAddRoom()).toBe(true);
   });
 });
 

@@ -58,6 +58,8 @@ export function boardCount(players: Player[]): number {
 }
 
 export interface DartThrow {
+  /** Assigned by the server on acceptance; absent on an uncommitted input or synthetic miss. */
+  id?: string;
   x: number;
   y: number;
   score: ScoreResult;
@@ -72,6 +74,8 @@ export interface Visit {
 }
 
 export interface CurrentVisit {
+  /** Assigned on the first accepted dart. Evidence requires this identity, not just the player id. */
+  id?: string;
   playerId: string;
   darts: DartThrow[];
   locked: boolean;
@@ -92,9 +96,9 @@ import type { ModeSettings } from './settings';
 export interface MatchSettings {
   mode: string;
   modeSettings: ModeSettings;
-  /** Legs a player must win to take a set. */
+  /** Legs a player must win to take a set, from 1 to 10. */
   legsToWinSet: number;
-  /** Sets a player must win to take the match. */
+  /** Sets a player must win to take the match, from 1 to 10. */
   setsToWinMatch: number;
 }
 
@@ -221,6 +225,7 @@ export interface Lobby {
   id: string;
   players: Player[];
   settings: MatchSettings;
+  /** Admission credential. Sent only to current lobby participants; null for spectators or a closed lobby. */
   inviteCode: string | null;
   /**
    * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the

@@ -9,12 +9,11 @@ import type { ServerMessage } from '../../src/shared/protocol';
 import '../helpers'; // registers the x01 mode
 
 /**
- * Nothing outlives its deadline.
+ * Room and scoring-store reclamation after the tested lifecycle transitions.
  *
- * The goal is not that some collector eventually notices an abandoned object — it is that no path
- * leaves one behind in the first place. So each of these plays a match to one of its endings, stands
- * far enough in the future for every deadline to have passed, and then asserts the stores are
- * *empty*, not merely small.
+ * Each case advances beyond the room deadlines and asserts that the lobby, match and scoring
+ * stores are empty. Mock clients are removed explicitly in afterEach: these tests do not exercise
+ * the production socket-close/grace-period path or prove that it releases every client record.
  *
  * `sweepScoringSessions` is asserted to find nothing at the end of each: a session outliving its
  * match would be a live throw-window timer holding a match object, which is the leak that would
@@ -70,7 +69,7 @@ function match() {
   return user;
 }
 
-/** Long enough that every deadline in the system has passed, whatever state things are in. */
+/** Advance beyond the room deadlines, including the summary created by idle cancellation. */
 function longAfterEverything() {
   const t = Date.now() + IDLE_TTL_MS + SUMMARY_TTL_MS + 10_000;
   // Twice: cancelling an idle match gives it a summary deadline, which the next sweep collects.
@@ -78,7 +77,7 @@ function longAfterEverything() {
   sweepLifecycle(t);
 }
 
-/** What is still being held, once the dust has settled. */
+/** The three stores asserted by these tests; client and device registries are not included. */
 function retained() {
   return {
     lobbies: getAllLobbies().size,

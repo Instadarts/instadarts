@@ -1,4 +1,4 @@
-import type { DartThrow, MatchSettings, Visit, ScoreResult, Lobby, MatchState, ModePanel, ModeView } from './types';
+import type { DartThrow, MatchSettings, Lobby, MatchState, ModePanel, ModeView } from './types';
 import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
 import type { MediaPeer, MediaRole, MediaTier, SignalDescription } from './media';
@@ -6,6 +6,11 @@ import type { ClientConfig } from './config';
 
 // ============================================================
 // Client → Server messages
+//
+// Gameplay commands act on the connection's current room, subject to seat/role checks. They do
+// not carry a room selector. Joining, spectating and reconnecting explicitly identify a destination.
+// Accepted room/role changes apply ordinary leave rules to the previous room first. Repeating a
+// create with the current host lobby's join policy, or joining an already-held lobby, keeps its seat.
 // ============================================================
 
 export interface CreateLobbyMessage {
@@ -21,62 +26,54 @@ export interface CreateLobbyMessage {
  * accepted — but an id is public where a code is not: it is in the spectate URL, so anyone handed
  * something to watch could have named it to join instead. The code is the thing the host chose to
  * share, and a lobby that admits nobody is minted without one at all.
+ * Joining takes a seat without adding a player; names are supplied through `add_local_player`.
  */
 export interface JoinLobbyMessage {
   type: 'join_lobby';
   inviteCode: string;
-  playerName: string;
 }
 
 export interface AddLocalPlayerMessage {
   type: 'add_local_player';
-  lobbyId: string;
   playerName: string;
 }
 
 export interface RemovePlayerMessage {
   type: 'remove_player';
-  lobbyId: string;
   playerId: string;
 }
 
 export interface UpdateSettingsMessage {
   type: 'update_settings';
-  lobbyId: string;
   settings: MatchSettings;
 }
 
 export interface SetPlayerNameMessage {
   type: 'set_player_name';
-  lobbyId: string;
   playerId: string;
   name: string;
 }
 
 export interface AddDartMessage {
   type: 'add_dart';
-  matchId: string;
   dart: DartThrow;
 }
 
 export interface UndoDartMessage {
   type: 'undo_dart';
-  matchId: string;
 }
 
 export interface SubmitVisitMessage {
   type: 'submit_visit';
-  matchId: string;
 }
 
 export interface StartMatchMessage {
   type: 'start_match';
-  lobbyId: string;
 }
 
+/** Leave the current lobby or match, including when spectating. */
 export interface LeaveMatchMessage {
   type: 'leave_match';
-  matchId: string;
 }
 
 /**
@@ -102,7 +99,6 @@ export interface SpectateMessage {
 
 export interface ReorderPlayerMessage {
   type: 'reorder_player';
-  lobbyId: string;
   playerId: string;
   direction: 'up' | 'down';
 }
@@ -114,7 +110,6 @@ export interface ReorderPlayerMessage {
  */
 export interface RematchVoteMessage {
   type: 'rematch_vote';
-  matchId: string;
   playerId: string;
   /** 'neutral' takes an answer back; the deadline turns anything still neutral into a decline. */
   answer: 'accepted' | 'declined' | 'neutral';
@@ -329,6 +324,7 @@ export type ClientMessage =
 
 export interface LobbyStateMessage {
   type: 'lobby_state';
+  /** Invite codes are filtered per recipient, including broadcasts: only current seated participants receive one. */
   lobby: Lobby;
   yourPlayerIds?: string[];
   /**
@@ -354,7 +350,8 @@ export interface LobbyStateMessage {
  * Which game modes this deployment has, and what each calls its settings.
  *
  * Sent once on connect. It is what lets the lobby offer modes and render their settings without
- * importing a line of any mode's code — a mode is installed by adding a file to the server.
+ * importing a line of any mode's code. Server modes register when imported by modes/registry.ts;
+ * adding a mode requires its implementation file and an import in that registry.
  */
 export interface ModeCatalogMessage {
   type: 'mode_catalog';
@@ -555,9 +552,9 @@ export interface ScorerRefusedMessage {
  * How this deployment is tuned, sent on connect to frontends and scoring devices alike — the same
  * moment and the same reason as `mode_catalog`.
  *
- * Everything a client is entitled to, in one message: what it may do with media, and the handful of
- * numbers a phone or a browser runs by. The server's own section is deliberately not in it — how big
- * this server is sized for is nobody's business at the other end of a socket.
+ * The frontend, scorer and media settings a browser needs. The `server` configuration section is
+ * omitted because it configures the server itself. This is not a privacy boundary: the public
+ * `/server-stats` endpoint exposes derived capacity limits, resource counts, memory usage and uptime.
  *
  * Sent even when media is off, so a client learns the answer rather than waiting for a message that
  * will never arrive.

@@ -14,7 +14,7 @@ import type { Lobby, MatchState, Player } from '../shared/types';
 import type { Client } from './types';
 import { formatMessage } from '../shared/protocol';
 import { meshEligible, panelOf, viewOf } from './match';
-import { heldSeat } from './seats';
+import { heldSeat, holdsSeat } from './seats';
 import { maxPlayersFor } from './store';
 
 const clients = new Map<WebSocket, Client>();
@@ -36,7 +36,7 @@ export function allClients(): IterableIterator<[WebSocket, Client]> {
   return clients.entries();
 }
 
-/** How many sockets are open, of either kind. The registry is the only thing that should count. */
+/** Registered connections of either kind, including closed sockets awaiting grace-period cleanup. */
 export function clientCount(): number {
   return clients.size;
 }
@@ -76,9 +76,34 @@ export function holdsPlayer(client: Client, playerId: string): boolean {
 // Addressing
 // ============================================================
 
+/** Maximum queued WebSocket data plus the next serialized application message, per connection. */
+const MAX_OUTBOUND_BUFFER_BYTES = 4 * 1024 * 1024;
+
 export function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) {
-    ws.send(formatMessage(msg));
+    if (ws.bufferedAmount > MAX_OUTBOUND_BUFFER_BYTES) {
+      ws.terminate();
+      return;
+    }
+    if (msg.type === 'lobby_state') {
+      // An invite admits a new participant. Filter at the recipient boundary so both direct
+      // replies and room broadcasts keep it private, regardless of the addressed role fields.
+      const client = getClient(ws);
+      const mayInvite = client && client.lobbyId === msg.lobby.id && !client.isSpectator
+        && !client.deviceId && holdsSeat(msg.lobby.id, client.sessionId);
+      if (!mayInvite) {
+        // Broadcasts reuse this message for other recipients; never redact it in place.
+        msg = { ...msg, lobby: { ...msg.lobby, inviteCode: null } };
+      }
+    }
+    const raw = formatMessage(msg);
+    if (ws.bufferedAmount + Buffer.byteLength(raw) > MAX_OUTBOUND_BUFFER_BYTES) {
+      // A close handshake would queue behind the backlog. Terminate instead; the ordinary close
+      // listener still owns departure and resource cleanup. Other broadcast recipients continue.
+      ws.terminate();
+      return;
+    }
+    ws.send(raw);
   }
 }
 
@@ -157,17 +182,6 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
 }
 
 /**
- * A lobby as it goes on the wire.
- *
- * `you` is the part that differs per recipient: which players are theirs, and whether the lobby is
- * theirs. Both are parameters rather than fields of the lobby because a broadcast must not carry one
- * connection's standing to everyone else — which is exactly what `hostSessionId` used to do, and why
- * it is stripped here along with the players' own.
- *
- * Omitting `you` is what makes a message a broadcast: it then answers neither question, and a client
- * holding an answer already keeps it.
- */
-/**
  * Why another user could not take a place in this lobby, or null if one could.
  *
  * One statement of the join rule, asked by the two things that need it: `handleJoinLobby`, which
@@ -185,6 +199,13 @@ export function joinRefusal(lobby: Lobby): string | null {
   return null;
 }
 
+/**
+ * A lobby snapshot for delivery through `send`, which filters its invite code by the recipient's
+ * current seat and role. The snapshot itself can be reused across a room broadcast.
+ *
+ * `you` supplies addressed ownership and spectator answers; broadcasts omit it so they do not
+ * overwrite those answers. Session ids are stripped for every recipient.
+ */
 export function lobbyMessage(
   lobby: Lobby,
   you?: { playerIds?: string[]; host: boolean; spectator?: boolean },

@@ -12,10 +12,13 @@
 import type { CompletedLeg, MatchSettings } from './types';
 import type { SettingsField } from './settings';
 
+/** Hard limit across all game modes; each new leg starts its own visit budget. */
+export const MAX_VISITS_PER_LEG = 500;
+
 /** Match-level settings, declared exactly as a mode declares its own. */
 export const MATCH_FIELDS: SettingsField[] = [
-  { key: 'setsToWinMatch', label: 'Sets to win the match', kind: 'number', min: 1, max: 21 },
-  { key: 'legsToWinSet', label: 'Legs to win a set', kind: 'number', min: 1, max: 21 },
+  { key: 'setsToWinMatch', label: 'Sets to win the match', kind: 'number', min: 1, max: 10 },
+  { key: 'legsToWinSet', label: 'Legs to win a set', kind: 'number', min: 1, max: 10 },
 ];
 
 /** One set, one leg: a single play-through, which is what a match was before sets and legs existed. */

@@ -16,6 +16,7 @@ src/shared/     types.ts        the match, the visit, the mode's view of both �
                 settings.ts     how a setting declares itself, and how to read one out of the bag
                 matchFormat.ts  sets and legs: standings, the winner, whose throw it is
                 scoring.ts      board coordinates → a dart's score. The one authority on what was hit
+                boardGeometry.ts physical dimensions, sector order and coordinate scale
                 vision/         geometry and constants the camera pipeline shares with the server
 
 src/server/     index.ts        boot: modes, the HTTP router, the socket server, the clocks
@@ -109,6 +110,8 @@ snapshot and there is nothing a round trip could add.
 one file to run with no npm involved. It embeds the client and inlines the server dependencies into
 `instadarts.mjs`, so that archive *does* redistribute other people's code and carries the full
 notice — both beside the program and inside it, from the same generated file.
+The archive's `README.md` comes from `scripts/standalone-README.md` and explains running
+`node instadarts.mjs`; the repository README describes installing from source.
 
 ### Settings
 
@@ -144,7 +147,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `maxMatches`, `maxPlayersPerMatch` — never leaves the process |
+| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `maxMatches`, `maxPlayersPerMatch` — excluded from `app_config`; derived capacity is public via `/server-stats` |
 | `frontend` | reserved and currently empty |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |
@@ -167,11 +170,18 @@ A value of the wrong type or out of range is ignored, the default stands, and it
 the way past; an unrecognised key is named for the same reason. A file that cannot be parsed at all
 stops the server with one line and no stack, quoting the line it gave up on — a deployment that
 believes it is configured and is not is worse than one that will not start.
+An invalid `server.allowedOrigins` is also fatal; falling back could change the intended browser
+admission policy.
 
 ```sh
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
 curl -sk 'https://[::1]:3001/server-stats' # the same, over the TLS listener
 ```
+
+`/server-stats` is a public, unauthenticated endpoint on both enabled listeners. It reports derived
+capacity limits, resource counts, process memory usage and uptime. Omitting `server` from
+`app_config` does not make these statistics private. A deployment that needs restricted access to
+this endpoint must enforce that at its reverse proxy; the app has no access-control setting for it.
 
 `maxMatches` is the only capacity number a deployment sets; everything the server refuses or evicts
 by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
@@ -198,9 +208,28 @@ they say where to look for the file, and set nothing in it.
 **The server answers on both http and https, and either can be turned off.** They are the same
 application over the same rules; the only difference is the TLS. Plain http stays on by default
 because a deployment behind a reverse proxy on a real domain has TLS terminated for it already, and
-a second handshake there is overhead and nothing else. Turning *both* off is the one settings
-mistake that stops the server rather than being reported — a process that starts and listens
-nowhere is worse than one that says why it will not.
+a second handshake there is overhead and nothing else. Turning *both* off stops the server — a
+process that starts and listens nowhere is worse than one that says why it will not.
+
+**WebSocket browser origins are checked before `/ws` upgrades.** With `server.allowedOrigins: null`
+(the default), the browser's HTTP(S) Origin must match the request's Host and actual TLS scheme,
+including its effective port. This supports localhost, LAN addresses and direct HTTPS without a
+hostname list. Foreign, malformed, duplicate and opaque (`null`) Origin headers receive HTTP 403
+before a WebSocket or application session is created. Clients without Origin remain accepted for
+native protocol clients; this is browser-origin filtering, not client authentication.
+
+Behind a TLS-terminating reverse proxy, set `server.allowedOrigins` to the public browser origins,
+for example `["https://darts.example"]`. An explicit list replaces automatic same-origin permission;
+include every address from which browsers should connect. Entries are exact HTTP(S) origins without
+credentials, paths, trailing slashes, queries, fragments or wildcards. Default ports and hostname
+case are normalized. An empty list denies all browser origins. The server does not trust `Forwarded`
+or `X-Forwarded-*` to decide an origin. Proxies must preserve the browser's Origin header; removing
+it would bypass this check. Invalid policy configuration stops startup.
+
+An explicit list also restricts which browser hostnames can be used. The default derives the origin
+from Host and does not provide a DNS-rebinding defense. Non-browser clients can forge Origin, so
+seat/device credentials and protocol admission checks still apply. This policy covers the app's
+`/ws` endpoint; Vite's separate development hot-reload socket retains Vite's own handling.
 
 **Https exists for the camera.** `getUserMedia` is refused outside a secure context, and a plain
 address on the local network is not one — so without it the scoring device's whole job is behind a
@@ -407,11 +436,10 @@ Common selector and synchronization constraints:
   `data-player` or a functional test id inside it. Do not encode RGL transforms, DOM depth, sibling
   order or a canonical `x`/`y` unless the layout itself is under test.
 - **A message the server refuses is not always a message the screen mentions.** Several handlers
-  return without answering — `start_match` from a connection holding no seat is one — and a
-  `Rate limit exceeded` reply is not drawn on the match screen at all. The symptom is a press that
-  does nothing, for as long as you care to wait, with no error anywhere: it looks like a dead button
-  or a broken selector, and it is neither. Before chasing the UI, log inbound messages on the server
-  and see whether the press arrived and what was done with it.
+  return without answering — `start_match` from a connection holding no seat is one. Exhausting
+  the general message budget closes the socket with code 1013 rather than sending an error reply;
+  malformed input spends that budget too. Before chasing a silent button or unexpected reconnect,
+  log inbound messages and socket closes to see what the server did with the request.
 - **Assertions on mode-provided strings follow the mode contract.** If you edit
   `src/server/modes/*.ts`, search the unit and end-to-end specs for the strings you changed.
 - **`getByText` needs the text to be visible; a `data-testid` does not.** Some text on the scoring
@@ -439,20 +467,23 @@ preferably in a temporary worktree, before assuming the current change caused it
 
 **Re-check the mode boundary.** Search `src/` for `startScore`, `doubleIn`, `doubleOut`, and `bust`
 outside `src/server/modes/x01.ts`. Every result should be a comment or the dartboard's physical ring
-radii (`doubleOuter`, `doubleInner` in `scoring.ts` and `boardGeometry.ts`, which are millimetres and
-not the x01 setting). Anything else is a leak. See [game modes](./game-modes.md) for the boundary.
+radii (`doubleOuter`, `doubleInner` from `shared/boardGeometry.ts`, converted to each consumer's
+coordinate units). Anything else is a leak. See [game modes](./game-modes.md) for the boundary.
 
 ## Two things about the board that are easy to get wrong
 
 **There are two coordinate systems.** Board units (0–1,000,000, y-up, centre at 500,000) are the wire
 — a dart's `x`/`y`, the scoring rules, the camera. SVG units (0–100, y-down) are only how the picture
-is drawn. `toSvg` and `toBoard` in `boardGeometry.ts` are the only crossings, and there are exactly
-two: a marker going in and a click coming out.
+is drawn. `toSvg` and `toBoard` in `client/components/boardGeometry.ts` are the only crossings, and
+there are exactly two: a marker going in and a click coming out.
 
 The drawing has its own system because of text. **Chrome clamps `font-size` at 10,000**, so in a
 million-unit viewBox a readable label is not expressible. Size drawn labels in SVG units; a label of
 `4` is about 4% of the board's width at any rendered size. Express physical geometry in millimetres
-and multiply it by `MM`, as the ring radii and wire thicknesses do.
+in `shared/boardGeometry.ts`; `boardRadii(width)` converts the ring radii to the consumer's width
+(1 for normalized geometry, 100 for SVG). The reference extent is 451mm across and the drawn board
+has a 225mm radius. Scoring, drawing, vision and Whac-a-Mole share those dimensions and sector
+order. For SVG decoration such as wire thicknesses, multiply millimetres by the drawing's `MM`.
 
 **The screen should not jump.** An element is its final size from the first frame, not the size of
 what it currently has to show. That rule and what it looks like in practice are written up under

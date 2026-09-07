@@ -6,7 +6,7 @@
 
 import type { DartThrow, MatchState, ModePanel, ModeView } from '../shared/types';
 import { boardCount } from '../shared/types';
-import { matchWinnerOf, standingsOf, starterIndex } from '../shared/matchFormat';
+import { matchWinnerOf, standingsOf, starterIndex, MAX_VISITS_PER_LEG } from '../shared/matchFormat';
 import { getMode } from './modes/types';
 import type { GameMode, LegContext } from './modes/types';
 
@@ -27,8 +27,8 @@ function isFailure(value: GameMode | Failure): value is Failure {
  * The current leg, as the mode sees it — one leg, with no sight of the match around it.
  *
  * A new leg needs no reset: it starts with an empty visit list, and everything the mode derives
- * starts over with it. A finished match has an empty current leg too, and that is fine — the summary
- * screen is the match's, not the mode's, so there is nothing left for the mode to describe.
+ * starts over with it. Completed legs move into `match.legs`; cancellation can retain unfinished
+ * current-leg history. The match layer owns the summary screen in either case.
  */
 export function legContext(match: MatchState): LegContext {
   return {
@@ -63,7 +63,11 @@ export function addDartToMatch(
     return { success: true, match, locked: true };
   }
 
-  const next: MatchState = { ...match, currentVisit: { playerId, darts: [...cv.darts, dart], locked: false } };
+  const next: MatchState = { ...match, currentVisit: {
+    id: cv.id ?? crypto.randomUUID(), playerId,
+    // Input cannot choose an evidence identity, even when replacing identical coordinates.
+    darts: [...cv.darts, { ...dart, id: crypto.randomUUID() }], locked: false,
+  } };
   const locked = lockedNow(mode, next);
   next.currentVisit = { ...next.currentVisit!, locked };
   return { success: true, match: next, locked };
@@ -114,13 +118,22 @@ export function submitVisitToMatch(
   const { visit, legWinnerId } = mode.finalizeVisit(legContext(match));
 
   if (legWinnerId === null) {
+    const visits = [...match.visits, visit];
+    // Empty, voided and scoring visits all consume the same budget. A mode cannot keep an
+    // unwinnable leg alive indefinitely. Preserve the final visit and use the normal summary path.
+    if (visits.length >= MAX_VISITS_PER_LEG) {
+      return { success: true, match: {
+        ...match, visits, currentVisit: undefined,
+        status: 'finished', winnerId: null, finishedAt: Date.now(),
+      } };
+    }
     // A submitted visit always passes the board on. That a visit is exactly one player's turn is a
     // property of the app, not of any mode.
     return {
       success: true,
       match: {
         ...match,
-        visits: [...match.visits, visit],
+        visits,
         currentVisit: undefined,
         currentPlayerIndex: nextActiveIndex(match, match.currentPlayerIndex),
       },

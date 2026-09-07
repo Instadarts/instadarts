@@ -71,6 +71,7 @@ export function sanitizeCameraError(raw: unknown): string | null {
  * Returns a complete settings object — `current` supplies whatever the client did not send. Only a
  * malformed payload or an unknown mode is rejected outright; a value that fails its field's rules is
  * dropped and the current one kept, so one bad number cannot discard the rest of the form.
+ * Numeric fields require numbers and toggles require booleans; never coerce values from JSON.
  */
 export function validateSettings(raw: unknown, current: MatchSettings): MatchSettings | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
@@ -107,7 +108,7 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
 }
 
 function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {
-  if (field.kind === 'toggle') return Boolean(raw);
+  if (field.kind === 'toggle') return typeof raw === 'boolean' ? raw : undefined;
 
   // A select is its option list and nothing else: anything unrecognised is dropped, which leaves
   // the current value standing rather than letting a client invent a state the mode never declared.
@@ -115,10 +116,9 @@ function validateField(field: SettingsField, raw: unknown): string | number | bo
     return field.options.some((option) => option.value === raw) ? (raw as string) : undefined;
   }
 
-  const value = Number(raw);
-  if (!Number.isFinite(value) || !Number.isInteger(value)) return undefined;
-  if (value < field.min || value > field.max) return undefined;
-  return value;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || !Number.isInteger(raw)) return undefined;
+  if (raw < field.min || raw > field.max) return undefined;
+  return raw;
 }
 
 // ============================================================
@@ -132,8 +132,8 @@ export function validateDartThrow(raw: unknown): DartThrow | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const d = raw as Record<string, unknown>;
 
-  const x = Number(d.x);
-  const y = Number(d.y);
+  const { x, y } = d;
+  if (typeof x !== 'number' || typeof y !== 'number') return null;
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   if (x < BOARD_MIN || x > BOARD_MAX || y < BOARD_MIN || y > BOARD_MAX) return null;
 
@@ -164,9 +164,8 @@ export function validateTips(raw: unknown): BoardTip[] | null {
   for (const item of raw) {
     if (typeof item !== 'object' || item === null) return null;
     const t = item as Record<string, unknown>;
-    const x = Number(t.x);
-    const y = Number(t.y);
-    const confidence = Number(t.confidence);
+    const { x, y, confidence } = t;
+    if (typeof x !== 'number' || typeof y !== 'number' || typeof confidence !== 'number') return null;
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(confidence)) return null;
     if (x < BOARD_MIN || x > BOARD_MAX || y < BOARD_MIN || y > BOARD_MAX) return null;
     if (confidence < 0 || confidence > 1) return null;
@@ -212,10 +211,9 @@ export function validateDeviceClaims(raw: unknown): { deviceId: string; tokenHas
     const c = item as Record<string, unknown>;
     if (typeof c.deviceId !== 'string' || c.deviceId.length < 16 || c.deviceId.length > 64) continue;
     if (typeof c.tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(c.tokenHash)) continue;
-    const grabbedAt = Number(c.grabbedAt);
-    if (!Number.isFinite(grabbedAt)) continue;
+    const { grabbedAt } = c;
+    if (typeof grabbedAt !== 'number' || !Number.isFinite(grabbedAt)) continue;
     claims.push({ deviceId: c.deviceId, tokenHash: c.tokenHash, grabbedAt });
   }
   return claims;
 }
-

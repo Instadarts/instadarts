@@ -1,20 +1,20 @@
 // Server-side media coordination. WebRTC itself is covered in the browser suites; this file proves
 // match lifetime, desired topology, source epochs, and signaling authorization.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import '../helpers';
 // The helpers register x01. Whac-A-Mole is installed the way a deployment installs it, because it
 // is the mode that declines board video and the only way to exercise a ban is to have one.
 import '../../src/server/modes/whac-a-mole';
-// And count-up, because it is the only installed mode that takes more than two players — which is
-// what a test about boards versus players needs.
+// Count-up supplies the multi-player fixtures used to distinguish boards from players.
 import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
+import * as store from '../../src/server/store';
 import { sweepLifecycle } from '../../src/server/lifecycle';
 import type { ServerMessage } from '../../src/shared/protocol';
 import type { MediaPeer, MediaTier } from '../../src/shared/media';
@@ -96,8 +96,8 @@ function onlineLobby() {
 }
 
 /**
- * An online count-up match, one connection per user, each adding the names listed for it. The mode
- * matters: x01 caps itself at two players, and every shape worth testing here has more.
+ * An online count-up match, one connection per user, each adding the names listed for it.
+ * Both count-up and x01 follow the deployment's player cap; these fixtures use count-up.
  */
 function startBoards(names: string[][]) {
   const host = connect();
@@ -146,10 +146,98 @@ const entryFor = (self: Connection, other: Connection) =>
 beforeEach(() => resetDeviceRegistry());
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const ws of openSockets.splice(0)) removeClient(ws);
   for (const id of [...getAllMatches().keys()]) { finishMediaForMatch(id); deleteMatch(id); }
   for (const id of [...getAllLobbies().keys()]) deleteLobby(id);
   resetDeviceRegistry();
+});
+
+describe('readiness work stays within the selected match', () => {
+  it.each(['unpaired', 'frontend'])('does not replan any match for a readiness announcement from %s', (sender) => {
+    const first = startOnline();
+    const second = startOnline();
+    const client = sender === 'frontend' ? first.host : connect();
+    const readMatch = vi.spyOn(store, 'getMatch');
+    const before = [first.camera!, second.camera!].map((camera) => camera.count('media_source_state'));
+    for (const tier of ['video', 'stills', 'disabled', 'video']) client.send({ type: 'media_ready', tier });
+    expect(readMatch).not.toHaveBeenCalled();
+    expect([first.camera!, second.camera!].map((camera) => camera.count('media_source_state'))).toEqual(before);
+  });
+
+  it('replans only the selected match once when a device tier changes', () => {
+    const first = startOnline();
+    const second = startOnline();
+    const readMatch = vi.spyOn(store, 'getMatch');
+    const otherSources = second.camera!.count('media_source_state');
+    first.camera!.send({ type: 'media_ready', tier: 'stills' });
+    expect(readMatch.mock.calls).toEqual([[first.match.id]]);
+    expect(entryFor(first.host, first.camera!)?.tier).toBe('stills');
+    expect(first.camera!.last('media_source_state')).toMatchObject({ active: false });
+    expect(second.camera!.count('media_source_state')).toBe(otherSources);
+  });
+
+  it('does no planning or owner publication when readiness is unchanged', () => {
+    const { host, camera } = startOnline();
+    const readMatch = vi.spyOn(store, 'getMatch');
+    const ownerUpdates = host.count('devices_state');
+    const sources = camera!.count('media_source_state');
+    camera!.send({ type: 'media_ready', tier: 'video' });
+    expect(readMatch).not.toHaveBeenCalled();
+    expect(host.count('devices_state')).toBe(ownerUpdates);
+    expect(camera!.count('media_source_state')).toBe(sources);
+  });
+
+  it('updates an unselected device capability without replanning matches', () => {
+    const first = startOnline();
+    startOnline();
+    const unused = pairDevice(first.host, 'Unused camera');
+    const readMatch = vi.spyOn(store, 'getMatch');
+    const ownerUpdates = first.host.count('devices_state');
+    unused.send({ type: 'media_ready', tier: 'stills' });
+    expect(readMatch).not.toHaveBeenCalled();
+    expect(first.host.count('devices_state')).toBe(ownerUpdates + 1);
+  });
+
+  it('keeps pre-identity readiness and activates only its selected match on scorer reconnect', () => {
+    const first = startOnline();
+    const second = startOnline();
+    const replacement = connect();
+    replacement.send({ type: 'media_ready', tier: 'video' });
+    const otherSources = second.camera!.count('media_source_state');
+    const readMatch = vi.spyOn(store, 'getMatch');
+    replacement.send({ type: 'scorer_hello', deviceId: first.camera!.deviceId, token: first.camera!.deviceToken });
+    expect(replacement.last('media_source_state')).toMatchObject({ active: true, matchId: first.match.id });
+    expect(readMatch.mock.calls.every(([id]) => id === first.match.id)).toBe(true);
+    expect(second.camera!.count('media_source_state')).toBe(otherSources);
+  });
+
+  it('refreshes only the selected match on leave and reactivation, even without a device binding', () => {
+    const first = startOnline();
+    const second = startOnline();
+    const previous = first.camera!.last('media_source_state');
+    const otherSources = second.camera!.count('media_source_state');
+    const readMatch = vi.spyOn(store, 'getMatch');
+    first.camera!.send({ type: 'media_leave' });
+    expect(readMatch.mock.calls).toEqual([[first.match.id]]);
+    expect(first.host.roster().some((peer) => peer.kind === 'device')).toBe(false);
+    expect(first.camera!.last('media_source_state')).toMatchObject({ active: false });
+
+    readMatch.mockClear();
+    const ownerUpdates = first.host.count('devices_state');
+    first.camera!.send({ type: 'media_leave' });
+    first.camera!.send({ type: 'media_ready', tier: 'invalid' }); // also normalizes to disabled
+    expect(readMatch).not.toHaveBeenCalled();
+    expect(first.host.count('devices_state')).toBe(ownerUpdates);
+
+    first.camera!.send({ type: 'media_ready', tier: 'video' });
+    expect(readMatch.mock.calls).toEqual([[first.match.id]]);
+    const reactivated = first.camera!.last('media_source_state');
+    expect(reactivated).toMatchObject({ active: true, matchId: first.match.id });
+    expect(reactivated?.active && previous?.active && reactivated.sourceEpoch !== previous.sourceEpoch).toBe(true);
+    expect(entryFor(first.host, first.camera!)?.tier).toBe('video');
+    expect(second.camera!.count('media_source_state')).toBe(otherSources);
+  });
 });
 
 describe('match-scoped lifetime and setup', () => {

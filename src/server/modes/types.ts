@@ -134,15 +134,15 @@ export function allModes(): GameMode[] {
 
 /**
  * The mode a new lobby starts on. Mandatory: a deployment without x01 is not a valid deployment, and
- * `loadModes` refuses to start one.
+ * `validateModeCatalog` refuses to start one.
  */
 export const DEFAULT_MODE = 'x01';
 
 /**
- * Validate that every mode self-registered at import time (each file calls registerMode at the top
- * level, and registry.ts imports them all).  The server refuses to start without x01.
+ * Require the default mode and return the registered catalog in stable order. Mode modules
+ * register themselves when imported by registry.ts; this function does not load or discover them.
  */
-export async function loadModes(): Promise<GameMode[]> {
+export function validateModeCatalog(): GameMode[] {
   if (!getMode(DEFAULT_MODE)) {
     throw new Error(`The ${DEFAULT_MODE} game mode is required — add it to registry.ts`);
   }

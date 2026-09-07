@@ -10,21 +10,19 @@ import type { Client } from '../../src/server/types';
 import '../helpers'; // registers the x01 mode
 
 /**
- * Whether watching a match can be turned into playing it.
+ * Regression coverage for turning spectator-visible state into a participant claim.
  *
- * `requireMatch` refuses every input from a connection flagged `isSpectator`, and that flag is the
- * only thing between an audience and the board. So the question these tests ask is not "does the
- * flag work" but **"can a spectator get a connection that never had the flag set?"** — which is
- * exactly what editing `/spectate/<id>` to `/match/<id>` in the address bar produces: a page load, a
- * brand-new socket, and the `reconnect` the frontend sends on open.
+ * The historical reconnect protocol accepted a match id and a player id without private proof.
+ * Both ids appear in spectator-visible state, so a spectator could present them on a fresh socket
+ * that had never been flagged `isSpectator`. Checking that flag alone did not establish ownership.
  *
- * `reconnect` is an identity claim carrying no proof: a match id and a player id, both of which
- * every spectator is handed in the ordinary match broadcast. That makes these tests about the
- * message, not about the flag.
+ * The current protocol requires a private seat token, and gameplay guards require the session to
+ * hold the seat in its room. The forged legacy messages below must be refused even on a connection
+ * whose client record claims to be a participant. Public player ids are not credentials.
  *
- * The last test is the one that constrains the fix rather than describing the bug. A page reload
- * mints a *new session id*, so the server cannot recognise the real player by session either — the
- * legitimate tab has to present something a spectator has never been given.
+ * Legitimate reload and takeover cases verify the other side: a new session presenting the real
+ * token can resume its seat, and a replaced session loses authority. Spectators receive no token.
+ * Participant checks also ensure a valid seat cannot submit another player's visit, even when empty.
  */
 
 let sessionCounter = 0;
@@ -110,9 +108,9 @@ function spectatorOf(matchId: string): Conn {
 /**
  * Editing the URL from `/spectate/<id>` to `/match/<id>`.
  *
- * The browser loads the page again: the spectating socket closes, a new one opens under a new
- * session id, and the frontend resumes the session its tab saved. All the attacker supplies is a
- * player id, and the match state they were watching is where they read it.
+ * Simulate the historical attack on a fresh socket by explicitly sending a forged legacy reconnect
+ * with a public player id. The current frontend does not construct this message: a spectator has
+ * no saved seat token, and changing the URL alone cannot make it a participant.
  */
 function editUrlToMatch(spectator: Conn, matchId: string, playerId: string): Conn {
   spectator.close();
@@ -131,6 +129,68 @@ afterEach(() => {
   openSockets.clear();
   for (const id of [...getAllLobbies().keys()]) deleteLobby(id);
   for (const id of [...getAllMatches().keys()]) deleteMatch(id);
+});
+
+// ============================================================
+// What a participant may submit
+// ============================================================
+
+describe('visit ownership between participants', () => {
+  it.each([
+    { phase: 'the first empty turn', advance: false },
+    { phase: 'the next empty turn', advance: true },
+  ])('refuses an opponent submitting $phase', ({ advance }) => {
+    const { alice, bob, matchId } = onlineMatch();
+    if (advance) alice.send({ type: 'submit_visit' });
+    const before = getMatch(matchId)!;
+    expect(before.currentVisit).toBeUndefined();
+    expect(before.currentPlayerIndex).toBe(advance ? 1 : 0);
+    const visits = [...before.visits];
+
+    const opponent = advance ? alice : bob;
+    opponent.send({ type: 'submit_visit' });
+
+    const after = getMatch(matchId)!;
+    expect(after.currentPlayerIndex).toBe(before.currentPlayerIndex);
+    expect(after.currentVisit).toBeUndefined();
+    expect(after.visits).toEqual(visits);
+    expect(opponent.last('error')?.message).toBe('You can only submit your own visit');
+  });
+
+  it('continues to refuse an opponent once the visit has a dart', () => {
+    const { alice, bob, matchId } = onlineMatch();
+    alice.send({ type: 'add_dart', dart: DART });
+    const visit = getMatch(matchId)!.currentVisit;
+
+    bob.send({ type: 'submit_visit' });
+
+    expect(bob.last('error')?.message).toBe('You can only submit your own visit');
+    expect(getMatch(matchId)!.currentVisit).toEqual(visit);
+    expect(getMatch(matchId)!.visits).toEqual([]);
+    expect(getMatch(matchId)!.currentPlayerIndex).toBe(0);
+  });
+
+  it('lets each current player submit an empty visit', () => {
+    const { alice, bob, matchId, players } = onlineMatch();
+    for (const [index, owner] of [alice, bob].entries()) {
+      owner.send({ type: 'submit_visit' });
+      expect(owner.last('error')).toBeUndefined();
+      const match = getMatch(matchId)!;
+      expect(match.visits).toHaveLength(index + 1);
+      expect(match.visits[index].playerId).toBe(players[index].id);
+      expect(match.visits[index].darts.map((dart) => dart.score.label)).toEqual(['miss', 'miss', 'miss']);
+      expect(match.currentPlayerIndex).toBe((index + 1) % 2);
+    }
+  });
+
+  it('lets one local seat submit empty visits for all its players', () => {
+    const { host, matchId, players } = localMatch('Alice', 'Bob');
+    host.send({ type: 'submit_visit' });
+    host.send({ type: 'submit_visit' });
+    expect(host.last('error')).toBeUndefined();
+    expect(getMatch(matchId)!.visits.map((visit) => visit.playerId)).toEqual(players.map((player) => player.id));
+    expect(getMatch(matchId)!.currentPlayerIndex).toBe(0);
+  });
 });
 
 // ============================================================
@@ -205,6 +265,92 @@ describe('what watching a match tells you', () => {
     guest.send({ type: 'add_local_player', playerName: 'Bob' });
     const broadcasts = host.received.filter((m) => m.type === 'lobby_state' && m.youAreHost === undefined);
     expect(broadcasts.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================
+// Invite credentials
+// ============================================================
+
+describe('lobby invite credentials', () => {
+  function openLobby() {
+    const host = connect();
+    host.send({ type: 'create_lobby', acceptsJoins: true });
+    const { id: lobbyId, inviteCode } = host.last('lobby_state')!.lobby;
+    return { host, lobbyId, inviteCode: inviteCode! };
+  }
+
+  it('does not let a spectator obtain a joining credential from the initial snapshot', () => {
+    const { host, lobbyId } = openLobby();
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    const spec = spectatorOf(lobbyId);
+    const intruder = connect();
+    intruder.send({ type: 'join_lobby', inviteCode: spec.last('lobby_state')!.lobby.inviteCode });
+    intruder.send({ type: 'add_local_player', playerName: 'Watcher' });
+
+    expect(getLobby(lobbyId)!.players.map((p) => p.name)).toEqual(['Alice']);
+    expect(intruder.last('resume')).toBeUndefined();
+    expect(spec.last('lobby_state')!.lobby.inviteCode).toBeNull();
+  });
+
+  it.each(['join', 'add', 'remove', 'settings', 'rename', 'reorder', 'leave'] as const)(
+    'keeps invite codes out of spectator broadcasts after %s', (action) => {
+      const { host, lobbyId, inviteCode } = openLobby();
+      host.send({ type: 'add_local_player', playerName: 'Alice' });
+      host.send({ type: 'add_local_player', playerName: 'Bob' });
+      const spec = spectatorOf(lobbyId);
+      const guest = connect();
+      guest.send({ type: 'join_lobby', inviteCode });
+      spec.received.length = 0;
+
+      switch (action) {
+        case 'join': connect().send({ type: 'join_lobby', inviteCode }); break;
+        case 'add': host.send({ type: 'add_local_player', playerName: 'Carol' }); break;
+        case 'remove': host.send({ type: 'remove_player', playerId: getLobby(lobbyId)!.players[0].id }); break;
+        case 'settings': host.send({ type: 'update_settings', settings: { legsToWinSet: 2 } }); break;
+        case 'rename': host.send({ type: 'set_player_name', playerId: getLobby(lobbyId)!.players[0].id, name: 'Alicia' }); break;
+        case 'reorder': host.send({ type: 'reorder_player', playerId: getLobby(lobbyId)!.players[1].id, direction: 'up' }); break;
+        case 'leave': guest.send({ type: 'leave_match' }); break;
+      }
+
+      const snapshots = spec.received.filter((m) => m.type === 'lobby_state');
+      expect(snapshots.length).toBeGreaterThan(0);
+      for (const snapshot of snapshots) {
+        expect(snapshot.lobby.inviteCode).toBeNull();
+        expect(JSON.stringify(snapshot)).not.toContain(inviteCode);
+      }
+      // Filtering one recipient must not mutate the shared broadcast or the server's code.
+      const currentCode = getLobby(lobbyId)!.inviteCode;
+      expect(currentCode).toBeTruthy();
+      expect(host.last('lobby_state')!.lobby.inviteCode).toBe(currentCode);
+      if (action !== 'leave') {
+        // An empty guest seat is still allowed to share the code.
+        expect(guest.last('lobby_state')!.lobby.inviteCode).toBe(currentCode);
+      } else {
+        expect(currentCode).not.toBe(inviteCode);
+        const invited = connect();
+        invited.send({ type: 'join_lobby', inviteCode: currentCode });
+        expect(invited.last('resume')).toBeDefined();
+      }
+    },
+  );
+
+  it.each(['host', 'guest'] as const)('restores invite access when the %s resumes a seat', (role) => {
+    const { host, lobbyId, inviteCode } = openLobby();
+    const guest = connect();
+    guest.send({ type: 'join_lobby', inviteCode });
+    const returning = spectatorOf(lobbyId);
+    expect(returning.last('lobby_state')!.lobby.inviteCode).toBeNull();
+    returning.send({ type: 'reconnect', lobbyId, token: (role === 'host' ? host : guest).last('resume')!.token });
+    expect(returning.last('lobby_state')!.lobby.inviteCode).toBe(inviteCode);
+    expect(returning.last('lobby_state')!.youAreSpectator).toBe(false);
+  });
+
+  it('does not disclose a code to a connection whose lobby record has no seat', () => {
+    const { host, lobbyId } = openLobby();
+    const unseated = connect({ lobbyId });
+    host.send({ type: 'add_local_player', playerName: 'Alice' });
+    expect(unseated.last('lobby_state')!.lobby.inviteCode).toBeNull();
   });
 });
 
@@ -297,9 +443,8 @@ describe('a spectator of an online match', () => {
 
 describe('a spectator of a local lobby', () => {
   it('cannot take the host seat by reloading onto /lobby/<id>', () => {
-    // The lobby branch of `reconnect` has the identical hole, and a local lobby gives the seat away
-    // without even a player id to name. The host seat is who may change the settings and remove
-    // players, so it is worth as much as a turn at the board.
+    // The historical lobby reconnect accepted a lobby id alone. Today the host seat requires its
+    // private token, so knowing a local lobby's public id must not grant control of its settings.
     const host = connect();
     host.send({ type: 'create_lobby', acceptsJoins: false });
     const lobbyId = host.last('lobby_state')!.lobby.id;
@@ -322,8 +467,8 @@ describe('a spectator of a local lobby', () => {
 
 describe('a spectator asking on the socket it is already watching from', () => {
   it('stays a spectator, and leaves the player\'s session where it was', () => {
-    // No reload needed for the second half: the `isSpectator` flag survives on this socket and still
-    // refuses the darts, but the same unproven claim rebinds the player to this session regardless.
+    // The historical handler could also rebind a player's session from an existing spectator
+    // socket. Reject the tokenless claim without changing either ownership or spectator status.
     const { host, matchId, players } = localMatch('Alice', 'Bob');
     const spec = spectatorOf(matchId);
 
@@ -398,8 +543,8 @@ describe('a duplicated tab', () => {
   });
 
   it('is what a reload is not', () => {
-    // A reload presents the same token from a new session, and there is nobody to take it from —
-    // the old socket is gone. Nothing is announced to anybody.
+    // This helper removes the old socket immediately, so only the returning socket can receive a
+    // reply. The production disconnect-grace path is not exercised by this case.
     const { host, matchId } = localMatch('Alice', 'Bob');
     const token = host.last('resume')!.token;
     host.close();

@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 // tell people when a deadline passes, and it says so to `lifecycle` on load.
 import { handleMessage, registerClient, removeClient, handleClientLeave, scheduleDisconnect } from './wsHandler';
 import './modes/registry.js';
-import { loadModes } from './modes/types';
+import { validateModeCatalog } from './modes/types';
 import { getAllLobbies, getAllMatches } from './store';
 import { scoringSessionCount } from './scoring/store';
 import { mediaPeerCount, reportInternalStun, startInternalStun } from './media';
@@ -21,6 +21,7 @@ import { listenAddresses, listenUrls } from './listenUrls';
 import { createClientServing } from './staticServing';
 import { createDevClient } from './devClient';
 import { resolveCertificate, type ResolvedCertificate } from './certificate';
+import { isWebSocketOriginAllowed } from './websocketOrigin';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -32,13 +33,12 @@ if (CONFIG_FATAL) {
 }
 reportConfig();
 
-// Find the installed game modes. A deployment adds or removes one by adding or removing a file in
-// src/server/modes/ — and one without x01 is not a deployment we will start.
-const installedModes = await loadModes();
+// Validate the modes registered by the imports in src/server/modes/registry.ts. Adding or removing
+// a mode requires updating that registry; x01 is required for startup.
+const installedModes = validateModeCatalog();
 if (!QUIET) console.log(`Game modes: ${installedModes.map((m) => m.id).join(', ')}`);
 
-// The clock that gives every lobby and match a definite end. There is no collector besides it:
-// nothing here is reclaimed by being noticed later, only by its own deadline arriving.
+// Sweep lobby and match deadlines. Socket cleanup and heartbeat detection have separate lifetimes.
 startLifecycle();
 
 // The STUN server, if this deployment carries one. Before the HTTP listener rather than after, so
@@ -100,6 +100,10 @@ upgrades.on('upgrade', (req, socket, head) => {
     if (!DEV_CLIENT) socket.destroy();
     return;
   }
+  if (!isWebSocketOriginAllowed(req, CONFIG.server.allowedOrigins)) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n', () => socket.destroy());
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
@@ -115,10 +119,10 @@ function listener(server: Server): Server {
  * Also the readiness probe the e2e run waits on, so it must stay cheap and must not depend on
  * anything that is still starting up.
  *
- * These are retention numbers rather than activity numbers. Every object counted here has a
- * deadline, so each should return to zero on an idle server; one that climbs while nothing is being
- * played is the shape a leak would take. `heldMatches` above `runningMatches` is only summaries
- * counting down — it is the two together, staying up, that would mean something.
+ * Lobby and match counts follow room deadlines; `heldMatches` includes finished summaries waiting
+ * to expire. Connections can remain while a browser is idle and answering heartbeat pings.
+ * `connectedClients` counts sockets held by `wss`, not entries in the application client registry
+ * used for admission, which also holds closed connections during their three-second cleanup grace.
  */
 function serverStats() {
   const lobbies = getAllLobbies();
@@ -174,6 +178,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 startHeartbeat(wss);
 
 wss.on('connection', (ws) => {
+  // ws closes transport failures (including oversized messages and malformed frames) itself.
+  // Handle its error event so it cannot terminate the process; the normal close handler below
+  // owns application cleanup. Refused sockets also need this listener while their close is pending.
+  ws.on('error', (err) => {
+    if (!QUIET) console.warn('WebSocket error:', err.message);
+  });
+
   // Refused here rather than later: a connection turned away at the handshake costs nothing to
   // hold, and holding it is the resource that ran out. 1013 is "try again later", which the
   // client's reconnect already treats as a reason to come back.

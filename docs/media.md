@@ -51,6 +51,14 @@ Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
 does not create mesh state.
 
+`media_ready` is retained on the connection even before pairing, then applied when the scorer
+proves its identity. Unpaired connections cause no topology planning, and repeating the same
+normalized tier causes no owner publication or planning. A changed tier updates the owner's
+camera picker and replans only matches that nominated that device. Source nominations are checked
+even when the device has no current peer binding, so readiness can reactivate a disabled source.
+Device leave and identity synchronization likewise refresh selected matches rather than every
+session. The dispatcher does not repeat the refresh already performed by a media handler.
+
 On every finish path — victory, cancellation, permanent leave, or idle expiry — the server sends
 inactive source directives, publishes empty rosters, and destroys the media session immediately. A
 rematch creates a fresh mesh and clients resubmit their stored choices; the server copies no source
@@ -151,7 +159,7 @@ every role.
 ### Regions, stills, and dart evidence
 
 A `Region` is a square in normalized board space, described by its centre and side length in
-`[0, 1]`. `{ x: 0.5, y: 0.5, size: 1 }` means the whole board. It describes what to show rather than
+`[0, 1]`. `{ cx: 0.5, cy: 0.5, size: 1 }` means the whole board. It describes what to show rather than
 camera pixels, so the same request works from every camera angle. `clampRegion` moves an outlying
 centre inward until the square fits instead of rejecting or shrinking the request.
 
@@ -159,10 +167,25 @@ A still is one square JPEG of a region, captured on request and returned on the 
 channel. Only the selected camera's owner may request one, and the request names the audience for
 the response. Output size comes from `media.still.size`; mime type and quality are fixed in
 [`shared/media.ts`](../src/shared/media.ts).
+Queued captures retain the requesting owner link, mesh and camera-stream identity. The scorer
+rechecks all three and current ownership before capture and after each asynchronous step; a
+restart, roster removal or replacement owner link discards the old work.
 
 **Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
 it when a dart appears, every eligible viewer receives the same image, undo removes it with the
 dart, and submitting clears it with the visit.
+
+Each accepted dart receives a server-assigned `id`; the first dart also establishes the current
+visit's `id`. Appending and undo preserve the remaining identities, while a replacement dart gets
+a new one even at identical coordinates. Evidence requests carry
+`{ kind: 'dart_evidence', matchId, boardId, visitId, dartId, dart }` in the opaque still `tag`, with
+`dart` the zero-based slot. The scorer echoes the tag without interpreting it. Receivers require
+the identities to match the current match state and the sender to be the roster's selected camera
+for that board. The requesting owner also checks the response `id` against its pending request;
+observers receive the fan-out without issuing their own requests. Duplicate replies cannot replace
+an accepted image. Missing or outdated identity tags are ignored, including index-only tags from
+older clients. A change of board, visit or camera link clears evidence; undo/replacement removes
+only affected dart images and requests fresh ones where needed.
 
 ### Director commands and the virtual camera
 

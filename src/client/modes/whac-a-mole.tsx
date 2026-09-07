@@ -1190,8 +1190,8 @@ const CSS = `
  * The pulse is the tone's, and only the won-and-waiting state sends warning. It carries its own
  * opacity so the ring can never be caught pulsing on a faded slot.
  */
-[data-visit-slots] > div:last-child { opacity: 0.25 }
-[data-visit-slots] > div:last-child[data-slot-tone="warning"] {
+[data-visit-slots] > :last-child > [data-visit-slot] { opacity: 0.25 }
+[data-visit-slots] > :last-child > [data-visit-slot][data-slot-tone="warning"] {
   animation: wam-bonus 1.1s ease-in-out infinite;
   opacity: 1;
 }
@@ -1233,7 +1233,7 @@ const CSS = `
   /* The bonus pulse is addressed by attribute rather than by class, so it needs naming separately —
      it is the one animation here that runs forever, which is exactly what this override is for. */
   .wam-rise, .wam-bob, .wam-glow, .wam-glow-hot, .wam-edge, .wam-flash, .wam-flash-soft, .wam-bonk, .wam-pop, .wam-dug, .wam-steam, .wam-banner, .wam-fade,
-  [data-visit-slots] > div:last-child[data-slot-tone="warning"] {
+  [data-visit-slots] > :last-child > [data-visit-slot][data-slot-tone="warning"] {
     animation-duration: .01ms; animation-iteration-count: 1;
   }
 }
@@ -1253,7 +1253,7 @@ const CSS = `
  * with them, which keeps the rule that *grants* the bonus where it belongs — on the server.
  */
 const BONUS_CSS = `
-[data-visit-slots] > div:last-child { opacity: 1 }
+[data-visit-slots] > :last-child > [data-visit-slot] { opacity: 1 }
 `;
 
 function Styles({ bonusInPlay }: { bonusInPlay: boolean }) {

@@ -148,8 +148,7 @@ export function App() {
     enabled: !modeBans(modeDescriptor, 'dartEvidence'),
   });
   evidenceHandler.current = evidence.handleControl;
-  // Null draws no strip at all; an empty array draws it at full height, waiting. The difference is
-  // a user not using the feature versus one whose first picture has not arrived.
+  // Null marks evidence as unavailable; an empty array reserves tiles for pictures yet to arrive.
   const evidenceImages = evidence.available ? evidence.images : null;
 
   const ownBoardId = match?.players.find((p) => ownPlayerIds.includes(p.id))?.boardId ?? null;

@@ -195,3 +195,51 @@ html[data-app="scorer"] #root {
     box-shadow: 0 0 0 2px var(--button-hint-ring);
   }
 }
+
+/* One dart always owns its score and evidence; only the outer grid changes direction. */
+.visit-input {
+  --visit-slot-height: auto;
+  --visit-item-gap: 12px;
+  min-height: 0;
+}
+
+.visit-input__darts {
+  display: grid;
+  grid-template-columns: repeat(var(--visit-count), minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--visit-item-gap);
+  flex: 1 0 0;
+  min-height: calc(var(--visit-slot-height) + var(--mantine-spacing-sm) + 48px);
+}
+
+.visit-input[data-visit-direction="column"] .visit-input__darts {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(var(--visit-count), minmax(0, 1fr));
+  min-height: calc(var(--visit-count) * (var(--visit-slot-height) + var(--mantine-spacing-sm) + 48px)
+    + (var(--visit-count) - 1) * var(--visit-item-gap));
+}
+
+.visit-input__dart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  min-height: 0;
+}
+
+.visit-input [data-visit-slot] {
+  flex: 0 0 auto;
+  height: var(--visit-slot-height);
+}
+
+.visit-input__evidence-space {
+  container-type: size;
+  display: grid;
+  flex: 1 1 0;
+  min-height: 48px;
+  place-items: center;
+}
+
+.visit-input [data-testid="visit-footer"] {
+  flex: 0 0 auto;
+}

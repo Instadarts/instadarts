@@ -126,7 +126,7 @@ test.describe('dart evidence', () => {
 
     // The strip is there before any picture is — that is the whole point of it having a fixed
     // height, and it is asserted before a dart is thrown rather than after.
-    await expect(host.getByTestId('dart-evidence')).toBeVisible({ timeout: 20_000 });
+    await expect(host.getByTestId('dart-evidence').first()).toBeVisible({ timeout: 20_000 });
     expect(await evidenceImages(host).count()).toBe(0);
     const boardTop = await gridItemTop(host, 'board');
 
@@ -145,14 +145,11 @@ test.describe('dart evidence', () => {
 
     const evidenceLayout = await host.locator('[data-grid-item="visit"]').evaluate((visit) => {
       const content = visit.querySelector<HTMLElement>('[data-grid-box-content]');
-      const slots = visit.querySelector<HTMLElement>('[data-visit-slots]');
-      const slot = slots?.firstElementChild;
+      const slot = visit.querySelector<HTMLElement>('[data-visit-slot]');
       const space = visit.querySelector<HTMLElement>('[data-testid="visit-evidence-space"]');
-      const evidence = visit.querySelector<HTMLElement>('[data-testid="dart-evidence"]');
-      const tile = evidence?.firstElementChild;
+      const tile = visit.querySelector<HTMLElement>('[data-testid="dart-evidence"]');
       const footer = visit.querySelector<HTMLElement>('[data-testid="visit-footer"]');
-      if (!content || !slots || !(slot instanceof HTMLElement) || !space || !evidence
-        || !(tile instanceof HTMLElement) || !footer) {
+      if (!content || !slot || !space || !tile || !footer) {
         throw new Error('visit layout is incomplete');
       }
       const box = (element: HTMLElement) => {
@@ -161,10 +158,8 @@ test.describe('dart evidence', () => {
       };
       return {
         content: box(content),
-        slots: box(slots),
         slot: box(slot),
         space: box(space),
-        evidence: box(evidence),
         tile: box(tile),
         footer: box(footer),
       };
@@ -172,14 +167,14 @@ test.describe('dart evidence', () => {
 
     // Fixed regions sit at the card edges. The evidence consumes the smaller of the remaining
     // height and one slot's width, stays square, and is centred when either axis has room left.
-    expect(Math.abs(evidenceLayout.slots.y - evidenceLayout.content.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(evidenceLayout.slot.y - evidenceLayout.content.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(
       evidenceLayout.footer.y + evidenceLayout.footer.height
         - evidenceLayout.content.y - evidenceLayout.content.height,
     )).toBeLessThanOrEqual(1);
     expect(
       Math.abs(
-        evidenceLayout.evidence.y + evidenceLayout.evidence.height / 2
+        evidenceLayout.tile.y + evidenceLayout.tile.height / 2
           - evidenceLayout.space.y - evidenceLayout.space.height / 2,
       ),
       JSON.stringify(evidenceLayout),

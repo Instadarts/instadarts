@@ -304,6 +304,16 @@ test.describe('N-players matches', () => {
     await page.click('text=Start Match');
     await page.waitForURL('**/match/**');
 
+    const bonus = page.locator('[data-visit-slot]').last();
+    const bonusEvidence = page.getByTestId('dart-evidence').last();
+    await expect(bonus).toHaveCSS('opacity', '0.25');
+    await expect(bonusEvidence).toHaveCSS('opacity', '1');
+    await expect(bonus.locator('..')).toHaveCSS('opacity', '1');
+    await bonus.evaluate((element) => { element.dataset.slotTone = 'warning'; });
+    await expect(bonus).toHaveCSS('animation-name', 'wam-bonus');
+    await expect(bonusEvidence).toHaveCSS('animation-name', 'none');
+    await bonus.evaluate((element) => { element.dataset.slotTone = 'muted'; });
+
     const panel = page.locator('[data-grid-item="mode-panel"]');
     const body = panel.locator('.frontend-grid-box__body');
     const hud = page.getByTestId('wam-hud');

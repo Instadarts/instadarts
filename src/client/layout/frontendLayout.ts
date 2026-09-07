@@ -204,7 +204,7 @@ export const LOBBY_LAYOUTS = makeResponsiveLayouts((cols) => makeLobbyLayout(col
 export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   lg: [
     { i: 'overview', x: 0, y: 0, w: 12, h: 4, isBounded: false },
-    { i: 'scores', x: 0, y: 4, w: 6, h: 12, minW: 2, minH: 12, isBounded: false },
+    { i: 'scores', x: 0, y: 4, w: 6, h: 12, minW: 2, minH: 10, isBounded: false },
     { i: 'board', x: 6, y: 4, w: 6, h: 52, minW: 2, minH: 18, isBounded: false },
     { i: 'visit', x: 0, y: 16, w: 6, h: 20, minW: 2, minH: 8, isBounded: false },
     { i: 'mode-panel', x: 0, y: 36, w: 6, h: 20, minW: 2, minH: 6, isBounded: false },
@@ -212,7 +212,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   ],
   md: [
     { i: 'overview', x: 0, y: 0, w: 10, h: 4, isBounded: true },
-    { i: 'scores', x: 0, y: 4, w: 5, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'scores', x: 0, y: 4, w: 5, h: 12, minW: 2, minH: 10, isBounded: true },
     { i: 'board', x: 5, y: 4, w: 5, h: 31, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 16, w: 5, h: 19, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 35, w: 10, h: 20, minW: 2, minH: 6, isBounded: true },
@@ -220,7 +220,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   ],
   sm: [
     { i: 'overview', x: 0, y: 0, w: 6, h: 4, isBounded: true },
-    { i: 'scores', x: 0, y: 4, w: 3, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'scores', x: 0, y: 4, w: 3, h: 12, minW: 2, minH: 10, isBounded: true },
     { i: 'board', x: 3, y: 4, w: 3, h: 30, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 16, w: 3, h: 18, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 34, w: 6, h: 20, minW: 2, minH: 6, isBounded: true },
@@ -228,7 +228,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   ],
   xs: [
     { i: 'overview', x: 0, y: 0, w: 4, h: 4, isBounded: true },
-    { i: 'scores', x: 0, y: 4, w: 4, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'scores', x: 0, y: 4, w: 4, h: 12, minW: 2, minH: 10, isBounded: true },
     { i: 'board', x: 0, y: 16, w: 4, h: 30, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 46, w: 4, h: 19, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 65, w: 4, h: 20, minW: 2, minH: 6, isBounded: true },
@@ -236,7 +236,7 @@ export const LIVE_MATCH_LAYOUTS: ResponsiveLayouts<FrontendBreakpoint> = {
   ],
   xxs: [
     { i: 'overview', x: 0, y: 0, w: 2, h: 4, isBounded: true },
-    { i: 'scores', x: 0, y: 4, w: 2, h: 12, minW: 2, minH: 12, isBounded: true },
+    { i: 'scores', x: 0, y: 4, w: 2, h: 12, minW: 2, minH: 10, isBounded: true },
     { i: 'board', x: 0, y: 16, w: 2, h: 24, minW: 2, minH: 18, isBounded: true },
     { i: 'visit', x: 0, y: 40, w: 2, h: 18, minW: 2, minH: 8, isBounded: true },
     { i: 'mode-panel', x: 0, y: 58, w: 2, h: 20, minW: 2, minH: 6, isBounded: true },

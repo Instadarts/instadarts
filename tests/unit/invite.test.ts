@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '../helpers';
-import { generateInviteCode } from '../../src/server/invite';
+import { generateInviteCode, generatePersonalInvite, findPersonalInvite } from '../../src/server/invite';
 import { createLobby, deleteLobby, findLobbyByInviteCode, getAllLobbies, setLobbyInviteCode } from '../../src/server/store';
 
 const randomInt = vi.hoisted(() => vi.fn<(max: number) => number>());
@@ -56,6 +56,22 @@ describe('lobby invite generation', () => {
     expect(findLobbyByInviteCode('AAAAAA')).toBeUndefined();
     expect(findLobbyByInviteCode('BBBBBB')).toBe(other);
     expect(findLobbyByInviteCode('CCCCCC')).toBe(lobby);
+  });
+
+  it('shares the collision namespace with personal codes and retires them on lobby deletion', () => {
+    const ordinary = createLobby();
+    const managed = createLobby();
+    setLobbyInviteCode(ordinary.id, 'AAAAAA');
+    candidates('AAAAAA', 'BBBBBB', 'BBBBBB', 'CCCCCC', 'BBBBBB', 'CCCCCC', 'DDDDDD');
+    expect(generatePersonalInvite(managed.id, 'player-1')).toBe('BBBBBB');
+    expect(generatePersonalInvite(managed.id, 'player-2')).toBe('CCCCCC');
+    expect(generateInviteCode(ordinary.id)).toBe('DDDDDD');
+    expect(findPersonalInvite('BBBBBB')).toEqual({ lobbyId: managed.id, playerId: 'player-1' });
+    deleteLobby(managed.id);
+    expect(findPersonalInvite('BBBBBB')).toBeUndefined();
+    expect(findPersonalInvite('CCCCCC')).toBeUndefined();
+    candidates('BBBBBB');
+    expect(generateInviteCode(ordinary.id)).toBe('BBBBBB');
   });
 
   it('uses cryptographic random indices without falling back to Math.random', () => {

@@ -46,7 +46,7 @@ The starting player advances by one roster position for every completed leg, con
 boundaries. Within a leg, submitted visits advance to the next player who has not left the match.
 The mode neither chooses the next player nor sees the match format.
 
-When a match finishes, the summary is match-level: it shows the result, legs per set, and re-match
+When a match finishes, the summary is match-level: it shows the result, legs per set, and (for ordinary matches) re-match
 state. The mode contributes the headline only; its live panel is not mounted on the summary.
 
 ---
@@ -387,7 +387,7 @@ Preserve these constraints when adding match-screen content.
 Once the match is finished the screen becomes **the match's**, not the mode's. The board, visit and
 mode-panel boxes unmount; result cards show winner and loser instead of a score, and match history
 shows the scoreline — legs per set, read like a tennis result. The re-match box is left out for a
-spectator and for a match somebody has left; result and match history are always there.
+spectator, an API-managed match, and a match somebody has left; result and match history are always there.
 
 A mode contributes exactly one thing to the current summary:
 

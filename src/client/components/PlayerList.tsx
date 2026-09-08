@@ -5,6 +5,8 @@ import type { Player } from '../../shared/types';
 
 interface PlayerListProps {
   players: Player[];
+  locked?: boolean;
+  joinedPlayerIds?: string[];
   maxPlayers: number;
   isCreator: boolean;
   isSpectator: boolean;
@@ -22,6 +24,8 @@ function ordinal(n: number): string {
 
 export function PlayerList({
   players,
+  locked = false,
+  joinedPlayerIds,
   maxPlayers,
   isCreator,
   isSpectator,
@@ -52,9 +56,12 @@ export function PlayerList({
         {players.map((player, index) => (
           <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--instadarts-border)' }}>
             <Text c="dimmed" fz="xs" w={34}>{ordinal(index + 1)}</Text>
-            <Text style={{ flex: 1 }} truncate>{player.name}</Text>
+            <Text style={{ flex: 1 }} truncate>{player.name}{isMine(player.id) && locked ? ' (you)' : ''}</Text>
+            {joinedPlayerIds && <Text size="sm" c={joinedPlayerIds.includes(player.id) ? 'green' : 'dimmed'}>
+              {joinedPlayerIds.includes(player.id) ? 'Joined' : 'Waiting'}
+            </Text>}
 
-            {!isSpectator && isCreator && onReorder && players.length >= 2 && (
+            {!locked && !isSpectator && isCreator && onReorder && players.length >= 2 && (
               <Group gap={2} wrap="nowrap">
                 <ActionIcon
                   size="sm"
@@ -79,7 +86,7 @@ export function PlayerList({
               </Group>
             )}
 
-            {!isSpectator && (isMine(player.id) || isCreator) && (
+            {!locked && !isSpectator && (isMine(player.id) || isCreator) && (
               <ActionIcon
                 size="sm"
                 variant="subtle"
@@ -94,7 +101,7 @@ export function PlayerList({
         ))}
       </Stack>
 
-      {!isSpectator && canAdd && (
+      {!locked && !isSpectator && canAdd && (
         <Stack gap="sm">
           {availableNames.length > 0 && (
             <Group gap="xs">

@@ -24,6 +24,8 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                                 set of rules over both, including the one that refuses to leave
                                 the client directory
                 devClient.ts    development's client instead: Vite, mounted in this process
+                api.ts          authenticated HTTP match creation and result reads
+                apiMatches.ts   integration ownership, reserved IDs, and 24-hour result archive
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
@@ -147,7 +149,7 @@ the file over them. Four sections, split by whose knob it is:
 
 | | |
 | --- | --- |
-| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `maxMatches`, `maxPlayersPerMatch` — excluded from `app_config`; derived capacity is public via `/server-stats` |
+| `server` | `http.{enabled,port}`, `https.{enabled,port,cert,key}`, `allowedOrigins`, `apiKeys`, `maxMatches`, `maxPlayersPerMatch` — excluded from `app_config`; derived capacity is public via `/server-stats` |
 | `frontend` | reserved and currently empty |
 | `scorer` | `cameraFrameRate` |
 | `media` | `enabled`, `iceUrls`, `stunPort`, `setupTimeoutMs`, `still.size`, `video.{size,frameRate,bitrate}`, `virtualCamera.{transitionMs,resetMs}`, `dartEvidence.{regionSize,transitionMs,resetMs}` |
@@ -170,8 +172,10 @@ A value of the wrong type or out of range is ignored, the default stands, and it
 the way past; an unrecognised key is named for the same reason. A file that cannot be parsed at all
 stops the server with one line and no stack, quoting the line it gave up on — a deployment that
 believes it is configured and is not is worse than one that will not start.
-An invalid `server.allowedOrigins` is also fatal; falling back could change the intended browser
-admission policy.
+Invalid `server.allowedOrigins` or `server.apiKeys` is also fatal; falling back could change the
+intended admission policy. `apiKeys` defaults to an empty list (HTTP match API disabled). Each
+entry has a unique caller `id` and secret `key`; keys never appear in `app_config`. See
+[API.md](./API.md) for configuration, creation, WebSocket subscriptions, and retained results.
 
 ```sh
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them
@@ -260,7 +264,7 @@ test suite, down to completing a real TLS handshake against what it produced.
 ### Serving the client
 
 [`staticServing.ts`](../src/server/staticServing.ts) answers everything that is not `/server-stats`
-or a WebSocket upgrade, from one of two sources: the assets embedded in `instadarts.mjs`, or
+or `/api/` or a WebSocket upgrade, from one of two sources: the assets embedded in `instadarts.mjs`, or
 `dist/client` on disk. **A browser must not be able to tell which.** Every rule about *what* to
 answer is shared; only the reading of the bytes differs, and the two are tested through the same
 socket-level harness in `staticServing.test.ts` and `staticServingDisk.test.ts`. Where those two

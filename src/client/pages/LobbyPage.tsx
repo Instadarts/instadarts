@@ -1,4 +1,5 @@
-import { Alert, Badge, Button, Group, Stack, Text, Title } from '@mantine/core';
+import { useState } from 'react';
+import { Alert, Badge, Button, Group, Stack, Text, TextInput, Title } from '@mantine/core';
 import type { Lobby } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
 import { PlayerList } from '../components/PlayerList';
@@ -16,6 +17,8 @@ interface LobbyPageProps {
   ownPlayerIds: string[];
   isSpectator: boolean;
   onStartGame: () => void;
+  onJoinPlayer?: (code: string) => void;
+  error?: string | null;
   onLeave: () => void;
   onUpdateSettings: (settings: any) => void;
   onAddLocalPlayer: (name: string) => void;
@@ -31,14 +34,18 @@ export function LobbyPage({
   ownPlayerIds,
   isSpectator,
   onStartGame,
+  onJoinPlayer,
+  error,
   onLeave,
   onUpdateSettings,
   onAddLocalPlayer,
   onRemovePlayer,
   onReorderPlayer,
 }: LobbyPageProps) {
+  const [inviteCode, setInviteCode] = useState('');
+  const managed = Boolean(lobby.apiManaged);
   const canStart = lobby.players.length >= 1;
-  const canEdit = !isSpectator && isCreator;
+  const canEdit = !managed && !isSpectator && isCreator;
   const descriptor = modes.find((candidate) => candidate.id === lobby.settings.mode);
   const items: ResponsiveBoxItem[] = [
     {
@@ -49,27 +56,28 @@ export function LobbyPage({
           <Group justify="space-between" align="center" gap="lg">
             <Stack gap={2}>
               <Title order={2} c="var(--instadarts-accent)">
-                {mode === 'local' ? 'Local Match' : 'Online Match'}
+                {managed ? 'Invited Match' : mode === 'local' ? 'Local Match' : 'Online Match'}
                 {isSpectator && <Text span c="var(--instadarts-tone-warning-fg)" fz="lg"> (spectating)</Text>}
               </Title>
               <Text c="dimmed" fz="sm">
-                {mode === 'local'
+                {managed ? 'The organizer has fixed the players and match settings' : mode === 'local'
                   ? 'Add players and configure the match'
                   : 'Share the code and wait for players to connect'}
               </Text>
             </Stack>
             <Group gap="sm">
-              {!isSpectator && isCreator && (
+              {!managed && !isSpectator && isCreator && (
                 <Button onClick={onStartGame} disabled={!canStart}>Start Match</Button>
               )}
               <Button variant="default" onClick={onLeave}>Leave</Button>
             </Group>
           </Group>
           <Alert variant="default" mt="md">
-            {ownPlayerIds.length === 0
+            {managed ? 'The match starts automatically when all players have joined' : ownPlayerIds.length === 0
               ? 'Add at least one player to start'
               : 'Add more players or start the match'}
           </Alert>
+          {error && <Alert color="red" mt="sm">{error}</Alert>}
         </GridBox>
       ),
     },
@@ -81,7 +89,7 @@ export function LobbyPage({
           title="Players"
           badge={(
             <Badge variant="light" color={lobby.players.length >= lobby.maxPlayers ? 'red' : 'gray'}>
-              {lobby.players.length >= lobby.maxPlayers
+              {managed ? `${lobby.joinedPlayerIds?.length ?? 0}/${lobby.players.length} joined` : lobby.players.length >= lobby.maxPlayers
                 ? `Full — ${lobby.maxPlayers} max`
                 : `${lobby.players.length}/${lobby.maxPlayers}`}
             </Badge>
@@ -90,6 +98,8 @@ export function LobbyPage({
         >
           <PlayerList
             players={lobby.players}
+            locked={managed}
+            joinedPlayerIds={lobby.joinedPlayerIds}
             maxPlayers={lobby.maxPlayers}
             isCreator={isCreator}
             isSpectator={isSpectator}
@@ -98,6 +108,16 @@ export function LobbyPage({
             onRemove={onRemovePlayer}
             onReorder={onReorderPlayer}
           />
+          {managed && !isSpectator && onJoinPlayer && (
+            <Group mt="md" align="flex-end">
+              <TextInput label="Player invite code" value={inviteCode} maxLength={6}
+                onChange={(event) => setInviteCode(event.currentTarget.value.toUpperCase())} />
+              <Button disabled={inviteCode.trim().length !== 6}
+                onClick={() => { onJoinPlayer(inviteCode.trim()); setInviteCode(''); }}>
+                Add player by invite code
+              </Button>
+            </Group>
+          )}
         </GridBox>
       ),
     },
@@ -124,7 +144,7 @@ export function LobbyPage({
     });
   }
 
-  if (isCreator && mode === 'online') {
+  if (!managed && isCreator && mode === 'online') {
     items.push({
       id: 'invite',
       autoHeight: true,

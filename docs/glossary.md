@@ -25,6 +25,8 @@ in prose when contrasting players with users or spectators.
 A player has an id, display name, and `boardId`. Server-side it also carries its owning user's
 current session, but that ownership information is removed from public lobby and match state. The
 receiving client instead gets its own `yourPlayerIds`. One player is enough for a practice match.
+API-created roster entries use per-match UUIDs and
+may have duplicate names; ordinary player IDs remain server-generated counters.
 
 ### Player limit
 
@@ -36,7 +38,7 @@ of the two. No current mode declares its own limit. See
 ### Board
 
 The physical dartboard a user throws at. Every player held by the same user shares its `boardId`,
-which is the id of the first player that user added.
+which is the id of that user's first player in roster order.
 
 Media source slots are assigned per board rather than per player. The current media topology
 supports at most two boards; see [Ownership and lifetime](./media.md#ownership-and-lifetime).
@@ -47,12 +49,14 @@ The setup room where players, match format, and game-mode settings are chosen. I
 a status of `MatchState`. Starting play consumes the lobby and creates a match with a fixed player
 roster and settings.
 
-The creating user is the [host](#host--creator). A lobby may accept joins, and spectators may watch
+For ordinary lobbies, the creating user is the [host](#host--creator). API-managed lobbies have no
+browser host and start automatically when every fixed roster player is connected. A lobby may accept joins, and spectators may watch
 whether or not it does.
 
 ### Accepting joins
 
-`Lobby.acceptsJoins` determines whether a lobby receives an invite code and admits new users. The
+`Lobby.acceptsJoins` determines whether a lobby admits new users. Ordinary open lobbies receive
+a shared code; API-managed lobbies use personal player codes instead. The
 home screen calls a lobby without joins a **Local Match** and one with joins an **Online Match**.
 The choice is fixed when the lobby is created and does not become a match setting.
 
@@ -60,9 +64,17 @@ Joining requires an invite code. Spectating remains available either way. Once p
 behavior follows the users and players actually present; the match has no separate local/online
 flag.
 
+### API-managed match
+
+A lobby/match marked `apiManaged`, created by an authenticated external integration with fixed
+settings, names, and player order. Each player has a UUID and personal invitation. Browsers can
+claim multiple invited players into one seat but cannot edit the roster or request rematches.
+A reserved match ID supports spectating before play, and full terminal results remain available
+through the caller's HTTP API for 24 hours in memory. See [API.md](./API.md).
+
 ### Host / Creator
 
-The user session that created the lobby. Server code calls it the **host**; interface text calls it
+The user session that created an ordinary lobby. Server code calls it the **host**; interface text calls it
 the **creator**. The host may change settings, reorder players, remove any player, and start the
 match. It is a user role, not a player role.
 
@@ -95,7 +107,7 @@ completed legs, re-match votes, and either an `in_progress` or `finished` status
 
 A game mode decides who won a leg; the match layer advances legs and sets and decides the match
 winner. A finished match without `winnerId` was cancelled rather than won. Finished matches remain
-available for their summary and re-match offer until their deadline.
+available for their summary until their deadline; only ordinary matches offer re-matches.
 
 Use **match**, not **game**, for this concept. In this codebase **game** appears only as part of
 **game mode**.
@@ -114,7 +126,8 @@ if none remain, the match is cancelled.
 A new match with the same participants and settings, created from a finished match without another
 lobby. Scores and history do not carry over, and the player order rotates by one place.
 
-Each participant accepts or declines. Any decline—including leaving—settles the vote as no
+API-managed matches do not offer re-matches. For ordinary matches, each participant accepts or
+declines. Any decline—including leaving—settles the vote as no
 re-match; neutral votes become declines at the finished-match deadline. When everyone accepts, the
 new match begins immediately and spectators move to it as well.
 
@@ -128,8 +141,10 @@ resets idle deadlines, while spectating and reconnecting do not. See
 ### Invite code
 
 A six-character code from an unambiguous alphabet, and the only credential for joining a lobby.
-Only a lobby that [accepts joins](#accepting-joins) has one. When the last guest leaves, the lobby
-receives a new code.
+Only a lobby that [accepts joins](#accepting-joins) has admission codes. An ordinary open lobby
+rotates its shared code when the last guest leaves. Each API roster player instead has a personal
+code, reusable when unclaimed until start or lobby expiry; it is never broadcast to participants
+or spectators.
 
 This is separate from a scoring-device **pairing code**, despite using the same length and alphabet.
 
@@ -422,7 +437,7 @@ See [Identities and topology](./media.md#identities-and-topology),
 | Kind | Owner | Scope | Detailed documentation |
 | --- | --- | --- | --- |
 | **Deployment settings** | Server operator | Whole deployment | [Development settings](./development.md#settings) |
-| **Match settings** | Lobby host | One match | [Game-mode settings](./game-modes.md#settings) |
+| **Match settings** | Lobby host or API caller | One match | [Game-mode settings](./game-modes.md#settings) |
 | **Device settings** | Person using the scoring device | One device | [The camera](./vision.md#the-camera) |
 | **Presentation preferences** | Person using either application | Frontend or scorer | [UI persistence](./ui.md#match-layout-editing-and-persistence) |
 
@@ -440,7 +455,8 @@ frontends and scoring devices on connection and stored client-side by
 
 ### Match settings
 
-`MatchSettings`: game mode, the mode's settings, and the legs/sets format. The host configures them
+`MatchSettings`: game mode, the mode's settings, and the legs/sets format. The host, or the creating
+API caller, configures them
 in the lobby; they are validated by the server and fixed when the match starts.
 
 ### Device settings

@@ -18,7 +18,8 @@ import { parseMessage } from '../shared/protocol';
 import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createMatch, createRematch, getMatch, findLobbyByInviteCode, deleteLobby, deleteMatch, maxPlayersFor, movePlayerInLobby } from './store';
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
-import { generateInviteCode } from './invite';
+import { generateInviteCode, findPersonalInvite } from './invite';
+import { apiWaitingLobby, archiveApiLobby, archiveApiMatch, reservedMatchId } from './apiMatches';
 import { nameIsTaken, sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkMediaRateLimit, checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { CONFIG } from './config';
@@ -52,6 +53,7 @@ import {
   getClient,
   holdsPlayer,
   joinRefusal,
+  joinedPlayerIds,
   lobbyMessage,
   matchMessage,
   playersOf,
@@ -293,6 +295,14 @@ function dispatchMessage(ws: WebSocket, raw: string): void {
   if (isScorerMessage && !client?.deviceId && msg.type !== 'scorer_pair' && msg.type !== 'scorer_hello') return;
   if (isMediaMessage && !CONFIG.media.enabled) return;
 
+  if (MANAGED_LOCKED_TYPES.has(msg.type)) {
+    const room = client.lobbyId ? getLobby(client.lobbyId) : client.matchId ? getMatch(client.matchId) : undefined;
+    if (room?.apiManaged) {
+      send(ws, { type: 'error', message: 'This match is controlled by its API creator' });
+      return;
+    }
+  }
+
   // Where this connection was before the handler ran. A message that moves somebody has to refresh
   // the room it left as well as the one it joined, and afterwards there is no way to ask.
   const previousRoom = ROOM_CHANGING_TYPES.has(msg.type) ? mediaRoomOf(ws) : null;
@@ -456,6 +466,7 @@ setLifecycleHandlers({
 
   /** A lobby nobody has touched for the idle period. */
   expireLobby(lobby: Lobby): void {
+    archiveApiLobby(lobby);
     for (const [ws, client] of allClients()) {
       if (client.lobbyId !== lobby.id) continue;
       send(ws, { type: 'lobby_abandoned' });
@@ -466,6 +477,12 @@ setLifecycleHandlers({
     publishMediaForRoom(lobby.id);
   },
 });
+
+/** Managed rooms have no participant controls over configuration or subsequent matches. */
+const MANAGED_LOCKED_TYPES = new Set([
+  'add_local_player', 'remove_player', 'set_player_name', 'update_settings',
+  'reorder_player', 'start_match', 'rematch_vote',
+]);
 
 /** Message types that count as input for the idle timeout. */
 const INPUT_TYPES = new Set([
@@ -542,6 +559,16 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
 function handleJoinLobby(ws: WebSocket, msg: any): void {
   const client = getClient(ws);
   if (!client) return;
+  const personal = findPersonalInvite(msg.inviteCode);
+  if (client.lobbyId && getLobby(client.lobbyId)?.apiManaged
+    && (!personal || personal.lobbyId !== client.lobbyId)) {
+    send(ws, { type: 'error', message: 'Use a player invite code for this lobby, or leave before joining another' });
+    return;
+  }
+  if (personal) {
+    handlePersonalJoin(ws, client, personal);
+    return;
+  }
   const lobby = findLobbyByInviteCode(msg.inviteCode);
 
   if (!lobby) {
@@ -569,6 +596,40 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     playerIds: playersOf(client), host,
   }));
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
+}
+
+/** A personal code adds a fixed roster player to the current seat, including a shared board. */
+function handlePersonalJoin(ws: WebSocket, client: Client, invite: { lobbyId: string; playerId: string }): void {
+  const lobby = getLobby(invite.lobbyId);
+  const player = lobby?.players.find((p) => p.id === invite.playerId);
+  if (!lobby?.apiManaged || !player || Date.now() >= lobby.expiresAt) {
+    send(ws, { type: 'error', message: 'Lobby not found or expired' });
+    return;
+  }
+  // Validate before leaving the current room. A held seat remains reserved during disconnect grace.
+  if (player.sessionId && player.sessionId !== client.sessionId
+    && heldSeat(lobby.id, player.sessionId)?.seat.playerIds.includes(player.id)) {
+    send(ws, { type: 'error', message: 'This player has already joined' });
+    return;
+  }
+  enterRoom(ws, client, lobby.id, null, false);
+  const held = heldSeat(lobby.id, client.sessionId);
+  const mine = [...new Set([...(held?.seat.playerIds ?? []), player.id])];
+  const token = held?.token ?? grantSeat(lobby.id, client.sessionId, { playerIds: mine, host: false });
+  updateSeat(lobby.id, token, { playerIds: mine, host: false });
+  player.sessionId = client.sessionId;
+  // Accepted admission is input. Renew before publishing/readiness so a join at the idle boundary
+  // cannot fill the roster yet miss its automatic start while notifications are being sent.
+  touch(lobby);
+  sendResume(ws, { lobbyId: lobby.id }, token);
+  send(ws, lobbyMessage(lobby, { playerIds: mine, host: false }));
+  broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
+  maybeStartManagedLobby(lobby);
+}
+
+function maybeStartManagedLobby(lobby: Lobby): void {
+  if (!lobby.apiManaged || !getLobby(lobby.id) || Date.now() >= lobby.expiresAt) return;
+  if (lobby.players.length > 0 && joinedPlayerIds(lobby).length === lobby.players.length) startLobby(lobby);
 }
 
 function handleAddLocalPlayer(ws: WebSocket, msg: any): void {
@@ -792,8 +853,13 @@ function handleStartMatch(ws: WebSocket): void {
     c.isSpectator = true;
   }
 
+  startLobby(lobby);
+}
+
+/** Shared transition for a host's start and API roster readiness. */
+function startLobby(lobby: Lobby): void {
   // This replaces the existing lobby, so a full room budget does not prevent it from starting.
-  const match = createMatch(lobby);
+  const match = createMatch(lobby, lobby.apiManaged ? reservedMatchId(lobby.id) : undefined);
   startMediaForMatch(match);
 
   // Update all lobby clients to match
@@ -978,6 +1044,7 @@ function endMatch(match: MatchState, winnerId: string | null): void {
   match.winnerId = winnerId;
   match.finishedAt = Date.now();
   touch(match, SUMMARY_TTL_MS);
+  archiveApiMatch(match);
   dropScoringSessions(match.id);
   finishMediaForMatch(match.id);
 }
@@ -990,6 +1057,15 @@ function leaveLobby(ws: WebSocket, client: Client): void {
   const lobby = getLobby(client.lobbyId!);
   if (!lobby) {
     client.lobbyId = null;
+    return;
+  }
+
+  if (lobby.apiManaged) {
+    client.lobbyId = null;
+    for (const player of lobby.players) {
+      if (leavingPlayerIds.includes(player.id)) delete player.sessionId;
+    }
+    broadcastToLobby(lobby.id, lobbyMessage(lobby));
     return;
   }
 
@@ -1034,7 +1110,7 @@ function handleSpectate(ws: WebSocket, msg: any): void {
   }
 
   // Try to find as lobby first, then as match
-  const lobby = getLobby(id);
+  const lobby = getLobby(id) ?? apiWaitingLobby(id);
   if (lobby) {
     enterRoom(ws, client, lobby.id, null, true);
     // Giving up the host seat abandons this very lobby, so there is nothing left to watch.
@@ -1074,14 +1150,20 @@ function handleReconnect(ws: WebSocket, msg: any): void {
     return;
   }
 
-  const roomId: unknown = msg.lobbyId ?? msg.matchId;
-  if (typeof roomId !== 'string' || !roomId) {
+  const requestedRoomId: unknown = msg.lobbyId ?? msg.matchId;
+  if (typeof requestedRoomId !== 'string' || !requestedRoomId) {
     send(ws, { type: 'error', message: 'No lobby or match ID provided for reconnect' });
     return;
   }
 
+  let roomId = requestedRoomId;
   const lobby = msg.lobbyId ? getLobby(roomId) : undefined;
-  const match = msg.lobbyId ? undefined : getMatch(roomId);
+  // A browser may have missed the automatic start's resume message. Its existing token still
+  // identifies the carried seat; a stale managed-lobby ID may resolve to that match alone.
+  const match = msg.lobbyId
+    ? (!lobby ? getMatch(reservedMatchId(roomId) ?? '') : undefined)
+    : getMatch(roomId);
+  if (match) roomId = match.id;
   const seat = seatForToken(roomId, msg.token);
   if ((msg.lobbyId && msg.matchId) || (!lobby && !match) || !seat) {
     send(ws, { type: 'error', message: 'Cannot resume this session' });
@@ -1106,8 +1188,11 @@ function handleReconnect(ws: WebSocket, msg: any): void {
   // so a duplicated tab replaces the original rather than joining it.
   if (redeemed.takenFrom) releaseTakenSeat(redeemed.takenFrom, roomId);
 
-  if (msg.lobbyId) reconnectToLobby(ws, client, msg.lobbyId, redeemed.seat);
-  else reconnectToMatch(ws, client, roomId, redeemed.seat);
+  if (lobby) reconnectToLobby(ws, client, lobby.id, redeemed.seat);
+  else {
+    if (msg.lobbyId) sendResume(ws, { matchId: roomId }, msg.token);
+    reconnectToMatch(ws, client, roomId, redeemed.seat);
+  }
   if (match) publishScorerStateFor(devicesScoringInto(match.id));
 }
 
@@ -1138,6 +1223,10 @@ function reconnectToLobby(ws: WebSocket, client: Client, lobbyId: string, seat: 
   if (held) updateSeat(lobby.id, held.token, { playerIds: mine });
 
   send(ws, lobbyMessage(lobby, { playerIds: playersOf(client), host: seat.host }));
+  if (lobby.apiManaged) {
+    broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
+    maybeStartManagedLobby(lobby);
+  }
 }
 
 /** Page reload during the match. */

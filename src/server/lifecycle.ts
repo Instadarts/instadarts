@@ -15,6 +15,7 @@
 
 import type { Lobby, MatchState } from '../shared/types';
 import { getAllLobbies, getAllMatches } from './store';
+import { sweepApiRecords } from './apiMatches';
 
 /** How long a lobby or an in-progress match may go without input. */
 export const IDLE_TTL_MS = 10 * 60_000;
@@ -50,6 +51,7 @@ export function touch(entity: { expiresAt: number }, ttlMs = IDLE_TTL_MS): void 
  * `now` is a parameter so tests can stand at any point in the future without waiting for it.
  */
 export function sweepLifecycle(now: number = Date.now()): void {
+  sweepApiRecords(now);
   if (!handlers) return;
 
   for (const match of [...getAllMatches().values()]) {

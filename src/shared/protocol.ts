@@ -3,6 +3,7 @@ import type { ModeDescriptor } from './settings';
 import type { BoardTip } from './vision/types';
 import type { MediaPeer, MediaRole, MediaTier, SignalDescription } from './media';
 import type { ClientConfig } from './config';
+import type { Standings } from './matchFormat';
 
 // ============================================================
 // Client → Server messages
@@ -26,7 +27,8 @@ export interface CreateLobbyMessage {
  * accepted — but an id is public where a code is not: it is in the spectate URL, so anyone handed
  * something to watch could have named it to join instead. The code is the thing the host chose to
  * share, and a lobby that admits nobody is minted without one at all.
- * Joining takes a seat without adding a player; names are supplied through `add_local_player`.
+ * Ordinary joins take a seat without adding a player; names come through `add_local_player`.
+ * A personal API code instead claims its predefined player, appending it to an existing seat.
  */
 export interface JoinLobbyMessage {
   type: 'join_lobby';
@@ -368,6 +370,7 @@ export interface MatchStateMessage {
   type: 'match_state';
   match: MatchState;
   view: ModeView;
+  standings: Standings;
   panel?: ModePanel;
   /**
    * Which players are the receiving connection's own — set only on a reply to one connection and

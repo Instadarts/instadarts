@@ -132,7 +132,7 @@ export function MatchScreen({
         content: <GridBox title="Match history"><MatchHistory match={match} /></GridBox>,
       },
     ];
-    if (!isSpectator && match.departed.length === 0) {
+    if (!match.apiManaged && !isSpectator && match.departed.length === 0) {
       items.push({
         id: 'rematch',
         content: (

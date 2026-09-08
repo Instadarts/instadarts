@@ -22,6 +22,7 @@ import { createClientServing } from './staticServing';
 import { createDevClient } from './devClient';
 import { resolveCertificate, type ResolvedCertificate } from './certificate';
 import { isWebSocketOriginAllowed } from './websocketOrigin';
+import { handleApi } from './api';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -150,10 +151,10 @@ function serverStats() {
  * Every request that is not a WebSocket upgrade — those never reach here, because the upgrade is a
  * different event on the same server.
  *
- * Two things to be, in this order. The readiness probe answers first and on its own terms: it is
+ * The readiness probe, match API, and frontend are routed in that order. The readiness probe is
  * what the e2e run waits for, so it must not depend on a client being present, and it carries no
- * isolation headers because nothing embeds it. Everything else is the client's, and what the
- * client declines to answer is a 404 — there is no third handler behind it.
+ * isolation headers because nothing embeds it. The API owns /api/ and its JSON errors; remaining
+ * requests are the client's, and what it declines to answer is a 404.
  */
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const pathname = (req.url ?? '').split('?')[0];
@@ -167,6 +168,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
+  if (await handleApi(req, res)) return;
   if (serveClient && await serveClient(req, res)) return;
 
   res.statusCode = 404;

@@ -16,6 +16,7 @@ import { formatMessage } from '../shared/protocol';
 import { meshEligible, panelOf, viewOf } from './match';
 import { heldSeat, holdsSeat } from './seats';
 import { maxPlayersFor } from './store';
+import { standingsOf } from '../shared/matchFormat';
 
 const clients = new Map<WebSocket, Client>();
 
@@ -170,6 +171,7 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
     type,
     match: { ...match, players: publicPlayers(match.players) },
     view: viewOf(match),
+    standings: standingsOf(match.legs, match.settings),
     panel: panelOf(match),
     yourPlayerIds: you?.playerIds,
     // Why there is no video, told to everyone rather than addressed: it is a fact about the match's
@@ -190,6 +192,10 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * instead, the screen and the server drifted apart the moment either changed.
  */
 export function joinRefusal(lobby: Lobby): string | null {
+  if (lobby.apiManaged) {
+    return lobby.players.some((p) => !p.sessionId || !heldSeat(lobby.id, p.sessionId)?.seat.playerIds.includes(p.id))
+      ? null : 'Lobby is full';
+  }
   // Asked first, because a lobby that admits nobody is not one you were nearly admitted to.
   if (!lobby.acceptsJoins) return 'This lobby is not open to joins';
   // A user brings at least one player, so the player cap caps them too: somebody who could never
@@ -218,11 +224,22 @@ export function lobbyMessage(
     lobby: {
       ...lobby, maxPlayers, userCount, admitting,
       players: publicPlayers(lobby.players), hostSessionId: undefined,
+      ...(lobby.apiManaged ? { joinedPlayerIds: joinedPlayerIds(lobby) } : {}),
     },
     yourPlayerIds: you?.playerIds,
     youAreHost: you?.host,
     youAreSpectator: you ? you.spectator ?? false : undefined,
   };
+}
+
+/** Readiness requires both current seat ownership and a live frontend connection. */
+export function joinedPlayerIds(lobby: Lobby): string[] {
+  const joined = new Set<string>();
+  for (const [ws, client] of clients) {
+    if (client.lobbyId !== lobby.id || client.isSpectator || client.deviceId || ws.readyState !== ws.OPEN) continue;
+    for (const id of playersOf(client)) joined.add(id);
+  }
+  return lobby.players.filter((p) => joined.has(p.id)).map((p) => p.id);
 }
 
 /**

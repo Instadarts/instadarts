@@ -13,7 +13,7 @@ export interface Player {
   id: string;
   name: string;
   /**
-   * The user (frontend connection) that added this player. One user may hold several: every player
+   * The user (frontend connection) that added or claimed this player. One user may hold several: every player
    * in a match nobody else joined, and as many as it added in one they did.
    *
    * **Server-side only, and absent from every Player a client has ever held.** A lobby and a match
@@ -24,7 +24,7 @@ export interface Player {
    */
   sessionId?: string;
   /**
-   * The board this player throws at, named by the first player of the user who owns it. Players a
+   * The board this player throws at, named by its owner's first player in roster order. Players a
    * single user added share one — which may be the whole roster. Public, unlike `sessionId`:
    * it is a player id the whole room already has, and the screen needs it to know whose camera shows
    * the thrower.
@@ -183,6 +183,8 @@ export interface CompletedLeg {
 }
 
 export interface MatchState {
+  /** Created and configured by an external API caller; participants cannot request rematches. */
+  apiManaged?: boolean;
   id: string;
   status: MatchStatus;
   settings: MatchSettings;
@@ -222,10 +224,14 @@ export type RematchAnswer = 'accepted' | 'declined';
 // --- Lobby ---
 
 export interface Lobby {
+  /** Fixed roster/settings, personal invitations, and automatic start. */
+  apiManaged?: boolean;
+  /** Derived for managed lobby snapshots: players held by connected participants. */
+  joinedPlayerIds?: string[];
   id: string;
   players: Player[];
   settings: MatchSettings;
-  /** Admission credential. Sent only to current lobby participants; null for spectators or a closed lobby. */
+  /** Shared admission credential; null for spectators, closed lobbies, and API-managed lobbies. */
   inviteCode: string | null;
   /**
    * The user who created this lobby — **server-side only**, and stripped by `lobbyMessage` for the
@@ -236,6 +242,7 @@ export interface Lobby {
   /**
    * Whether this lobby advertises an invite code and admits newcomers.
    *
+   * API-managed lobbies use personal player invitations instead of a shared code.
    * Decided when it is created and never afterwards. A lobby that says no is minted without a code
    * at all, so there is nothing to find it by — what the UI offers as a "Local Match". Nothing else
    * follows from it: how a match is played is decided by who ended up in it, not by this.

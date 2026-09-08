@@ -7,7 +7,7 @@
 // leg, and a re-match, free.
 //
 // Shared because the server decides with it and the client displays with it. One implementation, and
-// nothing derived travels on the wire.
+// match messages also expose these derived standings for external spectators.
 
 import type { CompletedLeg, MatchSettings } from './types';
 import type { SettingsField } from './settings';

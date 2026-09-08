@@ -191,8 +191,8 @@ each square grows within that middle space until either its height or its matchi
 becomes the limit, and remains centred under that slot. If the box is shorter than its minimum
 content, its body scrolls with both the slots and footer reachable.
 
-A match grid can drop a box too — the summary omits its re-match box for a spectator and for a match
-somebody has left — and because nothing compacts, every remaining box keeps the position it was
+A match grid can drop a box too — the summary omits its re-match box for a spectator, an API-managed
+match, and a match somebody has left — and because nothing compacts, every remaining box keeps the position it was
 given. The re-match box is the trailing summary item, so removing it shortens the grid at the result
 and history row rather than leaving a visible hole. Removing an interior item from another match
 layout can leave a gap, which is consistent with its free-placement behavior.
@@ -436,3 +436,13 @@ scheme as well as the dark one**; a colour pinned to the wrong end of a scale lo
 is invisible in the other, and the only way to find that is to look. Measure overflow, containment
 and square geometry as well as taking screenshots. The full local procedure, including the
 Playwright project ordering, is in [development.md](./development.md#the-e2e-suite).
+
+
+## API-managed lobby UI
+
+An API lobby uses the existing lobby layout with fixed settings and a fixed roster. It shows
+joined/waiting indicators and explains automatic start. Player editing, ordering, shared invites,
+and manual start are absent. Participants can use **Add player by invite code** to claim another
+predefined player on the same board; errors leave their existing seat intact. API-managed match
+summaries omit the rematch box. These are presentations of server-enforced rules, not client-only
+permissions. See [API.md](./API.md).

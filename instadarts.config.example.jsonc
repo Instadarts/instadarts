@@ -25,11 +25,18 @@
 // stands and the server carries on. A file that cannot be read as JSON at all stops the server, and
 // says which line it gave up on, because a deployment that thinks it is configured and is not is
 // worse than one that will not start.
-// Invalid server.allowedOrigins also stops startup rather than silently changing the policy.
+// Invalid server.allowedOrigins or server.apiKeys also stops startup rather than changing the policy.
 
 {
   // ── The process itself ──────────────────────────────────────────────
   "server": {
+    // External match API credentials, read only by the server. Empty disables the HTTP API.
+    // Each caller owns only the matches it creates. Use unique ids without surrounding whitespace
+    // and long random secret keys:
+    // "apiKeys": [{ "id": "league-manager", "key": "REPLACE_WITH_A_RANDOM_SECRET" }]
+    // See docs/API.md. Live spectator access remains public to anyone with a match id.
+    "apiKeys": [],
+
     // Plain HTTP. Leave it on behind a reverse proxy that terminates TLS for you — a second
     // handshake here would be overhead and nothing else.
     "http": {

@@ -256,7 +256,7 @@ export function App() {
         } />
 
         <Route path="/lobby/join/:code" element={
-          <JoinHandler onJoin={joinLobby} lobby={lobby} error={error} />
+          <JoinHandler onJoin={joinLobby} lobby={lobby} match={match} error={error} />
         } />
 
         <Route path="/lobby/:id" element={
@@ -267,6 +267,7 @@ export function App() {
             isSpectator={isSpectator}
             isHost={isHost}
             startMatch={startMatch}
+            joinLobby={joinLobby}
             leaveMatch={leaveMatch}
             updateSettings={updateSettings}
             addLocalPlayer={addLocalPlayer}
@@ -337,6 +338,7 @@ interface LobbyWrapperProps {
   /** Whether this user created the lobby — the server's answer, sent to this connection alone. */
   isHost: boolean;
   startMatch: () => void;
+  joinLobby: (code: string) => void;
   leaveMatch: () => void;
   updateSettings: (settings: any) => void;
   addLocalPlayer: (name: string) => void;
@@ -346,7 +348,7 @@ interface LobbyWrapperProps {
   error: string | null;
 }
 
-function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMatch, leaveMatch, updateSettings, addLocalPlayer, removePlayer, reorderPlayer, navigate, error }: LobbyWrapperProps) {
+function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMatch, joinLobby, leaveMatch, updateSettings, addLocalPlayer, removePlayer, reorderPlayer, navigate, error }: LobbyWrapperProps) {
   useNavigationGuard(lobby, error, navigate);
 
   if (!lobby) return <LoadingRoute label="Loading lobby…" />;
@@ -359,6 +361,8 @@ function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMa
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
       onStartGame={startMatch}
+      onJoinPlayer={joinLobby}
+      error={error}
       onLeave={() => { leaveMatch(); navigate('/'); }}
       onUpdateSettings={updateSettings}
       onAddLocalPlayer={addLocalPlayer}

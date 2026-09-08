@@ -142,6 +142,13 @@ Review and test generated changes like any other contribution, then rebuild and 
 The [game-mode guide](docs/game-modes.md#installing-and-removing-a-game-mode) explains the concise
 contract and includes a complete example.
 
+## External match integration
+
+External software can create matches with fixed settings and player names, distribute personal
+join links, and watch live standings and results through the spectator WebSocket. The optional
+authenticated HTTP API also retains full results for 24 hours in memory. See the
+[API documentation](docs/API.md) for setup and examples.
+
 ## Project links
 
 This README is deliberately focused on playing and hosting. If you want to edit or contribute to

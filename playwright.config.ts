@@ -26,7 +26,7 @@ function settingsFile(): string {
     // port nothing tests and from writing a self-signed certificate into the working directory —
     // and it keeps `copy.spec.ts` honest, which needs a run that is *not* a secure context because
     // that is what a phone on a home network gets.
-    server: { https: { enabled: false }, ...(SERVER_PORT !== 3000 ? { http: { port: SERVER_PORT } } : {}) },
+    server: { apiKeys: [{ id: 'e2e', key: 'instadarts-e2e-api-key' }], https: { enabled: false }, ...(SERVER_PORT !== 3000 ? { http: { port: SERVER_PORT } } : {}) },
   };
   if (process.env.MEDIA === '0') settings.media = { enabled: false };
 

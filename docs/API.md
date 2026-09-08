@@ -42,6 +42,51 @@ Live spectators are intentionally public to anyone with the room or match ID, ju
 browser's spectator links. HTTP caller isolation does not make live match information private.
 Player invitation codes grant admission to specific players; the API key is never needed to join.
 
+## Discover game modes and settings
+
+`GET /api/v1/modes` returns `200` with `{ modes, matchFields, matchDefaults }`. It requires the same
+bearer authentication as the match endpoints. Modes are ordered by ID and include only those
+installed in this server build: production includes X01 and Whac-A-Mole; development also includes
+the Count-Up example.
+
+Each entry in `modes` contains:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `label` | Mode ID for creation and its display name. |
+| `fields` | Editable mode settings, with `key`, `label`, and `kind`: `toggle`, `number`, or `select`. |
+| `defaults` | Defaults for **only** those editable fields; safe to submit as `settings.modeSettings`. |
+| `maxPlayers` | Mode's own player cap, or null when the mode imposes none. |
+| `effectiveMaxPlayers` | Deployment cap narrowed by the mode's cap; the maximum roster accepted by creation. |
+| `bansMedia` | Media features declined by this mode, such as Whac-A-Mole's `boardVideo`. |
+
+Number fields have inclusive integer `min`/`max` bounds and optional suggested `options` with
+`value`/`label` pairs. Select fields require one of their listed string option values; toggles
+require JSON booleans. `matchFields` describes the format fields `legsToWinSet` and
+`setsToWinMatch` with the same schema; `matchDefaults` supplies their defaults, both currently 1.
+These format settings go directly in `settings`, alongside `mode` and `modeSettings`.
+
+For example, create using a discovered mode's editable defaults:
+
+```js
+const response = await fetch(`${base}/api/v1/modes`, { headers });
+if (!response.ok) throw new Error(await response.text());
+const catalog = await response.json();
+const mode = catalog.modes.find((entry) => entry.id === 'whac-a-mole');
+if (!mode) throw new Error('Whac-A-Mole is not installed');
+const body = {
+  settings: { mode: mode.id, modeSettings: mode.defaults, ...catalog.matchDefaults },
+  players: [{ name: 'Alex' }],
+};
+// POST JSON.stringify(body) to /api/v1/matches using the same authenticated headers.
+```
+
+The HTTP catalog omits internal defaults such as Whac-A-Mole's random `seed` and production X01's
+hidden `stats` setting. Creation generates its own effective settings, including one fixed seed;
+catalog reads, joins, scoring, undo, new legs/sets, reconnects, and result retrieval do not replace
+that seed. The existing WebSocket `mode_catalog` includes internal defaults as well, so consumers
+using it must filter defaults by `fields` before submitting them.
+
 ## Create a match
 
 `POST /api/v1/matches`, with `Content-Type: application/json` and a JSON body of at most 16 KiB:
@@ -65,8 +110,8 @@ Player invitation codes grant admission to specific players; the API key is neve
 }
 ```
 
-`settings.mode` must identify an installed mode. A WebSocket connection receives `mode_catalog`,
-which describes installed modes, their fields, defaults, and limits. See also
+`settings.mode` must identify an installed mode. Use `GET /api/v1/modes` to discover installed
+modes, editable fields, defaults, and limits. See also
 [game modes](./game-modes.md). Omitted settings use that mode's defaults and a format of one leg
 per set and one set per match. Invalid supplied values and unknown request, player, or settings
 fields are rejected; numeric strings are not numbers and string booleans are not booleans.
@@ -105,7 +150,7 @@ Each `players[].id` is a new UUID scoped to this match. Use IDs, not names, to c
 standings, departures, and winners. Match the response entries to the input entries by position.
 There is no persistent player-account identity and no caller-supplied player ID.
 
-Every successful POST creates a new match. There is no idempotency key, list endpoint, update,
+Every successful POST creates a new match. There is no idempotency key, update,
 cancel action, or automatic retry deduplication. Save the response, including the personal codes;
 subsequent reads do not return codes.
 
@@ -220,6 +265,31 @@ History uses the existing scoring types. Each completed leg contains `winnerId` 
 visit contains `playerId`, `visitNumber`, `voided`, and `darts`. Each dart includes coordinates and
 its computed score (`label`, `points`, `mult`, `base`), and accepted darts have server-assigned IDs.
 The current visit is unsubmitted and may still change through scoring or undo.
+
+### List the caller's matches
+
+`GET /api/v1/matches` returns `200` with `{ "matches": [...] }`, containing only API-created
+matches owned by the authenticated caller, in creation order (oldest first). Ordinary browser
+matches and other callers' matches are excluded. An empty inventory returns `{ "matches": [] }`.
+There are no pagination or filter parameters in v1; the inventory is bounded by `server.maxMatches`.
+
+Each entry contains `matchId`, `lobbyId`, `status`, `createdAt`, `startedAt`, `finishedAt`, and
+`resultExpiresAt`. Timestamps use Unix milliseconds and the same nullability as individual match
+responses. Both endpoints use the same detailed statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `waiting` | Lobby waiting for all players to join. |
+| `in_progress` | Match is running. |
+| `finished` | Match ended with a winner, including departure wins. |
+| `cancelled` | Match ended without a winner. |
+| `expired` | Lobby expired before play started. |
+
+The list includes terminal records until their 24-hour retention deadline, even after browser
+room cleanup. Records disappear at retention expiry or server restart. Listing returns no invitations,
+credentials, roster, settings, scores, or history; use the creation response for invitations and
+the individual endpoint for match details. Neither listing nor individual reads renew deadlines.
+Use this inventory to discover matches for subscription or recovery; live updates still use `/ws`.
 
 ### Retention and capacity
 

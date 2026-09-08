@@ -6,13 +6,14 @@ import { CONFIG } from '../../src/server/config';
 import { ApiError, API_RETENTION_MS, createApiMatch, getApiMatch, reservedMatchId, sweepApiRecords } from '../../src/server/apiMatches';
 import { handleClientLeave, handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { getClient, publicPlayers } from '../../src/server/connections';
-import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getLobby, getMatch } from '../../src/server/store';
+import { createLobby, deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getLobby, getMatch, maxPlayersFor } from '../../src/server/store';
 import { sweepLifecycle, IDLE_TTL_MS, SUMMARY_TTL_MS, touch } from '../../src/server/lifecycle';
 import { heldSeat } from '../../src/server/seats';
 import { findPersonalInvite } from '../../src/server/invite';
 import { releaseRateLimit } from '../../src/server/rateLimit';
 import { MAX_VISITS_PER_LEG, standingsOf } from '../../src/shared/matchFormat';
 import type { ServerMessage } from '../../src/shared/protocol';
+import type { ModeDescriptor, ModeSettings } from '../../src/shared/settings';
 import '../../src/server/modes/registry';
 import { allModes } from '../../src/server/modes/types';
 
@@ -307,6 +308,134 @@ describe('HTTP match API', () => {
   afterAll(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
   const call = (path = '/api/v1/matches', init: RequestInit = {}, key = 'key-a') => fetch(base + path, {
     ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...init.headers },
+  });
+
+  it('discovers all installed modes with defaults accepted by creation and effective player limits', async () => {
+    const response = await call('/api/v1/modes');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const catalog = await response.json();
+    expect(catalog.modes.map((mode: ModeDescriptor) => mode.id)).toEqual(allModes().map((mode) => mode.id));
+    expect(catalog.matchFields.map((field: { key: string }) => field.key).sort()).toEqual(Object.keys(catalog.matchDefaults).sort());
+    for (const mode of catalog.modes) {
+      expect(Object.keys(mode.defaults).sort()).toEqual(mode.fields.map((field: { key: string }) => field.key).sort());
+      expect(mode.effectiveMaxPlayers).toBe(maxPlayersFor(mode.id));
+      expect(mode.defaults).not.toHaveProperty('seed');
+      const created = await call(undefined, { method: 'POST', body: JSON.stringify({
+        settings: { mode: mode.id, modeSettings: mode.defaults, ...catalog.matchDefaults }, players: [{ name: 'Solo' }],
+      }) });
+      expect(created.status).toBe(201);
+      expect((await created.json()).settings.modeSettings).toMatchObject(mode.defaults);
+    }
+  });
+
+  it.each(allModes().map((mode) => mode.id))('plays %s through multiple legs/sets, reconnects, and retains its full result', async (mode) => {
+    const smallSettings: Record<string, ModeSettings> = {
+      x01: { startScore: 180, doubleOut: false },
+      'count-up': { targetScore: 60 },
+      'whac-a-mole': { turns: 5 },
+    };
+    const response = await call(undefined, { method: 'POST', body: JSON.stringify({
+      settings: { mode, modeSettings: smallSettings[mode], legsToWinSet: 2, setsToWinMatch: 2 }, players: [{ name: 'Solo' }],
+    }) });
+    expect(response.status).toBe(201);
+    const created = await response.json();
+    if (mode === 'whac-a-mole') expect(created.settings.modeSettings.seed).toEqual(expect.any(Number));
+    // Catalog reads and new connections may generate candidate defaults, never change this match's seed.
+    await call('/api/v1/modes');
+    const watcher = connect(); watcher.send({ type: 'spectate', id: created.matchId });
+    const player = connect(); player.join(created.players[0].inviteCode);
+    expect(watcher.last('match_started').match.settings).toEqual(created.settings);
+    player.send({ type: 'add_dart', dart: { x: 500_000, y: 726_000 } });
+    const beforeReconnect = watcher.last('match_state');
+    expect(beforeReconnect.match.currentVisit?.darts).toHaveLength(1);
+    watcher.send({ type: 'spectate', id: created.matchId });
+    expect(watcher.last('match_state').view).toEqual(beforeReconnect.view);
+    const restored = connect(); restored.send({ ...player.last('resume'), type: 'reconnect' });
+    expect(restored.last('match_state').view).toEqual(beforeReconnect.view);
+    restored.send({ type: 'undo_dart' });
+    for (let visits = 0; visits < 40 && getMatch(created.matchId)!.status !== 'finished'; visits++) {
+      if (mode === 'x01') finishByScoring(restored);
+      else {
+        if (mode === 'count-up') restored.send({ type: 'add_dart', dart: { x: 500_000, y: 726_000 } });
+        restored.send({ type: 'submit_visit' });
+      }
+    }
+    const terminal = watcher.last('match_state');
+    expect(terminal.match.status).toBe('finished');
+    expect(terminal.match.settings).toEqual(created.settings);
+    expect(terminal.match.winnerId).toBe(created.players[0].id);
+    expect(terminal.standings.setWins[created.players[0].id]).toBe(2);
+    expect(restored.received.filter((message) => message.type === 'error')).toEqual([]);
+    sweepLifecycle(terminal.match.expiresAt + 1);
+    expect(getMatch(created.matchId)).toBeUndefined();
+    const result = await call(`/api/v1/matches/${created.matchId}?includeHistory=true`).then((r) => r.json());
+    expect(result.settings).toEqual(created.settings);
+    expect(result.playerScores).toEqual(terminal.view.playerScores);
+    expect(result.standings).toEqual(terminal.standings);
+    expect(result.history.legs).toEqual(terminal.match.legs);
+    expect(result.history.legs).toHaveLength(4);
+  });
+
+  it('lists only caller-owned matches in creation order through play, cleanup, and retention expiry', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const list = async (key = 'key-a') => {
+      const result = await call('/api/v1/matches', {}, key).then((r) => r.json());
+      for (const entry of result.matches) {
+        const detail = await call(`/api/v1/matches/${entry.matchId}`, {}, key).then((r) => r.json());
+        expect(entry.status).toBe(detail.status);
+      }
+      return result;
+    };
+    expect(await list()).toEqual({ matches: [] });
+    const ordinary = createLobby();
+    expect(await list()).toEqual({ matches: [] });
+    deleteLobby(ordinary.id);
+    const waiting = createApiMatch('a', request());
+    const { created, players } = running(['Solo']);
+    const other = createApiMatch('b', request());
+    const initial = await list();
+    expect(initial.matches).toEqual([
+      { matchId: waiting.matchId, lobbyId: waiting.lobbyId, status: 'waiting', createdAt: expect.any(Number), startedAt: null, finishedAt: null, resultExpiresAt: null },
+      { matchId: created.matchId, lobbyId: created.lobbyId, status: 'in_progress', createdAt: expect.any(Number), startedAt: expect.any(Number), finishedAt: null, resultExpiresAt: null },
+    ]);
+    expect((await list('key-b')).matches.map((m: { matchId: string }) => m.matchId)).toEqual([other.matchId]);
+    finishByScoring(players[0]);
+    expect((await list()).matches.map((m: { status: string }) => m.status)).toEqual(['waiting', 'finished']);
+    sweepLifecycle(Date.now() + IDLE_TTL_MS + SUMMARY_TTL_MS);
+    const retained = (await list()).matches;
+    expect(retained.map((m: { status: string }) => m.status)).toEqual(['expired', 'finished']);
+    for (const entry of retained) expect(entry.resultExpiresAt).toBe(entry.finishedAt + API_RETENTION_MS);
+    expect(getApiMatch('a', waiting.matchId).status).toBe('expired');
+    vi.setSystemTime(Math.max(...retained.map((m: { resultExpiresAt: number }) => m.resultExpiresAt)));
+    expect(await list()).toEqual({ matches: [] });
+  });
+
+  it('preserves cancellation status through cleanup and drops orphaned rooms', async () => {
+    const { created, players } = running(['Solo']);
+    players[0].send({ type: 'leave_match' });
+    const orphan = createApiMatch('a', request());
+    deleteLobby(orphan.lobbyId);
+    const response = await call();
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const listed = await response.json();
+    expect(listed.matches).toEqual([expect.objectContaining({ matchId: created.matchId, status: 'cancelled' })]);
+    expect(getApiMatch('a', created.matchId).status).toBe('cancelled');
+    sweepLifecycle(getMatch(created.matchId)!.expiresAt + 1);
+    expect(getMatch(created.matchId)).toBeUndefined();
+    expect(await call().then((r) => r.json())).toEqual(listed);
+    expect((await call(`/api/v1/matches/${created.matchId}`).then((r) => r.json())).status).toBe('cancelled');
+  });
+
+  it.each(['/api/v1/matches', '/api/v1/modes'])('authenticates and disables discovery at %s', async (path) => {
+    const unauthorized = await call(path, {}, 'wrong');
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('cache-control')).toBe('no-store');
+    expect((await call(path, { method: 'DELETE' })).status).toBe(404);
+    const keys = CONFIG.server.apiKeys;
+    CONFIG.server.apiKeys = [];
+    try { expect((await call(path)).status).toBe(404); }
+    finally { CONFIG.server.apiKeys = keys; }
   });
 
   it('creates, authenticates, isolates callers, and returns JSON errors and no-store responses', async () => {

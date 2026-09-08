@@ -117,12 +117,18 @@ export function apiWaitingLobby(matchId: string): Lobby | undefined {
   return record && !record.result ? getLobby(record.lobbyId) : undefined;
 }
 
+function statusOf(match?: MatchState): ApiMatchResult['status'] {
+  if (!match) return 'waiting';
+  if (match.status === 'finished') return match.winnerId ? 'finished' : 'cancelled';
+  return 'in_progress';
+}
+
 function snapshot(record: ApiRecord, room: Lobby | MatchState): ApiMatchResult {
   const match = 'status' in room ? room : undefined;
   const finished = match?.status === 'finished';
   return {
     matchId: record.matchId, lobbyId: record.lobbyId,
-    status: match ? (finished ? (match.winnerId ? 'finished' : 'cancelled') : 'in_progress') : 'waiting',
+    status: statusOf(match),
     settings: room.settings, players: publicPlayers(room.players),
     joinedPlayerIds: match ? [] : joinedPlayerIds(room as Lobby),
     standings: standingsOf(match?.legs ?? [], room.settings),
@@ -163,6 +169,24 @@ export function getApiMatch(callerId: string, matchId: string, includeHistory = 
   if (includeHistory) return { ...result };
   const { history: _history, ...summary } = result;
   return summary;
+}
+
+/** Lightweight caller inventory in creation order; listing never replays game history. */
+export function listApiMatches(callerId: string) {
+  sweepApiRecords();
+  return [...records.values()].filter((record) => record.callerId === callerId).map((record) => {
+    const match = getMatch(record.matchId);
+    const result = record.result;
+    return {
+      matchId: record.matchId,
+      lobbyId: record.lobbyId,
+      status: result?.status ?? statusOf(match),
+      createdAt: record.createdAt,
+      startedAt: result?.startedAt ?? match?.createdAt ?? null,
+      finishedAt: result?.finishedAt ?? match?.finishedAt ?? null,
+      resultExpiresAt: result?.resultExpiresAt ?? null,
+    };
+  });
 }
 
 export function sweepApiRecords(now = Date.now()): void {

@@ -10,7 +10,7 @@ which describe the current state.
 ## Contents
 
 - [Match integration API](./API.md) — caller keys, fixed rosters, personal invitations, spectator
-  WebSocket updates, and retained results.
+  WebSocket updates, mode/settings discovery, caller match inventories, and retained results.
 
 - [Glossary](./glossary.md) — domain vocabulary and naming conventions.
 - [Match lifecycle and session ownership](./match-lifecycle.md) — lobbies, matches, seats,

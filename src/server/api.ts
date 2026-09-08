@@ -1,7 +1,10 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { CONFIG } from './config';
-import { ApiError, createApiMatch, getApiMatch } from './apiMatches';
+import { ApiError, createApiMatch, getApiMatch, listApiMatches } from './apiMatches';
+import { DEFAULT_FORMAT, MATCH_FIELDS } from '../shared/matchFormat';
+import { allModes, describeMode } from './modes/types';
+import { maxPlayersFor } from './store';
 
 const MAX_BODY_BYTES = 16 * 1024;
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -57,6 +60,22 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       }
       const body = await readBody(req);
       json(res, 201, createApiMatch(callerId, body));
+    } else if (url.pathname === '/api/v1/modes' && req.method === 'GET') {
+      json(res, 200, {
+        modes: allModes().map((mode) => {
+          const descriptor = describeMode(mode);
+          return {
+            ...descriptor,
+            // Internal defaults (e.g. Whac-A-Mole's seed) cannot be supplied on creation.
+            defaults: Object.fromEntries(mode.fields.map(({ key }) => [key, descriptor.defaults[key]])),
+            effectiveMaxPlayers: maxPlayersFor(mode.id),
+          };
+        }),
+        matchFields: MATCH_FIELDS,
+        matchDefaults: DEFAULT_FORMAT,
+      });
+    } else if (url.pathname === '/api/v1/matches' && req.method === 'GET') {
+      json(res, 200, { matches: listApiMatches(callerId) });
     } else {
       const match = /^\/api\/v1\/matches\/([^/]+)$/.exec(url.pathname);
       if (!match || req.method !== 'GET') throw new ApiError(404, 'not_found', 'Endpoint not found');

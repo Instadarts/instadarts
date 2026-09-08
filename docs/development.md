@@ -24,8 +24,8 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                                 set of rules over both, including the one that refuses to leave
                                 the client directory
                 devClient.ts    development's client instead: Vite, mounted in this process
-                api.ts          authenticated HTTP match creation and result reads
-                apiMatches.ts   integration ownership, reserved IDs, and 24-hour result archive
+                api.ts          authenticated HTTP mode discovery, match creation/listing, and reads
+                apiMatches.ts   caller inventory, reserved IDs, and 24-hour result archive
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
                 scoringDevices.ts  the pairing and camera-report handlers
@@ -175,7 +175,8 @@ believes it is configured and is not is worse than one that will not start.
 Invalid `server.allowedOrigins` or `server.apiKeys` is also fatal; falling back could change the
 intended admission policy. `apiKeys` defaults to an empty list (HTTP match API disabled). Each
 entry has a unique caller `id` and secret `key`; keys never appear in `app_config`. See
-[API.md](./API.md) for configuration, creation, WebSocket subscriptions, and retained results.
+[API.md](./API.md) for configuration, mode/settings discovery, caller match inventories, creation,
+WebSocket subscriptions, and retained results.
 
 ```sh
 curl -s 'http://[::1]:3000/server-stats'   # the derived limits, and what is held against them

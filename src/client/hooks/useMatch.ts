@@ -144,7 +144,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     setNotice(null);
   }, [send]);
 
-  const joinLobby = useCallback((inviteCode: string) => {
+  const joinLobby = useCallback((inviteCode: string | string[]) => {
     send({ type: 'join_lobby', inviteCode });
     setError(null);
     setNotice(null);

@@ -69,3 +69,69 @@ test('a single-player invitation navigates directly into its automatic match', a
   await page.reload();
   await expect(page.getByTestId('dartboard')).toBeVisible();
 });
+
+test('a shared-board link claims multiple players together and preserves them across reloads', async ({ page, browser, request }) => {
+  const response = await request.post('/api/v1/matches', { headers, data: { settings, players: ['A', 'B', 'C', 'D'].map((name) => ({ name })) } });
+  expect(response.status()).toBe(201);
+  const created = await response.json();
+  const sharedLink = `/lobby/join/${[2, 0, 1].map((i) => created.players[i].inviteCode.toLowerCase()).join('/')}`;
+  await page.goto(sharedLink);
+  await expect(page).toHaveURL(new RegExp(`/lobby/${created.lobbyId}$`));
+  await expect(page.getByText('3/4 joined')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('3/4 joined')).toBeVisible();
+  // Reopening the same link uses the saved seat and does not lose any of its players.
+  await page.goto(sharedLink);
+  await expect(page).toHaveURL(new RegExp(`/lobby/${created.lobbyId}$`));
+  await expect(page.getByText('3/4 joined')).toBeVisible();
+  const otherContext = await browser.newContext();
+  try {
+    const other = await otherContext.newPage();
+    await other.goto(`/lobby/join/${created.players[3].inviteCode}`);
+    await expect(page).toHaveURL(new RegExp(`/match/${created.matchId}$`));
+    await page.reload();
+    await expect(page.getByTestId('dartboard')).toBeVisible();
+    const state = await request.get(`/api/v1/matches/${created.matchId}`, { headers }).then((r) => r.json());
+    expect(state.players.map((p: { boardId: string }) => p.boardId)).toEqual([
+      created.players[0].id, created.players[0].id, created.players[0].id, created.players[3].id,
+    ]);
+    for (let i = 0; i < 3; i++) await clickT20(page);
+    await submitVisit(page);
+    await expect(page.getByText('Play again?', { exact: true })).toHaveCount(0);
+    const result = await request.get(`/api/v1/matches/${created.matchId}`, { headers }).then((r) => r.json());
+    expect(result.winnerId).toBe(created.players[0].id);
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test('a link containing the full roster starts immediately, including repeated codes', async ({ page, request }) => {
+  const response = await request.post('/api/v1/matches', { headers, data: { settings, players: [{ name: 'A' }, { name: 'B' }] } });
+  const created = await response.json();
+  await page.goto(`/lobby/join/${[1, 0, 1].map((i) => created.players[i].inviteCode).join('/')}`);
+  await expect(page).toHaveURL(new RegExp(`/match/${created.matchId}$`));
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('dartboard')).toBeVisible();
+  const result = await request.get(`/api/v1/matches/${created.matchId}`, { headers }).then((r) => r.json());
+  expect(result.status).toBe('in_progress');
+  expect(result.players.map((p: { boardId: string }) => p.boardId)).toEqual([created.players[0].id, created.players[0].id]);
+});
+
+test('invalid shared links claim no players and preserve an existing seat', async ({ page, request }) => {
+  const response = await request.post('/api/v1/matches', { headers, data: { settings, players: ['A', 'B', 'C'].map((name) => ({ name })) } });
+  const created = await response.json();
+  const state = () => request.get(`/api/v1/matches/${created.matchId}`, { headers }).then((r) => r.json());
+  await page.goto(`/lobby/join/${created.players[0].inviteCode}/BADBAD`);
+  await expect(page).toHaveURL('/');
+  expect((await state()).joinedPlayerIds).toEqual([]);
+  await page.goto(`/lobby/join/${created.players[0].inviteCode}`);
+  await expect(page.getByText('1/3 joined')).toBeVisible();
+  await page.goto(`/lobby/join/${created.players[1].inviteCode}/BADBAD`);
+  await expect(page).toHaveURL(new RegExp(`/lobby/${created.lobbyId}$`));
+  await expect(page.getByText('1/3 joined')).toBeVisible();
+  expect((await state()).joinedPlayerIds).toEqual([created.players[0].id]);
+  await page.goto(`/lobby/join/${created.players[1].inviteCode}/${created.players[2].inviteCode}`);
+  await expect(page).toHaveURL(new RegExp(`/match/${created.matchId}$`));
+  expect((await state()).players.map((p: { boardId: string }) => p.boardId)).toEqual(created.players.map(() => created.players[0].id));
+});

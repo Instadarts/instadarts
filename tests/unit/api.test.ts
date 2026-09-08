@@ -132,11 +132,65 @@ describe('managed invitations and spectator snapshots', () => {
     expect(second.last('error').message).toContain('already joined');
     const before = first.last('resume');
     first.join(b.players[0].inviteCode);
+    first.send({ type: 'join_lobby', inviteCode: b.players.map((p) => p.inviteCode) });
     first.join('BADBAD');
     expect(getClient(first.ws)?.lobbyId).toBe(a.lobbyId);
     expect(first.last('resume')).toEqual(before);
     expect(getLobby(a.lobbyId)?.players).toHaveLength(2);
   });
+
+  it('claims a group together, preserves repeated claims, and starts once after the final group', () => {
+    const created = createApiMatch('a', request(['A', 'B', 'C']));
+    const watcher = connect(); watcher.send({ type: 'spectate', id: created.matchId });
+    const player = connect();
+    const codes = created.players.map((p) => p.inviteCode);
+    player.send({ type: 'join_lobby', inviteCode: [codes[1], codes[0], codes[1]] });
+    const resume = player.last('resume');
+    expect(player.last('lobby_state').yourPlayerIds).toEqual([created.players[1].id, created.players[0].id]);
+    expect(watcher.received.filter((m) => m.type === 'lobby_state')).toHaveLength(2);
+    player.send({ type: 'join_lobby', inviteCode: [codes[0], codes[1]] });
+    expect(player.last('resume')).toEqual(resume);
+    expect(getApiMatch('a', created.matchId).joinedPlayerIds).toEqual(created.players.slice(0, 2).map((p) => p.id));
+    const restored = connect(); restored.send({ ...resume, type: 'reconnect' });
+    restored.send({ type: 'join_lobby', inviteCode: [codes[1], codes[2], codes[2]] });
+    const match = getMatch(created.matchId)!;
+    expect(match.players.map((p) => p.id)).toEqual(created.players.map((p) => p.id));
+    expect(publicPlayers(match.players).map((p) => p.boardId)).toEqual(created.players.map(() => created.players[0].id));
+    expect(restored.last('match_started').yourPlayerIds).toHaveLength(3);
+    expect(watcher.received.filter((m) => m.type === 'match_started')).toHaveLength(1);
+    expect(restored.received.filter((m) => m.type === 'error')).toEqual([]);
+  });
+
+  it.each(['unknown', 'foreign', 'claimed', 'ordinary', 'expired', 'empty', 'invalid-type', 'too-many'] as const)(
+    'rejects a %s group without changing any claims or the existing seat', (reason) => {
+      const created = createApiMatch('a', request(['A', 'B', 'C']));
+      const player = connect(); player.join(created.players[0].inviteCode);
+      const busy = connect(); busy.join(created.players[1].inviteCode);
+      const other = createApiMatch('b', request());
+      const host = connect(); host.send({ type: 'create_lobby', acceptsJoins: true });
+      const available = created.players[2].inviteCode;
+      const batches = {
+        unknown: [available, 'BADBAD'],
+        foreign: [available, other.players[0].inviteCode],
+        claimed: [available, created.players[1].inviteCode],
+        ordinary: [available, host.last('lobby_state').lobby.inviteCode],
+        expired: [available],
+        empty: [],
+        'invalid-type': [available, 123],
+        'too-many': Array(CONFIG.server.maxPlayersPerMatch + 1).fill(available),
+      };
+      if (reason === 'expired') getLobby(created.lobbyId)!.expiresAt = Date.now() - 1;
+      // Participant input can renew the idle deadline even when admission is refused.
+      const { expiresAt: _deadline, ...before } = structuredClone(getLobby(created.lobbyId)!);
+      const resume = player.last('resume');
+      player.send({ type: 'join_lobby', inviteCode: batches[reason] });
+      expect(player.last('error')).toBeDefined();
+      expect(player.last('resume')).toEqual(resume);
+      expect(getLobby(created.lobbyId)).toMatchObject(before);
+      expect(getClient(player.ws)?.lobbyId).toBe(created.lobbyId);
+      expect(getMatch(created.matchId)).toBeUndefined();
+    },
+  );
 
   it('releases shared players back to waiting and lets another browser reclaim their codes', () => {
     const created = createApiMatch('a', request(['A', 'B', 'C']));

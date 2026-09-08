@@ -559,6 +559,21 @@ function handleCreateLobby(ws: WebSocket, msg: any): void {
 function handleJoinLobby(ws: WebSocket, msg: any): void {
   const client = getClient(ws);
   if (!client) return;
+  if (Array.isArray(msg.inviteCode)) {
+    if (!msg.inviteCode.length || msg.inviteCode.length > CONFIG.server.maxPlayersPerMatch
+      || !msg.inviteCode.every((code: unknown) => typeof code === 'string')) {
+      send(ws, { type: 'error', message: 'Provide player invite codes within the server player limit' });
+      return;
+    }
+    const invitations = [...new Set<string>(msg.inviteCode)].map(findPersonalInvite);
+    if (!invitations.every((invite) => invite !== undefined)
+      || invitations.some((invite) => invite.lobbyId !== invitations[0].lobbyId)) {
+      send(ws, { type: 'error', message: 'Use player invite codes from the same lobby' });
+      return;
+    }
+    handlePersonalJoin(ws, client, invitations[0].lobbyId, invitations.map((invite) => invite.playerId));
+    return;
+  }
   const personal = findPersonalInvite(msg.inviteCode);
   if (client.lobbyId && getLobby(client.lobbyId)?.apiManaged
     && (!personal || personal.lobbyId !== client.lobbyId)) {
@@ -566,7 +581,7 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
   if (personal) {
-    handlePersonalJoin(ws, client, personal);
+    handlePersonalJoin(ws, client, personal.lobbyId, [personal.playerId]);
     return;
   }
   const lobby = findLobbyByInviteCode(msg.inviteCode);
@@ -598,26 +613,30 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
   broadcastToLobby(lobby.id, lobbyMessage(lobby), ws);
 }
 
-/** A personal code adds a fixed roster player to the current seat, including a shared board. */
-function handlePersonalJoin(ws: WebSocket, client: Client, invite: { lobbyId: string; playerId: string }): void {
-  const lobby = getLobby(invite.lobbyId);
-  const player = lobby?.players.find((p) => p.id === invite.playerId);
-  if (!lobby?.apiManaged || !player || Date.now() >= lobby.expiresAt) {
+/** Validate all personal invitations before adding their players to one seat and checking start. */
+function handlePersonalJoin(ws: WebSocket, client: Client, lobbyId: string, playerIds: string[]): void {
+  if (client.lobbyId && getLobby(client.lobbyId)?.apiManaged && client.lobbyId !== lobbyId) {
+    send(ws, { type: 'error', message: 'Use a player invite code for this lobby, or leave before joining another' });
+    return;
+  }
+  const lobby = getLobby(lobbyId);
+  const players = playerIds.map((id) => lobby?.players.find((p) => p.id === id));
+  if (!lobby?.apiManaged || !players.every((player) => player !== undefined) || Date.now() >= lobby.expiresAt) {
     send(ws, { type: 'error', message: 'Lobby not found or expired' });
     return;
   }
   // Validate before leaving the current room. A held seat remains reserved during disconnect grace.
-  if (player.sessionId && player.sessionId !== client.sessionId
-    && heldSeat(lobby.id, player.sessionId)?.seat.playerIds.includes(player.id)) {
+  if (players.some((player) => player.sessionId && player.sessionId !== client.sessionId
+    && heldSeat(lobby.id, player.sessionId)?.seat.playerIds.includes(player.id))) {
     send(ws, { type: 'error', message: 'This player has already joined' });
     return;
   }
   enterRoom(ws, client, lobby.id, null, false);
   const held = heldSeat(lobby.id, client.sessionId);
-  const mine = [...new Set([...(held?.seat.playerIds ?? []), player.id])];
+  const mine = [...new Set([...(held?.seat.playerIds ?? []), ...playerIds])];
   const token = held?.token ?? grantSeat(lobby.id, client.sessionId, { playerIds: mine, host: false });
   updateSeat(lobby.id, token, { playerIds: mine, host: false });
-  player.sessionId = client.sessionId;
+  for (const player of players) player.sessionId = client.sessionId;
   // Accepted admission is input. Renew before publishing/readiness so a join at the idle boundary
   // cannot fill the roster yet miss its automatic start while notifications are being sent.
   touch(lobby);

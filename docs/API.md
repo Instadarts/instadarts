@@ -166,6 +166,28 @@ claim additional players in the same lobby using **Add player by invite code**. 
 seat, dartboard, camera/scoring devices, and reconnect token. Their board ID is the first of those
 players in roster order, even if invitations were redeemed in a different order.
 
+To assign a shared board directly, distribute a link containing each player's personal code:
+`<base-url>/lobby/join/<inviteCodeA>/<inviteCodeB>`. More codes can be appended as path segments,
+up to `server.maxPlayersPerMatch` codes in a link. For example, using the creation response:
+
+```js
+const sharedBoardPlayers = created.players.slice(0, 2);
+const sharedBoardLink = `${base}/lobby/join/${sharedBoardPlayers.map((p) => p.inviteCode).join('/')}`;
+```
+
+All codes must be personal invitations from the same waiting API lobby. Opening the link claims
+them together into one browser seat, adding to any players it already owns there. Every code is
+validated before any claim is made: an unknown, expired, foreign-lobby, ordinary shared code, or
+code claimed by another seat rejects the whole group and preserves existing ownership. Duplicate
+codes are harmless and count toward the link's code limit. URL codes are case-insensitive.
+If this group completes the roster, the browser goes directly to the automatically started match.
+Reloads use the same saved seat token for every player on the board.
+
+The browser sends one `join_lobby` message with `inviteCode` set to an array of personal codes:
+`{ "type": "join_lobby", "inviteCode": ["ABCD23", "EFGH45"] }`. Direct WebSocket clients must use
+the uppercase codes returned by creation. The existing string form still accepts a single ordinary
+or personal code; the array form accepts only personal codes from one lobby.
+
 Repeating a code already owned by the same browser is harmless. A code held by another seat is
 refused, including during disconnect grace. An additional code for another lobby is refused
 without disturbing the current seat; leave first to switch lobbies.

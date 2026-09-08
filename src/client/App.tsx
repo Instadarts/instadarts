@@ -255,7 +255,7 @@ export function App() {
           />
         } />
 
-        <Route path="/lobby/join/:code" element={
+        <Route path="/lobby/join/:code/*" element={
           <JoinHandler onJoin={joinLobby} lobby={lobby} match={match} error={error} />
         } />
 

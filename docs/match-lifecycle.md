@@ -159,6 +159,13 @@ claim is refused, and several codes can fill the same browser seat and board. Th
 roster does not block admission: a code must identify an available roster player. Additional codes
 for another lobby are refused until the participant leaves the current managed lobby.
 
+Shared-board links use `/lobby/join/<codeA>/<codeB>` (with further codes allowed). They send a
+single `join_lobby` request whose `inviteCode` is an array of personal codes, bounded by
+`server.maxPlayersPerMatch`. The server validates the whole group before claiming any player,
+requires one lobby, ignores duplicate claims, and checks automatic start once after the group
+joins. Invalid or unavailable codes leave existing ownership intact. Ordinary invitations continue
+to use the single-code string form. See [API.md](./API.md#invitations-and-shared-boards).
+
 There is no browser host. Settings, names, order, additions, removals, manual start, and rematch
 votes are rejected server-side. `joinedPlayerIds` in lobby snapshots is derived from open frontend
 connections and their seats. Once every roster player is connected, admission or reconnection

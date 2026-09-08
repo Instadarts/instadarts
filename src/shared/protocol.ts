@@ -32,7 +32,8 @@ export interface CreateLobbyMessage {
  */
 export interface JoinLobbyMessage {
   type: 'join_lobby';
-  inviteCode: string;
+  /** An array claims personal API invitations from one lobby together into the same seat. */
+  inviteCode: string | string[];
 }
 
 export interface AddLocalPlayerMessage {

@@ -444,5 +444,8 @@ An API lobby uses the existing lobby layout with fixed settings and a fixed rost
 joined/waiting indicators and explains automatic start. Player editing, ordering, shared invites,
 and manual start are absent. Participants can use **Add player by invite code** to claim another
 predefined player on the same board; errors leave their existing seat intact. API-managed match
-summaries omit the rematch box. These are presentations of server-enforced rules, not client-only
+summaries omit the rematch box. An integration can also provide `/lobby/join/<codeA>/<codeB>` links
+to claim several players on one board in one step, without using the add-player control. The whole
+group is validated before admission, and a group that completes the roster enters the match
+immediately. These are presentations of server-enforced rules, not client-only
 permissions. See [API.md](./API.md).

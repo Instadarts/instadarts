@@ -7,7 +7,7 @@ import { GridBox } from '../layout/GridBox';
 import { JOIN_LAYOUTS } from '../layout/frontendLayout';
 
 interface JoinHandlerProps {
-  onJoin: (code: string) => void;
+  onJoin: (code: string | string[]) => void;
   lobby: Lobby | null;
   match: MatchState | null;
   error: string | null;
@@ -16,21 +16,23 @@ interface JoinHandlerProps {
 const JOIN_TIMEOUT_MS = 8000;
 
 export function JoinHandler({ onJoin, lobby, match, error }: JoinHandlerProps) {
-  const { code } = useParams<{ code: string }>();
+  const { code, '*': additionalCodes } = useParams<{ code: string; '*': string }>();
   const navigate = useNavigate();
   const initialLobby = useRef(lobby);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (code) {
-      onJoin(code.toUpperCase());
+      onJoin(additionalCodes
+        ? [code, ...additionalCodes.split('/')].map((value) => value.toUpperCase())
+        : code.toUpperCase());
       // Safety timeout: if lobby never arrives, go home
       timerRef.current = setTimeout(() => {
         navigate('/', { replace: true });
       }, JOIN_TIMEOUT_MS);
     }
     return () => clearTimeout(timerRef.current);
-  }, [code]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [code, additionalCodes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (match) {

@@ -24,6 +24,7 @@ import { stillSize } from '../lib/appConfig';
 import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
 import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
 import { createBoardMask } from './boardMask';
+import { publishedBoardGeometry, type BoardGeometry } from '../../shared/vision/feedGeometry';
 
 export type VisionStatus = {
   stage: 'model' | 'camera' | 'motion' | 'error';
@@ -100,12 +101,20 @@ export interface VisionRuntime {
    */
   directVideo: (region: Region | null, transitionMs: number, resetMs: number) => void;
   /**
-   * One frame of the live feed, framed as the director last asked. Null when there is no camera.
+   * One frame of the live feed, framed as the director last asked, and a description of where the
+   * board is in it. Null when there is no camera; the description alone is null when there is no
+   * homography.
    *
-   * **The caller must close it.** A `VideoFrame` holds a real buffer, often a GPU texture, and
-   * leaking them stalls an encoder in a second or two rather than degrading gently.
+   * The pair is deliberately one value — see `GrabbedFrame` in `media/videoPublisher.ts`, which is
+   * the shape this satisfies structurally. Nothing here imports the publisher: it declares what it
+   * needs of a frame source and this happens to be one, the same arrangement `VideoFrameSource`
+   * already had.
+   *
+   * **The caller must close the frame.** A `VideoFrame` holds a real buffer, often a GPU texture,
+   * and leaking them stalls an encoder in a second or two rather than degrading gently.
    */
-  grabVideoFrame: (size: number, timestampUs: number, durationUs: number) => VideoFrame | null;
+  grabVideoFrame: (size: number, timestampUs: number, durationUs: number)
+    => { frame: VideoFrame; geometry: BoardGeometry | null } | null;
   /** Whether the board has been located since the camera started, so a region can be placed at all. */
   readonly located: boolean;
   /**
@@ -372,13 +381,22 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       if (!camera.active) return null;
       if (!video.videoWidth || !video.videoHeight) return null;
 
-      // One reading of the frame, used by both of the things that follow: where the shot should
-      // point, and where the mask's outline lands in it. Asking the video element again between them
-      // would be asking a moving thing the same question twice.
+      // One reading of the frame, used by all three of the things that follow: where the shot should
+      // point, where the mask's outline lands in it, and what the receiver is told about it. Asking
+      // the video element again between them would be asking a moving thing the same question twice.
       const { crop, frame } = frameGeometry(video);
       const shot = virtualCamera.shot(videoDestination(crop, frame), performance.now());
       const outline = maskEnabled ? boardMask.outline(lastHomography, lensCalibration) : null;
-      return grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
+      const grabbed = grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
+      if (!grabbed) return null;
+
+      // Described from the same crop and the same shot the picture was drawn from, in the same call,
+      // so the two cannot disagree about which frame they are about. Null where the board has not
+      // been located: a receiver is told nothing rather than told something invented.
+      const geometry = lastHomography
+        ? publishedBoardGeometry({ homography: lastHomography, lensCalibration, crop, shot })
+        : null;
+      return { frame: grabbed, geometry };
     },
 
     async unload() {

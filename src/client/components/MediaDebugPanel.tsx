@@ -277,7 +277,7 @@ function PublisherRow({ stats, offer, open }: { stats?: () => PublisherStats | n
   return (
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
-      {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
+      {counters && ` · ${counters.frames}f ${counters.keyframes}k ${counters.described}g · ${Math.round(counters.bytes / 1024)}kB`}
       {canvasLabel && <Text span c="dimmed"> · {canvasLabel}</Text>}
       {counters && counters.dropped > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {counters.dropped} dropped</Text>}
       {counters && counters.oversize > 0 && <Text span c="var(--instadarts-tone-danger-fg)"> · {counters.oversize} oversize</Text>}
@@ -297,14 +297,23 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
   feed: VideoFeed;
   open: boolean;
 }) {
-  const [shown, setShown] = useState<{ decoded: number; dropped: number; gaps: number } | null>(null);
+  const [shown, setShown] = useState<
+    { decoded: number; dropped: number; gaps: number; shot: number | null } | null
+  >(null);
 
   useEffect(() => {
     if (!open) return;
     const tick = () => {
       const entry = feed.stats.current.find((s) => s.peerId === peerId);
       const counters = entry?.stats;
-      setShown(counters ? { decoded: counters.decoded, dropped: counters.dropped, gaps: counters.gaps } : null);
+      setShown(counters ? {
+        decoded: counters.decoded,
+        dropped: counters.dropped,
+        gaps: counters.gaps,
+        // The shot's side, in board space. Enough to watch a director move arrive with the picture,
+        // which is the one thing about the geometry block a person can check by eye.
+        shot: counters.geometry?.shot.size ?? null,
+      } : null);
     };
     tick();
     const handle = setInterval(tick, 500);
@@ -315,6 +324,7 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
       {shown && ` · ${shown.decoded}f`}
+      {shown?.shot != null && ` · geom ${shown.shot.toFixed(2)}`}
       {shown && shown.gaps > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {shown.gaps} gaps</Text>}
       {shown && shown.dropped > 0 && <Text span c="dimmed"> · {shown.dropped} dropped</Text>}
     </Text>

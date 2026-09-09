@@ -428,6 +428,7 @@ The complete design is in [media.md](./media.md).
 | **Director command** | `video_region`: a requested region, transition time, and reset time for live video |
 | **Virtual camera** | The crop and interpolation that applies director commands without moving a physical lens |
 | **Board mask** | A scoring device blacking out everything outside the board's rim in the video it publishes; the phone's own choice, and never a change to what is scored |
+| **Frame geometry** | The optional per-frame block naming where the board is in a published frame: homography, lens coefficient, and the published square |
 
 Important boundaries:
 

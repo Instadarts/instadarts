@@ -17,6 +17,7 @@
 
 import type { VideoFeedId, VideoProfile } from '../../shared/media';
 import { unpackVideo } from './frames';
+import type { BoardGeometry } from '../../shared/vision/feedGeometry';
 
 export interface ReceiverStats {
   /** Frames handed to the decoder. */
@@ -28,6 +29,17 @@ export interface ReceiverStats {
   bytes: number;
   /** Whether a keyframe has been seen at all. False here means a black rectangle is expected. */
   started: boolean;
+  /**
+   * Where the board is in the picture on the canvas — **not a counter**.
+   *
+   * The newest description this feed has sent, held across the frames that carry none, because a
+   * frame without one means the geometry is unchanged. Null until the first described frame is
+   * decoded, and never reset by one that is not.
+   *
+   * Nothing reads it yet. It is what a receiver-side warp would need, and `stats()` is the only way
+   * out of this module, so this is where such a thing would come and get it.
+   */
+  geometry: BoardGeometry | null;
   error?: string;
 }
 
@@ -55,7 +67,7 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
   canvas.height = profile.height;
   const context = canvas.getContext('2d', { alpha: false });
 
-  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, bytes: 0, started: false };
+  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, bytes: 0, started: false, geometry: null };
   let lastSeq = -1;
   /** Whether the stream is decodable from here. False until a keyframe, and again after a gap. */
   let synced = false;
@@ -142,7 +154,14 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
           timestamp: header.timestamp,
           data: payload,
         }));
-        stats = { ...stats, decoded: stats.decoded + 1, bytes: stats.bytes + payload.byteLength };
+        stats = {
+          ...stats,
+          decoded: stats.decoded + 1,
+          bytes: stats.bytes + payload.byteLength,
+          // Only for a frame that was actually decoded. A description belonging to a picture nobody
+          // saw — dropped as stale, or thrown away after a gap — describes nothing on this canvas.
+          geometry: header.geometry ?? stats.geometry,
+        };
       } catch (e) {
         stats = { ...stats, error: e instanceof Error ? e.message : String(e) };
         synced = false;

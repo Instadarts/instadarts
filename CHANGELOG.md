@@ -7,6 +7,10 @@
   Settings → Sharing and power → **Board only**. It keeps somebody's living room out of the picture
   and spends the bitrate on the board instead, and it changes nothing about scoring. See
   [docs/media.md](docs/media.md).
+- Published video frames can carry an optional block naming where the board is in them: the
+  homography, the lens coefficient and the published square. Nothing reads it yet — it is what a
+  receiver-side front-facing warp needs, and sending it costs fifty-two bytes on the frames that
+  carry one.
 
 ## 1.2.0
 - Match integration API: an authenticated HTTP API for external software to create matches with a

@@ -221,8 +221,8 @@ points and a flat fill.
 
 **It is not a warp.** The board keeps the shape the camera saw it in; only the surroundings change.
 Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone that is
-already running the detection model — so if that is ever wanted, the end to do it at is the one with
-an idle GPU and no inference to run.
+already running the detection model — see [Geometry travels with the frame](#geometry-travels-with-the-frame)
+for what a receiver would need to do it instead.
 
 **No homography means no mask.** The same honesty as the fallback crop: a feed that has not located
 the board publishes its camera's own square, unmasked, rather than guessing where to put the black.
@@ -306,6 +306,45 @@ Two things follow. Quality is settled once at the source from the deployment's `
 rather than negotiated per viewer; and each recipient is judged separately, so one that cannot keep
 up has frames dropped for it — `bufferedAmount` past the backlog limit means skip, never queue —
 without holding the others back.
+
+### Geometry travels with the frame
+
+A frame may carry an optional fifty-two byte block saying **where the board is in it**: the
+image→board homography, the lens coefficient, and the published square. Flag bit 1 of the video
+header says whether it is there, and the payload's offset follows that flag rather than the message
+length — which is what leaves bit 2 free for whoever needs it next.
+
+The numbers are [`feedGeometry.ts`](../src/shared/vision/feedGeometry.ts)'s and the byte offsets are
+[`frames.ts`](../src/client/media/frames.ts)'s, so the two have to be read together. Two conventions
+matter to a reader: the matrix maps into **normalized board space**, the same `[0, 1]` a `Region`
+uses, so a receiver never learns that board units exist; and what travels is the lens *coefficient*
+rather than the slider position, because the wire carries optics and not a widget.
+
+**Nothing consumes it yet.** It exists so a receiver can later rectify the board to front-facing —
+the warp the device deliberately does not do, because that needs a per-pixel inverse map and a GPU
+the detection model is already using. A viewer's GPU is idle. `ReceiverStats.geometry` is where such
+a thing would come and get it.
+
+**Sent on change, and on every keyframe.** A mounted camera re-solves its homography only when the
+motion gate fires and holds one shot between director commands, so most frames say nothing — and a
+frame that says nothing means *unchanged*, never *gone*. Repeating it on keyframes is what lets a
+viewer who joined late, or who lost the frame carrying the last change, catch up on the same frame it
+can start decoding from. The publisher forgets what it has said whenever its encoder is replaced,
+which is what stops a description surviving a camera pause: that stops the encoder but keeps the feed
+UUID, and the phone may have been moved in between.
+
+It says where the board is, not **when** that was worked out. A homography is kept for the whole
+camera session with no maximum age (see [vision.md](./vision.md#the-board-mask)), so a receiver can
+be handed a description a phone has since been nudged out of, and cannot tell. That is deliberate for
+now: the device is framing its own shot with the same matrix, so a receiver cannot do better than its
+source, and a staleness policy belongs to whatever would act on one.
+
+**Compatibility.** There is no protocol version handshake, and both peers are served the same build
+by the same server, so a mismatch needs a stale cached tab. Such a receiver would read twenty-nine
+bytes, ignore a flag bit it does not know, and hand the block to its decoder along with the picture;
+it fails to sync, asks for keyframes, and shows nothing — which is the fallback every other video
+failure in this document already has, and a reload fixes it. The other direction is correct by
+construction: a clear flag bit means no block.
 
 ### ICE, and why video may simply not work
 

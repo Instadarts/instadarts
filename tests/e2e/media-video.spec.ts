@@ -16,6 +16,9 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
+import { transformPoint } from '../../src/shared/vision/homography';
+import { undistortNormalizedPoint } from '../../src/shared/vision/lensDistortion';
+import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
 import { clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
@@ -701,6 +704,67 @@ test.describe('board video', () => {
     for (const [i, cell] of middle(unmasked).entries()) {
       expect(Math.abs(cell - middle(masked)[i]), `board cell ${i} moved with the mask`).toBeLessThan(3);
     }
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
+  test('a published frame says where the board is in it', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    // A homography, so there is something to describe. Deliberately no assertion that nothing was
+    // described *before* this: the motion gate fires on its own as soon as a camera opens, so a
+    // board is often located before a test could look. That a camera without one sends no block is
+    // `visionRuntime`'s to keep and the unit suite's to pin.
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+
+    await expect.poll(async () => (await published(scorer.page)).described, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+
+    // Sent on change and on keyframes, so blocks are a small fraction of frames rather than all of
+    // them. Measured over enough frames for that to mean something: a keyframe every two seconds at
+    // fifteen frames a second is one frame in thirty, and this scene changes nothing in between, so
+    // a third is a wide margin around a number that should be nearer a thirtieth. A block on every
+    // frame — the cadence quietly reverting to "always" — fails here and nowhere else.
+    await expect.poll(async () => (await published(scorer.page)).frames, { timeout: 30_000 })
+      .toBeGreaterThan(30);
+    const stats = await published(scorer.page);
+    expect(stats.described * 3, 'a block on far too many frames').toBeLessThan(stats.frames);
+
+    const geometry = await guest.evaluate(() =>
+      ((window as any).__media.video().watching[0]?.stats?.geometry ?? null) as BoardGeometry | null);
+    expect(geometry, 'the viewer never received a description').not.toBeNull();
+    expect(geometry!.homography.flat().every(Number.isFinite)).toBe(true);
+    expect(geometry!.shot.size).toBeGreaterThan(0);
+    expect(geometry!.shot.size).toBeLessThanOrEqual(1);
+
+    // The whole point of the block, run for real: one pixel of a frame that crossed an encoder, a
+    // datachannel and a decoder, sent back to a board coordinate — with no warping code anywhere in
+    // the app. The centre of an undirected shot is the centre of the board's own bounding square,
+    // which is near the bull; the tolerance is wide because that square is not symmetric about the
+    // bull under perspective, not because the geometry is loose.
+    const centre: [number, number] = [
+      geometry!.shot.x + 0.5 * geometry!.shot.size,
+      geometry!.shot.y + 0.5 * geometry!.shot.size,
+    ];
+    const undistorted = Math.abs(geometry!.lensK1) >= 1e-12
+      ? undistortNormalizedPoint(centre, geometry!.lensK1)
+      : centre;
+    const board = transformPoint(undistorted, geometry!.homography);
+    expect(board, 'the description does not describe a board').not.toBeNull();
+    expect(Math.hypot(board![0] - 0.5, board![1] - 0.5)).toBeLessThan(0.2);
 
     await alice.close();
     await bob.close();

@@ -7,6 +7,7 @@ import {
   undistortNormalizedPoint,
 } from '../../src/shared/vision/lensDistortion';
 import { processPredictions } from '../../src/client/vision/predictionPipeline';
+import { publishedBoardGeometry, type BoardGeometry } from '../../src/shared/vision/feedGeometry';
 import type { Keypoint, Matrix3x3, Point2D } from '../../src/shared/vision/types';
 
 // ============================================================
@@ -291,5 +292,121 @@ describe('processPredictions', () => {
       uncorrected!.tips[0].y - corrected!.tips[0].y,
     );
     expect(drift).toBeGreaterThan(1_000);
+  });
+});
+
+// ============================================================
+// What a published frame says about the board
+// ============================================================
+
+/**
+ * The receiver's half of the geometry block, written out here and nowhere else.
+ *
+ * This is the journey a warping receiver would make, and there is deliberately no implementation of
+ * it in `src/` yet — so this test is what says the thirteen numbers are *sufficient*. If it stops
+ * passing, no amount of receiver code would have helped.
+ */
+function pixelToBoard(geometry: BoardGeometry, pixelX: number, pixelY: number, frameSize: number): Point2D {
+  const u = pixelX / frameSize;
+  const v = pixelY / frameSize;
+  const distorted: Point2D = [
+    geometry.shot.x + u * geometry.shot.size,
+    geometry.shot.y + v * geometry.shot.size,
+  ];
+  const undistorted = Math.abs(geometry.lensK1) >= 1e-12
+    ? undistortNormalizedPoint(distorted, geometry.lensK1)
+    : distorted;
+  const board = transformPoint(undistorted, geometry.homography);
+  if (!board) throw new Error('the block did not describe a board');
+  return [board[0] * BOARD_MAX, board[1] * BOARD_MAX];
+}
+
+/** Push every number in a block through float32, as the wire does. */
+function throughFloat32(geometry: BoardGeometry): BoardGeometry {
+  return {
+    homography: geometry.homography.map((row) => row.map(Math.fround)) as Matrix3x3,
+    lensK1: Math.fround(geometry.lensK1),
+    shot: {
+      x: Math.fround(geometry.shot.x),
+      y: Math.fround(geometry.shot.y),
+      size: Math.fround(geometry.shot.size),
+    },
+  };
+}
+
+describe('publishedBoardGeometry', () => {
+  /** The model's input square inside a 1280×720 stream — the centre crop the pipeline feeds. */
+  const crop = { cropX: 280, cropY: 0, cropSize: 720 };
+  /** A shot of the middle of that square, as a director's quarter-board move produces. */
+  const shot = { x: 280 + 150, y: 130, size: 430 };
+  const FRAME = 320;
+
+  /** The camera's own solved matrix, in board units, exactly as `visionRuntime` holds it. */
+  function solved(lens: number): Matrix3x3 {
+    const keypoints = lens === 0 ? boardKeypoints() : boardKeypoints().map((kp) => {
+      const [x, y] = distortNormalizedPoint([kp[0], kp[1]], sliderValueToLensK1(lens));
+      return [x, y, kp[2], kp[3]] as Keypoint;
+    });
+    const result = processPredictions(keypoints, 0.85, 0.8, lens);
+    if (!result) throw new Error('the synthetic board did not solve');
+    return result.homography;
+  }
+
+  for (const lens of [0, 40]) {
+    it(`sends a published pixel back to the board point it came from (lens ${lens})`, () => {
+      const homography = solved(lens);
+      const k1 = sliderValueToLensK1(lens);
+      const geometry = publishedBoardGeometry({ homography, lensCalibration: lens, crop, shot })!;
+      expect(geometry).not.toBeNull();
+
+      for (const board of [polar(0, 0), polar(103_000, 18), polar(330_000, 180), polar(165_000, 306)]) {
+        // Forward, the way a camera makes a frame: board → this camera's picture → the lens →
+        // source pixels → the square that was actually published.
+        const ideal = project(board);
+        const seen = Math.abs(k1) >= 1e-12 ? distortNormalizedPoint(ideal, k1) : ideal;
+        const sourceX = crop.cropX + seen[0] * crop.cropSize;
+        const sourceY = crop.cropY + seen[1] * crop.cropSize;
+        const pixelX = ((sourceX - shot.x) / shot.size) * FRAME;
+        const pixelY = ((sourceY - shot.y) / shot.size) * FRAME;
+
+        // And back, with nothing but the thirteen numbers and the frame's own width.
+        const [x, y] = pixelToBoard(geometry, pixelX, pixelY, FRAME);
+        expect(Math.hypot(x - board[0], y - board[1])).toBeLessThan(200);
+      }
+    });
+  }
+
+  it('survives the float32 the wire carries it in', () => {
+    // The bound is two hundred board units — under a tenth of a millimetre, and against the three
+    // thousand a single pixel of a 320px frame covers. What float32 actually costs here is nearer a
+    // twentieth of a unit; the slack is for the fixed-point undistortion, which is the loose step in
+    // this chain and has nothing to do with the wire.
+    const geometry = publishedBoardGeometry({
+      homography: solved(40), lensCalibration: 40, crop, shot,
+    })!;
+    const wire = throughFloat32(geometry);
+
+    for (const board of [polar(0, 0), polar(103_000, 18), polar(330_000, 180)]) {
+      const ideal = project(board);
+      const seen = distortNormalizedPoint(ideal, sliderValueToLensK1(40));
+      const pixelX = ((crop.cropX + seen[0] * crop.cropSize - shot.x) / shot.size) * FRAME;
+      const pixelY = ((crop.cropY + seen[1] * crop.cropSize - shot.y) / shot.size) * FRAME;
+
+      const [x, y] = pixelToBoard(wire, pixelX, pixelY, FRAME);
+      expect(Math.hypot(x - board[0], y - board[1])).toBeLessThan(200);
+    }
+  });
+
+  it('describes nothing rather than something invented', () => {
+    const homography = solved(0);
+    expect(publishedBoardGeometry({
+      homography, lensCalibration: 0, crop: { cropX: 0, cropY: 0, cropSize: 0 }, shot,
+    })).toBeNull();
+    expect(publishedBoardGeometry({
+      homography, lensCalibration: 0, crop, shot: { x: 0, y: 0, size: 0 },
+    })).toBeNull();
+    expect(publishedBoardGeometry({
+      homography: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]], lensCalibration: 0, crop, shot,
+    })).toBeNull();
   });
 });

@@ -24,7 +24,7 @@ src/server/     index.ts        boot: modes, the HTTP router, the socket server,
                                 set of rules over both, including the one that refuses to leave
                                 the client directory
                 devClient.ts    development's client instead: Vite, mounted in this process
-                api.ts          authenticated HTTP mode discovery, match creation/listing, and reads
+                api.ts          authenticated HTTP mode discovery, match creation/listing/deletion, and reads
                 apiMatches.ts   caller inventory, reserved IDs, and 24-hour result archive
                 wsHandler.ts    routing, and the gameplay handlers — lobby, match, re-match, spectate
                 connections.ts  who is connected, how to address them, and who they may play for
@@ -174,7 +174,8 @@ stops the server with one line and no stack, quoting the line it gave up on — 
 believes it is configured and is not is worse than one that will not start.
 Invalid `server.allowedOrigins` or `server.apiKeys` is also fatal; falling back could change the
 intended admission policy. `apiKeys` defaults to an empty list (HTTP match API disabled). Each
-entry has a unique caller `id` and secret `key`; keys never appear in `app_config`. See
+entry has a unique caller `id` and a secret `key` of at least 16 printable ASCII characters; keys
+never appear in `app_config`. See
 [API.md](./API.md) for configuration, mode/settings discovery, caller match inventories, creation,
 WebSocket subscriptions, and retained results.
 
@@ -189,7 +190,10 @@ capacity limits, resource counts, process memory usage and uptime. Omitting `ser
 this endpoint must enforce that at its reverse proxy; the app has no access-control setting for it.
 
 `maxMatches` is the only capacity number a deployment sets; everything the server refuses or evicts
-by is derived from it in [`capacity.ts`](../src/server/capacity.ts).
+by is derived from it in [`capacity.ts`](../src/server/capacity.ts). That includes `maxApiRecords`,
+the separate budget for integration matches — active ones plus terminal results still inside their
+retention period — reported alongside a live `apiRecords` count, since a `503` from the match API
+is otherwise invisible to an operator.
 
 Media is peer-to-peer video between the devices in a match, and `media.enabled` turns it off in the
 strongest sense: the server mints no peer ids, publishes no rosters and relays nothing, and neither

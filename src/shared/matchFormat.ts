@@ -7,7 +7,9 @@
 // leg, and a re-match, free.
 //
 // Shared because the server decides with it and the client displays with it. One implementation, and
-// match messages also expose these derived standings for external spectators.
+// one evaluation of it: the server derives standings into every match message, and the browser reads
+// that rather than recomputing it. External consumers, which cannot import this file, read the same
+// field. The functions below are still called directly where there is no message to read from.
 
 import type { CompletedLeg, MatchSettings } from './types';
 import type { SettingsField } from './settings';

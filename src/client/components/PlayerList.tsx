@@ -5,8 +5,12 @@ import type { Player } from '../../shared/types';
 
 interface PlayerListProps {
   players: Player[];
-  locked?: boolean;
-  joinedPlayerIds?: string[];
+  /**
+   * Present when the roster is an API caller's: it is fixed, so nothing here may edit it, and each
+   * player instead shows whether the person invited to it has arrived. One prop, because "locked"
+   * and "shows readiness" are the same fact about the same kind of lobby.
+   */
+  managed?: { joinedPlayerIds: string[] };
   maxPlayers: number;
   isCreator: boolean;
   isSpectator: boolean;
@@ -24,8 +28,7 @@ function ordinal(n: number): string {
 
 export function PlayerList({
   players,
-  locked = false,
-  joinedPlayerIds,
+  managed,
   maxPlayers,
   isCreator,
   isSpectator,
@@ -56,12 +59,14 @@ export function PlayerList({
         {players.map((player, index) => (
           <Group key={player.id} py="xs" gap="xs" wrap="nowrap" style={{ borderBottom: '1px solid var(--instadarts-border)' }}>
             <Text c="dimmed" fz="xs" w={34}>{ordinal(index + 1)}</Text>
-            <Text style={{ flex: 1 }} truncate>{player.name}{isMine(player.id) && locked ? ' (you)' : ''}</Text>
-            {joinedPlayerIds && <Text size="sm" c={joinedPlayerIds.includes(player.id) ? 'green' : 'dimmed'}>
-              {joinedPlayerIds.includes(player.id) ? 'Joined' : 'Waiting'}
+            <Text style={{ flex: 1 }} truncate>{player.name}</Text>
+            {/* Outside the name, which truncates: a long name must not eat the marker for it. */}
+            {managed && isMine(player.id) && <Text size="sm" c="dimmed">(you)</Text>}
+            {managed && <Text size="sm" c={managed.joinedPlayerIds.includes(player.id) ? 'green' : 'dimmed'}>
+              {managed.joinedPlayerIds.includes(player.id) ? 'Joined' : 'Waiting'}
             </Text>}
 
-            {!locked && !isSpectator && isCreator && onReorder && players.length >= 2 && (
+            {!managed && !isSpectator && isCreator && onReorder && players.length >= 2 && (
               <Group gap={2} wrap="nowrap">
                 <ActionIcon
                   size="sm"
@@ -86,7 +91,7 @@ export function PlayerList({
               </Group>
             )}
 
-            {!locked && !isSpectator && (isMine(player.id) || isCreator) && (
+            {!managed && !isSpectator && (isMine(player.id) || isCreator) && (
               <ActionIcon
                 size="sm"
                 variant="subtle"
@@ -101,7 +106,7 @@ export function PlayerList({
         ))}
       </Stack>
 
-      {!locked && !isSpectator && canAdd && (
+      {!managed && !isSpectator && canAdd && (
         <Stack gap="sm">
           {availableNames.length > 0 && (
             <Group gap="xs">

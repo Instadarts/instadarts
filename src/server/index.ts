@@ -23,6 +23,7 @@ import { createDevClient } from './devClient';
 import { resolveCertificate, type ResolvedCertificate } from './certificate';
 import { isWebSocketOriginAllowed } from './websocketOrigin';
 import { handleApi } from './api';
+import { apiRecordCount } from './apiMatches';
 
 // What this deployment was tuned to, and anything its settings file got wrong. Said first, because
 // everything below is sized by it — and a settings file that could not be read at all stops us here,
@@ -134,6 +135,7 @@ function serverStats() {
     openLobbies: lobbies.size,
     runningMatches,
     heldMatches: matches.size,
+    apiRecords: apiRecordCount(),
     scoringSessions: scoringSessionCount(),
     mediaPeers: mediaPeerCount(),
     connectedClients: wss.clients.size,

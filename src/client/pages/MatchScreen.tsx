@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 import type { DartThrow, MatchState, ModePanel, ModeView, RematchAnswer } from '../../shared/types';
 import { textOf, toneOf } from '../../shared/types';
-import { standingsOf } from '../../shared/matchFormat';
+import type { Standings } from '../../shared/matchFormat';
 import type { VideoFeedId } from '../../shared/media';
 import type { VideoFeedView } from '../hooks/useVideoFeed';
 import { VisitInput } from '../components/VisitInput';
@@ -22,6 +22,7 @@ import {
 interface MatchScreenProps {
   match: MatchState;
   view: ModeView;
+  standings: Standings;
   panel?: ModePanel;
   onLeave: () => void;
   onAddDart: (dart: DartThrow) => void;
@@ -42,6 +43,7 @@ const HISTORY_ROWS = 12;
 export function MatchScreen({
   match,
   view,
+  standings,
   panel,
   onLeave,
   onAddDart,
@@ -122,14 +124,14 @@ export function MatchScreen({
               ) : (
                 <Text fz="xl" c="dimmed" fw={700} ta="center">Match cancelled</Text>
               )}
-              <PlayerCards match={match} />
+              <PlayerCards match={match} standings={standings} />
             </Stack>
           </GridBox>
         ),
       },
       {
         id: 'match-history',
-        content: <GridBox title="Match history"><MatchHistory match={match} /></GridBox>,
+        content: <GridBox title="Match history"><MatchHistory match={match} standings={standings} /></GridBox>,
       },
     ];
     if (!match.apiManaged && !isSpectator && match.departed.length === 0) {
@@ -155,7 +157,7 @@ export function MatchScreen({
 
   const items: ResponsiveBoxItem[] = [
     { id: 'overview', defaultTitleBarVisible: false, content: overview },
-    { id: 'scores', content: <GridBox title="Scores"><PlayerCards match={match} scores={view.playerScores} /></GridBox> },
+    { id: 'scores', content: <GridBox title="Scores"><PlayerCards match={match} standings={standings} scores={view.playerScores} /></GridBox> },
     {
       id: 'board',
       content: (
@@ -291,9 +293,8 @@ function useAutoSubmit({
   }, [enabled, visitKey, onSubmit]);
 }
 
-function PlayerCards({ match, scores }: { match: MatchState; scores?: ModeView['playerScores'] }) {
+function PlayerCards({ match, standings, scores }: { match: MatchState; standings: Standings; scores?: ModeView["playerScores"] }) {
   const over = match.status === 'finished';
-  const standings = standingsOf(match.legs, match.settings);
 
   return (
     <SimpleGrid minColWidth={120} autoFlow="auto-fit" spacing="sm" h={over ? undefined : '100%'}>

@@ -32,7 +32,7 @@
   "server": {
     // External match API credentials, read only by the server. Empty disables the HTTP API.
     // Each caller owns only the matches it creates. Use unique ids without surrounding whitespace
-    // and long random secret keys:
+    // and long random secret keys — at least 16 printable ASCII characters, no spaces:
     // "apiKeys": [{ "id": "league-manager", "key": "REPLACE_WITH_A_RANDOM_SECRET" }]
     // See docs/API.md. Live spectator access remains public to anyone with a match id.
     "apiKeys": [],

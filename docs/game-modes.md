@@ -187,10 +187,12 @@ Switching mode starts from the new mode's defaults — the outgoing mode's value
 
 The [HTTP integration API](./API.md#discover-game-modes-and-settings) exposes the same field schema
 through `GET /api/v1/modes`, with editable defaults and effective player limits. API creation is
-stricter than ordinary lobby edits: it rejects invalid supplied values and unknown keys, and fills
-omitted settings from defaults. Internal defaults absent from `fields`, such as Whac-A-Mole's seed,
-are server-owned and omitted from the HTTP catalog. Creation stores them once; they stay fixed
-throughout the match and its retained result. API-managed lobbies cannot change settings or modes.
+stricter than ordinary lobby edits: it rejects invalid supplied editable values and unknown keys,
+and fills omitted settings from defaults. Internal defaults absent from `fields`, such as
+Whac-A-Mole's seed, are server-owned and omitted from the HTTP catalog. If supplied, these keys are
+accepted but ignored, so returned settings can be submitted again. Creation chooses their values
+once; they stay fixed throughout the match and its retained result. API-managed lobbies cannot
+change settings or modes.
 
 `MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to
 `mode`, never inside `modeSettings`, and is validated against `MATCH_FIELDS` by the same code that

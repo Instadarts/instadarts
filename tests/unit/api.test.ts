@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { WebSocket } from 'ws';
 import { handleApi } from '../../src/server/api';
 import { CONFIG } from '../../src/server/config';
-import { ApiError, API_RETENTION_MS, createApiMatch, getApiMatch, reservedMatchId, sweepApiRecords } from '../../src/server/apiMatches';
+import { ApiError, API_RETENTION_MS, createApiMatch, deleteApiMatch, getApiMatch, listApiMatches, reservedMatchId, sweepApiRecords } from '../../src/server/apiMatches';
 import { handleClientLeave, handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { getClient, publicPlayers } from '../../src/server/connections';
 import { createLobby, deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getLobby, getMatch, maxPlayersFor } from '../../src/server/store';
@@ -85,10 +85,35 @@ describe('managed invitations and spectator snapshots', () => {
     }
   });
 
-  it('rejects caller-supplied server-owned mode settings', () => {
-    const created = createApiMatch('a', { settings: { mode: 'whac-a-mole' }, players: [{ name: 'Solo' }] });
-    expect(created.settings.modeSettings.seed).toEqual(expect.any(Number));
-    expect(() => createApiMatch('a', { settings: created.settings, players: [{ name: 'Solo' }] })).toThrow('Unknown field in settings.modeSettings');
+  it('accepts a returned settings bag back and still chooses server-owned values itself', () => {
+    // Echoing the creation response is the obvious thing to do with it, so it must work for every
+    // installed mode on every build: `seed` and production x01's `stats` are in a mode's `defaults`
+    // but not its `fields`, and were the difference between a dev server and a production one.
+    for (const mode of allModes()) {
+      const created = createApiMatch('a', { settings: { mode: mode.id }, players: [{ name: 'Solo' }] });
+      const echoed = createApiMatch('a', { settings: created.settings, players: [{ name: 'Solo' }] });
+      // Every editable field survives the round trip; server-owned ones are chosen afresh.
+      for (const { key } of mode.fields) expect(echoed.settings.modeSettings[key]).toEqual(created.settings.modeSettings[key]);
+      expect(Object.keys(echoed.settings.modeSettings).sort()).toEqual(Object.keys(created.settings.modeSettings).sort());
+      deleteLobby(created.lobbyId);
+      deleteLobby(echoed.lobbyId);
+    }
+    // Recognised, not obeyed: a caller cannot pin a server-owned value by handing one back.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const seeded = createApiMatch('a', { settings: { mode: 'whac-a-mole' }, players: [{ name: 'Solo' }] });
+    expect(seeded.settings.modeSettings.seed).toBe(1073741823);
+    random.mockReturnValue(0.25);
+    const pinned = createApiMatch('a', { settings: { mode: 'whac-a-mole', modeSettings: { seed: 9999 } }, players: [{ name: 'Solo' }] });
+    expect(pinned.settings.modeSettings.seed).toBe(536870911);
+    // One generated default per creation, reused for validation and the stored settings.
+    expect(random).toHaveBeenCalledTimes(2);
+  });
+
+  it('names an unknown settings key rather than only the object holding it', () => {
+    expect(() => createApiMatch('a', { settings: { mode: 'x01', modeSettings: { typo: 1 } }, players: [{ name: 'A' }] }))
+      .toThrow('Unknown field settings.modeSettings.typo');
+    expect(() => createApiMatch('a', { settings: { mode: 'x01' }, players: [{ name: 'A' }], extra: 1 }))
+      .toThrow('Unknown field request.extra');
   });
 
   it('watches the reserved ID, supports shared boards, and starts exactly once at capacity', () => {
@@ -337,6 +362,53 @@ describe('retained results', () => {
     expect(getApiMatch('a', created.matchId).winnerId).toBeNull();
   });
 
+  it.each(['waiting', 'in_progress'] as const)('deletes a %s match, tells the room, and frees its record', (status) => {
+    const { created, players } = status === 'waiting'
+      ? { created: createApiMatch('a', request()), players: [connect()] }
+      : running();
+    if (status === 'waiting') players[0].join(created.players[0].inviteCode);
+    const final = deleteApiMatch('a', created.matchId);
+
+    // The caller is handed the whole match, history included: retention is not offered afterwards.
+    expect(final.status).toBe('cancelled');
+    expect(final.resultExpiresAt).toBeNull();
+    expect(final.history).toBeDefined();
+    expect(final.players.map((p) => p.id)).toEqual(created.players.map((p) => p.id));
+
+    // The people in it were told, through the ordinary ending for that stage.
+    expect(players[0].last(status === 'waiting' ? 'lobby_abandoned' : 'match_finished')).toBeDefined();
+    expect(getAllLobbies().size + [...getAllMatches().values()].filter((m) => m.status === 'in_progress').length).toBe(0);
+    expect(findPersonalInvite(created.players[0].inviteCode)).toBeUndefined();
+
+    // And the record is gone, not retained: a second delete and a read both 404.
+    expect(() => getApiMatch('a', created.matchId)).toThrow('Match not found');
+    expect(() => deleteApiMatch('a', created.matchId)).toThrow('Match not found');
+    expect(listApiMatches('a')).toEqual([]);
+    expect(reservedMatchId(created.lobbyId)).toBeUndefined();
+  });
+
+  it('deletes a terminal record without rewriting the outcome it already had', () => {
+    const { created, players } = running();
+    finishByScoring(players[0]);
+    expect(getApiMatch('a', created.matchId).status).toBe('finished');
+    const final = deleteApiMatch('a', created.matchId);
+    // A match that really was won stays won; only a room still live is called off.
+    expect(final.status).toBe('finished');
+    expect(final.winnerId).toBe(created.players[0].id);
+    expect(final.resultExpiresAt).toBeNull();
+    expect(() => getApiMatch('a', created.matchId)).toThrow('Match not found');
+  });
+
+  it('refuses another caller and frees a full record budget', () => {
+    const created = createApiMatch('a', request());
+    for (let i = 1; i < CONFIG.server.maxMatches; i++) createApiMatch('a', request());
+    expect(() => deleteApiMatch('b', created.matchId)).toThrow('Match not found');
+    expect(() => createApiMatch('a', request())).toThrow('capacity');
+    // Deleting is the one thing that returns a record early, which is what makes it a remedy here.
+    deleteApiMatch('a', created.matchId);
+    expect(() => createApiMatch('a', request())).not.toThrow();
+  });
+
   it('archives a departure win and expired lobbies, retires codes, and enforces the independent record budget', () => {
     const { created, players } = running();
     players[0].send({ type: 'leave_match' });
@@ -485,7 +557,11 @@ describe('HTTP match API', () => {
     const unauthorized = await call(path, {}, 'wrong');
     expect(unauthorized.status).toBe(401);
     expect(unauthorized.headers.get('cache-control')).toBe('no-store');
-    expect((await call(path, { method: 'DELETE' })).status).toBe(404);
+    // A path that exists says which methods it takes; only an unknown path is a 404.
+    const wrongMethod = await call(path, { method: 'PUT' });
+    expect(wrongMethod.status).toBe(405);
+    expect(wrongMethod.headers.get('allow')).toBe(path === '/api/v1/modes' ? 'GET' : 'GET, POST');
+    expect((await wrongMethod.json()).error.code).toBe('method_not_allowed');
     const keys = CONFIG.server.apiKeys;
     CONFIG.server.apiKeys = [];
     try { expect((await call(path)).status).toBe(404); }
@@ -506,6 +582,38 @@ describe('HTTP match API', () => {
     expect((await call('/api/unknown')).status).toBe(404);
     expect((await call(`/api/v1/matches/${created.matchId}?includeHistory=maybe`)).status).toBe(400);
     expect((await call(`/api/v1/matches/${created.matchId}?includeHistory=true`).then((r) => r.json())).history).toEqual({ legs: [], visits: [] });
+  });
+
+  it('deletes over HTTP, returning the final state once and 404 thereafter', async () => {
+    const created = await (await call(undefined, { method: 'POST', body: JSON.stringify(request()) })).json();
+    const response = await call(`/api/v1/matches/${created.matchId}`, { method: 'DELETE' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const final = await response.json();
+    // Never a summary: this is the last look anyone gets, so history is not opt-in here.
+    expect(final).toMatchObject({ matchId: created.matchId, status: 'cancelled', resultExpiresAt: null });
+    expect(final.history).toEqual({ legs: [], visits: [] });
+    expect((await call(`/api/v1/matches/${created.matchId}`, { method: 'DELETE' })).status).toBe(404);
+    expect((await call(`/api/v1/matches/${created.matchId}`)).status).toBe(404);
+  });
+
+  it('answers a wrong method with the ones a path does take', async () => {
+    const created = await (await call(undefined, { method: 'POST', body: JSON.stringify(request()) })).json();
+    const response = await call(`/api/v1/matches/${created.matchId}`, { method: 'POST', body: '{}' });
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toBe('GET, DELETE');
+    // An unknown path is still absent rather than wrongly addressed.
+    expect((await call('/api/v1/nothing', { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('rejects unknown query parameters as strictly as unknown body fields', async () => {
+    const created = await (await call(undefined, { method: 'POST', body: JSON.stringify(request()) })).json();
+    for (const path of ['/api/v1/modes?bogus=1', '/api/v1/matches?includeHistory=true', `/api/v1/matches/${created.matchId}?bogus=1`]) {
+      const response = await call(path);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.message).toContain('Unknown query parameter');
+    }
+    expect((await call(`/api/v1/matches/${created.matchId}?includeHistory=true`)).status).toBe(200);
   });
 
   it('rejects malformed or oversized JSON and unsupported content types without creating rooms', async () => {

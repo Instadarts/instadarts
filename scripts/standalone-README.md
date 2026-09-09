@@ -30,6 +30,13 @@ Settings are optional. Copy [instadarts.config.example.jsonc](instadarts.config.
 The example explains ports, certificates, capacity, scoring and media options. A custom settings
 file can also be selected through the `INSTADARTS_CONFIG` environment variable.
 
+### External match integration
+
+External software can create matches with a fixed roster and settings, hand each player a personal
+join link, and follow the match live. It is off until you add credentials under `server.apiKeys`,
+as the example settings file shows. The full reference is `docs/API.md` in the project's **Source
+code (zip)** release, which this standalone build does not include.
+
 ### Public deployments
 
 Require HTTPS for the app and WSS for its WebSocket connection. Two common setups are:

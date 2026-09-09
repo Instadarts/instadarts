@@ -190,12 +190,12 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * refuses with the reason, and `lobbyMessage`, which sends the yes-or-no on so the lobby screen
  * stops offering a code exactly when the server would start refusing it. Written out on both sides
  * instead, the screen and the server drifted apart the moment either changed.
+ *
+ * This is the *shared code's* rule. An API-managed lobby has no shared code and admits nobody by it,
+ * so it answers no here and its own admission — a personal invitation naming one roster player —
+ * is decided by `handlePersonalJoin`, which this question cannot express.
  */
 export function joinRefusal(lobby: Lobby): string | null {
-  if (lobby.apiManaged) {
-    return lobby.players.some((p) => !p.sessionId || !heldSeat(lobby.id, p.sessionId)?.seat.playerIds.includes(p.id))
-      ? null : 'Lobby is full';
-  }
   // Asked first, because a lobby that admits nobody is not one you were nearly admitted to.
   if (!lobby.acceptsJoins) return 'This lobby is not open to joins';
   // A user brings at least one player, so the player cap caps them too: somebody who could never

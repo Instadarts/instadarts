@@ -146,8 +146,8 @@ contract and includes a complete example.
 
 External software can create matches with fixed settings and player names, distribute personal
 join links, and watch live standings and results through the spectator WebSocket. The optional
-authenticated HTTP API also lists available modes/settings and the caller's matches, and retains
-full results for 24 hours in memory. See the
+authenticated HTTP API also lists available modes/settings and the caller's matches, cancels a
+match, and retains full results for 24 hours in memory. See the
 [API documentation](docs/API.md) for setup and examples.
 
 ## Project links

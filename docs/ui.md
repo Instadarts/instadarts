@@ -440,6 +440,10 @@ Playwright project ordering, is in [development.md](./development.md#the-e2e-sui
 
 ## API-managed lobby UI
 
+Every lobby, ordinary or API-managed, shows a server error under its header — a refused invite code,
+a name already taken — rather than dropping it. The lobby is the room the request was made in, so it
+is where the answer belongs; the tab only goes home when there is no lobby to show it in.
+
 An API lobby uses the existing lobby layout with fixed settings and a fixed roster. It shows
 joined/waiting indicators and explains automatic start. Player editing, ordering, shared invites,
 and manual start are absent. Participants can use **Add player by invite code** to claim another

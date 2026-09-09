@@ -25,8 +25,10 @@ Add integration credentials to the deployment's settings file and restart the se
 
 The default is `apiKeys: []`, which disables the HTTP API. Caller IDs must be nonempty and unique,
 with no leading or trailing whitespace. IDs are preserved exactly, rather than silently trimmed.
-Keys must be unique, nonempty printable ASCII strings without spaces. Invalid key configuration
-stops startup without echoing the offending credential. Generate a long random key, for example:
+Keys must be unique printable ASCII strings without spaces, **at least 16 characters long**.
+This minimum does not measure strength or reject placeholders: the example keys above pass length
+validation and must still be replaced. Invalid key configuration stops startup without echoing the
+offending credential. Generate a long random key, for example:
 
 ```sh
 node --input-type=module -e 'import { randomBytes } from "node:crypto"; console.log(randomBytes(32).toString("base64url"))'
@@ -55,7 +57,7 @@ Each entry in `modes` contains:
 | --- | --- |
 | `id`, `label` | Mode ID for creation and its display name. |
 | `fields` | Editable mode settings, with `key`, `label`, and `kind`: `toggle`, `number`, or `select`. |
-| `defaults` | Defaults for **only** those editable fields; safe to submit as `settings.modeSettings`. |
+| `defaults` | Defaults for **only** those editable fields; safe to submit as `settings.modeSettings`. Server-owned keys are omitted here, but accepted and ignored if you send them. |
 | `maxPlayers` | Mode's own player cap, or null when the mode imposes none. |
 | `effectiveMaxPlayers` | Deployment cap narrowed by the mode's cap; the maximum roster accepted by creation. |
 | `bansMedia` | Media features declined by this mode, such as Whac-A-Mole's `boardVideo`. |
@@ -81,11 +83,16 @@ const body = {
 // POST JSON.stringify(body) to /api/v1/matches using the same authenticated headers.
 ```
 
-The HTTP catalog omits internal defaults such as Whac-A-Mole's random `seed` and production X01's
-hidden `stats` setting. Creation generates its own effective settings, including one fixed seed;
-catalog reads, joins, scoring, undo, new legs/sets, reconnects, and result retrieval do not replace
-that seed. The existing WebSocket `mode_catalog` includes internal defaults as well, so consumers
-using it must filter defaults by `fields` before submitting them.
+The HTTP catalog omits **server-owned** settings — those a mode has but does not offer for editing,
+such as Whac-A-Mole's random `seed` and production X01's hidden `stats`. Creation chooses these
+itself, once, and nothing afterwards replaces them: not catalog reads, joins, scoring, undo, new
+legs/sets, reconnects, or result retrieval.
+
+Sending a server-owned key anyway is **not** an error. Creation recognises it and keeps its own
+value, so a settings object that came back from creation — or from the WebSocket `mode_catalog`,
+which does include these defaults — can be handed straight back without filtering. What you cannot
+do is choose the value: submitting `seed` does not pin the seed. Keys the mode does not have at all
+are still rejected, and the error names the key.
 
 ## Create a match
 
@@ -140,19 +147,18 @@ The `201` response contains:
 }
 ```
 
-The response includes all effective mode defaults, including defaults for fields that the installed
-build does not expose for editing. When constructing a subsequent request, submit only keys
-listed in that mode's `fields`, not the whole returned settings bag: server-owned values such as
-Whac-A-Mole's random `seed` cannot be supplied by callers. Effective settings are fixed at creation,
-including those generated defaults.
+The response includes all effective mode defaults, including the server-owned ones the installed
+build does not expose for editing. It can be submitted again as-is: server-owned keys are accepted
+and ignored, so the next match gets a fresh `seed` rather than this one's. Effective settings are
+fixed at creation, including those generated defaults.
 
 Each `players[].id` is a new UUID scoped to this match. Use IDs, not names, to correlate visits,
 standings, departures, and winners. Match the response entries to the input entries by position.
 There is no persistent player-account identity and no caller-supplied player ID.
 
-Every successful POST creates a new match. There is no idempotency key, update,
-cancel action, or automatic retry deduplication. Save the response, including the personal codes;
-subsequent reads do not return codes.
+Every successful POST creates a new match. There is no idempotency key, update, or automatic retry
+deduplication, so a retried creation is a second match — [delete](#cancel-a-match) the one you did
+not want. Save the response, including the personal codes; subsequent reads do not return codes.
 
 ### Invitations and shared boards
 
@@ -307,11 +313,53 @@ responses. Both endpoints use the same detailed statuses:
 | `cancelled` | Match ended without a winner. |
 | `expired` | Lobby expired before play started. |
 
-The list includes terminal records until their 24-hour retention deadline, even after browser
-room cleanup. Records disappear at retention expiry or server restart. Listing returns no invitations,
+The list includes terminal records until deletion or their 24-hour retention deadline, even after
+browser room cleanup. Server restarts also remove records. Listing returns no invitations,
 credentials, roster, settings, scores, or history; use the creation response for invitations and
 the individual endpoint for match details. Neither listing nor individual reads renew deadlines.
 Use this inventory to discover matches for subscription or recovery; live updates still use `/ws`.
+
+### Cancel a match
+
+`DELETE /api/v1/matches/<matchId>` with the creating caller's bearer key ends a match at whatever
+stage it has reached, and removes its record. What the people in the room are told is the ordinary
+ending for that stage — the same one the idle deadline would have produced:
+
+| Status when deleted | What the room is told | Room |
+| --- | --- | --- |
+| `waiting` | `lobby_abandoned`; every personal code is retired | Deleted immediately |
+| `in_progress` | `match_finished` with no winner, exactly like an idle cancellation | Enters its ordinary two-minute summary, then closes |
+| `finished`, `cancelled`, `expired` | nothing; the room is already gone or running out its summary | Left alone |
+
+The `200` response body is the full match — the same fields as a read, **always including
+`history`**, with `resultExpiresAt: null`. A room that was still live reports `status: "cancelled"`;
+a match that had already finished keeps its recorded status and outcome.
+
+**Do not rely on the DELETE response to preserve results.** Retrieve the match with
+`GET /api/v1/matches/<matchId>?includeHistory=true` and save that response in the consumer before
+deleting if its state is needed. Deletion removes the record before its response is delivered;
+if the connection fails, that response cannot be recovered through HTTP. For an active match, a
+pre-delete read is a snapshot: play can advance between GET and DELETE. If the completed result is
+needed, wait for termination, retrieve and save it, then delete.
+
+DELETE is idempotent in its effect: repeated requests leave the record absent. The first successful
+request returns `200`; a second DELETE and every subsequent GET return `404`. Responses are not
+replayed, so a retry cannot recover the first response's match data.
+
+```js
+// If this consumer needs the state, retrieve and persist it before deleting.
+const stateResponse = await fetch(`${base}/api/v1/matches/${matchId}?includeHistory=true`, { headers });
+if (!stateResponse.ok) throw new Error(await stateResponse.text());
+const savedState = await stateResponse.json();
+await saveMatchState(savedState); // Consumer-provided durable storage; do not delete if saving fails.
+
+const deleteResponse = await fetch(`${base}/api/v1/matches/${matchId}`, { method: 'DELETE', headers });
+if (!deleteResponse.ok) throw new Error(await deleteResponse.text());
+// savedState remains available even if deletion's response is lost; no result is read from DELETE.
+```
+
+Deleting is the caller's own decision about its own match; it is not offered to players, and there
+is no participant control that reaches it.
 
 ### Retention and capacity
 
@@ -321,8 +369,8 @@ play; the visit limit also cancels a leg that has not won by visit 500.
 
 The first terminal result is copied into an immutable, sanitized in-memory archive, including full
 scoring history. It covers scored wins, departure wins/cancellations, idle and visit-limit
-cancellations, and waiting-lobby expiry. Records last **24 hours from termination**, regardless of
-when the browser room closes. Reads do not renew that period. Restarting the server loses active
+cancellations, and waiting-lobby expiry. Unless explicitly deleted, records last **24 hours from
+termination**, regardless of when the browser room closes. Reads do not renew that period. Restarting the server loses active
 matches and archives; a later read then returns `404`.
 
 API creation must fit both the existing shared lobby/match room budget and an independent
@@ -330,7 +378,25 @@ active-plus-retained API record budget, each bounded by `server.maxMatches`. Une
 records are never evicted to admit new matches. A full budget produces `503`; finishing a match
 frees its room after summary cleanup but not its API record until retention expires. Full history
 is retained, so memory depends on match length as well as record count. The existing player,
-format, and visit limits continue to apply.
+format, and visit limits continue to apply. `/server-stats` reports the API budget as
+`capacity.maxApiRecords` / `apiRecords`, and the room budget as `capacity.maxRooms` /
+(`openLobbies` + `heldMatches`). `heldMatches` includes finished summaries.
+
+[Deleting a match](#cancel-a-match) frees its API record immediately at every stage. Room capacity
+is released separately:
+
+| State when deleted | API record slot | Room slot |
+| --- | --- | --- |
+| `waiting` | Freed immediately | Freed immediately with the lobby |
+| `in_progress` | Freed immediately | Freed when the new two-minute summary is cleaned up |
+| `finished`, `cancelled` | Freed immediately | Existing summary keeps its original deadline; already-closed rooms occupy no slot |
+| `expired` | Freed immediately | Lobby is already gone |
+
+Creation requires space in **both** budgets. Deleting a running match can therefore leave creation
+returning `503` until summary cleanup. For example, with `maxMatches: 1`, deleting the only running
+match reduces `apiRecords` to zero but leaves one held room for its two-minute summary. Deleting a
+retained result whose room has already closed frees only an API slot; it cannot free a room occupied
+by another match. Deadline-based room cleanup occurs on the next lifecycle sweep after the deadline.
 
 Live API records have no age-based cutoff while their rooms remain active. If a room disappears
 outside the normal lifecycle without an archived result, the next sweep drops its orphaned API
@@ -346,12 +412,13 @@ Errors are JSON, for example:
 
 | Status | Codes / causes |
 | --- | --- |
-| `400` | `invalid_request` for invalid input/settings/query values; `invalid_json` for malformed JSON. |
+| `400` | `invalid_request` for invalid input, settings or query values; `invalid_json` for malformed JSON. Unknown request, player and settings fields are named, and so are unknown query parameters. |
 | `401` | `unauthorized`: missing or invalid bearer key; includes `WWW-Authenticate: Bearer`. |
-| `404` | `not_found`: API disabled, unknown endpoint/method, expired/unknown match, or another caller's match. |
+| `404` | `not_found`: API disabled, unknown endpoint, expired/unknown/deleted match, or another caller's match. |
+| `405` | `method_not_allowed`: the path exists but not for this method; includes `Allow`. |
 | `413` | `body_too_large`: creation body exceeds 16 KiB. |
 | `415` | `unsupported_media_type`: creation requires `application/json`. |
-| `503` | `capacity_exceeded`: active-room or API-record budget is full. |
+| `503` | `capacity_exceeded`: room or API-record budget is full. DELETE frees an API slot immediately; match summary room slots remain until cleanup. |
 | `500` | `internal_error`: unexpected failure, without internal details. |
 
 Successful and error responses use `Cache-Control: no-store`. Unsupported `/api/` routes return

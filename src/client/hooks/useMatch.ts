@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import type { ServerMessage } from '../../shared/protocol';
 import type { MatchState, Lobby, ModePanel, ModeView, Player, RematchAnswer } from '../../shared/types';
 import type { ModeDescriptor } from '../../shared/settings';
+import type { Standings } from '../../shared/matchFormat';
 import { useWebSocket } from './useWebSocket';
 import { saveReconnectInfo, clearReconnectInfo } from '../lib/ws';
 
@@ -13,6 +14,8 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [match, setMatch] = useState<MatchState | null>(null);
   const [view, setView] = useState<ModeView | null>(null);
+  /** Legs and sets won, derived once by the server so every consumer reads the same figures. */
+  const [standings, setStandings] = useState<Standings | null>(null);
   const [panel, setPanel] = useState<ModePanel | undefined>(undefined);
   /**
    * This match has no media mesh because of its own shape — more than two boards. Told by the
@@ -59,6 +62,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setLobby(msg.lobby);
         setMatch(null);
         setView(null);
+        setStandings(null);
         setPanel(undefined);
         setMediaDisabled(false);
         // Only a message addressed to this connection names its players; a broadcast names nobody's.
@@ -78,6 +82,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
       case 'match_started':
         setMatch(msg.match);
         setView(msg.view);
+        setStandings(msg.standings);
         setPanel(msg.panel);
         setMediaDisabled(Boolean(msg.mediaDisabled));
         setLobby(null);
@@ -91,6 +96,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
       case 'match_finished':
         setMatch(msg.match);
         setView(msg.view);
+        setStandings(msg.standings);
         setPanel(msg.panel);
         setMediaDisabled(Boolean(msg.mediaDisabled));
         // The seat still participates in the summary and rematch vote. Keep its resume token
@@ -104,6 +110,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         setLobby(null);
         setMatch(null);
         setView(null);
+        setStandings(null);
         setPanel(undefined);
         setMediaDisabled(false);
         setOwnPlayerIds([]);
@@ -116,6 +123,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
         // The match ran out its summary and is gone.
         setMatch(null);
         setView(null);
+        setStandings(null);
         setPanel(undefined);
         setMediaDisabled(false);
         setOwnPlayerIds([]);
@@ -185,6 +193,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     send({ type: 'leave_match' });
     setMatch(null);
     setView(null);
+    setStandings(null);
     setLobby(null);
     setMediaDisabled(false);
     setOwnPlayerIds([]);
@@ -211,6 +220,7 @@ export function useMatch(onServerMessage?: (msg: ServerMessage) => void) {
     lobby,
     match,
     view,
+    standings,
     panel,
     mediaDisabled,
     modes,

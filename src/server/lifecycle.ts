@@ -9,6 +9,10 @@
 //   · **A finished match is torn down 2 minutes later.** Unanswered re-match votes become declines
 //     at that moment, and everyone still watching — players and spectators alike — goes home.
 //
+// One deadline is not a room's: an integration match's terminal result is kept for `API_RETENTION_MS`
+// (24 hours) after it ends, outliving every room above. It lives in apiMatches.ts, next to the
+// records it bounds, and is swept from here.
+//
 // The deadline lives on the state rather than in a timer per match, so it survives being copied
 // around, is visible to the client (which counts it down), and needs no cleanup when a match ends
 // some other way.

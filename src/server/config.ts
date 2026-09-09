@@ -145,6 +145,12 @@ function complain(message: string): void {
 
 type Raw = Record<string, unknown>;
 
+/**
+ * Minimum key length, not a strength estimate or placeholder detector. Operators must replace
+ * example values with randomly generated secrets even when those examples pass validation.
+ */
+const API_KEY_MIN_LENGTH = 16;
+
 function apiKeys(raw: Raw): { id: string; key: string }[] {
   if (raw.apiKeys === undefined) return [];
   if (!Array.isArray(raw.apiKeys)) throw new Error('server.apiKeys must be an array');
@@ -155,8 +161,9 @@ function apiKeys(raw: Raw): { id: string; key: string }[] {
       || typeof entry.id !== 'string' || !entry.id.trim()
       || entry.id !== entry.id.trim()
       || typeof entry.key !== 'string' || !/^[\x21-\x7e]+$/.test(entry.key)
+      || entry.key.length < API_KEY_MIN_LENGTH
       || ids.has(entry.id) || keys.has(entry.key)) {
-      throw new Error('server.apiKeys requires unique nonempty ids without surrounding whitespace and unique nonempty printable ASCII keys without spaces');
+      throw new Error(`server.apiKeys requires unique nonempty ids without surrounding whitespace and unique printable ASCII keys without spaces, at least ${API_KEY_MIN_LENGTH} characters long`);
     }
     ids.add(entry.id);
     keys.add(entry.key);

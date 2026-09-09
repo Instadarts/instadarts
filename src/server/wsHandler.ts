@@ -19,7 +19,7 @@ import { createLobby, getLobby, addPlayerToLobby, removePlayerFromLobby, createM
 import { generatePlayerId } from './player';
 import { addDartToMatch, undoDartFromMatch, submitVisitToMatch, nextActiveIndex } from './match';
 import { generateInviteCode, findPersonalInvite } from './invite';
-import { apiWaitingLobby, archiveApiLobby, archiveApiMatch, reservedMatchId } from './apiMatches';
+import { apiWaitingLobby, archiveApiLobby, archiveApiMatch, reservedMatchId, setApiRoomHandlers } from './apiMatches';
 import { nameIsTaken, sanitizeName, validateSettings, validateDartThrow } from './validation';
 import { checkMediaRateLimit, checkRateLimit, checkTipsRateLimit, releaseRateLimit } from './rateLimit';
 import { CONFIG } from './config';
@@ -42,7 +42,7 @@ import { dropScoringSessions } from './scoring/store';
 import { grantSeat, heldSeat, holdsSeat, redeemSeat, revokeSeat, seatForToken, seatedPlayerIds, updateSeat, type Seat } from './seats';
 import { allModes, describeMode, getMode } from './modes/types';
 import { canAddRoom } from './capacity';
-import { SUMMARY_TTL_MS, setLifecycleHandlers, touch } from './lifecycle';
+import { SUMMARY_TTL_MS, setLifecycleHandlers, touch, type LifecycleHandlers } from './lifecycle';
 import {
   addClient,
   allClients,
@@ -429,9 +429,13 @@ function dispatchMessage(ws: WebSocket, raw: string): void {
 // Deadlines
 //
 // Wired into the lifecycle sweep, which owns *when*; everything here is *what to tell people*.
+//
+// The integration API is given the same object, because deleting a match is one of these deadlines
+// arriving early rather than a different ending: a waiting lobby is abandoned exactly as an idle one
+// is, and a running match is cancelled exactly as an idle one is. One description of each ending.
 // ============================================================
 
-setLifecycleHandlers({
+const lifecycleHandlers: LifecycleHandlers = {
   /** Nobody has touched this match for the idle period. It is over, with no winner. */
   cancelIdleMatch(match: MatchState): void {
     endMatch(match, null);
@@ -476,7 +480,10 @@ setLifecycleHandlers({
     deleteLobby(lobby.id);
     publishMediaForRoom(lobby.id);
   },
-});
+};
+
+setLifecycleHandlers(lifecycleHandlers);
+setApiRoomHandlers(lifecycleHandlers);
 
 /** Managed rooms have no participant controls over configuration or subsequent matches. */
 const MANAGED_LOCKED_TYPES = new Set([
@@ -575,13 +582,14 @@ function handleJoinLobby(ws: WebSocket, msg: any): void {
     return;
   }
   const personal = findPersonalInvite(msg.inviteCode);
-  if (client.lobbyId && getLobby(client.lobbyId)?.apiManaged
-    && (!personal || personal.lobbyId !== client.lobbyId)) {
-    send(ws, { type: 'error', message: 'Use a player invite code for this lobby, or leave before joining another' });
-    return;
-  }
   if (personal) {
     handlePersonalJoin(ws, client, personal.lobbyId, [personal.playerId]);
+    return;
+  }
+  // A shared code cannot admit anyone to a managed lobby, so it can only mean leaving this one.
+  // `handlePersonalJoin` refuses a personal code for another lobby on the same grounds.
+  if (client.lobbyId && getLobby(client.lobbyId)?.apiManaged) {
+    send(ws, { type: 'error', message: 'Use a player invite code for this lobby, or leave before joining another' });
     return;
   }
   const lobby = findLobbyByInviteCode(msg.inviteCode);
@@ -634,8 +642,9 @@ function handlePersonalJoin(ws: WebSocket, client: Client, lobbyId: string, play
   enterRoom(ws, client, lobby.id, null, false);
   const held = heldSeat(lobby.id, client.sessionId);
   const mine = [...new Set([...(held?.seat.playerIds ?? []), ...playerIds])];
+  // A seat this connection already holds gains the new players; otherwise it is minted holding them.
   const token = held?.token ?? grantSeat(lobby.id, client.sessionId, { playerIds: mine, host: false });
-  updateSeat(lobby.id, token, { playerIds: mine, host: false });
+  if (held) updateSeat(lobby.id, token, { playerIds: mine, host: false });
   for (const player of players) player.sessionId = client.sessionId;
   // Accepted admission is input. Renew before publishing/readiness so a join at the idle boundary
   // cannot fill the roster yet miss its automatic start while notifications are being sent.

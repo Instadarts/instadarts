@@ -135,3 +135,23 @@ test('invalid shared links claim no players and preserve an existing seat', asyn
   await expect(page).toHaveURL(new RegExp(`/match/${created.matchId}$`));
   expect((await state()).players.map((p: { boardId: string }) => p.boardId)).toEqual(created.players.map(() => created.players[0].id));
 });
+
+test('deleting a waiting match sends its joined players home', async ({ page, request }) => {
+  const response = await request.post('/api/v1/matches', { headers, data: { settings, players: [{ name: 'Alex' }, { name: 'Sam' }] } });
+  const created = await response.json();
+  await page.goto(`/lobby/join/${created.players[0].inviteCode}`);
+  await expect(page.getByText('1/2 joined')).toBeVisible();
+
+  const deleted = await request.delete(`/api/v1/matches/${created.matchId}`, { headers });
+  expect(deleted.status()).toBe(200);
+  expect(await deleted.json()).toMatchObject({ status: 'cancelled', resultExpiresAt: null });
+
+  // The organizer called it off, so the browser holding a place in it goes home rather than sitting
+  // on a lobby the server no longer has.
+  await expect(page).toHaveURL(new RegExp(`${new URL(page.url()).origin}/?$`));
+  expect((await request.get(`/api/v1/matches/${created.matchId}`, { headers })).status()).toBe(404);
+
+  // The retired code cannot walk anyone back in.
+  await page.goto(`/lobby/join/${created.players[1].inviteCode}`);
+  await expect(page).toHaveURL(new RegExp(`${new URL(page.url()).origin}/?$`));
+});

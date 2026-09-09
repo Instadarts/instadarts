@@ -55,12 +55,15 @@ whether or not it does.
 
 ### Accepting joins
 
-`Lobby.acceptsJoins` determines whether a lobby admits new users. Ordinary open lobbies receive
-a shared code; API-managed lobbies use personal player codes instead. The
+`Lobby.acceptsJoins` determines whether a lobby admits new users **by its shared invite code**. The
 home screen calls a lobby without joins a **Local Match** and one with joins an **Online Match**.
 The choice is fixed when the lobby is created and does not become a match setting.
 
-Joining requires an invite code. Spectating remains available either way. Once play starts, match
+An API-managed lobby says no here, because it has no shared code: it admits people by
+[personal invitation](#invite-code) instead, one per roster player, which this flag does not
+describe.
+
+Joining requires an invite code, shared or personal. Spectating remains available either way. Once play starts, match
 behavior follows the users and players actually present; the match has no separate local/online
 flag.
 
@@ -70,7 +73,9 @@ A lobby/match marked `apiManaged`, created by an authenticated external integrat
 settings, names, and player order. Each player has a UUID and personal invitation. Browsers can
 claim multiple invited players into one seat but cannot edit the roster or request rematches.
 A reserved match ID supports spectating before play, and full terminal results remain available
-through the caller's HTTP API for 24 hours in memory. See [API.md](./API.md).
+through the caller's HTTP API for 24 hours in memory unless explicitly deleted. Only the creating
+caller can delete the match and its API record. Participants can still leave, which may end play
+early under the ordinary departure rules. See [API.md](./API.md).
 
 ### Host / Creator
 
@@ -141,10 +146,12 @@ resets idle deadlines, while spectating and reconnecting do not. See
 ### Invite code
 
 A six-character code from an unambiguous alphabet, and the only credential for joining a lobby.
-Only a lobby that [accepts joins](#accepting-joins) has admission codes. An ordinary open lobby
-rotates its shared code when the last guest leaves. Each API roster player instead has a personal
-code, reusable when unclaimed until start or lobby expiry; it is never broadcast to participants
-or spectators.
+There are two kinds, and a lobby has at most one of them. A lobby that
+[accepts joins](#accepting-joins) has a **shared** code admitting anyone, rotated when the last
+guest leaves. An API-managed lobby instead has one **personal** code per roster player, each
+claiming that player alone, reusable while unclaimed until start or lobby expiry, and never
+broadcast to participants or spectators. Both kinds are drawn from one namespace, so no two live
+codes collide.
 
 This is separate from a scoring-device **pairing code**, despite using the same length and alphabet.
 

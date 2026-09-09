@@ -240,12 +240,12 @@ export interface Lobby {
    */
   hostSessionId?: string | null;
   /**
-   * Whether this lobby advertises an invite code and admits newcomers.
+   * Whether this lobby advertises a shared invite code and admits newcomers by that code.
    *
    * API-managed lobbies use personal player invitations instead of a shared code.
-   * Decided when it is created and never afterwards. A lobby that says no is minted without a code
-   * at all, so there is nothing to find it by — what the UI offers as a "Local Match". Nothing else
-   * follows from it: how a match is played is decided by who ended up in it, not by this.
+   * Decided when it is created and never afterwards. An ordinary lobby that says no has no admission
+   * code — what the UI offers as a "Local Match". API-managed lobbies also say no here but still
+   * admit personal invitations. How a match is played is decided by who ended up in it, not by this.
    */
   acceptsJoins: boolean;
   /** The effective cap this lobby enforces: the deployment's, narrowed by the mode's. */
@@ -253,8 +253,8 @@ export interface Lobby {
   /** Distinct user connections in this lobby. */
   userCount: number;
   /**
-   * Whether another user could still take a place — the server's own join rule, answered rather than
-   * described, so the screen cannot come to a different conclusion from the handler that enforces it.
+   * Whether another user could join by the shared code. Always false for API-managed lobbies;
+   * their personal invitations are validated separately, and joinedPlayerIds reports readiness.
    */
   admitting: boolean;
   createdAt: number;

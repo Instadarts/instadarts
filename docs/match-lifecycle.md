@@ -132,8 +132,10 @@ The user that creates an ordinary lobby is its host. The host may change setting
 any player, and start the match. Other users may add and remove only the players held by their own
 seat.
 
-`Lobby.acceptsJoins` is fixed at creation. An ordinary lobby that accepts joins receives an invite code; a
-lobby that does not has no code and cannot be joined. Spectating remains available in either case.
+`Lobby.acceptsJoins` is fixed at creation, and is about the *shared* code: a lobby that accepts joins
+receives one, and a lobby that does not has none. An ordinary lobby without a code cannot be joined
+at all; an API-managed lobby is also without one, and is joined by personal invitation instead.
+Spectating remains available in every case.
 The server computes `userCount`, the effective player limit, and whether another user can be
 admitted for each lobby response.
 
@@ -166,8 +168,10 @@ requires one lobby, ignores duplicate claims, and checks automatic start once af
 joins. Invalid or unavailable codes leave existing ownership intact. Ordinary invitations continue
 to use the single-code string form. See [API.md](./API.md#invitations-and-shared-boards).
 
-There is no browser host. Settings, names, order, additions, removals, manual start, and rematch
-votes are rejected server-side. `joinedPlayerIds` in lobby snapshots is derived from open frontend
+There is no browser host. Only the creating caller can explicitly delete the match through HTTP;
+participants can still leave, and ordinary departure rules can end play early with a win or
+cancellation. Settings, names, order, additions, removals, manual start, and rematch votes are
+rejected server-side. `joinedPlayerIds` in lobby snapshots is derived from open frontend
 connections and their seats. Once every roster player is connected, admission or reconnection
 starts play through the ordinary transition, using the reserved match ID and retiring every code.
 A participant disconnected within grace keeps its seat but does not satisfy automatic readiness.
@@ -242,10 +246,24 @@ scored wins, departure outcomes, idle cancellation, and visit-limit cancellation
 departures cannot change the archive. HTTP reads do not renew deadlines, and closed rooms cannot
 be spectated from the archive. Restarting the server loses rooms and archived results.
 
+A caller can also end its own match early, at any stage, with `DELETE /api/v1/matches/<matchId>`.
+The room is torn down through the deadline handler that would have ended it anyway — a waiting lobby
+is abandoned, a running match is cancelled into its summary — so participants see the ordinary
+ending rather than a new one. The record is then removed rather than retained, and the full final
+state is included in the response. Consumers must not rely on that response to preserve results:
+retrieve and save needed state before deleting, since a lost DELETE response cannot be recovered.
+An active match may advance between a read and deletion; wait for termination before retrieving
+the completed result if it must be preserved. Repeated deletion leaves the record absent and returns
+`404`; it does not replay the first response.
+
 Active plus retained API records have a separate budget of `server.maxMatches`. Creation must fit
 both that budget and the ordinary room budget; unexpired results are not evicted to admit new
-matches. Expiry releases registry entries. Credentials, sessions, scoring and media resources are
-never retained in the result. [API.md](./API.md) documents the authenticated retrieval interface.
+matches. Expiry releases registry entries; explicit deletion frees its API record immediately.
+Deleting a waiting lobby also frees its room immediately. Deleting a running match leaves its room
+occupied by the new two-minute summary, while deleting a terminal record leaves any existing
+summary's deadline unchanged. Room capacity is released when the summary is cleaned up, so creation
+can still return `503` after deletion. Credentials, sessions, scoring and media resources are never
+retained in the result. [API.md](./API.md) documents the authenticated retrieval interface.
 If a room disappears outside normal archival paths, the sweeper removes its orphaned API record
 and reserved-ID mapping. Existing rooms have no age-based API-record cutoff.
 

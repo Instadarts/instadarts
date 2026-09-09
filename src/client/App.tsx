@@ -24,6 +24,7 @@ import type { Lobby, MatchState, ModePanel, ModeView, RematchAnswer } from '../s
 import { boardCount } from '../shared/types';
 import type { ModeDescriptor } from '../shared/settings';
 import { modeBans } from '../shared/settings';
+import type { Standings } from '../shared/matchFormat';
 import { CONFIG_DEFAULTS } from '../shared/config';
 
 export function App() {
@@ -36,6 +37,7 @@ export function App() {
     lobby,
     match,
     view,
+    standings,
     panel,
     modes,
     error,
@@ -282,6 +284,7 @@ export function App() {
           <MatchWrapper
             match={match}
             view={view}
+            standings={standings}
             panel={panel}
             ownPlayerIds={ownPlayerIds}
             isSpectator={isSpectator}
@@ -301,7 +304,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} error={error} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} standings={standings} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} error={error} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -356,7 +359,6 @@ function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMa
     <LobbyPage
       lobby={lobby}
       modes={modes}
-      mode={lobby.acceptsJoins ? 'online' : 'local'}
       isCreator={isHost}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
@@ -375,6 +377,7 @@ function LobbyWrapper({ lobby, modes, ownPlayerIds, isSpectator, isHost, startMa
 interface MatchWrapperProps {
   match: MatchState | null;
   view: ModeView | null;
+  standings: Standings | null;
   panel?: ModePanel;
   ownPlayerIds: string[];
   isSpectator: boolean;
@@ -392,14 +395,15 @@ interface MatchWrapperProps {
   error: string | null;
 }
 
-function MatchWrapper({ match, view, panel, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, standings, panel, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
-  if (!match || !view) return <LoadingRoute label="Loading match…" />;
+  if (!match || !view || !standings) return <LoadingRoute label="Loading match…" />;
   return (
     <MatchScreen
       match={match}
       view={view}
+      standings={standings}
       panel={panel}
       ownPlayerIds={ownPlayerIds}
       isSpectator={isSpectator}
@@ -424,6 +428,7 @@ interface SpectateWrapperProps {
   lobby: Lobby | null;
   match: MatchState | null;
   view: ModeView | null;
+  standings: Standings | null;
   panel?: ModePanel;
   modes: ModeDescriptor[];
   leaveMatch: () => void;
@@ -436,7 +441,7 @@ interface SpectateWrapperProps {
   onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, panel, modes, leaveMatch, navigate, error, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, standings, panel, modes, leaveMatch, navigate, error, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
   const lastSpectateRef = useRef<string | null>(null);
 
@@ -465,7 +470,6 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
       <LobbyPage
         lobby={lobby}
         modes={modes}
-        mode={lobby.acceptsJoins ? 'online' : 'local'}
         isCreator={false}
         ownPlayerIds={[]}
         isSpectator={true}
@@ -479,11 +483,12 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
     );
   }
 
-  if (match && view) {
+  if (match && view && standings) {
     return (
       <MatchScreen
         match={match}
         view={view}
+        standings={standings}
         panel={panel}
         ownPlayerIds={[]}
         isSpectator={true}

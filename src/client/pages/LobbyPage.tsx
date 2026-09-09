@@ -9,10 +9,38 @@ import { ResponsiveBoxGrid, type ResponsiveBoxItem } from '../layout/ResponsiveB
 import { GridBox } from '../layout/GridBox';
 import { LOBBY_LAYOUTS } from '../layout/frontendLayout';
 
+/**
+ * The three kinds of lobby there are, as one value.
+ *
+ * `apiManaged` and `acceptsJoins` are not independent: an API lobby has no shared code, so it is
+ * never the "online" one. Read as two booleans they invited a branch that answers `local` for a
+ * managed lobby by simply not asking — which is what a caller passing `mode` from `acceptsJoins`
+ * alone was doing. Derived here, from the lobby that already says so, and exhaustive: a fourth kind
+ * is a compile error in every table below rather than a screen that silently picks a wrong label.
+ */
+type LobbyKind = 'local' | 'online' | 'managed';
+
+function kindOf(lobby: Lobby): LobbyKind {
+  if (lobby.apiManaged) return 'managed';
+  return lobby.acceptsJoins ? 'online' : 'local';
+}
+
+/** What the home screen calls each kind. See docs/glossary.md — this is the interface's vocabulary. */
+const TITLE: Record<LobbyKind, string> = {
+  local: 'Local Match',
+  online: 'Online Match',
+  managed: 'Invited Match',
+};
+
+const SUBTITLE: Record<LobbyKind, string> = {
+  local: 'Add players and configure the match',
+  online: 'Share the code and wait for players to connect',
+  managed: 'The organizer has fixed the players and match settings',
+};
+
 interface LobbyPageProps {
   lobby: Lobby;
   modes: ModeDescriptor[];
-  mode: 'local' | 'online';
   isCreator: boolean;
   ownPlayerIds: string[];
   isSpectator: boolean;
@@ -29,7 +57,6 @@ interface LobbyPageProps {
 export function LobbyPage({
   lobby,
   modes,
-  mode,
   isCreator,
   ownPlayerIds,
   isSpectator,
@@ -43,8 +70,10 @@ export function LobbyPage({
   onReorderPlayer,
 }: LobbyPageProps) {
   const [inviteCode, setInviteCode] = useState('');
-  const managed = Boolean(lobby.apiManaged);
-  const canStart = lobby.players.length >= 1;
+  const kind = kindOf(lobby);
+  // The server sends `joinedPlayerIds` only for an API lobby, which is also the only kind that is
+  // locked — so one value answers both questions the roster box asks.
+  const managed = kind === 'managed' ? { joinedPlayerIds: lobby.joinedPlayerIds ?? [] } : undefined;
   const canEdit = !managed && !isSpectator && isCreator;
   const descriptor = modes.find((candidate) => candidate.id === lobby.settings.mode);
   const items: ResponsiveBoxItem[] = [
@@ -56,18 +85,14 @@ export function LobbyPage({
           <Group justify="space-between" align="center" gap="lg">
             <Stack gap={2}>
               <Title order={2} c="var(--instadarts-accent)">
-                {managed ? 'Invited Match' : mode === 'local' ? 'Local Match' : 'Online Match'}
+                {TITLE[kind]}
                 {isSpectator && <Text span c="var(--instadarts-tone-warning-fg)" fz="lg"> (spectating)</Text>}
               </Title>
-              <Text c="dimmed" fz="sm">
-                {managed ? 'The organizer has fixed the players and match settings' : mode === 'local'
-                  ? 'Add players and configure the match'
-                  : 'Share the code and wait for players to connect'}
-              </Text>
+              <Text c="dimmed" fz="sm">{SUBTITLE[kind]}</Text>
             </Stack>
             <Group gap="sm">
               {!managed && !isSpectator && isCreator && (
-                <Button onClick={onStartGame} disabled={!canStart}>Start Match</Button>
+                <Button onClick={onStartGame} disabled={lobby.players.length < 1}>Start Match</Button>
               )}
               <Button variant="default" onClick={onLeave}>Leave</Button>
             </Group>
@@ -89,7 +114,7 @@ export function LobbyPage({
           title="Players"
           badge={(
             <Badge variant="light" color={lobby.players.length >= lobby.maxPlayers ? 'red' : 'gray'}>
-              {managed ? `${lobby.joinedPlayerIds?.length ?? 0}/${lobby.players.length} joined` : lobby.players.length >= lobby.maxPlayers
+              {managed ? `${managed.joinedPlayerIds.length}/${lobby.players.length} joined` : lobby.players.length >= lobby.maxPlayers
                 ? `Full — ${lobby.maxPlayers} max`
                 : `${lobby.players.length}/${lobby.maxPlayers}`}
             </Badge>
@@ -98,8 +123,7 @@ export function LobbyPage({
         >
           <PlayerList
             players={lobby.players}
-            locked={managed}
-            joinedPlayerIds={lobby.joinedPlayerIds}
+            managed={managed}
             maxPlayers={lobby.maxPlayers}
             isCreator={isCreator}
             isSpectator={isSpectator}
@@ -144,7 +168,7 @@ export function LobbyPage({
     });
   }
 
-  if (!managed && isCreator && mode === 'online') {
+  if (kind === 'online' && isCreator) {
     items.push({
       id: 'invite',
       autoHeight: true,

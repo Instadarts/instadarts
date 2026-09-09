@@ -23,6 +23,7 @@ import { DEFAULT_REGION, STILL, clampRegion } from '../../shared/media';
 import { stillSize } from '../lib/appConfig';
 import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
 import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
+import { createBoardMask } from './boardMask';
 
 export type VisionStatus = {
   stage: 'model' | 'camera' | 'motion' | 'error';
@@ -107,6 +108,14 @@ export interface VisionRuntime {
   grabVideoFrame: (size: number, timestampUs: number, durationUs: number) => VideoFrame | null;
   /** Whether the board has been located since the camera started, so a region can be placed at all. */
   readonly located: boolean;
+  /**
+   * Black out everything outside the board in the published feed.
+   *
+   * It changes only what is *sent*. Inference reads the `<video>` element and never this canvas, so
+   * a masked feed scores identically to an unmasked one — which is the first thing anybody reading
+   * this will want to know.
+   */
+  setBoardMask: (on: boolean) => void;
   /** Keep a copy of each inference's input square, for the frozen calibration frame. */
   setKeepInputFrame: (on: boolean) => void;
   /** Paint that copy into a 2D context; false when no frame has been kept yet. */
@@ -154,6 +163,15 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * was found slide onto it the moment it is.
    */
   const virtualCamera = createVirtualCamera();
+  /**
+   * The board's edge in the published picture, when the feed is cut to it.
+   *
+   * Beside the virtual camera because it is the same kind of thing — part of how the feed is framed
+   * and no part of how anything is scored. Told what to do at construction by `useVisionRuntime`,
+   * from the device's stored settings.
+   */
+  const boardMask = createBoardMask();
+  let maskEnabled = false;
   let videoRegion: Region | null = null;
   /** The pending return to the default shot. See `directVideo`. */
   let videoResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -172,10 +190,10 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * is available the instant the camera is. So a feed never waits for the board and never lies about
    * where it is looking.
    */
-  function videoDestination(): CropRect | null {
-    if (!video.videoWidth || !video.videoHeight) return null;
-    const { crop, frame } = frameGeometry(video);
-
+  function videoDestination(
+    crop: { cropX: number; cropY: number; cropSize: number },
+    frame: { width: number; height: number },
+  ): CropRect {
     if (lastHomography) {
       const rect = regionToCrop({
         region: clampRegion(videoRegion ?? DEFAULT_REGION),
@@ -306,6 +324,10 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // about any camera — but the timer that would release it must not, or it fires into a camera
       // session that knows nothing about the command that set it.
       virtualCamera.reset();
+      // And the outline, for the reason directly above: it described where a board was in *that*
+      // camera session's frames, and a phone re-aimed between sessions would be masked to where the
+      // board used to be.
+      boardMask.reset();
       cancelVideoReset();
       releaseCanvas();
     },
@@ -348,9 +370,15 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
 
     grabVideoFrame(size: number, timestampUs: number, durationUs: number) {
       if (!camera.active) return null;
-      const destination = videoDestination();
-      if (!destination) return null;
-      return grabFrame(video, virtualCamera.shot(destination, performance.now()), size, timestampUs, durationUs);
+      if (!video.videoWidth || !video.videoHeight) return null;
+
+      // One reading of the frame, used by both of the things that follow: where the shot should
+      // point, and where the mask's outline lands in it. Asking the video element again between them
+      // would be asking a moving thing the same question twice.
+      const { crop, frame } = frameGeometry(video);
+      const shot = virtualCamera.shot(videoDestination(crop, frame), performance.now());
+      const outline = maskEnabled ? boardMask.outline(lastHomography, lensCalibration) : null;
+      return grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
     },
 
     async unload() {
@@ -380,6 +408,8 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     get modelKey() { return modelKey; },
     get inputSize() { return inputSize(); },
     get cameraResolution() { return cameraResolution; },
+
+    setBoardMask(on: boolean) { maskEnabled = Boolean(on); },
 
     /** Keep a copy of each inference's input square (calibration only — it costs a full draw). */
     setKeepInputFrame(on: boolean) {

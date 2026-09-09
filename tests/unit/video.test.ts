@@ -7,7 +7,7 @@
 // the kind of wrong that looks, on a screen, like a mysteriously bad picture.
 
 import { describe, it, expect, vi } from 'vitest';
-import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
+import { createVirtualCamera, easeInOut, lerpCrop, outlineInShot } from '../../src/client/vision/videoCamera';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, clampAudience, createVideoFeedId, directorTiming, isVideoFeedId, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
@@ -460,6 +460,42 @@ describe('lerpCrop', () => {
 });
 
 // ============================================================
+// Putting the board's edge where the shot is
+// ============================================================
+
+describe('outlineInShot', () => {
+  /** The model's input square, offset inside a landscape frame the way a real crop is. */
+  const crop = { cropX: 280, cropY: 0, cropSize: 720 };
+  /** Two corners of the input square and its centre, in the normalized coordinates the mask holds. */
+  const outline = Float64Array.from([0, 0, 1, 1, 0.5, 0.5]);
+
+  it('maps the input square onto the whole canvas when the shot is the whole crop', () => {
+    const shot = { x: 280, y: 0, size: 720 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect([...points]).toEqual([0, 0, 320, 320, 160, 160]);
+  });
+
+  it('doubles the scale for a shot half the size of the crop', () => {
+    // A shot centred on the crop and half its side: the input square's corners now fall a quarter of
+    // the canvas outside it on each side, and its centre stays in the middle. Swapping an axis or
+    // flipping a sign moves exactly these numbers and nothing the eye would catch on a live board.
+    const shot = { x: 280 + 180, y: 180, size: 360 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect([...points]).toEqual([-160, -160, 480, 480, 160, 160]);
+  });
+
+  it('lets the board run off the edge rather than clamping it', () => {
+    // A shot in the corner of the crop, so most of the board is outside the frame. Clamping here
+    // would bend the outline along the canvas edge and mask the wrong side of it; the rasterizer
+    // handles the overhang for free.
+    const shot = { x: 280, y: 0, size: 180 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect(points[2]).toBeGreaterThan(320);
+    expect(points[3]).toBeGreaterThan(320);
+  });
+});
+
+// ============================================================
 // The camera itself
 // ============================================================
 
@@ -611,4 +647,6 @@ describe('the video frame header', () => {
     // can never identify a feed created by this protocol.
     expect(unpackVideo(new ArrayBuffer(30))).toBeNull();
   });
+
 });
+

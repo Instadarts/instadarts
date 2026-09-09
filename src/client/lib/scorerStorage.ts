@@ -60,6 +60,17 @@ export interface ScorerSettings {
    * nominate this device as their board camera as well; see shared/media.ts.
    */
   media: MediaTier;
+  /**
+   * Whether the video this phone publishes is cut to the board, with everything around it black.
+   *
+   * Beside `media` because it is the same kind of decision and belongs to the same person: the tier
+   * says how much of its view this phone is willing to send, and this says how much of that picture
+   * is board rather than room. Neither the owner nor the opponent can change it from their end.
+   *
+   * It changes only what is *published*. The model is fed the camera's own square either way, so a
+   * masked feed scores identically to an unmasked one.
+   */
+  boardMask: boolean;
   /** Whether to render the motion-tile overlay on the camera preview. */
   motionAnimations: boolean;
   /** Diagnostic overrides for devices with vendor-specific WebGPU failures. */
@@ -95,6 +106,7 @@ const SETTINGS_DEFAULTS: ScorerSettings = {
   cameraOffAfterMinutes: GRACE_MINUTES.default,
   standbyAfterMinutes: STANDBY_MINUTES.default,
   media: 'video',
+  boardMask: true,
   motionAnimations: true,
   forceCpuMotion: false,
   forceCpuPreprocessing: false,
@@ -174,6 +186,10 @@ export function loadSettings(): ScorerSettings {
       cameraOffAfterMinutes: clampMinutes(stored.cameraOffAfterMinutes, GRACE_MINUTES),
       standbyAfterMinutes: clampMinutes(stored.standbyAfterMinutes, STANDBY_MINUTES),
       media: asTier(stored.media),
+      // `!== false` and not the `=== true` below it, because this one defaults to *on*: a phone
+      // upgrading from a build that had no such setting has `undefined` here, and must land on the
+      // default rather than on the opposite of it.
+      boardMask: stored.boardMask !== false,
       forceCpuMotion: stored.forceCpuMotion === true,
       forceCpuPreprocessing: stored.forceCpuPreprocessing === true,
       forceCpuInference: stored.forceCpuInference === true,
@@ -213,7 +229,8 @@ export function saveSettings(patch: Partial<ScorerSettings>): ScorerSettings {
  *
  * **Selective, not a wipe.** The line runs between what setup is about to work out or ask for again
  * — the camera and its zoom, the model, the three CPU overrides, the confidence thresholds, the lens
- * calibration — and what somebody sat down and decided about how this phone behaves. Doing the first
+ * calibration — and what somebody sat down and decided about how this phone behaves: its name, the
+ * two timers, and what it is willing to show of the room it stands in. Doing the first
  * set again is the point of pressing the button; making somebody re-type the device name and re-set
  * two timers because they wanted the model re-checked is not.
  *
@@ -225,7 +242,9 @@ export function saveSettings(patch: Partial<ScorerSettings>): ScorerSettings {
  * is what lets this exist at all.
  */
 export function resetSettings(): ScorerSettings {
-  const { deviceName, screensaver, cameraOffAfterMinutes, standbyAfterMinutes, media } = loadSettings();
+  const {
+    deviceName, screensaver, cameraOffAfterMinutes, standbyAfterMinutes, media, boardMask,
+  } = loadSettings();
   return saveSettings({
     ...SETTINGS_DEFAULTS,
     deviceName,
@@ -233,6 +252,9 @@ export function resetSettings(): ScorerSettings {
     cameraOffAfterMinutes,
     standbyAfterMinutes,
     media,
+    // Kept for the same reason `media` is: both are answers about what this phone shows of the room
+    // it is standing in, and re-checking the model is no reason to broadcast a living room again.
+    boardMask,
   });
 }
 

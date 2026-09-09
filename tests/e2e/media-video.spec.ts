@@ -644,6 +644,69 @@ test.describe('board video', () => {
     await scorer.context.close();
   });
 
+  test('a masked camera publishes a board and no room', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    // The mask needs a board before it can cut to one, and a feed that has not found one publishes
+    // its camera's own square unmasked. Asserting the homography rather than assuming it is what
+    // stops "the board was never located" from reading as a passing test.
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+    await showScene(scorer.page, 'darts');
+    const decodedAtSceneChange = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 20_000 })
+      .toBeGreaterThan(decodedAtSceneChange + 2);
+
+    // The corners of an 8×8 grid over the frame. The published square is the board's own bounding
+    // square, so under any perspective the board's circle falls inside it and these four cells are
+    // entirely outside the rim — which is what makes them the room and not the board.
+    const corners = (cells: number[]) => [cells[0], cells[7], cells[56], cells[63]];
+    const middle = (cells: number[]) => [cells[27], cells[28], cells[35], cells[36]];
+
+    // Black rather than merely dark, and this is an absolute reading rather than a comparison
+    // because it can be: the mask fills with `#000`, and the room it replaces is bright enough in at
+    // least one corner of this scene to make the difference unmistakable — see the other side of it
+    // below. The board underneath is untouched, which is the second half of the claim.
+    const masked = (await fingerprint(guest))!;
+    expect(Math.max(...corners(masked)), 'the room is still in the corners').toBeLessThan(24);
+    expect(Math.min(...middle(masked)), 'the board went black too').toBeGreaterThan(24);
+
+    // Turned off mid-feed, through the settings screen: it is the phone's own answer, and it takes
+    // effect on the next frame rather than on the next feed — which is the whole reason it is a
+    // setter on a runtime that is never rebuilt.
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(scorer.page.getByRole('switch', { name: 'Board only' }), false);
+    await closeScorerSettings(scorer.page);
+
+    // The room comes back, and it is not subtle: the corner that carries the cabinet behind the
+    // board reads about 126 unmasked against 0 masked. Only one corner is asserted because the
+    // scene's other three are genuinely dark, which is the honest thing to say about a photograph.
+    await expect
+      .poll(async () => Math.max(...corners((await fingerprint(guest)) ?? masked)), { timeout: 20_000 })
+      .toBeGreaterThan(40);
+
+    // And the board itself did not move a pixel while the surroundings came and went. This is the
+    // assertion that says the mask is a mask and not a change of shot.
+    const unmasked = (await fingerprint(guest))!;
+    for (const [i, cell] of middle(unmasked).entries()) {
+      expect(Math.abs(cell - middle(masked)[i]), `board cell ${i} moved with the mask`).toBeLessThan(3);
+    }
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
   test('a stills-only camera offers and publishes no video', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);

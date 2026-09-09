@@ -45,7 +45,9 @@ camera is a complete declaration: it counts toward setup but creates no peer ide
 nominates at most one claimed device as its `boardCamera`; none is valid. A device becomes a media
 source only when its own tier and the frontend's nomination both allow it. The frontend's media
 switch controls whether that browser participates at all, while the board-camera choice controls
-only whether it publishes its board.
+only whether it publishes its board. The tier says how much of its view a phone is willing to send;
+the **board mask** below says how much of that picture is board rather than room. Both belong to the
+phone, and neither can be changed from the other end.
 
 Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A scoring phone may
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
@@ -202,6 +204,35 @@ The **virtual camera** implements the move as an interpolated `drawImage` source
 re-resolves the requested board region on every frame, allowing a feed to start on the centred base
 crop and move into place once board geometry is available. A command that interrupts another begins
 from the current interpolated position.
+
+### Blacking out the room
+
+A scoring phone is pointed at a board in somebody's home, and the square it publishes carries
+whatever is around that board. **Board only** — a per-device setting beside the tier, on by default —
+fills everything outside the board's rim with black before the frame reaches the encoder.
+
+It is drawn by the virtual camera, on the same canvas and in the same `drawImage` pass as the shot
+above. [`boardMask.ts`](../src/client/vision/boardMask.ts) projects the board's outer circle — the
+sisal rim at 225mm, so the number ring stays visible — through the inverse homography and the lens,
+exactly as a still's four corners are projected, and the fill is one even-odd path: the whole canvas,
+then the board. The outline is recomputed only when a new homography is solved, which on a
+motion-gated pipeline watching a still board is seconds apart, so a frame costs one affine over 128
+points and a flat fill.
+
+**It is not a warp.** The board keeps the shape the camera saw it in; only the surroundings change.
+Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone that is
+already running the detection model — so if that is ever wanted, the end to do it at is the one with
+an idle GPU and no inference to run.
+
+**No homography means no mask.** The same honesty as the fallback crop: a feed that has not located
+the board publishes its camera's own square, unmasked, rather than guessing where to put the black.
+The same is true of a homography that will not invert, a board that projects across the horizon, and
+one that comes out too small to believe — that last guard exists because a wrong homography is the
+only failure here that is silent, and it reaches a viewer as a black square nobody at the source can
+see.
+
+**It changes only what is published, never what is scored.** Inference reads the `<video>` element
+directly and never this canvas. Turning it on must not move a single tip.
 
 ### Live board video
 

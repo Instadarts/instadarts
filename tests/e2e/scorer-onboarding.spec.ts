@@ -322,13 +322,14 @@ test.describe('setting up a scoring device', () => {
     await scorer.getByRole('button', { name: 'Skip' }).click();
     await expect(scorer.getByRole('button', { name: 'Settings' })).toBeVisible();
 
-    // Something of each kind: a name and a screensaver preference to keep, a lens calibration, a
-    // camera choice with its zoom and a CPU override to throw away.
+    // Something of each kind: a name, a screensaver preference and a sharing choice to keep, a lens
+    // calibration, a camera choice with its zoom and a CPU override to throw away.
     const deviceName = await openScorerSettings(scorer);
     await deviceName.fill('Board camera');
     await deviceName.blur();
     await scorer.getByLabel('Screensaver').uncheck();
     await scorer.getByRole('switch', { name: /^Inference\b/ }).check();
+    await scorer.getByRole('switch', { name: 'Board only' }).uncheck();
     await scorer.evaluate(() => {
       const KEY = 'instadarts_scorer_settings';
       const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');
@@ -353,6 +354,9 @@ test.describe('setting up a scoring device', () => {
     const settings = await storedSettings(scorer);
     expect(settings.deviceName, 'the name is the one thing here somebody typed').toBe('Board camera');
     expect(settings.screensaver).toBe(false);
+    // A decision about what this phone shows of the room it is standing in, not something the
+    // self-test is about to measure. Forgetting it here would switch a privacy choice back on.
+    expect(settings.boardMask, 'a sharing choice, not a measurement').toBe(false);
     expect(settings.didOnboard).toBe(false);
     expect(settings.forceCpuInference, 'the self-test is about to decide this again').toBe(false);
     expect(settings.lensByCamera).toEqual({});

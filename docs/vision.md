@@ -78,6 +78,7 @@ The implementation is in [`server/scoring/`](../src/server/scoring/), principall
 | Frame geometry | `tests/unit/frame.test.ts` | landscape/portrait centre crops and whole-image validation framing |
 | Lens geometry | `tests/unit/vision-lens.test.ts` | the homography round trip, ring order, k1 direction, bed placement |
 | Board geometry | `tests/unit/vision-geometry.test.ts` | image→board projection and scoring |
+| The board mask | `tests/unit/still.test.ts`, `video.test.ts` | the projected rim lands back on the rim, and where it falls in the published square |
 | Fusion and tracking | `tests/unit/vision-fusion.test.ts`, `vision-session.test.ts`, `scorer-tips.test.ts` | which tips are one dart, when a visit ends |
 | End to end | `tests/e2e/scorer-inference.spec.ts`, `scorer-onboarding.spec.ts` | a real `.tflite` through pairing into a visit; landscape/portrait square-preview geometry; one video node surviving onboarding, calibration and model-resolution changes |
 
@@ -257,7 +258,9 @@ figure, and confirm it behaves over the length of a session rather than only at 
   basis, then may select a smaller board region. Onboarding and scoring share
   [`SquareCameraViewport.tsx`](../src/client/pages/scorer/SquareCameraViewport.tsx): a square with a
   permanently centred `object-fit: cover` video, so the person sees exactly the model's base crop.
-  Normalized motion, board and aim overlays remain inside the same square. The crop is uniformly
+  Normalized motion, board and aim overlays remain inside the same square. The published frame may
+  additionally be cut to the board — see **The board mask** below — which changes nothing about this
+  crop or about what the model is fed. The crop is uniformly
   resized to 960×960 or 1280×1280 for the model, never squeezed from the stream's original aspect
   ratio. Keep the viewport reserved when no stream exists, and keep the same video DOM node across
   settings, calibration and model changes.
@@ -279,6 +282,31 @@ figure, and confirm it behaves over the length of a session rather than only at 
 *To check:* on the phone, zoom until the board fills the frame, then calibrate: the projected
 spider is slid onto the board's real wires, so how well it can be made to sit on them is the test.
 Then throw, and confirm scoring behaves as expected.
+
+### The board mask
+
+**Board only** (Settings → Sharing and power, on by default) blacks out everything outside the
+board's rim in the video this phone publishes. It is drawn on the publisher's canvas from the last
+solved homography, downstream of everything the pipeline looks at, so it is nothing to do with
+scoring — but the two claims that matter about it are both hardware-only.
+
+The first is that the circle lands where the board is. CI can prove the arithmetic round-trips and
+that the corners of a decoded frame go black; it cannot tell you whether the black edge sits on the
+real rim at the angle *this* phone is mounted at, and there is deliberately no margin, so it traces
+the rim exactly. Nor can it say whether a homography solved a minute ago still fits a phone somebody
+has since brushed past — the mask is held for as long as the homography is, which is the whole camera
+session.
+
+The second is negative: turning it on must not change a single tip. Nothing in CI checks that,
+because nothing in CI could tell the difference.
+
+*To check:* mount the phone, watch the feed on another screen, and confirm the edge sits on the rim
+from that angle — then nudge the phone and see what it takes to get a crescent of board blacked out,
+and how long it stays that way. Throw with it on and off and confirm scoring is identical. And read
+the bitrate: flat black costs an encoder almost nothing, so a masked feed at the same 500 kbps should
+look **better** rather than merely darker, with `dropped` and `oversize` in the diagnostics panel no
+worse than before. If the edge is too tight in practice, `MASK_RADIUS` in
+[`boardMask.ts`](../src/client/vision/boardMask.ts) is the knob.
 
 ### Motion gating, in the real world
 

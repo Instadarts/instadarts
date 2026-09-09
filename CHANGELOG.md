@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- Board video is cut to the board: a scoring device blacks out everything outside the board's rim
+  before the frame is encoded. **On by default**, so a phone that publishes video will look different
+  after this upgrade — the room around the board is gone. Turn it off per device under
+  Settings → Sharing and power → **Board only**. It keeps somebody's living room out of the picture
+  and spends the bitrate on the board instead, and it changes nothing about scoring. See
+  [docs/media.md](docs/media.md).
+
 ## 1.2.0
 - Match integration API: an authenticated HTTP API for external software to create matches with a
   fixed roster and settings, hand each player a personal invite link, discover installed game modes,

@@ -397,6 +397,11 @@ presentation equivalent of `getCenterSquareCrop`; the longer source axis is clip
 ends, so the user sees the model's base input crop. Normalized board, motion and aim overlays stay
 inside that same square.
 
+**Sharing and power** carries one control that is about neither: **Board only**, which cuts the
+published video to the board. It is a property of that outgoing feed alone — never of the model's
+input crop, the square preview, or any overlay drawn on it — and appears only where the media tier
+above it is `video`, because there is otherwise nothing to mask.
+
 Keep `CameraPanel` mounted while settings or calibration is shown. Its video node, stream, runtime
 and model must survive presentation changes and model-resolution switches. Calibration has a
 separate frozen 640×640 canvas and normalized SVG overlay. These invariants and the hardware checks

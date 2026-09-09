@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 - Match integration API: an authenticated HTTP API for external software to create matches with a
   fixed roster and settings, hand each player a personal invite link, discover installed game modes,
   list and read its own matches, cancel one, and retain full results for 24 hours. Live updates use

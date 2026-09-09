@@ -824,25 +824,27 @@ test.describe('board video', () => {
     // tests/unit/vision-geometry.test.ts instead, where the number can be stated.
     expect(geometry!.lensK1).toBe(0);
 
-    // Where the bull sits in the published frame, worked out from the block the camera sent: board
-    // centre, back through the homography, then into the published square.
+    // Where a chosen board point sits in the published frame, worked out from the block the camera
+    // sent: board space, back through the homography, then into the published square.
+    //
     // Deliberately **not** the bull. The board's centre is the one point a vertical mirror leaves
-    // exactly where it was, and a flipped board once passed this test because of it. A point above
-    // the bull has to land above the middle of the box, where a screen counts y downwards.
+    // exactly where it was, and a flipped board once passed this test because of it. This point is
+    // above the bull, so it has to land above the middle of the box, where a screen counts y down.
     const inverse = invertMatrix3x3(geometry!.homography)!;
     const above = transformPoint([0.5, 0.8], inverse)!;
     const u = (above[0] - geometry!.shot.x) / geometry!.shot.size;
     const v = (above[1] - geometry!.shot.y) / geometry!.shot.size;
 
-    // And the proof: that pixel, put through the transform the browser actually resolved, lands on
-    // the middle of the board box — which is where the virtual board draws the bull. Device
-    // geometry, the wire, the receiver, the matrix, the DOM, and a position on a screen.
+    // And the proof: that pixel, put through the transform the browser actually resolved, lands
+    // where the virtual board draws the same point — halfway across the box and a fifth of the way
+    // down it. Device geometry, the wire, the receiver, the matrix, the DOM, and a position on a
+    // screen.
     //
-    // One pixel, and it is not a hedge: measured, this lands within two thousandths of a pixel of
-    // the centre, because with no lens correction in play the whole map is projective and the only
-    // losses are the float32 the block travels in and however Chrome serializes a matrix. The bound
-    // is loose enough to survive that and tight enough to be worth having — transposing the matrix,
-    // which is the mistake this whole path invites, moves the bull fifteen pixels.
+    // One pixel, and it is not a hedge: measured, this lands within two thousandths of a pixel,
+    // because with no lens correction in play the whole map is projective and the only losses are
+    // the float32 the block travels in and however Chrome serializes a matrix. The bound is loose
+    // enough to survive that and tight enough to be worth having — transposing the matrix, which is
+    // the mistake this whole path invites, moves the point fifteen pixels.
     const shown = (await placePoint(guest, u, v))!;
     expect(Math.abs(shown.placed!.x - shown.side / 2)).toBeLessThan(1);
     expect(Math.abs(shown.placed!.y - shown.side * 0.2)).toBeLessThan(1);
@@ -891,7 +893,12 @@ test.describe('board video', () => {
     // through the settings screen rather than through storage, because the point is that it is the
     // phone's own answer and its owner is the one who gives it.
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    // And while the menu is open, the one control that hangs off the tier. A mask switch under
+    // `stills` would offer to black out a picture nobody receives, so it is there for `video` and
+    // gone otherwise — asserted in both states, so neither half can rot unnoticed.
+    await expect(scorer.page.getByRole('switch', { name: 'Board only' })).toBeVisible();
     await scorer.page.getByRole('combobox', { name: 'Share this view' }).selectOption('stills');
+    await expect(scorer.page.getByRole('switch', { name: 'Board only' })).toHaveCount(0);
     await closeScorerSettings(scorer.page);
 
     await host.click('text=Start Match');

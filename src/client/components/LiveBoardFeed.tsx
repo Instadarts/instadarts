@@ -8,8 +8,7 @@ interface LiveBoardFeedProps {
   label?: string;
   /**
    * Where the board is in the picture, asked rather than passed. See `VideoFeedView.geometry` — it
-   * changes with every decoded frame while a director is moving the shot, which is not a rate to
-   * render React at.
+   * arrives with a decoded frame, and nothing re-renders React when it does.
    */
   geometry?: () => BoardGeometry | null;
   /** Lay the board square-on over the virtual board underneath, and cut the rest away. */
@@ -83,15 +82,24 @@ export function LiveBoardFeed({ source, label, geometry, straighten = false }: L
   }, []);
 
   /**
-   * The shot is still for most of a match and moves every frame for the half-second of a director
-   * command, so this runs on the display's clock and does almost nothing on almost every tick: the
-   * receiver replaces the geometry object only when a frame said something new, which makes an
-   * unchanged board a reference comparison. Both properties it writes are the compositor's.
+   * The display's clock, because neither thing this reads has one React can hear: the geometry lands
+   * with a decoded frame, the box's side comes from a `ResizeObserver`, and a mounted match
+   * re-renders on neither.
+   *
+   * It does almost nothing on almost every tick. A camera describes only its resting framing, and
+   * re-solves that only when its motion gate fires between throws, so the receiver replaces the
+   * geometry object seldom — and the ordinary tick is two reference comparisons and a return. Both
+   * properties it writes when it does write are the compositor's.
    */
   useEffect(() => {
     const box = host.current;
     const target = frame.current;
     if (!box || !target) return;
+    // Nothing to follow while the feed is drawn the way it always was, and no reason to hold a frame
+    // callback open for every viewer who never asked for this — which is most of them, it being off
+    // by default. Toggling rebuilds the loop, and the cleanup below has cleared both properties by
+    // the time this line is reached again.
+    if (!straighten) return;
 
     let handle = 0;
     let lastGeometry: BoardGeometry | null = null;
@@ -101,7 +109,7 @@ export function LiveBoardFeed({ source, label, geometry, straighten = false }: L
     const tick = () => {
       handle = requestAnimationFrame(tick);
       const read = latestGeometry.current;
-      const current = straighten && read ? read() : null;
+      const current = read ? read() : null;
       const side = size.current;
       if (current === lastGeometry && side === lastSize) return;
       lastGeometry = current;

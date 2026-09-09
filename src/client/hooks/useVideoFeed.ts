@@ -29,10 +29,9 @@ export interface VideoFeedView {
    * Where the board is in the picture on that canvas, asked rather than told.
    *
    * A getter and not a value, for the same reason `canvas` is a live object rather than a snapshot:
-   * this changes with every decoded frame while a director is moving the shot, and re-rendering
-   * React fifteen times a second to carry a number is what `MediaDebugPanel` already declines to do.
-   * Whoever draws the feed reads it on its own clock. Null when the camera has never located a board
-   * — or when there is no receiver yet.
+   * it arrives with a decoded frame, on a clock React cannot hear, so a value read during a render
+   * would be whatever that render happened to catch. Whoever draws the feed asks on its own clock
+   * instead. Null when the camera has never located a board — or when there is no receiver yet.
    */
   geometry: () => BoardGeometry | null;
   status: VideoFeedStatus;

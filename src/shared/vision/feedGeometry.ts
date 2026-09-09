@@ -4,11 +4,11 @@
 // square contains — which board, at what angle, cropped from where. This is the description that
 // travels beside the frame so it can find out.
 //
-// It exists to be *used later*: a receiver holding this can send any pixel of a decoded frame back
-// to a board coordinate, which is what a front-facing warp needs. Nothing consumes it yet. The
-// device deliberately does not warp its own picture — that needs a per-pixel inverse map and a GPU
-// the detection model is already using — so the arithmetic is sent instead, to the end that has a
-// spare one and no inference to run.
+// A receiver holding this can send any pixel of a decoded frame back to a board coordinate, which
+// is what a front-facing warp needs. The device deliberately does not warp its own picture — that
+// needs a per-pixel inverse map and a GPU the detection model is already using — so the arithmetic
+// is sent instead, to the end that has a spare one and no inference to run. `boardWarpMatrix`, at
+// the foot of this file, is what reads it back — and turns out to need no GPU either.
 //
 // Thirteen numbers, and they are sufficient. The receiver's journey is:
 //
@@ -134,8 +134,9 @@ export function sameBoardGeometry(a: BoardGeometry | null, b: BoardGeometry | nu
  * `new VideoFrame(...)` and `captureStream()` all read pixels, and it does not reach this far.
  *
  * The published canvas is stretched to the box, so content point `(u, v)` in `[0,1]²` sits at
- * element-local `(u·size, v·size)`, and the composition is
- * `S(size) · flip · homography · shotAffine · S(1/size)`.
+ * element-local `(u·sizePx, v·sizePx)`, and the composition is
+ * `S(sizePx) · flip · homography · shotAffine · S(1/sizePx)` — where `shotAffine` carries
+ * `geometry.shot`, and `sizePx` is the box, two different lengths that must not be confused.
  *
  * That `flip` is not decoration. **Board space is y-up and a screen is y-down** — the homography's
  * whole job upstream is to leave the camera's picture and arrive somewhere the scoring rules can be

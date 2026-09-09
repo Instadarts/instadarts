@@ -221,8 +221,9 @@ points and a flat fill.
 
 **It is not a warp.** The board keeps the shape the camera saw it in; only the surroundings change.
 Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone that is
-already running the detection model — see [Geometry travels with the frame](#geometry-travels-with-the-frame)
-for what a receiver would need to do it instead.
+already running the detection model. So the frame carries the arithmetic instead, and a viewer that
+wants a front-facing board does it for itself at no cost to the phone — see
+[Straightening it on the viewer](#straightening-it-on-the-viewer).
 
 **No homography means no mask.** The same honesty as the fallback crop: a feed that has not located
 the board publishes its camera's own square, unmasked, rather than guessing where to put the black.
@@ -300,10 +301,12 @@ the camera, and nothing is applied: the feed is the stretched square it has alwa
 last of those is the one that needs a guard rather than a fallback — a browser handed a frame that
 folds through its own vanishing line draws something torn rather than declining to.
 
-The transform is written from a `requestAnimationFrame` loop rather than a React render. The shot is
-still for most of a match and moves every frame for the half second of a director command, and
-fifteen renders a second to carry a matrix is the cost `MediaDebugPanel` already refuses for decoder
-counters. The loop's ordinary tick is a reference comparison and nothing else.
+The transform is written from a `requestAnimationFrame` loop rather than a React render, because
+neither of its inputs has a clock React can hear: the geometry lands with a decoded frame and the
+board box's side comes from a `ResizeObserver`. The loop exists only while the setting is on, so a
+viewer who never turned it on holds no frame callback at all; while it is on it costs almost nothing,
+a described board changing only when the camera re-solves its homography between throws, so the
+ordinary tick is a reference comparison and nothing else.
 
 ## Match setup presentation
 

@@ -36,8 +36,8 @@ export interface ReceiverStats {
    * frame without one means the geometry is unchanged. Null until the first described frame is
    * decoded, and never reset by one that is not.
    *
-   * Nothing reads it yet. It is what a receiver-side warp would need, and `stats()` is the only way
-   * out of this module, so this is where such a thing would come and get it.
+   * `stats()` is the only way out of this module, so this is where a warping viewer comes and gets
+   * it — `useVideoFeed` hands it on as a getter rather than as a value, for reasons written there.
    */
   geometry: BoardGeometry | null;
   error?: string;

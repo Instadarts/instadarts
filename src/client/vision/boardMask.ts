@@ -80,7 +80,9 @@ export interface BoardOutlineInput {
  * this module free of the frame, the canvas and the shot. `outlineInShot` in `videoCamera.ts` does
  * that last step, per frame, because it is the part that moves.
  *
- * Null when the board cannot be placed honestly — see the failure list in `createBoardMask`.
+ * Null when the board cannot be placed honestly: a matrix that will not invert, a point that will
+ * not project, or a polygon smaller than `MIN_OUTLINE_AREA` — see that constant for why the last
+ * one is the guard that matters.
  */
 export function boardOutline({ homography, lensCalibration }: BoardOutlineInput): Float64Array | null {
   const inverse = invertMatrix3x3(homography);

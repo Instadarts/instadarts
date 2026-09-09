@@ -303,9 +303,10 @@ describe('processPredictions', () => {
 /**
  * The receiver's half of the geometry block, written out here and nowhere else.
  *
- * This is the journey a warping receiver would make, and there is deliberately no implementation of
- * it in `src/` yet — so this test is what says the thirteen numbers are *sufficient*. If it stops
- * passing, no amount of receiver code would have helped.
+ * The point-wise journey, **lens correction included** — which is what `boardWarpMatrix` drops, a
+ * radial term not being projective. So this one has no implementation in `src/` and is not about to
+ * get one; it is here to say that the thirteen numbers are *sufficient* for the exact map, whatever
+ * a display path chooses to spend on it. If it stops passing, no receiver code would have helped.
  */
 function pixelToBoard(geometry: BoardGeometry, pixelX: number, pixelY: number, frameSize: number): Point2D {
   const u = pixelX / frameSize;
@@ -338,7 +339,7 @@ function throughFloat32(geometry: BoardGeometry): BoardGeometry {
 describe('publishedBoardGeometry', () => {
   /** The model's input square inside a 1280×720 stream — the centre crop the pipeline feeds. */
   const crop = { cropX: 280, cropY: 0, cropSize: 720 };
-  /** A shot of the middle of that square, as a director's quarter-board move produces. */
+  /** An off-centre square inside it, the shape `videoDestination` resolves a resting framing to. */
   const shot = { x: 280 + 150, y: 130, size: 430 };
   const FRAME = 320;
 
@@ -550,8 +551,9 @@ describe('boardWarpMatrix', () => {
   it('costs this much for dropping the lens correction', () => {
     // Not a tolerance — a measurement, kept where somebody changing the distortion model will see
     // what it does to the picture. A radial term is not projective, so no matrix can carry it; the
-    // question is only whether what is left over is small enough to look at, and at the maximum
-    // slider it is a couple of percent of the board's radius at the rim.
+    // question is only whether what is left over is small enough to look at. It is nothing at all on
+    // an uncalibrated camera and about a tenth of the board's radius at the far end of the slider,
+    // which is the table below.
     const radius = NORMALIZED_RADII.boardOuter * BOX;
     const worstAt = (lens: number) => {
       const geometry = publishedBoardGeometry({

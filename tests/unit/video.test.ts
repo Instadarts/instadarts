@@ -27,6 +27,12 @@ import { canChooseVideoFeed, pruneIneligibleAcceptances, shouldRunVideoPublisher
 import { createIceRestartController, iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
 import { createFrameGeometryQueue, createVideoFeedClock } from '../../src/client/media/videoPublisher';
 import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
+import { setupSnapshotSettled } from '../../src/client/hooks/useMatchMediaSetup';
+import type { CropRect } from '../../src/client/vision/stillCapture';
+
+/** The profile a deployment that changed nothing publishes with. */
+const DEFAULT_PROFILE = videoProfile(CONFIG_DEFAULTS.media.video);
+const FEED_ID = '12345678-1234-4123-8123-123456789abc';
 
 /**
  * A description of one published frame, with no round number in it.
@@ -43,12 +49,6 @@ const GEOMETRY: BoardGeometry = {
   lensK1: 0.072,
   shot: { x: 0.1234567, y: 0.2345678, size: 0.6543211 },
 };
-import { setupSnapshotSettled } from '../../src/client/hooks/useMatchMediaSetup';
-import type { CropRect } from '../../src/client/vision/stillCapture';
-
-/** The profile a deployment that changed nothing publishes with. */
-const DEFAULT_PROFILE = videoProfile(CONFIG_DEFAULTS.media.video);
-const FEED_ID = '12345678-1234-4123-8123-123456789abc';
 
 // ============================================================
 // Who a command's result is for

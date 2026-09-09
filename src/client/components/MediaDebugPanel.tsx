@@ -310,8 +310,9 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
         decoded: counters.decoded,
         dropped: counters.dropped,
         gaps: counters.gaps,
-        // The shot's side, in board space. Enough to watch a director move arrive with the picture,
-        // which is the one thing about the geometry block a person can check by eye.
+        // The resting shot's side, in board space — the receiver's counterpart to the publisher's
+        // `described` counter. A number here at all is the one thing about the geometry block a
+        // person can check by eye: a block arrived, read, and belongs to a picture that decoded.
         shot: counters.geometry?.shot.size ?? null,
       } : null);
     };

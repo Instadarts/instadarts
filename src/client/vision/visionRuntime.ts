@@ -178,9 +178,14 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * Beside the virtual camera because it is the same kind of thing — part of how the feed is framed
    * and no part of how anything is scored. Told what to do at construction by `useVisionRuntime`,
    * from the device's stored settings.
+   *
+   * Starting **on**, which is both the stored default and the safe direction to be wrong in: a
+   * runtime nobody got around to configuring should publish less of somebody's room than they asked
+   * for rather than more. No frame can reach an encoder before the seeding call in any case — the
+   * hook does not publish the runtime until it has made it — so this is a belt, not a fix.
    */
   const boardMask = createBoardMask();
-  let maskEnabled = false;
+  let maskEnabled = true;
   let videoRegion: Region | null = null;
   /** The pending return to the default shot. See `directVideo`. */
   let videoResetTimer: ReturnType<typeof setTimeout> | null = null;

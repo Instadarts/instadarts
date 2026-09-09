@@ -234,6 +234,11 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     // late, or who lost the frame that carried the last change, catch up on the same frame it can
     // start decoding from.
     //
+    // Frames arrive here already undescribed while the camera is moving — `grabVideoFrame` describes
+    // only a settled shot, so that a viewer holds its framing through a director command instead of
+    // chasing it. A keyframe part-way through a move therefore carries nothing either, and a viewer
+    // that joined during one waits for the next keyframe after the camera settles.
+    //
     // A frame with no block therefore means *unchanged*, never *gone*. Within one feed that is
     // always true: a camera only ever gains or moves its board, and the homography is dropped in
     // `stop()`, which ends the camera session and the encoder with it.

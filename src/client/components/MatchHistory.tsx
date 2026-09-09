@@ -1,13 +1,13 @@
 import { Box, Table, Text } from '@mantine/core';
 import type { MatchState } from '../../shared/types';
-import { standingsOf } from '../../shared/matchFormat';
+import type { Standings } from '../../shared/matchFormat';
 
 interface MatchHistoryProps {
   match: MatchState;
+  standings: Standings;
 }
 
-export function MatchHistory({ match }: MatchHistoryProps) {
-  const standings = standingsOf(match.legs, match.settings);
+export function MatchHistory({ match, standings }: MatchHistoryProps) {
   const byLeg = match.settings.legsToWinSet === 1;
   if (standings.sets.length === 0) return <Text c="dimmed" fz="sm">No legs were played.</Text>;
 

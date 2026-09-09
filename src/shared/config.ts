@@ -59,6 +59,8 @@ export interface HttpsListenerConfig extends HttpListenerConfig {
 
 /** The process. Read at boot; nothing here can change while it runs. */
 export interface ServerConfig {
+  /** Server-only integration credentials. Empty disables the HTTP match API. */
+  apiKeys: { id: string; key: string }[];
   http: HttpListenerConfig;
   https: HttpsListenerConfig;
   /** Null checks the request's own origin; a list permits only those exact browser origins. */
@@ -225,6 +227,7 @@ export const CONFIG_DEFAULTS: AppConfig = {
     http: { enabled: true, port: 3000 },
     https: { enabled: true, port: 3001, cert: null, key: null },
     allowedOrigins: null,
+    apiKeys: [],
     maxMatches: 10_000,
     maxPlayersPerMatch: 5,
   },

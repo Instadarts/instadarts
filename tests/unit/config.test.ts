@@ -76,6 +76,28 @@ describe('what the file says', () => {
     expect(CONFIG_COMPLAINTS).toEqual([]);
   });
 
+  it('loads integration keys without publishing them in complaints', async () => {
+    const keys = [{ id: 'league', key: 'secret-key-long-enough' }, { id: 'club', key: 'another-key-long-enough' }];
+    const { CONFIG, CONFIG_FATAL, CONFIG_COMPLAINTS } = await load(JSON.stringify({ server: { apiKeys: keys } }));
+    expect(CONFIG.server.apiKeys).toEqual(keys);
+    expect(CONFIG_FATAL).toBeNull();
+    expect(CONFIG_COMPLAINTS).toEqual([]);
+  });
+
+  it.each([
+    null, {}, [{ id: 'a', key: '' }], [{ id: '', key: 'secret-long-enough' }],
+    [{ id: ' league', key: 'secret-long-enough' }], [{ id: 'league ', key: 'secret-long-enough' }],
+    [{ id: '\tleague\n', key: 'secret-long-enough' }],
+    [{ id: 'a', key: 'secret with spaces' }],
+    [{ id: 'a', key: 'secret-too-short'.slice(0, 15) }],
+    [{ id: 'a', key: 'secret-long-enough-a' }, { id: 'a', key: 'secret-long-enough-b' }],
+    [{ id: 'a', key: 'secret-long-enough-a' }, { id: 'b', key: 'secret-long-enough-a' }],
+  ])('rejects invalid integration key configuration %# without echoing credentials', async (apiKeys) => {
+    const { CONFIG_FATAL } = await load(JSON.stringify({ server: { apiKeys } }));
+    expect(CONFIG_FATAL).toContain('server.apiKeys');
+    expect(CONFIG_FATAL).not.toContain('secret');
+  });
+
   it('reads an explicit WebSocket origin allowlist, including an empty list', async () => {
     const configured = await load('{ "server": { "allowedOrigins": ["https://darts.example", "http://localhost:3000"] } }');
     expect(configured.CONFIG.server.allowedOrigins).toEqual(['https://darts.example', 'http://localhost:3000']);

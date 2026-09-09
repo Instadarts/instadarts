@@ -107,7 +107,7 @@ export function validateSettings(raw: unknown, current: MatchSettings): MatchSet
   return { mode: modeId, modeSettings: cleaned, ...format };
 }
 
-function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {
+export function validateField(field: SettingsField, raw: unknown): string | number | boolean | undefined {
   if (field.kind === 'toggle') return typeof raw === 'boolean' ? raw : undefined;
 
   // A select is its option list and nothing else: anything unrecognised is dropped, which leaves

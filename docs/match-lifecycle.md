@@ -1,7 +1,9 @@
 # Match lifecycle and session ownership
 
 Lobbies, matches, connections, and seats are in-memory server state. This document describes how
-they relate, who may act on them, and how they end. Game rules and leg progression are covered in
+they relate, who may act on them, and how they end. API-created matches additionally retain
+sanitized terminal results in memory for 24 hours; see [API.md](./API.md). Game rules and leg
+progression are covered in
 [game-modes.md](./game-modes.md).
 
 ## Rooms and phases
@@ -10,9 +12,9 @@ A lobby and a match are separate server objects:
 
 | State | Purpose | Ends when |
 | --- | --- | --- |
-| Lobby | Configure players, match format, and game mode | The host starts play, leaves, or the lobby expires |
+| Lobby | Configure ordinary matches, or await the fixed API roster | Host starts/leaves, all API players connect, or lobby expires |
 | Match in progress | Play legs and sets with a fixed roster and settings | A winner is decided, the match is cancelled, or it expires |
-| Match finished | Show the result and collect re-match votes | The summary expires, including after a re-match starts |
+| Match finished | Show the result; ordinary matches also collect re-match votes | The summary expires, including after a re-match starts |
 
 Starting play consumes the lobby and creates a `MatchState` with status `in_progress`. A finished
 match has status `finished`; `winnerId` is present for a win and absent for a cancellation.
@@ -33,13 +35,15 @@ room.
 
 Gameplay commands act on the connection's current room; they do not select a room by ID. Joining
 uses an invite code, while spectating and reconnecting identify their destination explicitly.
-`join_lobby` takes a seat without adding a player; `add_local_player` supplies each player's name.
+`join_lobby` takes a seat without adding a player in ordinary lobbies; `add_local_player` supplies
+each player's name. A personal API invitation instead claims its predefined player into that seat.
 Despite its name, `leave_match` leaves the current lobby or match, for participants and spectators.
 Legacy extra room-ID fields on gameplay commands are ignored; they do not reject stale commands.
 
 Create, join, spectate and reconnect validate their destination and admission requirements before
 changing the current room. Successful changes apply the ordinary leave rules first: a match seat
-concedes, a lobby guest's players are removed, and a departing host abandons its lobby. The new
+concedes, an ordinary lobby guest's players are removed, and a departing host abandons its lobby.
+API lobby departures release players back to waiting without changing the roster. The new
 state contains one room and one role. Watching your own match therefore concedes before showing
 the summary; watching your own hosted lobby abandons it and returns everyone home.
 
@@ -70,7 +74,7 @@ seat to the new connection and sends `seat_taken_over` to the previous holder.
 
 Spectators receive no seat. Explicitly leaving a match revokes the seat and is final.
 
-An open lobby's invite code is a separate admission credential. Only current seated participants
+An ordinary open lobby's invite code is a separate admission credential. Only current seated participants
 receive it, including participants who have not added players. Spectator snapshots and broadcasts
 carry `inviteCode: null`; knowing the public lobby id grants viewing access without revealing a
 joining credential. Filtering happens per recipient, so participants still receive refreshed codes
@@ -124,28 +128,66 @@ a handler changed before failing.
 
 ## Lobby ownership and admission
 
-The user that creates a lobby is its host. The host may change settings, reorder players, remove
+The user that creates an ordinary lobby is its host. The host may change settings, reorder players, remove
 any player, and start the match. Other users may add and remove only the players held by their own
 seat.
 
-`Lobby.acceptsJoins` is fixed at creation. A lobby that accepts joins receives an invite code; a
-lobby that does not has no code and cannot be joined. Spectating remains available in either case.
+`Lobby.acceptsJoins` is fixed at creation, and is about the *shared* code: a lobby that accepts joins
+receives one, and a lobby that does not has none. An ordinary lobby without a code cannot be joined
+at all; an API-managed lobby is also without one, and is joined by personal invitation instead.
+Spectating remains available in every case.
 The server computes `userCount`, the effective player limit, and whether another user can be
 admitted for each lobby response.
 
 Invite codes contain six characters from an alphabet of 32 unambiguous letters and digits, chosen
-with cryptographic randomness. Generation retries codes held by any existing lobby, including the
-same lobby's current code during rotation. Codes are unique among existing lobbies; retired codes
-are not reserved forever.
+with cryptographic randomness. Generation retries codes held by any existing lobby or personal API
+invitation, including the same lobby's current code during rotation. Codes are unique across live
+lobby and personal invitations; retired codes are not reserved forever.
 
-Before starting, the server reconciles the roster with the seats: players held by no seat are
+Before a manual start, the server reconciles the roster with the seats: players held by no seat are
 removed, seat entries naming no player are pruned, and a connected user without a player becomes a
 spectator. The roster and settings are fixed after the match is created. Participant seats carry
 from the lobby into the match.
 
+## API-managed lobbies
+
+`POST /api/v1/matches` creates a hostless lobby (`apiManaged: true`) with its roster and settings
+already fixed. The caller receives per-match player UUIDs and one private invite code per player;
+duplicate names are permitted. Caller ownership, reserved match IDs, and codes stay in server-only
+registries. A reserved match ID can be spectated while the lobby is still waiting.
+
+`join_lobby` claims the invited player; repeated claims by its own seat are harmless, another seat's
+claim is refused, and several codes can fill the same browser seat and board. The full predefined
+roster does not block admission: a code must identify an available roster player. Additional codes
+for another lobby are refused until the participant leaves the current managed lobby.
+
+Shared-board links use `/lobby/join/<codeA>/<codeB>` (with further codes allowed). They send a
+single `join_lobby` request whose `inviteCode` is an array of personal codes, bounded by
+`server.maxPlayersPerMatch`. The server validates the whole group before claiming any player,
+requires one lobby, ignores duplicate claims, and checks automatic start once after the group
+joins. Invalid or unavailable codes leave existing ownership intact. Ordinary invitations continue
+to use the single-code string form. See [API.md](./API.md#invitations-and-shared-boards).
+
+There is no browser host. Only the creating caller can explicitly delete the match through HTTP;
+participants can still leave, and ordinary departure rules can end play early with a win or
+cancellation. Settings, names, order, additions, removals, manual start, and rematch votes are
+rejected server-side. `joinedPlayerIds` in lobby snapshots is derived from open frontend
+connections and their seats. Once every roster player is connected, admission or reconnection
+starts play through the ordinary transition, using the reserved match ID and retiring every code.
+A participant disconnected within grace keeps its seat but does not satisfy automatic readiness.
+A reconnect using the old lobby ID can redeem the carried match seat if it missed the start reply.
+
+Before start, leaving revokes the seat and clears ownership without removing roster players; their
+codes remain reusable. There is no shared invite code to rotate. Ordinary in-game departures and
+seat-token reconnection apply after start. All participant rematch controls are disabled.
+
+External consumers use the existing spectator WebSocket snapshots, which now include derived
+`standings` alongside `match`, `view`, and `panel`. Completion can arrive in `match_state` or
+`match_finished`; `match.status`, not the message name, determines whether play has ended.
+
 ## Leaving rooms
 
-Leaving a lobby revokes the user's seat and removes every player it held. If the host leaves, the
+Leaving an ordinary lobby revokes the user's seat and removes every player it held. If the host leaves, the
 lobby is abandoned and everyone in it returns home. If the last guest leaves an open lobby, its
 invite code is replaced before another guest can join.
 
@@ -167,7 +209,7 @@ Both format settings, legs to win a set and sets to win a match, are limited to 
 thresholds, so five players can play at most 46 legs per set and 46 sets per match: at most
 1,058,000 submitted visits. For a roster of P players the bound is `500 × (9P + 1)²`.
 
-A finished match shows a summary while each participant's re-match vote is neutral, accepted, or
+A finished ordinary match shows a summary while each participant's re-match vote is neutral, accepted, or
 declined. Any decline settles the result as no re-match. Neutral votes become declines when the
 summary expires.
 
@@ -197,6 +239,33 @@ re-match stay there.
 | Lobby | 10 minutes idle | Abandoned and deleted; connected clients return home |
 | Match in progress | 10 minutes idle | Cancelled and moved to its summary |
 | Match finished | 2 minutes | Neutral votes decline, clients still on that summary return home, and the match is deleted |
+
+API matches keep these room deadlines, but the first terminal result is copied into a sanitized
+archive for 24 hours from termination, including full scoring history. It covers lobby expiry,
+scored wins, departure outcomes, idle cancellation, and visit-limit cancellation. Later summary
+departures cannot change the archive. HTTP reads do not renew deadlines, and closed rooms cannot
+be spectated from the archive. Restarting the server loses rooms and archived results.
+
+A caller can also end its own match early, at any stage, with `DELETE /api/v1/matches/<matchId>`.
+The room is torn down through the deadline handler that would have ended it anyway — a waiting lobby
+is abandoned, a running match is cancelled into its summary — so participants see the ordinary
+ending rather than a new one. The record is then removed rather than retained, and the full final
+state is included in the response. Consumers must not rely on that response to preserve results:
+retrieve and save needed state before deleting, since a lost DELETE response cannot be recovered.
+An active match may advance between a read and deletion; wait for termination before retrieving
+the completed result if it must be preserved. Repeated deletion leaves the record absent and returns
+`404`; it does not replay the first response.
+
+Active plus retained API records have a separate budget of `server.maxMatches`. Creation must fit
+both that budget and the ordinary room budget; unexpired results are not evicted to admit new
+matches. Expiry releases registry entries; explicit deletion frees its API record immediately.
+Deleting a waiting lobby also frees its room immediately. Deleting a running match leaves its room
+occupied by the new two-minute summary, while deleting a terminal record leaves any existing
+summary's deadline unchanged. Room capacity is released when the summary is cleaned up, so creation
+can still return `503` after deletion. Credentials, sessions, scoring and media resources are never
+retained in the result. [API.md](./API.md) documents the authenticated retrieval interface.
+If a room disappears outside normal archival paths, the sweeper removes its orphaned API record
+and reserved-ID mapping. Existing rooms have no age-based API-record cutoff.
 
 Participant input resets an idle deadline. Spectating and reconnecting do not, and the
 finished-match deadline is fixed. Room-ending handlers remove room, seat, scoring and media state.

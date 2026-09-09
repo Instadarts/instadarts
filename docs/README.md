@@ -1,6 +1,6 @@
 # InstaDarts developer documentation
 
-Internal documentation for people (and agents) developing this app — not end-user documentation.
+Technical documentation for people (and agents) developing this app or integrating external software.
 
 Ground rule: **the implementation is the source of truth.** These documents describe what exists.
 Use a temporary `plan-<topic>.md` for implementation steps while an imminent change is active, then
@@ -8,6 +8,9 @@ remove it when the work is completed or cancelled. Planned work does not belong 
 which describe the current state.
 
 ## Contents
+
+- [Match integration API](./API.md) — caller keys, fixed rosters, personal invitations, spectator
+  WebSocket updates, mode/settings discovery, caller match inventories, and retained results.
 
 - [Glossary](./glossary.md) — domain vocabulary and naming conventions.
 - [Match lifecycle and session ownership](./match-lifecycle.md) — lobbies, matches, seats,

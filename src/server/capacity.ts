@@ -30,6 +30,17 @@ export const MAX_MATCHES = CONFIG.server.maxMatches;
 export const MAX_ROOMS = MAX_MATCHES;
 
 /**
+ * Integration match records: the ones with a live room, plus the terminal results kept for their
+ * retention period. A separate budget from the rooms, because a record outlives the room it
+ * describes — a server whose rooms are all free can still be holding a day's worth of results.
+ *
+ * **Refused**, and never evicted: an unexpired result is the only copy of a match a caller may not
+ * have read yet, so a new creation is turned away rather than an old answer thrown out. A caller
+ * that wants the space back deletes a match, which is the one thing that frees a record early.
+ */
+export const MAX_API_RECORDS = MAX_MATCHES;
+
+/**
  * The most users one match can hold: a user brings at least one player, so the player cap caps them
  * too. A deployment ceiling, like every other figure here — a game mode narrowing itself to two
  * players narrows its lobbies to two users with it, and that is the mode's business rather than the
@@ -131,6 +142,11 @@ export function canAcceptConnection(current: number): boolean {
   return current < MAX_CONNECTIONS;
 }
 
+/** Asked before an integration match is created. Takes the count, so this file stays a leaf. */
+export function canAddApiRecord(current: number): boolean {
+  return current < MAX_API_RECORDS;
+}
+
 /** Asked when a connection turns out to be a scoring device, which is the first time we know. */
 export function canAcceptDevice(current: number): boolean {
   return current < MAX_DEVICE_CONNECTIONS;
@@ -143,6 +159,7 @@ export function capacityLimits() {
     maxPlayersPerMatch: CONFIG.server.maxPlayersPerMatch,
     maxUsersPerMatch: MAX_USERS_PER_MATCH,
     maxRooms: MAX_ROOMS,
+    maxApiRecords: MAX_API_RECORDS,
     maxUsers: MAX_USERS,
     maxConnections: MAX_CONNECTIONS,
     maxDeviceConnections: MAX_DEVICE_CONNECTIONS,

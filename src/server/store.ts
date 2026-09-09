@@ -5,6 +5,7 @@ import { IDLE_TTL_MS } from './lifecycle';
 import { carrySeats, dropSeats } from './seats';
 import { CONFIG } from './config';
 import { effectiveMaxPlayers } from '../shared/settings';
+import { retirePersonalInvites } from './invite';
 
 // ============================================================
 // In-memory stores
@@ -49,6 +50,7 @@ export function getLobby(id: string): Lobby | undefined {
 }
 
 export function deleteLobby(id: string): void {
+  retirePersonalInvites(id);
   lobbies.delete(id);
   dropSeats(id);
 }
@@ -128,8 +130,7 @@ export function findLobbyByInviteCode(code: unknown): Lobby | undefined {
  * A match at its beginning. The only way one is ever created, so a match started from a lobby and a
  * re-match are the same thing to everything downstream.
  */
-function startMatch(settings: MatchSettings, players: Player[]): MatchState {
-  const id = generateId();
+function startMatch(settings: MatchSettings, players: Player[], id = generateId()): MatchState {
   const match: MatchState = {
     id,
     status: 'in_progress',
@@ -149,8 +150,9 @@ function startMatch(settings: MatchSettings, players: Player[]): MatchState {
   return match;
 }
 
-export function createMatch(lobby: Lobby): MatchState {
-  const match = startMatch(lobby.settings, lobby.players);
+export function createMatch(lobby: Lobby, reservedId?: string): MatchState {
+  const match = startMatch(lobby.settings, lobby.players, reservedId);
+  if (lobby.apiManaged) match.apiManaged = true;
   // Before the lobby goes: everyone who held a place in it holds the same place in the match, and
   // their tab has no way of hearing that the room it can name has changed id.
   carrySeats(lobby.id, match.id);

@@ -16,6 +16,7 @@ import { formatMessage } from '../shared/protocol';
 import { meshEligible, panelOf, viewOf } from './match';
 import { heldSeat, holdsSeat } from './seats';
 import { maxPlayersFor } from './store';
+import { standingsOf } from '../shared/matchFormat';
 
 const clients = new Map<WebSocket, Client>();
 
@@ -170,6 +171,7 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
     type,
     match: { ...match, players: publicPlayers(match.players) },
     view: viewOf(match),
+    standings: standingsOf(match.legs, match.settings),
     panel: panelOf(match),
     yourPlayerIds: you?.playerIds,
     // Why there is no video, told to everyone rather than addressed: it is a fact about the match's
@@ -188,6 +190,10 @@ export function matchMessage<T extends 'match_state' | 'match_started' | 'match_
  * refuses with the reason, and `lobbyMessage`, which sends the yes-or-no on so the lobby screen
  * stops offering a code exactly when the server would start refusing it. Written out on both sides
  * instead, the screen and the server drifted apart the moment either changed.
+ *
+ * This is the *shared code's* rule. An API-managed lobby has no shared code and admits nobody by it,
+ * so it answers no here and its own admission — a personal invitation naming one roster player —
+ * is decided by `handlePersonalJoin`, which this question cannot express.
  */
 export function joinRefusal(lobby: Lobby): string | null {
   // Asked first, because a lobby that admits nobody is not one you were nearly admitted to.
@@ -218,11 +224,22 @@ export function lobbyMessage(
     lobby: {
       ...lobby, maxPlayers, userCount, admitting,
       players: publicPlayers(lobby.players), hostSessionId: undefined,
+      ...(lobby.apiManaged ? { joinedPlayerIds: joinedPlayerIds(lobby) } : {}),
     },
     yourPlayerIds: you?.playerIds,
     youAreHost: you?.host,
     youAreSpectator: you ? you.spectator ?? false : undefined,
   };
+}
+
+/** Readiness requires both current seat ownership and a live frontend connection. */
+export function joinedPlayerIds(lobby: Lobby): string[] {
+  const joined = new Set<string>();
+  for (const [ws, client] of clients) {
+    if (client.lobbyId !== lobby.id || client.isSpectator || client.deviceId || ws.readyState !== ws.OPEN) continue;
+    for (const id of playersOf(client)) joined.add(id);
+  }
+  return lobby.players.filter((p) => joined.has(p.id)).map((p) => p.id);
 }
 
 /**

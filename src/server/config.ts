@@ -145,6 +145,32 @@ function complain(message: string): void {
 
 type Raw = Record<string, unknown>;
 
+/**
+ * Minimum key length, not a strength estimate or placeholder detector. Operators must replace
+ * example values with randomly generated secrets even when those examples pass validation.
+ */
+const API_KEY_MIN_LENGTH = 16;
+
+function apiKeys(raw: Raw): { id: string; key: string }[] {
+  if (raw.apiKeys === undefined) return [];
+  if (!Array.isArray(raw.apiKeys)) throw new Error('server.apiKeys must be an array');
+  const ids = new Set<string>();
+  const keys = new Set<string>();
+  return raw.apiKeys.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+      || typeof entry.id !== 'string' || !entry.id.trim()
+      || entry.id !== entry.id.trim()
+      || typeof entry.key !== 'string' || !/^[\x21-\x7e]+$/.test(entry.key)
+      || entry.key.length < API_KEY_MIN_LENGTH
+      || ids.has(entry.id) || keys.has(entry.key)) {
+      throw new Error(`server.apiKeys requires unique nonempty ids without surrounding whitespace and unique printable ASCII keys without spaces, at least ${API_KEY_MIN_LENGTH} characters long`);
+    }
+    ids.add(entry.id);
+    keys.add(entry.key);
+    return { id: entry.id, key: entry.key };
+  });
+}
+
 function allowedOrigins(raw: Raw): string[] | null {
   const value = raw.allowedOrigins;
   if (value === undefined || value === null) return null;
@@ -328,7 +354,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
   reportUnknown(raw, '', ['server', 'frontend', 'scorer', 'media']);
 
   const rawServer = section(raw, 'server');
-  reportUnknown(rawServer, 'server', ['http', 'https', 'allowedOrigins', 'maxMatches', 'maxPlayersPerMatch']);
+  reportUnknown(rawServer, 'server', ['http', 'https', 'allowedOrigins', 'maxMatches', 'maxPlayersPerMatch', 'apiKeys']);
 
   const rawHttp = section(rawServer, 'http');
   reportUnknown(rawHttp, 'server.http', ['enabled', 'port']);
@@ -361,6 +387,7 @@ function readConfig(): { config: AppConfig; from: string | null } {
     from,
     config: {
       server: {
+        apiKeys: apiKeys(rawServer),
         allowedOrigins: allowedOrigins(rawServer),
         http: {
           enabled: bool(rawHttp, 'server.http', 'enabled', defaults.server.http.enabled),

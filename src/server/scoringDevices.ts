@@ -15,6 +15,7 @@ import { getMatch, updateMatch } from './store';
 import { sanitizeCameraError, sanitizeName, validateDeviceClaims, validateTips } from './validation';
 import { getScoringSession, dropScoringSessions, scoringContextId } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
+import { archiveApiMatch } from './apiMatches';
 import { finishMediaForMatch, revalidateMediaDeviceOwner, withdrawMediaDevice } from './media';
 import { canAcceptDevice } from './capacity';
 import {
@@ -159,6 +160,7 @@ export function commitScoredMatch(match: MatchState): void {
     touch(match);
   } else {
     touch(match, SUMMARY_TTL_MS);
+    archiveApiMatch(match);
     dropScoringSessions(match.id);
     finishMediaForMatch(match.id);
   }

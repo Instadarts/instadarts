@@ -38,15 +38,16 @@ separately.
 Both format settings range from 1 to 10 wins. Independently of the mode, each leg is limited to
 500 submitted visits, including empty, scoring and voided visits. A leg win on visit 500 counts
 normally and the next leg starts with a fresh budget. If visit 500 produces no leg winner, the
-match is cancelled without a winner and enters the usual summary/rematch flow. Modes cannot
+match is cancelled without a winner and enters the summary; API-managed matches offer no rematch. Modes cannot
 override this limit. The unfinished leg's visits remain in `MatchState.visits`; it is not awarded
 as a drawn or won leg.
 
-The starting player advances by one roster position for every completed leg, continuing across set
-boundaries. Within a leg, submitted visits advance to the next player who has not left the match.
+The starting player advances by one roster position for every completed leg within a set. Each new
+set opens one position after the previous set's opener, regardless of how many legs that set took.
+Within a leg, submitted visits advance to the next player who has not left the match.
 The mode neither chooses the next player nor sees the match format.
 
-When a match finishes, the summary is match-level: it shows the result, legs per set, and re-match
+When a match finishes, the summary is match-level: it shows the result, legs per set, and (for ordinary matches) re-match
 state. The mode contributes the headline only; its live panel is not mounted on the summary.
 
 ---
@@ -177,12 +178,21 @@ Declared by the mode itself, and used by both sides:
 - the **server** validates incoming settings against the same field list
   ([`validateSettings`](../src/server/validation.ts)), reading only declared keys.
 
-Validation returns a *complete* settings object, filling gaps from what the lobby already has. Only a
+Ordinary lobby validation returns a *complete* settings object, filling gaps from what the lobby already has. Only a
 malformed payload or an unknown mode is rejected outright; a single value that fails its field's
 rules is dropped and the current one kept, so one bad number cannot discard the rest of the form.
 Numeric fields require finite integer JSON numbers within their declared bounds, and toggles require
 JSON booleans. Numeric strings, arrays, objects and other types are not coerced into setting values.
 Switching mode starts from the new mode's defaults — the outgoing mode's values mean nothing to it.
+
+The [HTTP integration API](./API.md#discover-game-modes-and-settings) exposes the same field schema
+through `GET /api/v1/modes`, with editable defaults and effective player limits. API creation is
+stricter than ordinary lobby edits: it rejects invalid supplied editable values and unknown keys,
+and fills omitted settings from defaults. Internal defaults absent from `fields`, such as
+Whac-A-Mole's seed, are server-owned and omitted from the HTTP catalog. If supplied, these keys are
+accepted but ignored, so returned settings can be submitted again. Creation chooses their values
+once; they stay fixed throughout the match and its retained result. API-managed lobbies cannot
+change settings or modes.
 
 `MatchSettings` is `{ mode, modeSettings, legsToWinSet, setsToWinMatch }` — the format sits next to
 `mode`, never inside `modeSettings`, and is validated against `MATCH_FIELDS` by the same code that
@@ -387,7 +397,7 @@ Preserve these constraints when adding match-screen content.
 Once the match is finished the screen becomes **the match's**, not the mode's. The board, visit and
 mode-panel boxes unmount; result cards show winner and loser instead of a score, and match history
 shows the scoreline — legs per set, read like a tennis result. The re-match box is left out for a
-spectator and for a match somebody has left; result and match history are always there.
+spectator, an API-managed match, and a match somebody has left; result and match history are always there.
 
 A mode contributes exactly one thing to the current summary:
 

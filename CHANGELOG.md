@@ -8,9 +8,13 @@
   and spends the bitrate on the board instead, and it changes nothing about scoring. See
   [docs/media.md](docs/media.md).
 - Published video frames can carry an optional block naming where the board is in them: the
-  homography, the lens coefficient and the published square. Nothing reads it yet — it is what a
-  receiver-side front-facing warp needs, and sending it costs fifty-two bytes on the frames that
-  carry one.
+  homography, the lens coefficient and the published square. It costs fifty-two bytes on the frames
+  that carry one, and it is what the next entry reads.
+- **Straighten board video** (Settings → Layout, off by default): a remote board is laid square-on
+  over the virtual board and cut to the rim, so every board looks the same whatever angle its camera
+  stands at and the video sits on the drawing underneath it. A per-browser display choice — it sends
+  nothing, asks nothing of a camera, and changes nothing that is scored. Lens correction is not
+  applied to the picture; see [docs/media.md](docs/media.md#straightening-it-on-the-viewer).
 
 ## 1.2.0
 - Match integration API: an authenticated HTTP API for external software to create matches with a

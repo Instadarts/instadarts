@@ -258,6 +258,53 @@ is labelled with everybody who throws at it, so one user who brought two players
 carrying both names. Feed identity remains an opaque source-generated UUID, and peer rosters
 deliberately carry no device names.
 
+### Straightening it on the viewer
+
+A board photographed from off to one side — which is where the model
+[wants the camera](./vision.md#the-camera) — arrives as a lopsided ellipse laid over a perfectly
+round drawing of the same board. **Straighten board video** (Settings → Layout, off by default) puts
+it square-on and in register, using the geometry the frame carries.
+
+It is one CSS `matrix3d`, and nothing else: **a `matrix3d` on a flat element is a homography**. The
+browser computes three linear combinations of the element's own coordinates and divides by the third,
+which is the same arithmetic and the same perspective divide, per pixel and in the compositor. No
+canvas, no shader, no second copy of the picture.
+
+That is worth stating plainly because [`videoCamera.ts`](../src/client/vision/videoCamera.ts) argues
+at length that CSS *cannot* do this. That argument is about the **publisher**, where `drawImage`,
+`new VideoFrame(...)` and `captureStream()` all read the bitmap and a transform reaches none of them.
+Here the only consumer is an eye.
+
+Three things follow from the choice, and all three are deliberate:
+
+- **The lens correction is dropped.** A radial distortion is not projective, so no 3×3 and no CSS can
+  carry it. On an uncalibrated camera — `lensK1` zero, which is the default — the transform is exact;
+  from there the error grows with the slider, reaching about a tenth of the board's radius at the
+  maximum. `tests/unit/vision-geometry.test.ts` measures it rather than assuming it. This is a
+  picture to look at: it scores nothing, and nobody throws at it.
+- **Outside the rim is cut away, not painted over.** The clip is a hole at the same radius the device
+  masks at, so the virtual board shows through rather than a square of somebody's living room. Both
+  ends read `NORMALIZED_RADII.boardOuter`, so they agree by construction. The clip lives on an
+  untransformed ancestor, because `clip-path` resolves in an element's own coordinate space and a
+  circle on the warped box would come out warped too.
+- **A director's zoom is still a zoom.** A description is an answer about the feed's *resting*
+  framing rather than about one frame's pixels, so a camera that is moving sends none and a viewer
+  stays on the framing it already had. The zoomed picture then runs through that transform exactly as
+  it runs through no transform at all — it fills the board and grows, which is what a camera moving
+  in on a dart is supposed to look like. Describing every frame would be more literally true and
+  quite wrong: each one would be placed on the quarter of the board it showed, so the picture would
+  shrink into the dart instead of zooming into it.
+
+No geometry, a transform that cannot be placed honestly, or a corner of the frame projecting behind
+the camera, and nothing is applied: the feed is the stretched square it has always been, uncut. The
+last of those is the one that needs a guard rather than a fallback — a browser handed a frame that
+folds through its own vanishing line draws something torn rather than declining to.
+
+The transform is written from a `requestAnimationFrame` loop rather than a React render. The shot is
+still for most of a match and moves every frame for the half second of a director command, and
+fifteen renders a second to carry a matrix is the cost `MediaDebugPanel` already refuses for decoder
+counters. The loop's ordinary tick is a reference comparison and nothing else.
+
 ## Match setup presentation
 
 `media.setupTimeoutMs` defaults to 4000. On a mounted page the full-screen “Setting up match…” overlay
@@ -320,18 +367,25 @@ matter to a reader: the matrix maps into **normalized board space**, the same `[
 uses, so a receiver never learns that board units exist; and what travels is the lens *coefficient*
 rather than the slider position, because the wire carries optics and not a widget.
 
-**Nothing consumes it yet.** It exists so a receiver can later rectify the board to front-facing —
-the warp the device deliberately does not do, because that needs a per-pixel inverse map and a GPU
-the detection model is already using. A viewer's GPU is idle. `ReceiverStats.geometry` is where such
-a thing would come and get it.
+It exists so a receiver can rectify the board to front-facing — the warp the device deliberately does
+not do, because that needs a per-pixel inverse map and a GPU the detection model is already using. A
+viewer's is idle, and as it turns out does not even need to be asked: see
+[Straightening it on the viewer](#straightening-it-on-the-viewer). `ReceiverStats.geometry` is where
+that reads it.
 
-**Sent on change, and on every keyframe.** A mounted camera re-solves its homography only when the
-motion gate fires and holds one shot between director commands, so most frames say nothing — and a
-frame that says nothing means *unchanged*, never *gone*. Repeating it on keyframes is what lets a
-viewer who joined late, or who lost the frame carrying the last change, catch up on the same frame it
-can start decoding from. The publisher forgets what it has said whenever its encoder is replaced,
+**Sent on change, on every keyframe, and only while the camera is at rest.** A mounted camera
+re-solves its homography only when the motion gate fires and holds one shot between director
+commands, so most frames say nothing — and a frame that says nothing means *unchanged*, never
+*gone*. Repeating it on keyframes is what lets a viewer who joined late, or who lost the frame
+carrying the last change, catch up on the same frame it can start decoding from. A camera part-way
+through a director command says nothing at all, deliberately: see
+[Straightening it on the viewer](#straightening-it-on-the-viewer) for why a moving shot is not one a
+viewer should be told about. The publisher forgets what it has said whenever its encoder is replaced,
 which is what stops a description surviving a camera pause: that stops the encoder but keeps the feed
 UUID, and the phone may have been moved in between.
+
+One consequence worth knowing: a viewer arriving in the middle of a director command has nothing to
+place the feed with until the camera settles, and shows it unstraightened until then.
 
 It says where the board is, not **when** that was worked out. A homography is kept for the whole
 camera session with no maximum age (see [vision.md](./vision.md#the-board-mask)), so a receiver can

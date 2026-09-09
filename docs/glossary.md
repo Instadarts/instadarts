@@ -429,6 +429,7 @@ The complete design is in [media.md](./media.md).
 | **Virtual camera** | The crop and interpolation that applies director commands without moving a physical lens |
 | **Board mask** | A scoring device blacking out everything outside the board's rim in the video it publishes; the phone's own choice, and never a change to what is scored |
 | **Frame geometry** | The optional per-frame block naming where the board is in a published frame: homography, lens coefficient, and the published square |
+| **Straightened board video** | A viewer laying a received board square-on over its virtual board with a CSS transform, from that frame geometry; a per-browser display choice that sends and changes nothing |
 
 Important boundaries:
 

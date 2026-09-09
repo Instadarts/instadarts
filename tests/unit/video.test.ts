@@ -8,6 +8,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { createVirtualCamera, easeInOut, lerpCrop, outlineInShot } from '../../src/client/vision/videoCamera';
+import { BOARD_CUTOUT, toMatrix3d } from '../../src/client/components/boardWarp';
+import { transformPoint } from '../../src/shared/vision/homography';
+import type { Matrix3x3 } from '../../src/shared/vision/types';
+import { NORMALIZED_RADII } from '../../src/shared/boardGeometry';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, clampAudience, createVideoFeedId, directorTiming, isVideoFeedId, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
@@ -21,7 +25,7 @@ import {
 } from '../../src/client/hooks/useVideoFeed';
 import { canChooseVideoFeed, pruneIneligibleAcceptances, shouldRunVideoPublisher } from '../../src/client/hooks/useVideoResponder';
 import { createIceRestartController, iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
-import { createFrameGeometryTrail, createVideoFeedClock } from '../../src/client/media/videoPublisher';
+import { createFrameGeometryQueue, createVideoFeedClock } from '../../src/client/media/videoPublisher';
 import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
 
 /**
@@ -248,6 +252,7 @@ function feed(playerId: string, status: VideoFeedStatus = 'live'): VideoFeedView
     playerId,
     choice: 'accepted',
     canvas: fakeCanvas,
+    geometry: () => null,
     status,
     lastFrameAt: status === 'live' ? 1000 : null,
     stats: null,
@@ -513,6 +518,47 @@ describe('outlineInShot', () => {
 });
 
 // ============================================================
+// Spelling a homography as CSS
+// ============================================================
+
+describe('toMatrix3d', () => {
+  /** Nothing symmetric, so a transposed matrix cannot come out looking the same. */
+  const matrix: Matrix3x3 = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+
+  it('writes the sixteen numbers in the order CSS reads them', () => {
+    // Pinned as text because there is no `DOMMatrix` here to parse it, and because the failure this
+    // guards is silent: a transposed matrix is not an error, it is a picture that is wrong in a way
+    // nobody can trace back to a comma.
+    expect(toMatrix3d(matrix)).toBe('matrix3d(1, 4, 0, 7, 2, 5, 0, 8, 0, 0, 1, 0, 3, 6, 0, 9)');
+  });
+
+  it('means, to a browser, what the matrix means to us', () => {
+    // The same string read the way a browser reads it: column-major, applied to a flat element at
+    // z = 0, divided through by w. That it agrees with `transformPoint` is the whole claim behind
+    // using CSS for this at all — and it is a claim about the *ordering*, which the string above
+    // pins and this gives the meaning of.
+    const css = toMatrix3d(matrix).slice('matrix3d('.length, -1).split(',').map(Number);
+    for (const [x, y] of [[0, 0], [17, 0], [0, 23], [140, 260], [-30, 610]] as const) {
+      const w = css[3] * x + css[7] * y + css[15];
+      const browser = [(css[0] * x + css[4] * y + css[12]) / w, (css[1] * x + css[5] * y + css[13]) / w];
+      const ours = transformPoint([x, y], matrix)!;
+      expect(browser[0]).toBeCloseTo(ours[0], 10);
+      expect(browser[1]).toBeCloseTo(ours[1], 10);
+    }
+  });
+});
+
+describe('BOARD_CUTOUT', () => {
+  it('cuts at the same rim the scoring device masks at', () => {
+    // Both sides read `boardOuter`, so a masked feed's black ring falls exactly outside this hole
+    // rather than nearly outside it. Written out here so a change to either is a failure and not a
+    // thin crescent nobody can account for.
+    expect(BOARD_CUTOUT).toBe('circle(49.89% at 50% 50%)');
+    expect(Number((NORMALIZED_RADII.boardOuter * 100).toFixed(2))).toBe(49.89);
+  });
+});
+
+// ============================================================
 // The camera itself
 // ============================================================
 
@@ -750,31 +796,42 @@ describe('the video frame header', () => {
 // Pairing a frame with its geometry, across the encoder
 // ============================================================
 
-describe('the frame geometry trail', () => {
-  it('gives back what was recorded for a timestamp, and nothing for anything else', () => {
-    const trail = createFrameGeometryTrail(4);
-    trail.put(1000, GEOMETRY);
-    expect(trail.find(1000)).toBe(GEOMETRY);
-    expect(trail.find(1001)).toBeNull();
-    // A frame that had no board is a recorded answer too, and the same answer as never having asked.
-    trail.put(2000, null);
-    expect(trail.find(2000)).toBeNull();
+describe('the frame geometry queue', () => {
+  /** A second description, so an out-of-order answer cannot pass as the right one. */
+  const OTHER: BoardGeometry = { ...GEOMETRY, lensK1: 0.031 };
+
+  it('hands frames back in the order the encoder took them', () => {
+    // The whole of the pairing, and the reason this is a queue and not a lookup: nothing about a
+    // chunk identifies which frame it came from except its place in the sequence.
+    const queue = createFrameGeometryQueue(4);
+    queue.push(GEOMETRY);
+    queue.push(null);
+    queue.push(OTHER);
+    expect(queue.shift()).toBe(GEOMETRY);
+    // A frame whose camera had not located a board is a recorded answer too, and holds its place.
+    expect(queue.shift()).toBeNull();
+    expect(queue.shift()).toBe(OTHER);
   });
 
-  it('drops the oldest rather than growing, so a swallowed frame cannot leak', () => {
-    const trail = createFrameGeometryTrail(2);
-    trail.put(1, GEOMETRY);
-    trail.put(2, GEOMETRY);
-    trail.put(3, GEOMETRY);
-    expect(trail.find(1), 'the oldest slot was reused').toBeNull();
-    expect(trail.find(2)).toBe(GEOMETRY);
-    expect(trail.find(3)).toBe(GEOMETRY);
+  it('has nothing to say about a chunk it never saw a frame for', () => {
+    const queue = createFrameGeometryQueue(4);
+    expect(queue.shift()).toBeNull();
   });
 
-  it('is emptied with its encoder, so a restarted clock cannot match an old slot', () => {
-    const trail = createFrameGeometryTrail(4);
-    trail.put(1000, GEOMETRY);
-    trail.clear();
-    expect(trail.find(1000)).toBeNull();
+  it('drops the oldest rather than growing, so an encoder that stops emitting cannot leak', () => {
+    const queue = createFrameGeometryQueue(2);
+    queue.push(null);
+    queue.push(GEOMETRY);
+    queue.push(OTHER);
+    expect(queue.shift(), 'the oldest entry was not dropped').toBe(GEOMETRY);
+    expect(queue.shift()).toBe(OTHER);
+    expect(queue.shift()).toBeNull();
+  });
+
+  it('is emptied with its encoder, so frames it never answered for cannot offset the next one', () => {
+    const queue = createFrameGeometryQueue(4);
+    queue.push(GEOMETRY);
+    queue.clear();
+    expect(queue.shift()).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import type { MatchState } from '../../shared/types';
 import type { Mesh, MeshLink } from '../media/mesh';
 import type { LinkState } from '../media/peerLink';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
+import type { BoardGeometry } from '../../shared/vision/feedGeometry';
 
 export const VIDEO_STALL_MS = 3000;
 
@@ -24,6 +25,16 @@ export interface VideoFeedView {
   label?: string;
   choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
+  /**
+   * Where the board is in the picture on that canvas, asked rather than told.
+   *
+   * A getter and not a value, for the same reason `canvas` is a live object rather than a snapshot:
+   * this changes with every decoded frame while a director is moving the shot, and re-rendering
+   * React fifteen times a second to carry a number is what `MediaDebugPanel` already declines to do.
+   * Whoever draws the feed reads it on its own clock. Null when the camera has never located a board
+   * — or when there is no receiver yet.
+   */
+  geometry: () => BoardGeometry | null;
   status: VideoFeedStatus;
   lastFrameAt: number | null;
   stats: ReceiverStats | null;
@@ -350,6 +361,9 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         ...(link.peer.playerId ? { playerId: link.peer.playerId } : {}),
         choice: offer.choice,
         canvas: receiver?.canvas ?? null,
+        // Bound to the receiver rather than to this render: `stats()` returns the object it is
+        // keeping up to date, so the getter stays correct long after the render that made it.
+        geometry: () => receiver?.stats().geometry ?? null,
         status,
         lastFrameAt,
         stats: receiver?.stats() ?? null,

@@ -101,45 +101,40 @@ export interface VideoFeedClock {
  * Pairing a frame with the geometry it was grabbed under, across the encoder.
  *
  * The description is known in `tick`, where the frame is made; the packet is built in the encoder's
- * output callback, an unknown number of frames later. `EncodedVideoChunk.timestamp` is the
- * `VideoFrame` timestamp we set, and **realtime H.264 has no B-frames and does not reorder** — that
- * assumption is what makes a timestamp a key, and nothing in this repository enforces it. It follows
- * from the `latencyMode: 'realtime'` and the codec that `ensureEncoder` configures, below.
+ * output callback, some frames later. What connects the two is **order**: `encode()` produces one
+ * chunk per frame and hands them back in the order they went in, so the nth description out belongs
+ * to the nth chunk. Realtime H.264 has no B-frames and nothing here reorders.
  *
- * Fixed-size and never deleted from. A frame the encoder swallowed leaves a slot that is simply
- * overwritten, so there is no bookkeeping anybody can get wrong and nothing that grows — which is
- * the property a `Map` with a size cap has to be maintained into, rather than having by
- * construction. `tick` refuses to encode past `encodeQueueSize > 2`, so eight is generous.
+ * **Not the chunk's timestamp**, which is what this was first written against and what looked
+ * obviously right: the value we set on a `VideoFrame` comes back unchanged through the software
+ * encoder CI runs on, and did not on real hardware — a `0g` counter on a device whose mask was
+ * working perfectly, because every lookup missed. A timestamp is the encoder's to carry however it
+ * likes; the sequence it emits in is not.
+ *
+ * Capped rather than unbounded, so an encoder that errors without emitting cannot make this grow.
+ * `tick` refuses to encode past `encodeQueueSize > 2`, so eight is already generous.
  */
-export interface FrameGeometryTrail {
-  put(timestampUs: number, geometry: BoardGeometry | null): void;
-  /** What was recorded for this timestamp, or null. Leaves it in place; the ring overwrites it. */
-  find(timestampUs: number): BoardGeometry | null;
+export interface FrameGeometryQueue {
+  /** Record the geometry of a frame the encoder has just taken. */
+  push(geometry: BoardGeometry | null): void;
+  /** The geometry of the next frame out of it, or null when there is nothing to pair. */
+  shift(): BoardGeometry | null;
   clear(): void;
 }
 
-export function createFrameGeometryTrail(capacity = 8): FrameGeometryTrail {
-  // NaN never equals a timestamp, so an empty slot cannot be found by accident.
-  const stamps = new Float64Array(capacity).fill(Number.NaN);
-  let values: (BoardGeometry | null)[] = new Array(capacity).fill(null);
-  let next = 0;
+export function createFrameGeometryQueue(capacity = 8): FrameGeometryQueue {
+  let items: (BoardGeometry | null)[] = [];
 
   return {
-    put(timestampUs: number, geometry: BoardGeometry | null): void {
-      stamps[next] = timestampUs;
-      values[next] = geometry;
-      next = (next + 1) % capacity;
+    push(geometry: BoardGeometry | null): void {
+      items.push(geometry);
+      if (items.length > capacity) items.shift();
     },
-    find(timestampUs: number): BoardGeometry | null {
-      for (let index = 0; index < capacity; index++) {
-        if (stamps[index] === timestampUs) return values[index];
-      }
-      return null;
+    shift(): BoardGeometry | null {
+      return items.length > 0 ? items.shift() ?? null : null;
     },
     clear(): void {
-      stamps.fill(Number.NaN);
-      values = new Array(capacity).fill(null);
-      next = 0;
+      items = [];
     },
   };
 }
@@ -189,7 +184,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
   let encoder: VideoEncoder | null = null;
   let stopped = false;
   let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0, described: 0 };
-  const trail = createFrameGeometryTrail();
+  const geometries = createFrameGeometryQueue();
   /**
    * The description a receiver should already hold, so an unchanged one is not sent again.
    *
@@ -242,7 +237,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     // A frame with no block therefore means *unchanged*, never *gone*. Within one feed that is
     // always true: a camera only ever gains or moves its board, and the homography is dropped in
     // `stop()`, which ends the camera session and the encoder with it.
-    const geometry = trail.find(chunk.timestamp);
+    const geometry = geometries.shift();
     const describe = geometry !== null && (key || !sameBoardGeometry(geometry, lastSentGeometry));
     const packet = packVideo({
       feedId,
@@ -320,9 +315,9 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
 
   function ensureEncoder(): VideoEncoder | null {
     if (encoder) return encoder;
-    // A new encoder has told nobody anything, and its timestamps may start again from a clock that
-    // was reset. Both halves of the pairing go with it.
-    trail.clear();
+    // A new encoder has told nobody anything, and the frames a previous one never emitted are not
+    // its to answer for. Both halves of the pairing go with it.
+    geometries.clear();
     lastSentGeometry = null;
     try {
       encoder = new VideoEncoder({
@@ -373,13 +368,12 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       return;
     }
 
-    // Written before the frame is handed over, so a synchronous output callback — which is not
-    // expected, and is not worth being wrong about — could not look for a slot that is not there.
-    trail.put(timestampUs, grabbed.geometry);
-
     const dueKeyframe = keyframeDue(now);
     try {
       codec.encode(grabbed.frame, { keyFrame: dueKeyframe });
+      // Recorded only once the encoder has taken the frame. A throw above produces no chunk, and an
+      // entry with nothing to pair it to would offset every frame after it by one.
+      geometries.push(grabbed.geometry);
       // Only that it was asked for. Whether it counts as one is `publish`'s to say.
       if (dueKeyframe) keyframeTriedAt = now;
     } catch (e) {
@@ -435,7 +429,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       // passed, and a live feed has no use for it.
       try { encoder?.close(); } catch { /* already gone */ }
       encoder = null;
-      trail.clear();
+      geometries.clear();
       lastSentGeometry = null;
     },
   };

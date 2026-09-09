@@ -384,16 +384,32 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // One reading of the frame, used by all three of the things that follow: where the shot should
       // point, where the mask's outline lands in it, and what the receiver is told about it. Asking
       // the video element again between them would be asking a moving thing the same question twice.
+      const now = performance.now();
       const { crop, frame } = frameGeometry(video);
-      const shot = virtualCamera.shot(videoDestination(crop, frame), performance.now());
+      const shot = virtualCamera.shot(videoDestination(crop, frame), now);
       const outline = maskEnabled ? boardMask.outline(lastHomography, lensCalibration) : null;
       const grabbed = grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
       if (!grabbed) return null;
 
-      // Described from the same crop and the same shot the picture was drawn from, in the same call,
-      // so the two cannot disagree about which frame they are about. Null where the board has not
-      // been located: a receiver is told nothing rather than told something invented.
-      const geometry = lastHomography
+      /**
+       * **Only the resting shot is described**, and this is the line that makes a director command
+       * still look like one.
+       *
+       * A viewer laying this feed over its virtual board reads the description as "where the board
+       * is", and a frame with none means "unchanged". Describing every frame would be more literally
+       * true and quite wrong: a shot moving in on a dart would be placed, correctly, on the quarter
+       * of the board it shows — so the picture would *shrink* into that quarter instead of zooming
+       * into it, and a camera move would read as the feed retreating. Saying nothing while the
+       * camera is moving leaves the viewer on the framing it already had, and the zoomed picture
+       * runs through it exactly as it runs through no transform at all today.
+       *
+       * So a description is an answer about **the feed's resting framing**, not about one frame's
+       * pixels. `videoRegion` is null whenever nothing is being pointed at, and `moving` covers the
+       * interpolation at both ends of a command — including the way back, where the region has
+       * already been let go but the shot has not arrived yet.
+       */
+      const settled = videoRegion === null && !virtualCamera.moving(now);
+      const geometry = settled && lastHomography
         ? publishedBoardGeometry({ homography: lastHomography, lensCalibration, crop, shot })
         : null;
       return { frame: grabbed, geometry };

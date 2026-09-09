@@ -118,6 +118,83 @@ export function sameBoardGeometry(a: BoardGeometry | null, b: BoardGeometry | nu
     && a.shot.size === b.shot.size;
 }
 
-// The inverse — a published pixel back to a board coordinate — belongs beside this, and is
-// deliberately absent: it is the warping commit's, and writing it here with nothing calling it would
-// be a second description of the same journey with no test to keep the two honest.
+// ============================================================
+// Reading it back: the warp
+// ============================================================
+
+/**
+ * The transform that lays a published frame square-on over a board of `sizePx` a side.
+ *
+ * This is the journey above run forwards for a whole picture rather than a point: element pixels of
+ * the frame, out to the pixels of the box the virtual board is drawn in. A viewer applies it as a
+ * CSS `matrix3d`, which **is** a homography — for a flat element the browser computes three linear
+ * combinations and divides by the third, which is the same arithmetic and the same perspective
+ * divide. Nothing on this end reads the bitmap, so a compositor transform is enough; the argument in
+ * `client/vision/videoCamera.ts` against CSS is about the publisher, where `drawImage`,
+ * `new VideoFrame(...)` and `captureStream()` all read pixels, and it does not reach this far.
+ *
+ * The published canvas is stretched to the box, so content point `(u, v)` in `[0,1]²` sits at
+ * element-local `(u·size, v·size)`, and the composition is
+ * `S(size) · flip · homography · shotAffine · S(1/size)`.
+ *
+ * That `flip` is not decoration. **Board space is y-up and a screen is y-down** — the homography's
+ * whole job upstream is to leave the camera's picture and arrive somewhere the scoring rules can be
+ * written, and this is where that has to be undone. The drawing crosses the same line with
+ * `BOARD_SIZE - y` in `client/components/boardGeometry.ts`; here it is a row of the matrix, so it
+ * costs nothing and travels with everything else.
+ *
+ * **The lens is dropped on purpose.** `lensK1` describes a radial distortion, and a radial term is
+ * not projective — no 3×3 can express it, and neither can CSS. Correcting it means a per-pixel
+ * inverse map and therefore a shader, which is the entire cost this design exists to avoid. What it
+ * costs instead is a smooth misplacement growing with the square of the distance from the frame's
+ * centre; `tests/unit/vision-geometry.test.ts` measures it at the board's rim rather than leaving it
+ * to be imagined. This is a picture to look at — it scores nothing and no one throws at it.
+ *
+ * Null rather than a wrong transform, on every failure. The one that matters is `w ≤ 0` at a corner:
+ * a corner of the frame that projects behind the camera makes a browser draw something torn rather
+ * than nothing, so it is checked here and the caller shows the picture the way it always has.
+ */
+export function boardWarpMatrix(geometry: BoardGeometry, sizePx: number): Matrix3x3 | null {
+  if (!(sizePx > 0)) return null;
+
+  const { x, y, size } = geometry.shot;
+  const h = geometry.homography;
+
+  // homography · shotAffine, where the affine takes content [0,1] into the input square's own
+  // normalized coordinates. Written out rather than looped: three rows of three is shorter this way
+  // than the machinery to multiply it would be.
+  const board: Matrix3x3 = [
+    [h[0][0] * size, h[0][1] * size, h[0][0] * x + h[0][1] * y + h[0][2]],
+    [h[1][0] * size, h[1][1] * size, h[1][0] * x + h[1][1] * y + h[1][2]],
+    [h[2][0] * size, h[2][1] * size, h[2][0] * x + h[2][1] * y + h[2][2]],
+  ];
+
+  // Turning the board the right way up for a screen. In homogeneous coordinates `1 - y/w` is the
+  // row `w - y`, so the flip is one subtraction of the third row from the second and nothing else
+  // moves — the horizontal row and the divisor are the same board seen either way up.
+  const k: Matrix3x3 = [
+    board[0],
+    [board[2][0] - board[1][0], board[2][1] - board[1][1], board[2][2] - board[1][2]],
+    board[2],
+  ];
+
+  // Conjugating by the box's side turns content coordinates into element pixels at both ends. The
+  // linear part is unchanged by it; only the translations and the perspective row carry a length.
+  const matrix: Matrix3x3 = [
+    [k[0][0], k[0][1], k[0][2] * sizePx],
+    [k[1][0], k[1][1], k[1][2] * sizePx],
+    [k[2][0] / sizePx, k[2][1] / sizePx, k[2][2]],
+  ];
+  for (const row of matrix) {
+    for (const value of row) if (!Number.isFinite(value)) return null;
+  }
+
+  // The four corners of the picture, in content coordinates. A homography is a plane seen from
+  // somewhere, and the plane's horizon can fall inside a frame — past it the divisor changes sign
+  // and the picture folds over itself.
+  for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]] as const) {
+    const w = k[2][0] * u + k[2][1] * v + k[2][2];
+    if (!(w > 1e-6)) return null;
+  }
+  return matrix;
+}

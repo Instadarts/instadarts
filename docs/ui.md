@@ -267,14 +267,24 @@ the fullscreen control, and two menus:
 | Menu | Holds |
 | --- | --- |
 | **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
-| **Settings** | `Layout` → the appearance toggle, presentation zoom, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
+| **Settings** | `Layout` → the appearance toggle, presentation zoom, **Straighten board video**, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
 
 The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a
-navigation, and a menu that shut on each click would make changing two things a two-trip job. Its
-dropdown is width- and height-bounded and scrolls, so a long device list stays usable on a
-phone-sized window. The settings menu keeps the default instead, and puts its live controls in a
-plain `Box` rather than in `Menu.Item`s — only **Reset layout** is an item, and closing after it is
-the right behavior for a one-shot action.
+navigation, and a menu that shut on each click would make changing two things a two-trip job. The
+settings menu keeps the default instead, and puts its live controls in a plain `Box` rather than in
+`Menu.Item`s — only **Reset layout** is an item, and closing after it is the right behavior for a
+one-shot action.
+
+Both dropdowns are bounded in width and height and scroll, so neither runs off the edge of a
+phone-sized window: the camera menu's list grows with the devices somebody has paired, and the
+settings menu's with the layout editor, its breakpoint's optional cards, and switches that carry a
+sentence of description under them.
+
+**Straighten board video** sits under `Layout` rather than in the camera menu on purpose. The camera
+menu answers whether video happens and where it comes from; this answers what it looks like once it
+arrives, which is the same kind of question as the appearance toggle beside it. It is a per-browser
+preference like the rest of that section, it reaches only the board itself, and nothing about it is
+declared to anybody — see [media.md](./media.md#straightening-it-on-the-viewer).
 
 The Layout section, the appearance toggle and presentation zoom are present on every route,
 including the home page. Only the match-layout controls — **Edit Match Layout**, the active

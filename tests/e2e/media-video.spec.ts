@@ -16,7 +16,7 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { transformPoint } from '../../src/shared/vision/homography';
+import { invertMatrix3x3, transformPoint } from '../../src/shared/vision/homography';
 import { undistortNormalizedPoint } from '../../src/shared/vision/lensDistortion';
 import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
 import { clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera, submitVisit } from './appHelpers';
@@ -765,6 +765,116 @@ test.describe('board video', () => {
     const board = transformPoint(undistorted, geometry!.homography);
     expect(board, 'the description does not describe a board').not.toBeNull();
     expect(Math.hypot(board![0] - 0.5, board![1] - 0.5)).toBeLessThan(0.2);
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
+  test('a viewer lays the board square-on over the virtual one', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+
+    /** The transform as the browser resolved it, and where it puts a point of the published frame. */
+    const placePoint = (page: Page, u: number, v: number) => page.evaluate(({ x, y }) => {
+      const outer = document.querySelector('[data-testid="live-board-feed"]') as HTMLElement | null;
+      const inner = outer?.firstElementChild as HTMLElement | null;
+      if (!outer || !inner) return null;
+      const box = outer.getBoundingClientRect();
+      const css = getComputedStyle(inner).transform;
+      if (!css || css === 'none') return { css, side: box.width, clip: getComputedStyle(outer).clipPath };
+      // `transformPoint` multiplies but does not divide: the perspective divide is ours to do, and
+      // it is the whole reason a 3D matrix can carry a homography at all.
+      const point = new DOMMatrix(css).transformPoint(new DOMPoint(x * box.width, y * box.height, 0, 1));
+      return {
+        css,
+        side: box.width,
+        clip: getComputedStyle(outer).clipPath,
+        placed: { x: point.x / point.w, y: point.y / point.w },
+      };
+    }, { x: u, y: v });
+
+    // Nobody has asked for it, so the feed is the stretched square it has always been.
+    await expect(guest.getByTestId('live-board-feed')).toBeVisible();
+    expect((await placePoint(guest, 0.5, 0.5))!.css).toBe('none');
+
+    await guest.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(guest.getByRole('switch', { name: 'Straighten board video' }), true);
+    await guest.keyboard.press('Escape');
+
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toContain('matrix3d');
+
+    const geometry = await guest.evaluate(() =>
+      ((window as any).__media.video().watching[0]?.stats?.geometry ?? null) as BoardGeometry | null);
+    expect(geometry, 'the viewer straightened a board nothing described').not.toBeNull();
+    // Nobody calibrates a lens in this suite, so the map is projective end to end and the transform
+    // is exact rather than merely close. What a calibrated camera costs is measured in
+    // tests/unit/vision-geometry.test.ts instead, where the number can be stated.
+    expect(geometry!.lensK1).toBe(0);
+
+    // Where the bull sits in the published frame, worked out from the block the camera sent: board
+    // centre, back through the homography, then into the published square.
+    // Deliberately **not** the bull. The board's centre is the one point a vertical mirror leaves
+    // exactly where it was, and a flipped board once passed this test because of it. A point above
+    // the bull has to land above the middle of the box, where a screen counts y downwards.
+    const inverse = invertMatrix3x3(geometry!.homography)!;
+    const above = transformPoint([0.5, 0.8], inverse)!;
+    const u = (above[0] - geometry!.shot.x) / geometry!.shot.size;
+    const v = (above[1] - geometry!.shot.y) / geometry!.shot.size;
+
+    // And the proof: that pixel, put through the transform the browser actually resolved, lands on
+    // the middle of the board box — which is where the virtual board draws the bull. Device
+    // geometry, the wire, the receiver, the matrix, the DOM, and a position on a screen.
+    //
+    // One pixel, and it is not a hedge: measured, this lands within two thousandths of a pixel of
+    // the centre, because with no lens correction in play the whole map is projective and the only
+    // losses are the float32 the block travels in and however Chrome serializes a matrix. The bound
+    // is loose enough to survive that and tight enough to be worth having — transposing the matrix,
+    // which is the mistake this whole path invites, moves the bull fifteen pixels.
+    const shown = (await placePoint(guest, u, v))!;
+    expect(Math.abs(shown.placed!.x - shown.side / 2)).toBeLessThan(1);
+    expect(Math.abs(shown.placed!.y - shown.side * 0.2)).toBeLessThan(1);
+
+    // And the room around it is cut away rather than painted over: what is outside the rim is a hole
+    // the virtual board shows through.
+    expect(shown.clip).toContain('circle');
+
+    // A director command must still read as a camera moving in, which it only can if the framing
+    // holds still underneath it: the camera stops describing itself while it moves, so the viewer
+    // keeps the transform it had and the zoomed picture runs through it. A transform that tracked
+    // the shot would place each frame on the quarter of the board it showed, and the picture would
+    // shrink into the dart rather than grow into it.
+    await linkedToCamera(host);
+    const camera = await cameraPeer(host);
+    const framing = shown.css;
+    const wide = (await fingerprint(guest))!;
+
+    // `resetMs: 0` keeps it there, so the assertions below are about a held shot and not a race
+    // against the camera coming back on its own.
+    const sent = await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_region', region: { cx: 0.3, cy: 0.3, size: 0.25 }, transitionMs: 300, resetMs: 0,
+    }), camera.peerId);
+    expect(sent, 'the camera control channel was not writable').toBe(true);
+
+    const decodedAtCommand = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 20_000 })
+      .toBeGreaterThan(decodedAtCommand + 8);
+
+    // The picture moved — otherwise the assertion below would hold for a command nobody obeyed.
+    expect(distance(wide, (await fingerprint(guest))!), 'the camera never moved').toBeGreaterThan(5);
+    expect((await placePoint(guest, u, v))!.css, 'the framing moved with the shot').toBe(framing);
 
     await alice.close();
     await bob.close();

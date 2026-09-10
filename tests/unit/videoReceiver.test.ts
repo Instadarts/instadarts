@@ -20,6 +20,7 @@ const drawImage = vi.fn();
 const decode = vi.fn();
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ drawImage }) }) });
   vi.stubGlobal('VideoDecoder', class {
     state = 'configured';
@@ -32,7 +33,7 @@ beforeEach(() => {
     constructor(init: EncodedVideoChunkInit) { Object.assign(this, init); }
   });
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.resetAllMocks(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.resetAllMocks(); });
 
 function paint(seq: number) {
   const close = vi.fn();
@@ -143,5 +144,68 @@ describe('resting geometry at decoder output', () => {
     paint(2);
     expect(feed.stats().restingGeometry).toEqual(A);
     expect(onFrame).toHaveBeenCalledOnce();
+  });
+});
+
+describe('keyframe recovery retries', () => {
+  it('retries a lost repair during packet silence and stops after repair', () => {
+    const { feed, requestKeyframe } = receiver();
+    feed.accept(packet(0, A, true));
+    feed.accept(packet(2));
+    expect(requestKeyframe).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(499);
+    expect(requestKeyframe).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1); // The first requested repair was lost.
+    expect(requestKeyframe).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(500);
+    expect(requestKeyframe).toHaveBeenCalledTimes(3);
+    feed.accept(packet(5, B, true));
+    paint(5);
+    expect(feed.stats()).toMatchObject({ recoveryRequests: 3, recoveries: 1, restingGeometry: B });
+    vi.advanceTimersByTime(2000);
+    expect(requestKeyframe).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+    feed.close();
+  });
+
+  it('uses one timer before the first keyframe and ignores stale keyframes', () => {
+    const { feed, requestKeyframe } = receiver();
+    feed.accept(packet(2));
+    feed.accept(packet(3));
+    feed.accept(packet(1, A, true));
+    expect(requestKeyframe).toHaveBeenCalledTimes(1);
+    expect(decode).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(500);
+    expect(requestKeyframe).toHaveBeenCalledTimes(2);
+    feed.close();
+    vi.advanceTimersByTime(2000);
+    expect(requestKeyframe).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not complete recovery when submitting the keyframe throws', () => {
+    const { feed, requestKeyframe } = receiver();
+    feed.accept(packet(1));
+    decode.mockImplementationOnce(() => { throw new Error('busy'); });
+    feed.accept(packet(2, A, true));
+    expect(feed.stats()).toMatchObject({ started: false, recoveries: 0 });
+    vi.advanceTimersByTime(500);
+    expect(requestKeyframe).toHaveBeenCalledTimes(2);
+    feed.accept(packet(3, A, true));
+    expect(feed.stats().recoveries).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    feed.close();
+  });
+
+  it('retries existing decoder error recovery without adding timers per error', () => {
+    const { feed, requestKeyframe } = receiver();
+    feed.accept(packet(0, A, true));
+    callbacks.error(new DOMException('decode failed'));
+    callbacks.error(new DOMException('decode failed again'));
+    expect(requestKeyframe).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1000);
+    expect(requestKeyframe).toHaveBeenCalledTimes(3);
+    feed.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -9,7 +9,7 @@
 //
 // It does not adapt. There is no bandwidth estimator behind a datachannel and adaptive bitrate is
 // deliberately not a feature, so the honest policy for a fixed-rate link is **drop frames, never
-// queue**: a link with a backlog is skipped for that frame and catches up on the next one, rather
+// queue**: a link with a backlog is skipped for that frame and resumes at a repair keyframe, rather
 // than growing a buffer until the picture is a minute behind the board.
 //
 // It also does not decide *what* is in the picture. The framing is the virtual camera's, upstream of
@@ -19,7 +19,7 @@ import type { MediaRole, VideoFeedId, VideoProfile } from '../../shared/media';
 import { VIDEO, maxBufferedBytes } from '../../shared/media';
 import { sameBoardGeometry, type BoardGeometry } from '../../shared/vision/feedGeometry';
 import type { Mesh } from './mesh';
-import { packVideo } from './frames';
+import { createVideoPacker } from './frames';
 
 /** One frame and the resting framing to apply when it is displayed. */
 export interface GrabbedFrame {
@@ -57,6 +57,14 @@ export interface PublisherStats {
    * broken — which looks like a feed that slowly falls apart rather than like one that stutters.
    */
   oversize: number;
+  pacingSkipped: number;
+  encoderBusy: number;
+  sendFailures: number;
+  awaitingKeyframe: number;
+  /** Inputs accepted by the encoder and chunks emitted, before transport filtering. */
+  submitted: number;
+  encoded: number;
+  pacingClock: 'waiting' | 'media' | 'callback' | 'timer';
   error?: string;
 }
 
@@ -66,7 +74,7 @@ export interface VideoPublisher {
   /** Which roles may contain the exact accepted peers this publisher is serving. */
   readonly audience: readonly MediaRole[];
   /** Send the next frame as a keyframe. Rate-limited, so several viewers asking costs one. */
-  requestKeyframe(): void;
+  requestKeyframe(peerId: string): void;
   stats(): PublisherStats;
   stop(): void;
 }
@@ -88,27 +96,27 @@ export interface VideoFeedClock {
  * FIFO pairing for the realtime H.264 encoder. See docs/media.md for the codec assumptions.
  * Empty means no update; null is a recorded reset and must keep its place.
  */
-export interface FrameGeometryQueue {
+export interface FrameGeometryQueue<T = BoardGeometry | null> {
   /** Record the geometry of a frame the encoder has just taken. */
-  push(geometry: BoardGeometry | null): void;
+  push(geometry: T): void;
   /** The next frame's resting geometry, or undefined when there is no pending frame. */
-  shift(): BoardGeometry | null | undefined;
+  shift(): T | undefined;
   clear(): void;
 }
 
-export function createFrameGeometryQueue(capacity = 8): FrameGeometryQueue {
-  let items: (BoardGeometry | null)[] = [];
+export function createFrameGeometryQueue<T = BoardGeometry | null>(capacity = 8): FrameGeometryQueue<T> {
+  const items: T[] = [];
 
   return {
-    push(geometry: BoardGeometry | null): void {
+    push(geometry: T): void {
       items.push(geometry);
       if (items.length > capacity) items.shift();
     },
-    shift(): BoardGeometry | null | undefined {
+    shift(): T | undefined {
       return items.shift();
     },
     clear(): void {
-      items = [];
+      items.length = 0;
     },
   };
 }
@@ -157,11 +165,43 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
 
   let encoder: VideoEncoder | null = null;
   let stopped = false;
-  let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0, described: 0 };
-  const geometries = createFrameGeometryQueue();
+  let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0, described: 0, pacingSkipped: 0, encoderBusy: 0, sendFailures: 0, awaitingKeyframe: 0, submitted: 0, encoded: 0, pacingClock: 'waiting' };
+  const geometries = createFrameGeometryQueue<{ geometry: BoardGeometry | null; generation: number }>();
+  const pack = createVideoPacker(feedId);
+  const knownViewers = new Set<string>();
+  const recovery = new Map<string, number>();
+  let generation = 0;
+
+  function needKeyframe(peerId: string): void {
+    recovery.set(peerId, ++generation);
+    stats = { ...stats, awaitingKeyframe: recovery.size };
+  }
+
+  function viewers() {
+    const allowed = accepted();
+    const links = mesh.viewers(audience()).filter((link) => allowed.has(link.peerId));
+    const current = new Set(links.map((link) => link.peerId));
+    for (const peerId of knownViewers) {
+      if (!current.has(peerId)) { knownViewers.delete(peerId); recovery.delete(peerId); }
+    }
+    for (const peerId of current) {
+      if (!knownViewers.has(peerId)) { knownViewers.add(peerId); needKeyframe(peerId); }
+    }
+    stats = { ...stats, awaitingKeyframe: recovery.size };
+    return links;
+  }
   /** Last value delivered to at least one viewer. Undefined forces an initial update or reset. */
   let lastSentGeometry: BoardGeometry | null | undefined;
-  let lastFrameAt = 0;
+  let nextFrameAt: number | null = null;
+  let lastSampleAt = -Infinity;
+  let sampleElement: HTMLVideoElement | null = null;
+  let sampleMode = '';
+  let clockElement: HTMLVideoElement | null = null;
+  let lastMediaTime: number | undefined;
+  let lastPresentedFrames: number | undefined;
+  let mediaChangedAt = 0;
+  let useCallbackClock = false;
+  let timerDeadline: number | null = null;
   /**
    * The last keyframe that actually reached a link, and the last one asked of the encoder.
    *
@@ -171,10 +211,10 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
    */
   let lastKeyframeAt = -Infinity;
   let keyframeTriedAt = -Infinity;
-  let wantKeyframe = true;
 
   /** Cancellation for whichever pacing mechanism we ended up on. */
   let rafHandle = 0;
+  let callbackElement: HTMLVideoElement | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   /** Recorded rather than thrown or reported outwards: `stats()` is where anybody asks how it is going. */
@@ -190,57 +230,55 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
    * this file's to decide.
    */
   function publish(chunk: EncodedVideoChunk): void {
-    const body = new Uint8Array(chunk.byteLength);
-    chunk.copyTo(body);
+    if (stopped) return;
+    stats = { ...stats, encoded: stats.encoded + 1 };
 
     const key = chunk.type === 'key';
     // Repeat the full resting state on keyframes, including resets, to recover from packet loss.
-    const geometry = geometries.shift();
+    const metadata = geometries.shift();
+    const geometry = metadata?.geometry;
     const update = geometry !== undefined
       && (key || lastSentGeometry === undefined || !sameBoardGeometry(geometry, lastSentGeometry));
-    const packet = packVideo({
-      feedId,
+    const packet = pack({
       key,
       seq: clock.nextSequence(),
       timestamp: chunk.timestamp,
       restingGeometry: update ? geometry : undefined,
-    }, body);
+    }, chunk);
 
-    const allowed = accepted();
-    const addressed = mesh.viewers(audience()).filter((link) => allowed.has(link.peerId));
+    const addressed = viewers();
     let sent = 0;
     let refused = false;
     for (const link of addressed) {
-      // More than this peer said it could take in one message. Handing it over anyway throws, and a
-      // channel is worth more than a frame — so this link goes without and the counter says so. A
-      // described frame is fifty-two bytes nearer that limit, which against sixty-four kilobytes is
-      // noise — but it is real, and `oversize` is where it would show.
-      if (packet.byteLength > link.maxMessageBytes) { refused = true; continue; }
-
-      // Drop, never queue. A frame this link has not managed to send yet is worth less than the one
-      // behind it, and every viewer is judged separately — one slow peer does not cost the others.
-      if (link.bufferedAmount > backlogLimit) {
-        stats = { ...stats, dropped: stats.dropped + 1 };
+      if (!key && recovery.has(link.peerId)) continue;
+      if (packet.byteLength > link.maxMessageBytes) {
+        refused = true;
+        if (!recovery.has(link.peerId)) needKeyframe(link.peerId);
         continue;
       }
-      if (link.sendMedia(packet)) sent++;
+      if (link.bufferedAmount > backlogLimit) {
+        stats = { ...stats, dropped: stats.dropped + 1 };
+        if (!recovery.has(link.peerId)) needKeyframe(link.peerId);
+        continue;
+      }
+      if (!link.sendMedia(packet)) {
+        stats = { ...stats, sendFailures: stats.sendFailures + 1 };
+        if (!recovery.has(link.peerId)) needKeyframe(link.peerId);
+        continue;
+      }
+      sent++;
+      const requested = recovery.get(link.peerId);
+      // Sending an older in-flight keyframe must not consume a newer repair request.
+      if (key && requested !== undefined && metadata && requested <= metadata.generation) {
+        recovery.delete(link.peerId);
+      }
     }
+    stats = { ...stats, awaitingKeyframe: recovery.size };
 
     if (refused) stats = { ...stats, oversize: stats.oversize + 1 };
 
-    // Recorded here rather than where it was encoded, because this is where it became true. A
-    // keyframe nobody could take has repaired nothing, and treating the attempt as the event is what
-    // let a feed sit broken for a whole `keyFrameIntervalMs` at a time — or forever, when every
-    // keyframe failed for the same reason. Left un-recorded, one is still due on the next tick.
-    //
-    // Reaching *anyone* is enough. A viewer that was skipped while the rest were served has the
-    // `keyframe` request to say so, and re-keying on its behalf would let one backed-up peer hold
-    // every other viewer at two keyframes a second. An audience of nobody counts too: there is
-    // nothing to repair, and an unwatched feed should not sit re-keying itself.
-    if (key && (sent > 0 || addressed.length === 0)) {
-      lastKeyframeAt = performance.now();
-      wantKeyframe = false;
-    }
+    // The periodic schedule follows delivery; individual repairs remain pending independently.
+    if (key && sent > 0) lastKeyframeAt = performance.now();
 
     if (sent === 0) return;
     // Recorded only now, so a description nobody received is not treated as delivered. It is still
@@ -251,7 +289,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       ...stats,
       frames: stats.frames + 1,
       keyframes: stats.keyframes + (key ? 1 : 0),
-      bytes: stats.bytes + body.byteLength,
+      bytes: stats.bytes + chunk.byteLength,
       described: stats.described + (update && geometry ? 1 : 0),
     };
   }
@@ -267,9 +305,10 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
    * `keyframeMinIntervalMs` therefore rations keyframes themselves rather than requests for them,
    * which is also what makes `requestKeyframe` free to call.
    */
-  function keyframeDue(now: number): boolean {
+  function keyframeDue(now: number, addressed: ReturnType<typeof viewers>): boolean {
     if (now - keyframeTriedAt < VIDEO.keyframeMinIntervalMs) return false;
-    return wantKeyframe || now - lastKeyframeAt >= profile.keyFrameIntervalMs;
+    return addressed.some((link) => link.ready && link.bufferedAmount <= backlogLimit
+      && (now - lastKeyframeAt >= profile.keyFrameIntervalMs || recovery.has(link.peerId)));
   }
 
   function ensureEncoder(): VideoEncoder | null {
@@ -304,21 +343,35 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     }
   }
 
-  function tick(): void {
+  function tick(element: HTMLVideoElement | null, mode: PublisherStats['pacingClock'], sampleAt: number): void {
     if (stopped) return;
-
     const now = performance.now();
-    // A camera handing back thirty frames a second should not be encoded at thirty when the profile
-    // says fifteen. Paced by wall clock rather than by counting, so a slow frame does not push the
-    // whole feed late.
-    if (now - lastFrameAt < minFrameGapMs - 1) return;
-    lastFrameAt = now;
+    if (element !== sampleElement || mode !== sampleMode || sampleAt < lastSampleAt) {
+      nextFrameAt = null;
+    }
+    sampleElement = element;
+    sampleMode = mode;
+    if (stats.pacingClock !== mode) stats = { ...stats, pacingClock: mode };
+    const repeated = sampleAt === lastSampleAt && mode === 'media' && nextFrameAt !== null;
+    lastSampleAt = sampleAt;
+    // The epsilon covers rounding accumulated by fractional (e.g. 15 fps) deadlines.
+    const tolerance = (mode === 'media' ? 1 : Math.min(5, minFrameGapMs / 10)) + 1e-6;
+    if (nextFrameAt === null) nextFrameAt = sampleAt;
+    if (repeated || sampleAt + tolerance < nextFrameAt) {
+      stats = { ...stats, pacingSkipped: stats.pacingSkipped + 1 };
+      return;
+    }
+    nextFrameAt += Math.max(1, Math.floor((sampleAt + tolerance - nextFrameAt) / minFrameGapMs) + 1) * minFrameGapMs;
+    const addressed = viewers();
 
     const codec = ensureEncoder();
     if (!codec || codec.state !== 'configured') return;
     // Frames already handed over and not yet encoded. Piling more on a busy encoder buys latency,
     // not smoothness.
-    if (codec.encodeQueueSize > 2) return;
+    if (codec.encodeQueueSize > 2) {
+      stats = { ...stats, encoderBusy: stats.encoderBusy + 1 };
+      return;
+    }
 
     const timestampUs = clock.timestampUs(now);
     const grabbed = source.grab(profile.width, timestampUs, frameDurationUs);
@@ -327,12 +380,14 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       return;
     }
 
-    const dueKeyframe = keyframeDue(now);
+    const dueKeyframe = keyframeDue(now, addressed);
+    const coveredGeneration = generation;
     try {
       codec.encode(grabbed.frame, { keyFrame: dueKeyframe });
+      stats = { ...stats, submitted: stats.submitted + 1 };
       // Recorded only once the encoder has taken the frame. A throw above produces no chunk, and an
       // entry with nothing to pair it to would offset every frame after it by one.
-      geometries.push(grabbed.restingGeometry);
+      geometries.push({ geometry: grabbed.restingGeometry, generation: coveredGeneration });
       // Only that it was asked for. Whether it counts as one is `publish`'s to say.
       if (dueKeyframe) keyframeTriedAt = now;
     } catch (e) {
@@ -344,21 +399,58 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     }
   }
 
-  /**
-   * Pace against the camera where the platform allows it.
-   *
-   * `requestVideoFrameCallback` fires once per frame the camera actually decoded, which is the only
-   * clock that cannot ask for a picture that does not exist yet. Where it is missing — Firefox, at
-   * time of writing — a timer at the profile's rate is close enough, and `tick` throttles either way.
-   */
+  /** Sample source time when available; callback execution time includes main-thread jitter. */
   function loop(): void {
     if (stopped) return;
     const element = source.element();
     if (element && 'requestVideoFrameCallback' in element) {
-      rafHandle = element.requestVideoFrameCallback(() => { tick(); loop(); });
+      timerDeadline = null;
+      callbackElement = element;
+      rafHandle = element.requestVideoFrameCallback((_now, metadata) => {
+        rafHandle = 0;
+        if (source.element() === element) {
+          const now = performance.now();
+          const mediaTime = metadata?.mediaTime;
+          const valid = Number.isFinite(mediaTime) && mediaTime >= 0;
+          if (clockElement !== element) {
+            clockElement = element;
+            lastMediaTime = undefined;
+            lastPresentedFrames = undefined;
+            mediaChangedAt = now;
+            useCallbackClock = false;
+          }
+          const presented = metadata?.presentedFrames;
+          const newFrame = Number.isFinite(presented) && lastPresentedFrames !== undefined
+            && presented > lastPresentedFrames;
+          // A finite timestamp is not necessarily a usable clock. Some sources can submit new
+          // frames with the same timestamp; starving the encoder also prevents keyframe recovery.
+          // Latch the fallback to avoid resetting the pacing phase on every repeated timestamp.
+          if (valid && mediaTime === lastMediaTime
+            && (newFrame || now - mediaChangedAt >= Math.max(250, 2 * minFrameGapMs))) {
+            useCallbackClock = true;
+          }
+          if (mediaTime !== lastMediaTime) mediaChangedAt = now;
+          lastMediaTime = mediaTime;
+          lastPresentedFrames = Number.isFinite(presented) ? presented : undefined;
+          const useMediaClock = valid && !useCallbackClock;
+          tick(element, useMediaClock ? 'media' : 'callback', useMediaClock ? mediaTime * 1000 : now);
+        }
+        loop();
+      });
       return;
     }
-    timer = setTimeout(() => { tick(); loop(); }, minFrameGapMs);
+    const now = performance.now();
+    if (timerDeadline === null) timerDeadline = now + minFrameGapMs;
+    else if (timerDeadline <= now) {
+      timerDeadline += (Math.floor((now - timerDeadline) / minFrameGapMs) + 1) * minFrameGapMs;
+    }
+    timer = setTimeout(() => {
+      timer = null;
+      tick(element, 'timer', performance.now());
+      // Advance from the scheduled time, never from the end of frame processing.
+      timerDeadline! += minFrameGapMs;
+      loop();
+    }, Math.max(1, timerDeadline - now));
   }
 
   loop();
@@ -367,28 +459,25 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     get running() { return !stopped && encoder?.state === 'configured'; },
     get audience() { return audience(); },
 
-    requestKeyframe(): void {
-      // Deliberately unlimited. Several viewers losing the same frame all ask at once and a keyframe
-      // costs every viewer bandwidth, but the limit belongs on the answer rather than the question —
-      // `keyframeDue` is where one answer comes to serve all of them. A limit here could only count
-      // *asking*, which meant a request that crossed a keyframe already on its way bought a second
-      // one nobody needed, while a request that arrived just after a failed keyframe bought nothing.
-      wantKeyframe = true;
+    requestKeyframe(peerId: string): void {
+      if (!stopped && viewers().some((link) => link.peerId === peerId)) needKeyframe(peerId);
     },
 
-    stats(): PublisherStats { return stats; },
+    stats(): PublisherStats { if (!stopped) viewers(); return stats; },
 
     stop(): void {
       if (stopped) return;
       stopped = true;
-      const element = source.element();
-      if (rafHandle && element && 'cancelVideoFrameCallback' in element) element.cancelVideoFrameCallback(rafHandle);
+      if (rafHandle && callbackElement) callbackElement.cancelVideoFrameCallback(rafHandle);
       if (timer) clearTimeout(timer);
       // `close()` rather than `flush()`: whatever is still in the encoder describes a moment that has
       // passed, and a live feed has no use for it.
       try { encoder?.close(); } catch { /* already gone */ }
       encoder = null;
       geometries.clear();
+      recovery.clear();
+      knownViewers.clear();
+      stats = { ...stats, awaitingKeyframe: 0 };
       lastSentGeometry = undefined;
     },
   };

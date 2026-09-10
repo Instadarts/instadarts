@@ -168,17 +168,32 @@ function readGeometry(view: DataView, at: number): BoardGeometry | null {
 }
 
 export function packVideo(header: VideoFrameHeader, payload: Uint8Array): ArrayBuffer {
+  return writeVideoPacket(uuidBytes(header.feedId), header, payload);
+}
+
+/** The encoder can copy directly into the packet, without an intermediate payload allocation. */
+type VideoPayload = Uint8Array | Pick<EncodedVideoChunk, 'byteLength' | 'copyTo'>;
+
+export function createVideoPacker(feedId: VideoFeedId) {
+  const id = uuidBytes(feedId);
+  return (header: Omit<VideoFrameHeader, 'feedId'>, payload: VideoPayload): ArrayBuffer =>
+    writeVideoPacket(id, header, payload);
+}
+
+function writeVideoPacket(id: Uint8Array, header: Omit<VideoFrameHeader, 'feedId'>, payload: VideoPayload): ArrayBuffer {
   const geometry = header.restingGeometry;
   const payloadAt = VIDEO_HEADER_BYTES + (geometry ? VIDEO_GEOMETRY_BYTES : 0);
-  const buffer = new ArrayBuffer(payloadAt + payload.length);
+  const buffer = new ArrayBuffer(payloadAt + payload.byteLength);
   const view = new DataView(buffer);
   view.setUint8(0, (header.key ? KEY_FLAG : 0)
     | (geometry ? GEOMETRY_FLAG : geometry === null ? GEOMETRY_RESET_FLAG : 0));
   view.setUint32(1, header.seq);
   view.setFloat64(5, header.timestamp);
-  new Uint8Array(buffer).set(uuidBytes(header.feedId), 13);
+  new Uint8Array(buffer).set(id, 13);
   if (geometry) writeGeometry(view, VIDEO_HEADER_BYTES, geometry);
-  new Uint8Array(buffer).set(payload, payloadAt);
+  const destination = new Uint8Array(buffer, payloadAt);
+  if (payload instanceof Uint8Array) destination.set(payload);
+  else payload.copyTo(destination);
   return buffer;
 }
 

@@ -173,6 +173,12 @@ Queued captures retain the requesting owner link, mesh and camera-stream identit
 rechecks all three and current ownership before capture and after each asynchronous step; a
 restart, roster removal or replacement owner link discards the old work.
 
+Camera startup performs one discarded centre-square capture with the real still size and JPEG
+settings, after applying stored optical zoom and before arming automatic scanning. It warms the
+reused still canvas and encoding path without requiring a located board or sending evidence.
+Warm-up and real captures share a serial barrier across camera restarts; failures do not prevent
+camera startup, and stale completion cannot arm a stopped or replaced camera.
+
 **Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
 it when a dart appears, every eligible viewer receives the same image, undo removes it with the
 dart, and submitting clears it with the visit.
@@ -204,6 +210,10 @@ The **virtual camera** implements the move as an interpolated `drawImage` source
 re-resolves the requested board region on every frame, allowing a feed to start on the centred base
 crop and move into place once board geometry is available. A command that interrupts another begins
 from the current interpolated position.
+
+The resolved destination is cached until the region, homography, lens setting or source geometry
+changes. The mask reuses its transformed-point storage; the video canvas and encoder remain alive
+through movements. Animation timing and target changes retain their existing behavior.
 
 ### Blacking out the room
 
@@ -356,6 +366,37 @@ Two things follow. Quality is settled once at the source from the deployment's `
 rather than negotiated per viewer; and each recipient is judged separately, so one that cannot keep
 up has frames dropped for it — `bufferedAmount` past the backlog limit means skip, never queue —
 without holding the others back.
+
+Dropping an encoded frame invalidates that viewer's following deltas. The publisher therefore
+withholds deltas for that viewer until it sends a repair keyframe. Acceptance, explicit keyframe
+requests, failed sends and oversized packets also mark that viewer for repair. A keyframe reaching
+one viewer never clears another's pending repair, and an in-flight keyframe cannot consume a newer
+request. Backed-up or unwritable viewers do not independently trigger extra keyframes.
+
+The receiver requests a keyframe immediately upon losing synchronization, then retries every
+500 ms even if no further packets arrive. Successful submission of a recovery keyframe cancels
+the timer, as does receiver teardown. Keyframe requests are combined at the publisher, retaining
+the global 500 ms minimum between keyframe attempts and the normal periodic schedule. No protocol
+acknowledgement or packet fragmentation is added.
+
+Frame selection uses source `mediaTime` from video callbacks, with a persistent sampling deadline.
+Callback jitter cannot restart that deadline and halve the output rate. Without source timestamps,
+the publisher uses wall time with a small tolerance; the timer fallback subtracts processing time
+from its next wait. Missed intervals are skipped without catch-up bursts, while the existing feed
+clock continues to own transmitted timestamps and sequence numbers.
+
+A finite source timestamp must also advance. Firefox/Windows cameras can report `mediaTime: 0`
+while `presentedFrames` increases. That switches sampling to the callback clock for the remainder of
+that source element's session. Without a usable frame counter, repeated timestamps lasting at least
+250 ms (or two configured frame intervals, if longer) also trigger fallback. A replacement element
+gets a fresh source-clock check.
+
+The diagnostics panel reports pacing skips, encoder-busy skips, failed sends and viewers awaiting
+a keyframe, plus receiver repair requests and completed recoveries. Encoded chunks are copied
+directly into a fresh final packet using cached feed-ID bytes; packet buffers are never recycled
+while transport may own them.
+Submitted input counts, emitted chunk counts and the selected pacing clock distinguish a stalled
+camera clock from an encoder that has accepted input but produced no output.
 
 ### Geometry travels with the frame
 

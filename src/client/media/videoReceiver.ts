@@ -16,6 +16,7 @@
 // lifetime somebody else's problem, and a leaked one is a held GPU texture.
 
 import type { VideoFeedId, VideoProfile } from '../../shared/media';
+import { VIDEO } from '../../shared/media';
 import { unpackVideo } from './frames';
 import type { BoardGeometry } from '../../shared/vision/feedGeometry';
 
@@ -26,6 +27,8 @@ export interface ReceiverStats {
   dropped: number;
   /** Gaps seen in the sequence — the honest measure of what the channel is losing. */
   gaps: number;
+  recoveryRequests: number;
+  recoveries: number;
   bytes: number;
   /** Whether a keyframe has been seen at all. False here means a black rectangle is expected. */
   started: boolean;
@@ -58,13 +61,32 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
   canvas.height = profile.height;
   const context = canvas.getContext('2d', { alpha: false });
 
-  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, bytes: 0, started: false, restingGeometry: null };
+  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, recoveryRequests: 0, recoveries: 0, bytes: 0, started: false, restingGeometry: null };
   let lastSeq = -1;
   /** Whether the stream is decodable from here. False until a keyframe, and again after a gap. */
   let synced = false;
   let closed = false;
   let queuedGeometry: BoardGeometry | null = null;
   const pendingGeometry = new Map<number, BoardGeometry | null>();
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelRecovery(): void {
+    if (recoveryTimer !== null) clearTimeout(recoveryTimer);
+    recoveryTimer = null;
+  }
+
+  // Retry independently of packet arrival: the publisher may be withholding undecodable deltas,
+  // and a repair keyframe can itself disappear on the unreliable media channel.
+  function recover(): void {
+    synced = false;
+    if (closed || recoveryTimer !== null) return;
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      recover();
+    }, VIDEO.keyframeMinIntervalMs);
+    stats = { ...stats, recoveryRequests: stats.recoveryRequests + 1 };
+    requestKeyframe();
+  }
 
   const decoder = new VideoDecoder({
     output: (frame) => {
@@ -87,10 +109,9 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
     error: (e) => {
       stats = { ...stats, error: e instanceof Error ? e.message : String(e) };
       // Whatever state the decoder is in, it is not one we can continue from.
-      synced = false;
       pendingGeometry.clear();
       queuedGeometry = stats.restingGeometry;
-      requestKeyframe();
+      recover();
     },
   });
 
@@ -125,29 +146,23 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
       // Behind what we have already shown. Unordered delivery, not corruption.
       if (header.seq <= lastSeq) { drop(); return; }
 
-      if (header.key) {
-        synced = true;
-        stats = { ...stats, started: true };
-      } else if (synced && header.seq !== lastSeq + 1) {
+      if (!header.key && synced && header.seq !== lastSeq + 1) {
         // A hole. Every frame after it predicts from something we never received, so there is no
         // point decoding any of them — and no point waiting for the publisher's next scheduled
         // keyframe when asking costs one message.
-        synced = false;
         stats = { ...stats, gaps: stats.gaps + 1 };
-        requestKeyframe();
+        recover();
       }
 
       lastSeq = header.seq;
 
-      if (!synced) {
-        // Before the first keyframe, and after a gap. Asking here as well as above covers the join
-        // case, where there has been no gap because there has been nothing.
-        if (!stats.started) requestKeyframe();
+      if (!synced && !header.key) {
+        recover();
         drop();
         return;
       }
 
-      if (decoder.state !== 'configured') { drop(); return; }
+      if (decoder.state !== 'configured') { recover(); drop(); return; }
 
       const restingGeometry = header.restingGeometry === undefined
         ? queuedGeometry : header.restingGeometry;
@@ -160,6 +175,12 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
           timestamp: header.seq,
           data: payload,
         }));
+        if (header.key) {
+          if (recoveryTimer !== null) stats = { ...stats, recoveries: stats.recoveries + 1 };
+          cancelRecovery();
+          synced = true;
+          stats = { ...stats, started: true };
+        }
         queuedGeometry = restingGeometry;
         stats = {
           ...stats,
@@ -169,8 +190,7 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
       } catch (e) {
         pendingGeometry.delete(header.seq);
         stats = { ...stats, error: e instanceof Error ? e.message : String(e) };
-        synced = false;
-        requestKeyframe();
+        recover();
       }
     },
 
@@ -179,6 +199,7 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
     close(): void {
       if (closed) return;
       closed = true;
+      cancelRecovery();
       pendingGeometry.clear();
       try { decoder.close(); } catch { /* already gone */ }
     },

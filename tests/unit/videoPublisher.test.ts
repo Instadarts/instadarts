@@ -29,7 +29,7 @@ function harness() {
   let geometry: BoardGeometry | null = GEOMETRY;
   const close = vi.fn();
   const sendMedia = vi.fn((_data: ArrayBuffer) => true);
-  const mesh = { viewers: () => [{ peerId: 'viewer', maxMessageBytes: 65536, bufferedAmount: 0, sendMedia }] } as unknown as Mesh;
+  const mesh = { viewers: () => [{ peerId: 'viewer', ready: true, maxMessageBytes: 65536, bufferedAmount: 0, sendMedia }] } as unknown as Mesh;
   const clock = createVideoFeedClock();
   const start = () => createVideoPublisher({ mesh, profile: videoProfile(CONFIG_DEFAULTS.media.video),
     feedId: FEED_ID, audience: () => ['opponent'], accepted: () => new Set(['viewer']), clock,
@@ -80,7 +80,7 @@ describe('resting geometry publication', () => {
     h.setGeometry(null);
     h.sendMedia.mockReturnValueOnce(false);
     expect(h.tick(false).restingGeometry).toBeNull();
-    expect(h.tick(false).restingGeometry).toBeNull();
+    expect(h.tick(true).restingGeometry).toBeNull();
     expect(h.tick(false).restingGeometry).toBeUndefined();
     publisher.stop();
   });

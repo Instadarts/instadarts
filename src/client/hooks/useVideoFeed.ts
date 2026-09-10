@@ -164,7 +164,8 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
       peerId,
       feedId: offer.feedId,
       choice: offer.choice,
-      stats: receivers.current.get(peerId)?.receiver.stats() ?? null,
+      // Recovery counters can advance during complete packet silence.
+      get stats() { return receivers.current.get(peerId)?.receiver.stats() ?? null; },
     }));
   }, []);
 

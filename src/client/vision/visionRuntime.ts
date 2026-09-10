@@ -21,7 +21,7 @@ import type { BoardTip, Keypoint, Matrix3x3 } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
 import { DEFAULT_REGION, STILL, clampRegion } from '../../shared/media';
 import { stillSize } from '../lib/appConfig';
-import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
+import { captureCrop, createVideoDestinationCache, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
 import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
 import { createBoardMask } from './boardMask';
 import { publishedBoardGeometry, type BoardGeometry } from '../../shared/vision/feedGeometry';
@@ -157,6 +157,10 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    */
   let lastHomography: Matrix3x3 | null = null;
   let restingGeometry: BoardGeometry | null = null;
+  const destinationCache = createVideoDestinationCache();
+  let cameraSession = 0;
+  // Keep the barrier across stop/start: a prior JPEG must finish before this shared surface is used.
+  let stillWork: Promise<void> = Promise.resolve();
 
   /**
    * The live feed's framing. Holds only the animation — where the shot is going is re-resolved on
@@ -189,17 +193,13 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     crop: { cropX: number; cropY: number; cropSize: number },
     frame: { width: number; height: number },
   ): CropRect {
-    if (lastHomography) {
-      const rect = regionToCrop({
-        region: clampRegion(videoRegion ?? DEFAULT_REGION),
-        homography: lastHomography,
-        lensCalibration,
-        crop,
-        frame,
-      });
-      if (rect) return rect;
-    }
-    return { x: crop.cropX, y: crop.cropY, size: crop.cropSize };
+    return destinationCache.resolve({
+      region: clampRegion(videoRegion ?? DEFAULT_REGION),
+      homography: lastHomography,
+      lensCalibration,
+      crop,
+      frame,
+    });
   }
 
   function captureInputFrame() {
@@ -293,16 +293,29 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     infer,
 
     async start(deviceId) {
+      const session = ++cameraSession;
       await ensureModel();
+      if (session !== cameraSession) throw new Error('Camera startup cancelled.');
       const info = await camera.start(deviceId, inputSize());
+      if (session !== cameraSession) return info;
       const saved = camera.storedZoom();
       if (saved != null) await camera.applyZoom(saved).catch(() => {});
+      if (session !== cameraSession || !camera.active) return info;
+      stillWork = stillWork.then(async () => {
+        if (session !== cameraSession || !camera.active) return;
+        const { crop } = frameGeometry(video);
+        // Exercise the real surface and JPEG path before the first dart, without needing a board.
+        await captureCrop(video, { x: crop.cropX, y: crop.cropY, size: crop.cropSize }, stillSize(), STILL.mime, STILL.quality);
+      }).catch(() => { /* Warming is optional; a later real capture can retry. */ });
+      await stillWork;
+      if (session !== cameraSession || !camera.active) return info;
       motion.arm();
       cameraResolution = `${info.settings.width}×${info.settings.height}`;
       return info;
     },
 
     async stop() {
+      cameraSession++;
       // The camera goes first. `motion.reset()` publishes what the controls should look like, and
       // what it publishes for `canArm` is "is there a camera" — so resetting first announced one
       // that was still open, and the automatic-scan button sat there live and green with nothing
@@ -314,6 +327,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // one, it would frame a still from a picture that no longer exists.
       lastHomography = null;
       restingGeometry = null;
+      destinationCache.reset();
       // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
       // open on its new view, not slide there from where the old one was pointing. The *region*
       // survives, because that is the director's instruction and it is about the board rather than
@@ -331,19 +345,20 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     get located() { return lastHomography !== null; },
 
     async captureStill(region: Region) {
-      if (!camera.active || !lastHomography) return null;
-      if (!video.videoWidth || !video.videoHeight) return null;
-
-      const { crop, frame } = frameGeometry(video);
-      const rect = regionToCrop({
-        region: clampRegion(region),
-        homography: lastHomography,
-        lensCalibration,
-        crop,
-        frame,
+      const session = cameraSession;
+      const capture = stillWork.then(async () => {
+        if (session !== cameraSession || !camera.active || !lastHomography) return null;
+        if (!video.videoWidth || !video.videoHeight) return null;
+        const { crop, frame } = frameGeometry(video);
+        const rect = regionToCrop({
+          region: clampRegion(region), homography: lastHomography, lensCalibration, crop, frame,
+        });
+        if (!rect) return null;
+        const result = await captureCrop(video, rect, stillSize(), STILL.mime, STILL.quality);
+        return session === cameraSession ? result : null;
       });
-      if (!rect) return null;
-      return captureCrop(video, rect, stillSize(), STILL.mime, STILL.quality);
+      stillWork = capture.then(() => {}, () => {});
+      return capture;
     },
 
     directVideo(region: Region | null, transitionMs: number, resetMs: number) {

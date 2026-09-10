@@ -41,6 +41,28 @@ export interface CropInput {
   frame: { width: number; height: number };
 }
 
+/** A live feed's destination changes only when its geometry or requested region changes. */
+export function createVideoDestinationCache() {
+  type Input = Omit<CropInput, 'homography'> & { homography: Matrix3x3 | null };
+  let previous: Input | null = null;
+  let result: CropRect | null = null;
+  return {
+    resolve(input: Input): CropRect {
+      const { region, homography, lensCalibration, crop, frame } = input;
+      if (previous && result && previous.homography === homography
+        && previous.lensCalibration === lensCalibration
+        && previous.region.cx === region.cx && previous.region.cy === region.cy && previous.region.size === region.size
+        && previous.crop.cropX === crop.cropX && previous.crop.cropY === crop.cropY && previous.crop.cropSize === crop.cropSize
+        && previous.frame.width === frame.width && previous.frame.height === frame.height) return result;
+      previous = { homography, lensCalibration, region: { ...region }, crop: { ...crop }, frame: { ...frame } };
+      result = (homography ? regionToCrop({ ...input, homography }) : null)
+        ?? { x: crop.cropX, y: crop.cropY, size: crop.cropSize };
+      return result;
+    },
+    reset(): void { previous = null; result = null; },
+  };
+}
+
 /**
  * Where a board-space region lands in the camera's frame.
  *

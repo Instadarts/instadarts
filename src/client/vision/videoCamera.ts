@@ -69,6 +69,7 @@ export function outlineInShot(
   crop: { cropX: number; cropY: number; cropSize: number },
   rect: CropRect,
   size: number,
+  output?: Float64Array,
 ): Float64Array {
   const scale = size / rect.size;
   const spanX = crop.cropSize * scale;
@@ -76,7 +77,7 @@ export function outlineInShot(
   const originX = (crop.cropX - rect.x) * scale;
   const originY = (crop.cropY - rect.y) * scale;
 
-  const points = new Float64Array(outline.length);
+  const points = output?.length === outline.length ? output : new Float64Array(outline.length);
   for (let i = 0; i < outline.length; i += 2) {
     points[i] = originX + outline[i] * spanX;
     points[i + 1] = originY + outline[i + 1] * spanY;
@@ -171,6 +172,7 @@ export function createVirtualCamera(): VirtualCamera {
 let canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let context: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
 let canvasSize = 0;
+let maskPoints: Float64Array | undefined;
 
 function ensureCanvas(size: number) {
   if (!canvas) {
@@ -248,7 +250,8 @@ function fillOutsideBoard(
   rect: CropRect,
   size: number,
 ): void {
-  const points = outlineInShot(mask.outline, mask.crop, rect, size);
+  const points = outlineInShot(mask.outline, mask.crop, rect, size, maskPoints);
+  maskPoints = points;
   if (points.length < 6) return;
 
   ctx.beginPath();
@@ -270,4 +273,5 @@ export function releaseCanvas(): void {
   canvas = null;
   context = null;
   canvasSize = 0;
+  maskPoints = undefined;
 }

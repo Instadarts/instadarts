@@ -6,50 +6,24 @@ import { BOARD_CUTOUT, toMatrix3d } from './boardWarp';
 interface LiveBoardFeedProps {
   source: HTMLCanvasElement;
   label?: string;
-  /**
-   * Where the board is in the picture, asked rather than passed. See `VideoFeedView.geometry` — it
-   * arrives with a decoded frame, and nothing re-renders React when it does.
-   */
-  geometry?: () => BoardGeometry | null;
+  /** Resting framing of the painted frame, read independently of React renders. */
+  restingGeometry?: () => BoardGeometry | null;
   /** Lay the board square-on over the virtual board underneath, and cut the rest away. */
   straighten?: boolean;
 }
 
 /**
- * The production board picture.
- *
- * The receiver owns `source` and keeps painting decoded frames into it whether this component is
- * mounted or not. Mounting that canvas directly keeps the surface raw and avoids a second canvas,
- * pixel copy, or animation loop.
- *
- * ## Straightening it
- *
- * A board photographed from off to one side arrives as a lopsided ellipse, laid over a perfectly
- * round drawing of the same board. Given the geometry the feed carries, one CSS `matrix3d` puts it
- * square-on and in register — because a `matrix3d` on a flat element **is** a homography, and on
- * this end nothing reads the bitmap. (`vision/videoCamera.ts` argues at length that CSS cannot do
- * this. That is about the *publisher*, where `drawImage`, `new VideoFrame(...)` and `captureStream()`
- * all read pixels and a compositor transform would reach none of them. Here the only consumer is an
- * eye.)
- *
- * Two boxes, and the nesting is load-bearing: **`clip-path` resolves in an element's own
- * coordinate space, before its transform**, so a circle on the warped box would itself come out
- * warped. The clip goes on the outer box, which stays where the virtual board is.
+ * Mount the receiver's canvas directly. Straightening transforms the inner box; the circular clip
+ * belongs to its untransformed parent so the clip itself stays round. See docs/media.md.
  */
-export function LiveBoardFeed({ source, label, geometry, straighten = false }: LiveBoardFeedProps) {
+export function LiveBoardFeed({ source, label, restingGeometry, straighten = false }: LiveBoardFeedProps) {
   const host = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   /** The board box's side, in CSS pixels. Kept current so the frame loop never measures. */
   const size = useRef(0);
-  /**
-   * The getter, held rather than depended on.
-   *
-   * `useVideoFeed` derives its feeds — and this function with them — on every render, so depending
-   * on it directly would tear the loop below down and rebuild it every time a dart landed. Reading
-   * the latest one through a ref keeps the loop's lifetime tied to what it is actually about.
-   */
-  const latestGeometry = useRef(geometry);
-  latestGeometry.current = geometry;
+  // The getter changes on renders; the animation loop only needs its latest value.
+  const latestGeometry = useRef(restingGeometry);
+  latestGeometry.current = restingGeometry;
 
   useEffect(() => {
     const target = frame.current;
@@ -81,24 +55,12 @@ export function LiveBoardFeed({ source, label, geometry, straighten = false }: L
     return () => observer.disconnect();
   }, []);
 
-  /**
-   * The display's clock, because neither thing this reads has one React can hear: the geometry lands
-   * with a decoded frame, the box's side comes from a `ResizeObserver`, and a mounted match
-   * re-renders on neither.
-   *
-   * It does almost nothing on almost every tick. A camera describes only its resting framing, and
-   * re-solves that only when its motion gate fires between throws, so the receiver replaces the
-   * geometry object seldom — and the ordinary tick is two reference comparisons and a return. Both
-   * properties it writes when it does write are the compositor's.
-   */
+  // Follow decoded geometry and resize updates without rendering React or copying pixels.
   useEffect(() => {
     const box = host.current;
     const target = frame.current;
     if (!box || !target) return;
-    // Nothing to follow while the feed is drawn the way it always was, and no reason to hold a frame
-    // callback open for every viewer who never asked for this — which is most of them, it being off
-    // by default. Toggling rebuilds the loop, and the cleanup below has cleared both properties by
-    // the time this line is reached again.
+    // Toggling off runs the previous effect's cleanup and releases the frame callback.
     if (!straighten) return;
 
     let handle = 0;

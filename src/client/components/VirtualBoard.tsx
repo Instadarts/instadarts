@@ -11,7 +11,7 @@ export interface LiveBoardView {
   canvas: HTMLCanvasElement;
   label?: string;
   /** Where the board is in that canvas. A getter, because it changes faster than a render. */
-  geometry: () => BoardGeometry | null;
+  restingGeometry: () => BoardGeometry | null;
 }
 
 interface VirtualBoardProps {
@@ -46,7 +46,7 @@ export function VirtualBoard({
           <LiveBoardFeed
             source={liveBoard.canvas}
             label={liveBoard.label}
-            geometry={liveBoard.geometry}
+            restingGeometry={liveBoard.restingGeometry}
             straighten={straightenVideo}
           />
         )}

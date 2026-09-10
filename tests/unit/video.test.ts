@@ -252,7 +252,7 @@ function feed(playerId: string, status: VideoFeedStatus = 'live'): VideoFeedView
     playerId,
     choice: 'accepted',
     canvas: fakeCanvas,
-    geometry: () => null,
+    restingGeometry: () => null,
     status,
     lastFrameAt: status === 'live' ? 1000 : null,
     stats: null,
@@ -662,7 +662,7 @@ describe('the video frame header', () => {
     const read = unpackVideo(packed);
     expect(read).not.toBeNull();
     expect(read!.header).toEqual({
-      feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333, geometry: null,
+      feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333, restingGeometry: undefined,
     });
     expect([...read!.payload]).toEqual([...payload]);
   });
@@ -685,7 +685,7 @@ describe('the video frame header', () => {
 
   it('is exactly twenty-nine bytes of overhead, and eighty-one with a geometry block', () => {
     expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0 }, payload).byteLength).toBe(payload.length + 29);
-    expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0, geometry: GEOMETRY }, payload).byteLength)
+    expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0, restingGeometry: GEOMETRY }, payload).byteLength)
       .toBe(payload.length + 29 + 52);
   });
 
@@ -717,9 +717,9 @@ describe('the video frame header', () => {
 
   it('carries a geometry block, field by field, to what a float32 can hold', () => {
     const read = unpackVideo(packVideo(
-      { feedId: FEED_ID, key: false, seq: 3, timestamp: 5, geometry: GEOMETRY }, payload,
+      { feedId: FEED_ID, key: false, seq: 3, timestamp: 5, restingGeometry: GEOMETRY }, payload,
     ))!;
-    const geometry = read.header.geometry!;
+    const geometry = read.header.restingGeometry!;
     expect(geometry).not.toBeNull();
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 3; col++) {
@@ -737,25 +737,44 @@ describe('the video frame header', () => {
     // the picture must still come back byte for byte and not fifty-two bytes of floats plus most of
     // a picture — which is a stream a decoder accepts and then renders as rubbish.
     const described = unpackVideo(packVideo(
-      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, geometry: GEOMETRY }, payload,
+      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
     ))!;
     expect([...described.payload]).toEqual([...payload]);
 
     const plain = unpackVideo(packVideo({ feedId: FEED_ID, key: true, seq: 1, timestamp: 0 }, payload))!;
     expect([...plain.payload]).toEqual([...payload]);
-    expect(plain.header.geometry).toBeNull();
+    expect(plain.header.restingGeometry).toBeUndefined();
   });
 
   it('says nothing about the board on a frame that carries no block', () => {
     // Absent means *unchanged*, which is the sender's contract — this only pins that the reader does
     // not invent one.
     const read = unpackVideo(packVideo({ feedId: FEED_ID, key: false, seq: 9, timestamp: 1 }, payload))!;
-    expect(read.header.geometry).toBeNull();
+    expect(read.header.restingGeometry).toBeUndefined();
+  });
+
+  it('distinguishes a reset from unchanged without adding payload bytes', () => {
+    for (const key of [false, true]) {
+      const packed = packVideo({ feedId: FEED_ID, key, seq: 9, timestamp: 1, restingGeometry: null }, payload);
+      expect(packed.byteLength).toBe(29 + payload.byteLength);
+      const read = unpackVideo(packed)!;
+      expect(read.header.restingGeometry).toBeNull();
+      expect(read.header.key).toBe(key);
+      expect(read.payload).toEqual(payload);
+    }
+  });
+
+  it('ignores conflicting geometry flags while preserving the payload offset', () => {
+    const packed = packVideo({ feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload);
+    new DataView(packed).setUint8(0, 7);
+    const read = unpackVideo(packed)!;
+    expect(read.header.restingGeometry).toBeUndefined();
+    expect(read.payload).toEqual(payload);
   });
 
   it('refuses a message that claims a block it does not carry', () => {
     const packed = packVideo(
-      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, geometry: GEOMETRY }, payload,
+      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
     );
     // Exactly the header and the block, and no picture behind it.
     expect(unpackVideo(packed.slice(0, 81))).toBeNull();
@@ -767,28 +786,28 @@ describe('the video frame header', () => {
     // one would be the wrong way round on a channel that expects corruption.
     for (const [offset, value] of [[29, Number.NaN], [29 + 48, 0]] as const) {
       const packed = packVideo(
-        { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, geometry: GEOMETRY }, payload,
+        { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
       );
       new DataView(packed).setFloat32(offset, value);
       const read = unpackVideo(packed)!;
       expect(read).not.toBeNull();
-      expect(read.header.geometry, `offset ${offset}`).toBeNull();
+      expect(read.header.restingGeometry, `offset ${offset}`).toBeUndefined();
       expect([...read.payload]).toEqual([...payload]);
     }
   });
 
   it('keeps the keyframe flag and the geometry flag independent', () => {
     const deltaDescribed = unpackVideo(packVideo(
-      { feedId: FEED_ID, key: false, seq: 1, timestamp: 0, geometry: GEOMETRY }, payload,
+      { feedId: FEED_ID, key: false, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
     ))!.header;
     expect(deltaDescribed.key).toBe(false);
-    expect(deltaDescribed.geometry).not.toBeNull();
+    expect(deltaDescribed.restingGeometry).not.toBeNull();
 
     const keyPlain = unpackVideo(packVideo(
       { feedId: FEED_ID, key: true, seq: 2, timestamp: 0 }, payload,
     ))!.header;
     expect(keyPlain.key).toBe(true);
-    expect(keyPlain.geometry).toBeNull();
+    expect(keyPlain.restingGeometry).toBeUndefined();
   });
 });
 
@@ -808,14 +827,14 @@ describe('the frame geometry queue', () => {
     queue.push(null);
     queue.push(OTHER);
     expect(queue.shift()).toBe(GEOMETRY);
-    // A frame whose camera had not located a board is a recorded answer too, and holds its place.
+    // A reset is a recorded answer too, and holds its place.
     expect(queue.shift()).toBeNull();
     expect(queue.shift()).toBe(OTHER);
   });
 
   it('has nothing to say about a chunk it never saw a frame for', () => {
     const queue = createFrameGeometryQueue(4);
-    expect(queue.shift()).toBeNull();
+    expect(queue.shift()).toBeUndefined();
   });
 
   it('drops the oldest rather than growing, so an encoder that stops emitting cannot leak', () => {
@@ -825,13 +844,13 @@ describe('the frame geometry queue', () => {
     queue.push(OTHER);
     expect(queue.shift(), 'the oldest entry was not dropped').toBe(GEOMETRY);
     expect(queue.shift()).toBe(OTHER);
-    expect(queue.shift()).toBeNull();
+    expect(queue.shift()).toBeUndefined();
   });
 
   it('is emptied with its encoder, so frames it never answered for cannot offset the next one', () => {
     const queue = createFrameGeometryQueue(4);
     queue.push(GEOMETRY);
     queue.clear();
-    expect(queue.shift()).toBeNull();
+    expect(queue.shift()).toBeUndefined();
   });
 });

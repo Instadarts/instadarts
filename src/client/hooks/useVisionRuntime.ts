@@ -254,12 +254,6 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     return stored;
   }, []);
 
-  /**
-   * One purpose, one setter — deliberately not folded into a plural `setVideoOptions(patch)`.
-   *
-   * `setComputeOptions` is plural because its three switches genuinely interact and are measured
-   * together. There is one of these.
-   */
   const setBoardMask = useCallback((on: boolean): ScorerSettings => {
     const stored = saveSettings({ boardMask: on });
     setSettings(stored);

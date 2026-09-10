@@ -25,15 +25,8 @@ export interface VideoFeedView {
   label?: string;
   choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
-  /**
-   * Where the board is in the picture on that canvas, asked rather than told.
-   *
-   * A getter and not a value, for the same reason `canvas` is a live object rather than a snapshot:
-   * it arrives with a decoded frame, on a clock React cannot hear, so a value read during a render
-   * would be whatever that render happened to catch. Whoever draws the feed asks on its own clock
-   * instead. Null when the camera has never located a board — or when there is no receiver yet.
-   */
-  geometry: () => BoardGeometry | null;
+  /** Latest painted resting framing. A getter keeps it current between React renders. */
+  restingGeometry: () => BoardGeometry | null;
   status: VideoFeedStatus;
   lastFrameAt: number | null;
   stats: ReceiverStats | null;
@@ -223,6 +216,7 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         requestKeyframe: () => meshRef.current?.link(from)?.sendControl({ kind: 'keyframe', feedId: id }),
         onFrame: () => {
           lastFrames.current.set(from, Date.now());
+          refreshStats();
           if (!fresh.current.has(from)) {
             fresh.current.add(from);
             changed();
@@ -362,7 +356,7 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         canvas: receiver?.canvas ?? null,
         // Bound to the receiver rather than to this render: `stats()` returns the object it is
         // keeping up to date, so the getter stays correct long after the render that made it.
-        geometry: () => receiver?.stats().geometry ?? null,
+        restingGeometry: () => receiver?.stats().restingGeometry ?? null,
         status,
         lastFrameAt,
         stats: receiver?.stats() ?? null,

@@ -19,6 +19,7 @@ import { CONFIG_DEFAULTS } from '../../src/shared/config';
 import { invertMatrix3x3, transformPoint } from '../../src/shared/vision/homography';
 import { undistortNormalizedPoint } from '../../src/shared/vision/lensDistortion';
 import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
+import { DEFAULT_BOARD_THRESHOLD } from '../../src/shared/vision/constants';
 import { clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
@@ -744,7 +745,7 @@ test.describe('board video', () => {
     expect(stats.described * 3, 'a block on far too many frames').toBeLessThan(stats.frames);
 
     const geometry = await guest.evaluate(() =>
-      ((window as any).__media.video().watching[0]?.stats?.geometry ?? null) as BoardGeometry | null);
+      ((window as any).__media.video().watching[0]?.stats?.restingGeometry ?? null) as BoardGeometry | null);
     expect(geometry, 'the viewer never received a description').not.toBeNull();
     expect(geometry!.homography.flat().every(Number.isFinite)).toBe(true);
     expect(geometry!.shot.size).toBeGreaterThan(0);
@@ -817,7 +818,7 @@ test.describe('board video', () => {
       .toContain('matrix3d');
 
     const geometry = await guest.evaluate(() =>
-      ((window as any).__media.video().watching[0]?.stats?.geometry ?? null) as BoardGeometry | null);
+      ((window as any).__media.video().watching[0]?.stats?.restingGeometry ?? null) as BoardGeometry | null);
     expect(geometry, 'the viewer straightened a board nothing described').not.toBeNull();
     // Nobody calibrates a lens in this suite, so the map is projective end to end and the transform
     // is exact rather than merely close. What a calibrated camera costs is measured in
@@ -853,11 +854,7 @@ test.describe('board video', () => {
     // the virtual board shows through.
     expect(shown.clip).toContain('circle');
 
-    // A director command must still read as a camera moving in, which it only can if the framing
-    // holds still underneath it: the camera stops describing itself while it moves, so the viewer
-    // keeps the transform it had and the zoomed picture runs through it. A transform that tracked
-    // the shot would place each frame on the quarter of the board it showed, and the picture would
-    // shrink into the dart rather than grow into it.
+    // Resting geometry stays fixed through the zoom, including any intervening keyframes.
     await linkedToCamera(host);
     const camera = await cameraPeer(host);
     const framing = shown.css;
@@ -877,6 +874,34 @@ test.describe('board video', () => {
     // The picture moved — otherwise the assertion below would hold for a command nobody obeyed.
     expect(distance(wide, (await fingerprint(guest))!), 'the camera never moved').toBeGreaterThan(5);
     expect((await placePoint(guest, u, v))!.css, 'the framing moved with the shot').toBe(framing);
+
+    // Stop the camera during the held zoom. Prevent location on restart to exercise the reset
+    // state for several frames, rather than racing the normal startup inference.
+    const beforeRestart = await sourceOffer(scorer.page);
+    await scorer.page.evaluate(() => (window as any).__scorer.setThresholds({ board: 1 }));
+    await setSwitch(scorer.page.getByRole('switch', {
+      name: /^(?:Start camera|Resume camera|Turn camera off)$/,
+    }), false);
+    await expect.poll(() => scorer.page.evaluate(() => (window as any).__scorer.located)).toBe(false);
+    await startScorerCamera(scorer.page);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
+      .toBeGreaterThan(3);
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toBe('none');
+    expect((await placePoint(guest, 0.5, 0.5))?.clip).toBe('none');
+    expect(await guest.evaluate(() => (window as any).__media.video().watching[0]?.stats?.restingGeometry))
+      .toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(beforeRestart.feedId);
+    expect((await sourceOffer(scorer.page)).accepted).toEqual(beforeRestart.accepted);
+
+    // Release the director's zoom and locate a resting shot again in the same accepted feed.
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_region', region: null, transitionMs: 0, resetMs: 0,
+    }), camera.peerId);
+    await scorer.page.evaluate((board) => (window as any).__scorer.setThresholds({ board }), DEFAULT_BOARD_THRESHOLD);
+    await scan(scorer.page);
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toContain('matrix3d');
 
     await alice.close();
     await bob.close();

@@ -85,7 +85,7 @@ export function MatchScreen({
     canvas: liveFeed.canvas,
     // Carried rather than read: the geometry belongs to the feed and changes with its frames, so it
     // travels as the getter the feed exposes and not as a value captured by this render.
-    geometry: liveFeed.geometry,
+    restingGeometry: liveFeed.restingGeometry,
     ...(liveFeed.label ? { label: liveFeed.label } : {}),
   } : null;
 

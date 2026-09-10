@@ -90,19 +90,15 @@ export interface VideoFrameHeader {
   /** Microseconds, on the publisher's own timeline — the same value that went into the encoder. */
   timestamp: number;
   /**
-   * Where the board is in this frame, when the sender said so.
-   *
-   * Optional on the way in and always present — possibly null — on the way out. Absent means
-   * *unchanged*, never *gone*: see the cadence note in `videoPublisher.ts`. What the numbers mean is
-   * [`feedGeometry.ts`](../../shared/vision/feedGeometry.ts)'s; the byte offsets are this file's, and
-   * the two have to be read together.
+   * Resting framing: undefined keeps the previous value, null resets it, an object updates it.
+   * Applied when this frame is painted. See docs/media.md, "Geometry travels with the frame".
    */
-  geometry?: BoardGeometry | null;
+  restingGeometry?: BoardGeometry | null;
 }
 
 /**
  * ```
- * byte 0       u8      flags — bit 0 set for a keyframe, bit 1 for a geometry block
+ * byte 0       u8      flags — bit 0 keyframe, bit 1 geometry block, bit 2 geometry reset
  * bytes 1–4    u32     seq
  * bytes 5–12   f64     timestamp, microseconds
  * bytes 13–28          the feed UUID
@@ -118,25 +114,14 @@ export interface VideoFrameHeader {
  * minutes — a length of time a match can exceed. Every integer we will ever put in it is exact in a
  * double, and `DataView` reads one without the `BigInt` awkwardness a `u64` would bring.
  *
- * **The geometry block has to answer that same argument**, and does: it is sent only when it changed
- * and on keyframes, so on a mounted camera watching a still board most frames carry none. When one
- * does it costs fifty-two bytes against a frame averaging some four kilobytes.
- *
- * Float32 rather than float64 halves that again, and costs nothing worth measuring: the error is
- * *relative*, about six parts in a hundred million, and it carries through a projective transform as
- * a relative error too — so a published pixel comes back to within a twentieth of a board unit,
- * against the three thousand board units one pixel of a 320px frame covers. The scale of the numbers
- * is beside the point, which is also why the normalizations in `feedGeometry.ts` are not about
- * precision.
- *
- * The payload's offset follows **the flag, not the length** — which is what makes bit 2 free for
- * whoever needs it next.
+ * Geometry updates cost 52 bytes; resets use only a flag. Payload offsets follow bit 1 alone.
  */
 const VIDEO_HEADER_BYTES = 29;
 const VIDEO_GEOMETRY_FLOATS = 13;
 const VIDEO_GEOMETRY_BYTES = VIDEO_GEOMETRY_FLOATS * 4;
 const KEY_FLAG = 1;
 const GEOMETRY_FLAG = 2;
+const GEOMETRY_RESET_FLAG = 4;
 
 function uuidBytes(feedId: VideoFeedId): Uint8Array {
   if (!isVideoFeedId(feedId)) throw new TypeError('Invalid video feed UUID');
@@ -160,14 +145,7 @@ function writeGeometry(view: DataView, at: number, geometry: BoardGeometry): voi
   }
 }
 
-/**
- * Read one back, or null if it is not one.
- *
- * **A description that does not read must not cost the picture.** Every number is checked, and a
- * frame carrying a bad block is still a frame — it arrives with `geometry: null` and an intact
- * payload, and the decoder never learns there was a problem. Throwing the frame away because a float
- * was NaN would trade a picture for a description of one.
- */
+/** Invalid metadata is ignored without discarding the picture. */
 function readGeometry(view: DataView, at: number): BoardGeometry | null {
   const values: number[] = [];
   for (let index = 0; index < VIDEO_GEOMETRY_FLOATS; index++) {
@@ -190,11 +168,12 @@ function readGeometry(view: DataView, at: number): BoardGeometry | null {
 }
 
 export function packVideo(header: VideoFrameHeader, payload: Uint8Array): ArrayBuffer {
-  const geometry = header.geometry ?? null;
+  const geometry = header.restingGeometry;
   const payloadAt = VIDEO_HEADER_BYTES + (geometry ? VIDEO_GEOMETRY_BYTES : 0);
   const buffer = new ArrayBuffer(payloadAt + payload.length);
   const view = new DataView(buffer);
-  view.setUint8(0, (header.key ? KEY_FLAG : 0) | (geometry ? GEOMETRY_FLAG : 0));
+  view.setUint8(0, (header.key ? KEY_FLAG : 0)
+    | (geometry ? GEOMETRY_FLAG : geometry === null ? GEOMETRY_RESET_FLAG : 0));
   view.setUint32(1, header.seq);
   view.setFloat64(5, header.timestamp);
   new Uint8Array(buffer).set(uuidBytes(header.feedId), 13);
@@ -218,6 +197,7 @@ export function unpackVideo(data: ArrayBuffer): { header: VideoFrameHeader; payl
   // Where the picture starts is a question the flags answer, not the length. A block that is claimed
   // and not there is a malformed message rather than a frame with a short payload.
   const hasGeometry = (flags & GEOMETRY_FLAG) !== 0;
+  const resetGeometry = (flags & GEOMETRY_RESET_FLAG) !== 0;
   const payloadAt = VIDEO_HEADER_BYTES + (hasGeometry ? VIDEO_GEOMETRY_BYTES : 0);
   if (data.byteLength <= payloadAt) return null;
 
@@ -231,7 +211,10 @@ export function unpackVideo(data: ArrayBuffer): { header: VideoFrameHeader; payl
       seq: view.getUint32(1),
       timestamp,
       feedId,
-      geometry: hasGeometry ? readGeometry(view, VIDEO_HEADER_BYTES) : null,
+      // Conflicting flags are invalid metadata, but bit 1 still determines the payload offset.
+      restingGeometry: hasGeometry
+        ? resetGeometry ? undefined : readGeometry(view, VIDEO_HEADER_BYTES) ?? undefined
+        : resetGeometry ? null : undefined,
     },
     // Copied for the same reason a still's payload is: the decoder is handed this after the message
     // that carried it is gone.

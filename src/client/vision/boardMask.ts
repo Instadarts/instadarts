@@ -1,68 +1,18 @@
-// Blacking out everything that is not the board.
-//
-// The published feed is a square of the camera's picture, so it carries whatever the phone happens
-// to be standing in front of — a room, and the people in it. This finds the board's edge in that
-// picture, and `videoCamera.ts` fills everything outside it with black.
-//
-// ```
-// board circle ──(inverse homography)──▶ undistorted normalized
-//              ──(distortNormalizedPoint)──▶ normalized frame
-// ```
-//
-// The same journey backwards that `stillCapture.ts` makes for a still's four corners, run here for a
-// circle instead of a square. Nothing new is derived: this is `regionToCrop`'s chain with more points
-// and no bounding box.
-//
-// **It is not a warp.** The board keeps the shape the camera saw it in, and only the surroundings
-// change. Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone
-// that is already running the detection model — see `feedGeometry.ts` for the geometry that lets a
-// receiver do it instead.
-//
-// **It changes only what is published.** Inference reads the `<video>` element directly; this draws
-// on the publisher's canvas, downstream of everything the pipeline looks at. A masked feed scores
-// identically to an unmasked one.
+// Project the board rim into the camera's input square for the outgoing video mask.
+// Inference reads the original video. See docs/media.md, "Blacking out the room".
 
 import { BOARD_CENTER, BOARD_MAX, NORMALIZED_RADII } from '../../shared/boardGeometry';
 import { invertMatrix3x3, transformPoint } from '../../shared/vision/homography';
 import { distortNormalizedPoint, sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
 import type { Matrix3x3, Point2D } from '../../shared/vision/types';
 
-/**
- * The board's outer edge — the sisal rim at 225mm, not the double ring at 170.
- *
- * The number ring lives between the two, and it is part of what a person reads off a board. Cutting
- * at the double takes the numbers off and makes the picture look broken rather than masked, and a
- * dart in the wire outside the double still has to be visible.
- *
- * There is deliberately no margin: the mask traces the rim exactly. If a homography solved a moment
- * before somebody nudged the phone turns out to cut a crescent off the board in practice, a few
- * percent here is the knob — it is cheaper to widen than to explain.
- */
+/** The 225mm outer rim includes the number ring; no extra margin. */
 const MASK_RADIUS = NORMALIZED_RADII.boardOuter * BOARD_MAX;
 
-/**
- * How many points the circle is drawn with.
- *
- * The same sampling the calibration spider uses. On a 320px frame the board's circumference is at
- * most about 1,000px, so 128 chords are eight pixels each and bulge inward by under a twentieth of a
- * pixel. It costs nothing regardless: this runs once per *inference*, not once per frame, and
- * inference is motion-gated.
- */
+/** 128 chords approximate the rim to well below a pixel on the published canvas. */
 const OUTLINE_SAMPLES = 128;
 
-/**
- * The smallest polygon worth believing, as a fraction of the input square.
- *
- * This guard is load-bearing rather than defensive. Every other failure in this file is a matrix
- * that will not invert or a point that will not project, and each one is loud in the sense that it
- * returns null and the frame goes out unmasked. A homography that is merely *wrong* is not: it
- * projects eight points happily and puts the board somewhere it is not, and the result on somebody
- * else's screen is a black square with no error attached — which nobody at the source can see,
- * because the phone shows its own camera and not what it published.
- *
- * A board this small in frame could not be scored anyway: one percent of the square is a board
- * eleven percent of the frame across.
- */
+/** Reject implausibly tiny outlines that would otherwise black out nearly the whole feed. */
 const MIN_OUTLINE_AREA = 0.01;
 
 export interface BoardOutlineInput {
@@ -73,20 +23,20 @@ export interface BoardOutlineInput {
 }
 
 /**
- * The board's outer circle, in the model input square's normalized coordinates. Interleaved x, y.
- *
- * Normalized rather than in source pixels, deliberately: the crop the pipeline feeds the model can
- * change with the camera's resolution, and holding the outline in the square's own coordinates keeps
- * this module free of the frame, the canvas and the shot. `outlineInShot` in `videoCamera.ts` does
- * that last step, per frame, because it is the part that moves.
- *
- * Null when the board cannot be placed honestly: a matrix that will not invert, a point that will
- * not project, or a polygon smaller than `MIN_OUTLINE_AREA` — see that constant for why the last
- * one is the guard that matters.
+ * Interleaved x/y rim coordinates in the normalized model input square. Null for invalid geometry,
+ * a horizon crossing the rim, or an implausibly small polygon. outlineInShot places it in each shot.
  */
 export function boardOutline({ homography, lensCalibration }: BoardOutlineInput): Float64Array | null {
   const inverse = invertMatrix3x3(homography);
   if (!inverse) return null;
+
+  // w on the circle ranges from centreW - spanW to centreW + spanW. Reject crossings and
+  // tangencies analytically: testing sampled points alone misses horizons between samples.
+  // Either consistent sign is valid because multiplying a homography by -1 changes no points.
+  const [g, h, i] = inverse[2];
+  const centreW = (g + h) * BOARD_CENTER + i;
+  const spanW = MASK_RADIUS * Math.hypot(g, h);
+  if (Math.abs(centreW) - spanW <= 1e-9) return null;
 
   const k1 = sliderValueToLensK1(lensCalibration);
   const useLens = Math.abs(k1) >= 1e-12;
@@ -133,18 +83,7 @@ export interface BoardMask {
   reset(): void;
 }
 
-/**
- * The outline, computed once per solved homography rather than once per frame.
- *
- * **The cache key is the homography's array identity**, not its contents. `visionRuntime` stores a
- * fresh matrix on every inference that solved one, so reference equality is exactly the question
- * "has the board been re-solved since last time" — and inference is motion-gated, so on a mounted
- * camera watching a still board the answer is no for seconds at a time.
- *
- * A failure is cached too. A homography that will not invert will not invert on the next frame
- * either, and re-deriving that answer fifteen times a second is the one way this could become
- * expensive.
- */
+/** Cache successes and failures by matrix identity and lens setting. Each inference creates a matrix. */
 export function createBoardMask(): BoardMask {
   let cachedHomography: Matrix3x3 | null = null;
   let cachedLens = Number.NaN;

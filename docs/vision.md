@@ -79,6 +79,7 @@ The implementation is in [`server/scoring/`](../src/server/scoring/), principall
 | Lens geometry | `tests/unit/vision-lens.test.ts` | the homography round trip, ring order, k1 direction, bed placement |
 | Board geometry | `tests/unit/vision-geometry.test.ts` | image→board projection and scoring |
 | The board mask, and what a published frame says | `tests/unit/still.test.ts`, `vision-geometry.test.ts`, `video.test.ts` | the projected rim lands back on the rim; a published pixel returns to the board point it came from, through float32; the geometry block's bytes |
+| Video metadata lifecycle | `tests/unit/videoPublisher.test.ts`, `videoReceiver.test.ts` | camera resets, keyframe recovery, delayed and failed decoding, and state committed with painted frames |
 | Fusion and tracking | `tests/unit/vision-fusion.test.ts`, `vision-session.test.ts`, `scorer-tips.test.ts` | which tips are one dart, when a visit ends |
 | End to end | `tests/e2e/scorer-inference.spec.ts`, `scorer-onboarding.spec.ts` | a real `.tflite` through pairing into a visit; landscape/portrait square-preview geometry; one video node surviving onboarding, calibration and model-resolution changes |
 

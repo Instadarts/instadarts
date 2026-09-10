@@ -1,54 +1,15 @@
-// Where the board is in one published video frame.
-//
-// A scoring device publishes a square of its own picture, and a receiver has no idea what that
-// square contains — which board, at what angle, cropped from where. This is the description that
-// travels beside the frame so it can find out.
-//
-// A receiver holding this can send any pixel of a decoded frame back to a board coordinate, which
-// is what a front-facing warp needs. The device deliberately does not warp its own picture — that
-// needs a per-pixel inverse map and a GPU the detection model is already using — so the arithmetic
-// is sent instead, to the end that has a spare one and no inference to run. `boardWarpMatrix`, at
-// the foot of this file, is what reads it back — and turns out to need no GPU either.
-//
-// Thirteen numbers, and they are sufficient. The receiver's journey is:
-//
-// ```
-// published pixel  ──(/ frame width)──▶  u, v in [0,1]
-//                  ──(shot)──▶           input-square normalized
-//                  ──(undistortNormalizedPoint)──▶  undistorted
-//                  ──(transformPoint)──▶  normalized board space
-// ```
-//
-// The frame's width comes from the decoded frame itself and the frame is square, so it does not
-// travel. Both functions that journey needs are already in this directory.
+// Coordinate mapping for a published square. The live feed holds the last resting shot's mapping
+// through director zooms. Transport cadence and reset semantics are documented in docs/media.md.
 
 import { BOARD_MAX } from '../boardGeometry';
 import { sliderValueToLensK1 } from './lensDistortion';
 import type { Matrix3x3 } from './types';
 
-/**
- * The geometry of one published frame.
- *
- * Both normalizations below are about the *interface*, not about arithmetic. Float32 on the wire is
- * comfortable either way — its error is relative, so the scale of the numbers does not come into it
- * (`frames.ts` has the measurement). What they buy is that a receiver can read this without knowing
- * anything about how a scoring device stores geometry internally.
- */
+/** The mapping from a published square to normalized board coordinates. */
 export interface BoardGeometry {
-  /**
-   * The model input square's normalized coordinates → **normalized board space**, `[0, 1]`.
-   *
-   * Not board units. The two board rows are divided by `BOARD_MAX` on the way out, so this lands in
-   * the same `[0, 1]` a `Region` is expressed in — the one board coordinate system anything outside
-   * the vision pipeline already speaks — and a receiver never has to learn that board units exist.
-   */
+  /** Normalized model input square → normalized board space ([0, 1], y-up). */
   homography: Matrix3x3;
-  /**
-   * The lens coefficient, not the slider position.
-   *
-   * `sliderValueToLensK1` is a mapping between a UI control and some optics, with a tunable maximum
-   * in the middle of it. The wire carries the optics; a slider is nobody else's business.
-   */
+  /** Radial distortion coefficient, independent of the calibration slider's scale. */
   lensK1: number;
   /** The published square, in those same input-square coordinates. */
   shot: { x: number; y: number; size: number };
@@ -65,17 +26,7 @@ export interface PublishedGeometryInput {
   shot: { x: number; y: number; size: number };
 }
 
-/**
- * Describe the frame about to be published.
- *
- * Null when there is nothing honest to say: a crop or a shot with no extent, or a matrix carrying a
- * value that is not a number. A frame then goes out with no description, which a receiver reads as
- * "unchanged" rather than as "gone" — see the cadence note in `videoPublisher.ts`.
- *
- * Deliberately **not** checked for invertibility. The receiver runs this matrix forwards, pixel to
- * board, so a matrix that cannot be inverted is not this function's problem — and refusing one here
- * would be inventing a requirement nothing downstream has.
- */
+/** Normalize a source shot and its homography for publication; null when invalid. */
 export function publishedBoardGeometry({
   homography, lensCalibration, crop, shot,
 }: PublishedGeometryInput): BoardGeometry | null {
@@ -123,37 +74,10 @@ export function sameBoardGeometry(a: BoardGeometry | null, b: BoardGeometry | nu
 // ============================================================
 
 /**
- * The transform that lays a published frame square-on over a board of `sizePx` a side.
- *
- * This is the journey above run forwards for a whole picture rather than a point: element pixels of
- * the frame, out to the pixels of the box the virtual board is drawn in. A viewer applies it as a
- * CSS `matrix3d`, which **is** a homography — for a flat element the browser computes three linear
- * combinations and divides by the third, which is the same arithmetic and the same perspective
- * divide. Nothing on this end reads the bitmap, so a compositor transform is enough; the argument in
- * `client/vision/videoCamera.ts` against CSS is about the publisher, where `drawImage`,
- * `new VideoFrame(...)` and `captureStream()` all read pixels, and it does not reach this far.
- *
- * The published canvas is stretched to the box, so content point `(u, v)` in `[0,1]²` sits at
- * element-local `(u·sizePx, v·sizePx)`, and the composition is
- * `S(sizePx) · flip · homography · shotAffine · S(1/sizePx)` — where `shotAffine` carries
- * `geometry.shot`, and `sizePx` is the box, two different lengths that must not be confused.
- *
- * That `flip` is not decoration. **Board space is y-up and a screen is y-down** — the homography's
- * whole job upstream is to leave the camera's picture and arrive somewhere the scoring rules can be
- * written, and this is where that has to be undone. The drawing crosses the same line with
- * `BOARD_SIZE - y` in `client/components/boardGeometry.ts`; here it is a row of the matrix, so it
- * costs nothing and travels with everything else.
- *
- * **The lens is dropped on purpose.** `lensK1` describes a radial distortion, and a radial term is
- * not projective — no 3×3 can express it, and neither can CSS. Correcting it means a per-pixel
- * inverse map and therefore a shader, which is the entire cost this design exists to avoid. What it
- * costs instead is a smooth misplacement growing with the square of the distance from the frame's
- * centre; `tests/unit/vision-geometry.test.ts` measures it at the board's rim rather than leaving it
- * to be imagined. This is a picture to look at — it scores nothing and no one throws at it.
- *
- * Null rather than a wrong transform, on every failure. The one that matters is `w ≤ 0` at a corner:
- * a corner of the frame that projects behind the camera makes a browser draw something torn rather
- * than nothing, so it is checked here and the caller shows the picture the way it always has.
+ * Map a canvas stretched to sizePx into the virtual board's screen coordinates:
+ * S(sizePx) · yFlip · homography · shotAffine · S(1/sizePx).
+ * CSS matrix3d can express this projective map, but not radial lens correction.
+ * Reject non-finite results and a horizon through the frame. See docs/media.md for the tradeoffs.
  */
 export function boardWarpMatrix(geometry: BoardGeometry, sizePx: number): Matrix3x3 | null {
   if (!(sizePx > 0)) return null;

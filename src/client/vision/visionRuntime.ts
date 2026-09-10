@@ -101,20 +101,11 @@ export interface VisionRuntime {
    */
   directVideo: (region: Region | null, transitionMs: number, resetMs: number) => void;
   /**
-   * One frame of the live feed, framed as the director last asked, and a description of where the
-   * board is in it. Null when there is no camera; the description alone is null when there is no
-   * homography.
-   *
-   * The pair is deliberately one value — see `GrabbedFrame` in `media/videoPublisher.ts`, which is
-   * the shape this satisfies structurally. Nothing here imports the publisher: it declares what it
-   * needs of a frame source and this happens to be one, the same arrangement `VideoFrameSource`
-   * already had.
-   *
-   * **The caller must close the frame.** A `VideoFrame` holds a real buffer, often a GPU texture,
-   * and leaking them stalls an encoder in a second or two rather than degrading gently.
+   * A live frame with the resting framing held through director zooms. The caller closes the frame.
+   * Null when there is no camera; restingGeometry is null until a resting shot has been located.
    */
   grabVideoFrame: (size: number, timestampUs: number, durationUs: number)
-    => { frame: VideoFrame; geometry: BoardGeometry | null } | null;
+    => { frame: VideoFrame; restingGeometry: BoardGeometry | null } | null;
   /** Whether the board has been located since the camera started, so a region can be placed at all. */
   readonly located: boolean;
   /**
@@ -165,6 +156,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * would be the next refinement, and is deliberately not here.)
    */
   let lastHomography: Matrix3x3 | null = null;
+  let restingGeometry: BoardGeometry | null = null;
 
   /**
    * The live feed's framing. Holds only the animation — where the shot is going is re-resolved on
@@ -172,18 +164,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * was found slide onto it the moment it is.
    */
   const virtualCamera = createVirtualCamera();
-  /**
-   * The board's edge in the published picture, when the feed is cut to it.
-   *
-   * Beside the virtual camera because it is the same kind of thing — part of how the feed is framed
-   * and no part of how anything is scored. Told what to do at construction by `useVisionRuntime`,
-   * from the device's stored settings.
-   *
-   * Starting **on**, which is both the stored default and the safe direction to be wrong in: a
-   * runtime nobody got around to configuring should publish less of somebody's room than they asked
-   * for rather than more. No frame can reach an encoder before the seeding call in any case — the
-   * hook does not publish the runtime until it has made it — so this is a belt, not a fix.
-   */
+  // Outgoing masking defaults on, matching the stored setting.
   const boardMask = createBoardMask();
   let maskEnabled = true;
   let videoRegion: Region | null = null;
@@ -332,6 +313,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // The homography described where a board was in *that* camera session's frames. Kept across
       // one, it would frame a still from a picture that no longer exists.
       lastHomography = null;
+      restingGeometry = null;
       // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
       // open on its new view, not slide there from where the old one was pointing. The *region*
       // survives, because that is the director's instruction and it is about the board rather than
@@ -396,28 +378,15 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       const grabbed = grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
       if (!grabbed) return null;
 
-      /**
-       * **Only the resting shot is described**, and this is the line that makes a director command
-       * still look like one.
-       *
-       * A viewer laying this feed over its virtual board reads the description as "where the board
-       * is", and a frame with none means "unchanged". Describing every frame would be more literally
-       * true and quite wrong: a shot moving in on a dart would be placed, correctly, on the quarter
-       * of the board it shows — so the picture would *shrink* into that quarter instead of zooming
-       * into it, and a camera move would read as the feed retreating. Saying nothing while the
-       * camera is moving leaves the viewer on the framing it already had, and the zoomed picture
-       * runs through it exactly as it runs through no transform at all today.
-       *
-       * So a description is an answer about **the feed's resting framing**, not about one frame's
-       * pixels. `videoRegion` is null whenever nothing is being pointed at, and `moving` covers the
-       * interpolation at both ends of a command — including the way back, where the region has
-       * already been let go but the shot has not arrived yet.
-       */
+      // Hold the resting framing through zooms, so straightening does not cancel the camera move.
+      // stop() clears it; publisher restarts and late joiners can always read the current state.
       const settled = videoRegion === null && !virtualCamera.moving(now);
-      const geometry = settled && lastHomography
-        ? publishedBoardGeometry({ homography: lastHomography, lensCalibration, crop, shot })
-        : null;
-      return { frame: grabbed, geometry };
+      if (settled) {
+        restingGeometry = lastHomography
+          ? publishedBoardGeometry({ homography: lastHomography, lensCalibration, crop, shot })
+          : null;
+      }
+      return { frame: grabbed, restingGeometry };
     },
 
     async unload() {

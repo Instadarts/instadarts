@@ -155,11 +155,34 @@ describe('boardOutline', () => {
   });
 
   it('refuses a board the camera cannot see all of', () => {
-    // A homography whose vanishing line runs across the board: points on one side of it project to
-    // the far side of the horizon, where `transformPoint` divides by nothing and says so. Better one
-    // refusal than a polygon half of which is somewhere behind the lens.
+    // The horizon passes directly through sampled rim points.
     const horizon = invertMatrix3x3([[1, 0, 0], [0, 1, 0], [1, 0, -BOARD_CENTER]])!;
     expect(boardOutline({ homography: horizon, lensCalibration: 0 })).toBeNull();
+  });
+
+  it('refuses horizon crossings and tangencies between sampled rim points', () => {
+    const angle = Math.PI / 128;
+    const g = Math.cos(angle);
+    const h = Math.sin(angle);
+    for (const distance of [MASK_RADIUS * 0.9, MASK_RADIUS]) {
+      const inverse: Matrix3x3 = [[1, 0, 0], [0, 1, 0],
+        [g, h, -(g + h) * BOARD_CENTER - distance]];
+      const homography = invertMatrix3x3(inverse)!;
+      // Every sampled point projects to a finite value; the circle still crosses or touches w=0.
+      for (let n = 0; n < 128; n++) {
+        const theta = n * Math.PI / 64;
+        expect(transformPoint([BOARD_CENTER + MASK_RADIUS * Math.cos(theta),
+          BOARD_CENTER + MASK_RADIUS * Math.sin(theta)], inverse)).not.toBeNull();
+      }
+      expect(boardOutline({ homography, lensCalibration: 0 })).toBeNull();
+    }
+  });
+
+  it('accepts either consistent denominator sign', () => {
+    const homography = sampleHomography();
+    const negated = homography.map(row => row.map(value => -value)) as Matrix3x3;
+    expect(boardOutline({ homography: negated, lensCalibration: 0 }))
+      .toEqual(boardOutline({ homography, lensCalibration: 0 }));
   });
 
   it('refuses a board too small to believe rather than blacking out the picture', () => {

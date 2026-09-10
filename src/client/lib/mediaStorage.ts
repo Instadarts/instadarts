@@ -42,18 +42,7 @@ export function saveMediaEnabled(enabled: boolean): boolean {
 
 export const STRAIGHTEN_VIDEO_KEY = 'instadarts_straighten_video';
 
-/**
- * Whether a remote board feed is laid square-on over the virtual board.
- *
- * A preference about the picture rather than about whether there is one, which is why it sits under
- * the settings menu's `Layout` with the appearance and zoom controls, and not beside the live-video
- * switch above. It changes nothing that is sent, asked for, or scored.
- *
- * **Default off**, and note the polarity is the opposite of `loadMediaEnabled`'s: media is on until
- * somebody says otherwise because a match without it is the lesser thing, while this is a different
- * way of showing something that already works, and a browser that has never been asked should get
- * the picture it got yesterday.
- */
+/** Per-browser display preference, off until explicitly enabled. */
 export function loadStraightenVideo(): boolean {
   try {
     return localStorage.getItem(STRAIGHTEN_VIDEO_KEY) === '1';

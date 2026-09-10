@@ -21,19 +21,12 @@ import { sameBoardGeometry, type BoardGeometry } from '../../shared/vision/feedG
 import type { Mesh } from './mesh';
 import { packVideo } from './frames';
 
-/**
- * One frame and the description of it.
- *
- * The two travel together rather than being asked for separately, and that is the whole of the
- * pairing problem solved: a `geometry()` call beside `grab()` would be a convention that it must be
- * read before the next frame is made, with nothing enforcing it. Here it cannot describe any frame
- * but the one it came with.
- */
+/** One frame and the resting framing to apply when it is displayed. */
 export interface GrabbedFrame {
   /** Ours to close. */
   frame: VideoFrame;
-  /** Where the board is in it, or null when this camera has not located one. */
-  geometry: BoardGeometry | null;
+  /** Held through director zooms; null until a resting shot has been located this camera session. */
+  restingGeometry: BoardGeometry | null;
 }
 
 /** Where a frame comes from. The device's vision runtime supplies this. */
@@ -53,13 +46,7 @@ export interface PublisherStats {
   dropped: number;
   /** Frames the source could not produce — camera between frames, mostly. */
   missed: number;
-  /**
-   * Frames published carrying a geometry block — that is, frames whose camera had located the board
-   * *and* had something new to say about it. Most frames of a still scene have neither.
-   *
-   * Named for what it counts rather than for what it carries, so it cannot be mistaken for
-   * `ReceiverStats.geometry`, which is the description itself and not a number.
-   */
+  /** Frames published with a geometry block (resets do not count). */
   described: number;
   /**
    * Frames too big for a link to carry in one message.
@@ -98,27 +85,14 @@ export interface VideoFeedClock {
 }
 
 /**
- * Pairing a frame with the geometry it was grabbed under, across the encoder.
- *
- * The description is known in `tick`, where the frame is made; the packet is built in the encoder's
- * output callback, some frames later. What connects the two is **order**: `encode()` produces one
- * chunk per frame and hands them back in the order they went in, so the nth description out belongs
- * to the nth chunk. Realtime H.264 has no B-frames and nothing here reorders.
- *
- * **Not the chunk's timestamp**, which is what this was first written against and what looked
- * obviously right: the value we set on a `VideoFrame` comes back unchanged through the software
- * encoder CI runs on, and did not on real hardware — a `0g` counter on a device whose mask was
- * working perfectly, because every lookup missed. A timestamp is the encoder's to carry however it
- * likes; the sequence it emits in is not.
- *
- * Capped rather than unbounded, so an encoder that errors without emitting cannot make this grow.
- * `tick` refuses to encode past `encodeQueueSize > 2`, so eight is already generous.
+ * FIFO pairing for the realtime H.264 encoder. See docs/media.md for the codec assumptions.
+ * Empty means no update; null is a recorded reset and must keep its place.
  */
 export interface FrameGeometryQueue {
   /** Record the geometry of a frame the encoder has just taken. */
   push(geometry: BoardGeometry | null): void;
-  /** The geometry of the next frame out of it, or null when there is nothing to pair. */
-  shift(): BoardGeometry | null;
+  /** The next frame's resting geometry, or undefined when there is no pending frame. */
+  shift(): BoardGeometry | null | undefined;
   clear(): void;
 }
 
@@ -130,8 +104,8 @@ export function createFrameGeometryQueue(capacity = 8): FrameGeometryQueue {
       items.push(geometry);
       if (items.length > capacity) items.shift();
     },
-    shift(): BoardGeometry | null {
-      return items.length > 0 ? items.shift() ?? null : null;
+    shift(): BoardGeometry | null | undefined {
+      return items.shift();
     },
     clear(): void {
       items = [];
@@ -185,16 +159,8 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
   let stopped = false;
   let stats: PublisherStats = { frames: 0, keyframes: 0, bytes: 0, dropped: 0, missed: 0, oversize: 0, described: 0 };
   const geometries = createFrameGeometryQueue();
-  /**
-   * The description a receiver should already hold, so an unchanged one is not sent again.
-   *
-   * Cleared with the encoder rather than with the feed, and that is the load-bearing half: a camera
-   * pause stops only the encoder and **keeps the feed UUID**, so without this a receiver would carry
-   * geometry across a camera restart and pair it with pictures from a phone that may have been moved
-   * in between. A fresh encoder starts wanting a keyframe, so the first frame after a pause carries
-   * the current answer.
-   */
-  let lastSentGeometry: BoardGeometry | null = null;
+  /** Last value delivered to at least one viewer. Undefined forces an initial update or reset. */
+  let lastSentGeometry: BoardGeometry | null | undefined;
   let lastFrameAt = 0;
   /**
    * The last keyframe that actually reached a link, and the last one asked of the encoder.
@@ -228,28 +194,16 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     chunk.copyTo(body);
 
     const key = chunk.type === 'key';
-    // On change, and on every keyframe. A mounted camera watching a still board re-solves its
-    // homography only when the motion gate fires, and holds one shot between director commands, so
-    // most frames say nothing at all. Repeating it on keyframes is what lets a viewer who joined
-    // late, or who lost the frame that carried the last change, catch up on the same frame it can
-    // start decoding from.
-    //
-    // Frames arrive here already undescribed while the camera is moving — `grabVideoFrame` describes
-    // only a settled shot, so that a viewer holds its framing through a director command instead of
-    // chasing it. A keyframe part-way through a move therefore carries nothing either, and a viewer
-    // that joined during one waits for the next keyframe after the camera settles.
-    //
-    // A frame with no block therefore means *unchanged*, never *gone*. Within one feed that is
-    // always true: a camera only ever gains or moves its board, and the homography is dropped in
-    // `stop()`, which ends the camera session and the encoder with it.
+    // Repeat the full resting state on keyframes, including resets, to recover from packet loss.
     const geometry = geometries.shift();
-    const describe = geometry !== null && (key || !sameBoardGeometry(geometry, lastSentGeometry));
+    const update = geometry !== undefined
+      && (key || lastSentGeometry === undefined || !sameBoardGeometry(geometry, lastSentGeometry));
     const packet = packVideo({
       feedId,
       key,
       seq: clock.nextSequence(),
       timestamp: chunk.timestamp,
-      geometry: describe ? geometry : null,
+      restingGeometry: update ? geometry : undefined,
     }, body);
 
     const allowed = accepted();
@@ -292,13 +246,13 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     // Recorded only now, so a description nobody received is not treated as delivered. It is still
     // per-feed rather than per-link: a link that was skipped for backpressure while others were
     // served waits for the next keyframe, which is the repair path every other loss here has.
-    if (describe) lastSentGeometry = geometry;
+    if (update) lastSentGeometry = geometry;
     stats = {
       ...stats,
       frames: stats.frames + 1,
       keyframes: stats.keyframes + (key ? 1 : 0),
       bytes: stats.bytes + body.byteLength,
-      described: stats.described + (describe ? 1 : 0),
+      described: stats.described + (update && geometry ? 1 : 0),
     };
   }
 
@@ -323,7 +277,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     // A new encoder has told nobody anything, and the frames a previous one never emitted are not
     // its to answer for. Both halves of the pairing go with it.
     geometries.clear();
-    lastSentGeometry = null;
+    lastSentGeometry = undefined;
     try {
       encoder = new VideoEncoder({
         output: (chunk) => publish(chunk),
@@ -378,7 +332,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       codec.encode(grabbed.frame, { keyFrame: dueKeyframe });
       // Recorded only once the encoder has taken the frame. A throw above produces no chunk, and an
       // entry with nothing to pair it to would offset every frame after it by one.
-      geometries.push(grabbed.geometry);
+      geometries.push(grabbed.restingGeometry);
       // Only that it was asked for. Whether it counts as one is `publish`'s to say.
       if (dueKeyframe) keyframeTriedAt = now;
     } catch (e) {
@@ -435,7 +389,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       try { encoder?.close(); } catch { /* already gone */ }
       encoder = null;
       geometries.clear();
-      lastSentGeometry = null;
+      lastSentGeometry = undefined;
     },
   };
 }

@@ -29,17 +29,8 @@ export interface ReceiverStats {
   bytes: number;
   /** Whether a keyframe has been seen at all. False here means a black rectangle is expected. */
   started: boolean;
-  /**
-   * Where the board is in the picture on the canvas — **not a counter**.
-   *
-   * The newest description this feed has sent, held across the frames that carry none, because a
-   * frame without one means the geometry is unchanged. Null until the first described frame is
-   * decoded, and never reset by one that is not.
-   *
-   * `stats()` is the only way out of this module, so this is where a warping viewer comes and gets
-   * it — `useVideoFeed` hands it on as a getter rather than as a value, for reasons written there.
-   */
-  geometry: BoardGeometry | null;
+  /** Resting framing committed with the painted frame, held through zooms. Null means unlocated. */
+  restingGeometry: BoardGeometry | null;
   error?: string;
 }
 
@@ -67,19 +58,27 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
   canvas.height = profile.height;
   const context = canvas.getContext('2d', { alpha: false });
 
-  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, bytes: 0, started: false, geometry: null };
+  let stats: ReceiverStats = { decoded: 0, dropped: 0, gaps: 0, bytes: 0, started: false, restingGeometry: null };
   let lastSeq = -1;
   /** Whether the stream is decodable from here. False until a keyframe, and again after a gap. */
   let synced = false;
   let closed = false;
+  let queuedGeometry: BoardGeometry | null = null;
+  const pendingGeometry = new Map<number, BoardGeometry | null>();
 
   const decoder = new VideoDecoder({
     output: (frame) => {
       try {
-        // Drawn immediately and closed on the spot: the alternative is holding a decoded frame until
-        // something else gets round to painting it, and a `VideoFrame` is not the kind of object to
-        // leave lying about.
-        context?.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        const restingGeometry = pendingGeometry.get(frame.timestamp);
+        if (closed || !context || restingGeometry === undefined) return;
+        // An output can skip frames. Each entry holds the resolved state, so skipped updates still
+        // apply to later pictures, and their unused entries can be discarded.
+        for (const seq of pendingGeometry.keys()) {
+          if (seq > frame.timestamp) break;
+          pendingGeometry.delete(seq);
+        }
+        context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        stats = { ...stats, restingGeometry };
         onFrame?.();
       } finally {
         frame.close();
@@ -89,6 +88,8 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
       stats = { ...stats, error: e instanceof Error ? e.message : String(e) };
       // Whatever state the decoder is in, it is not one we can continue from.
       synced = false;
+      pendingGeometry.clear();
+      queuedGeometry = stats.restingGeometry;
       requestKeyframe();
     },
   });
@@ -148,21 +149,25 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
 
       if (decoder.state !== 'configured') { drop(); return; }
 
+      const restingGeometry = header.restingGeometry === undefined
+        ? queuedGeometry : header.restingGeometry;
+      pendingGeometry.set(header.seq, restingGeometry);
       try {
         decoder.decode(new EncodedVideoChunk({
           type: header.key ? 'key' : 'delta',
-          timestamp: header.timestamp,
+          // Paint immediately, without scheduling by source time. A unique sequence timestamp
+          // pairs outputs with metadata even when the source encoder repeats timestamps.
+          timestamp: header.seq,
           data: payload,
         }));
+        queuedGeometry = restingGeometry;
         stats = {
           ...stats,
           decoded: stats.decoded + 1,
           bytes: stats.bytes + payload.byteLength,
-          // Only for a frame that was actually decoded. A description belonging to a picture nobody
-          // saw — dropped as stale, or thrown away after a gap — describes nothing on this canvas.
-          geometry: header.geometry ?? stats.geometry,
         };
       } catch (e) {
+        pendingGeometry.delete(header.seq);
         stats = { ...stats, error: e instanceof Error ? e.message : String(e) };
         synced = false;
         requestKeyframe();
@@ -174,6 +179,7 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
     close(): void {
       if (closed) return;
       closed = true;
+      pendingGeometry.clear();
       try { decoder.close(); } catch { /* already gone */ }
     },
   };

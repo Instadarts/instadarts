@@ -211,7 +211,7 @@ A scoring phone is pointed at a board in somebody's home, and the square it publ
 whatever is around that board. **Board only** — a per-device setting beside the tier, on by default —
 fills everything outside the board's rim with black before the frame reaches the encoder.
 
-It is drawn by the virtual camera, on the same canvas and in the same `drawImage` pass as the shot
+It is drawn by the virtual camera on the same canvas, immediately after the shot
 above. [`boardMask.ts`](../src/client/vision/boardMask.ts) projects the board's outer circle — the
 sisal rim at 225mm, so the number ring stays visible — through the inverse homography and the lens,
 exactly as a still's four corners are projected, and the fill is one even-odd path: the whole canvas,
@@ -289,9 +289,9 @@ Three things follow from the choice, and all three are deliberate:
   untransformed ancestor, because `clip-path` resolves in an element's own coordinate space and a
   circle on the warped box would come out warped too.
 - **A director's zoom is still a zoom.** A description is an answer about the feed's *resting*
-  framing rather than about one frame's pixels, so a camera that is moving sends none and a viewer
-  stays on the framing it already had. The zoomed picture then runs through that transform exactly as
-  it runs through no transform at all — it fills the board and grows, which is what a camera moving
+  framing rather than about one frame's pixels. The runtime holds that framing through a director
+  command, and repeats it on keyframes so new viewers get the same transform. The zoomed picture
+  then runs through that transform and fills the board and grows, which is what a camera moving
   in on a dart is supposed to look like. Describing every frame would be more literally true and
   quite wrong: each one would be placed on the quarter of the board it showed, so the picture would
   shrink into the dart instead of zooming into it.
@@ -359,49 +359,58 @@ without holding the others back.
 
 ### Geometry travels with the frame
 
-A frame may carry an optional fifty-two byte block saying **where the board is in it**: the
-image→board homography, the lens coefficient, and the published square. Flag bit 1 of the video
-header says whether it is there, and the payload's offset follows that flag rather than the message
-length — which is what leaves bit 2 free for whoever needs it next.
+Video metadata describes **resting framing**, held through director zooms. It contains the
+image→board homography, radial lens coefficient, and resting shot rectangle. The matrix maps the
+undistorted normalized model input square to normalized board space (`[0, 1]`, y-up); the shot uses the input
+square's coordinates. The shape is defined in
+[`feedGeometry.ts`](../src/shared/vision/feedGeometry.ts), and byte offsets in
+[`frames.ts`](../src/client/media/frames.ts).
 
-The numbers are [`feedGeometry.ts`](../src/shared/vision/feedGeometry.ts)'s and the byte offsets are
-[`frames.ts`](../src/client/media/frames.ts)'s, so the two have to be read together. Two conventions
-matter to a reader: the matrix maps into **normalized board space**, the same `[0, 1]` a `Region`
-uses, so a receiver never learns that board units exist; and what travels is the lens *coefficient*
-rather than the slider position, because the wire carries optics and not a widget.
+`restingGeometry` has three transport states:
 
-It exists so a receiver can rectify the board to front-facing — the warp the device deliberately does
-not do, because that needs a per-pixel inverse map and a GPU the detection model is already using. A
-viewer's is idle, and as it turns out does not even need to be asked: see
-[Straightening it on the viewer](#straightening-it-on-the-viewer). `ReceiverStats.geometry` is where
-that reads it.
+| Value | Meaning | Wire representation |
+| --- | --- | --- |
+| omitted / `undefined` | Keep the current resting framing | Neither geometry flag |
+| `null` | Clear resting framing; show unstraightened video | Flag bit 2, no extra bytes |
+| geometry object | Replace resting framing | Flag bit 1 and thirteen float32 values (52 bytes) |
 
-**Sent on change, on every keyframe, and only while the camera is at rest.** A mounted camera
-re-solves its homography only when the motion gate fires and holds one shot between director
-commands, so most frames say nothing — and a frame that says nothing means *unchanged*, never
-*gone*. Repeating it on keyframes is what lets a viewer who joined late, or who lost the frame
-carrying the last change, catch up on the same frame it can start decoding from. A camera part-way
-through a director command says nothing at all, deliberately: see
-[Straightening it on the viewer](#straightening-it-on-the-viewer) for why a moving shot is not one a
-viewer should be told about. The publisher forgets what it has said whenever its encoder is replaced,
-which is what stops a description surviving a camera pause: that stops the encoder but keeps the feed
-UUID, and the phone may have been moved in between.
+Bit 0 remains the keyframe flag. Only bit 1 changes the payload offset. Invalid geometry values or
+conflicting geometry flags are ignored while retaining the video payload.
 
-One consequence worth knowing: a viewer arriving in the middle of a director command has nothing to
-place the feed with until the camera settles, and shows it unstraightened until then.
+**The camera runtime owns the resting state.** It updates it on settled, undirected frames and holds
+it through the whole director command, including the return transition. Stopping the camera clears
+it. Until a new resting shot has been located, a restarted camera publishes reset state. Stopping only
+the encoder, for example during a link outage, preserves the runtime's resting state. Neither kind
+of pause changes the feed UUID or asks for consent again.
 
-It says where the board is, not **when** that was worked out. A homography is kept for the whole
-camera session with no maximum age (see [vision.md](./vision.md#the-board-mask)), so a receiver can
-be handed a description a phone has since been nudged out of, and cannot tell. That is deliberate for
-now: the device is framing its own shot with the same matrix, so a receiver cannot do better than its
-source, and a staleness policy belongs to whatever would act on one.
+**The publisher sends changes and repeats state on every keyframe**, including resets. The first
+frame from a fresh encoder also sends the current state. Repetition repairs lost updates and gives
+late joiners the held resting framing even during a zoom. A viewer joining before any resting shot
+has been located sees unstraightened video until one is available. Ordinary unchanged frames add
+no metadata bytes.
 
-**Compatibility.** There is no protocol version handshake, and both peers are served the same build
-by the same server, so a mismatch needs a stale cached tab. Such a receiver would read twenty-nine
-bytes, ignore a flag bit it does not know, and hand the block to its decoder along with the picture;
-it fails to sync, asks for keyframes, and shows nothing — which is the fallback every other video
-failure in this document already has, and a reload fixes it. The other direction is correct by
-construction: a clear flag bit means no block.
+The source frame and its resting state are captured together and paired through the realtime H.264
+encoder in FIFO order. This relies on its ordered, one-chunk-per-frame output without B-frames;
+the sender does not use encoder timestamps for pairing because hardware encoders have been observed
+to alter them. The queue is cleared with the encoder.
+
+**The receiver commits geometry only when it paints the matching decoded frame.** Decode submission
+resolves each frame's effective resting state into a pending map. The receiver uses the packet
+sequence as a unique local decoder timestamp, independent of possibly repeated source timestamps;
+video is painted immediately rather than scheduled by source time. Output selects the matching
+state and updates `ReceiverStats.restingGeometry` alongside `drawImage`, before notifying the UI.
+Skipped outputs retain the effective state on later frames. Stale packets, rejected decode calls,
+and asynchronous decoder failures cannot change the geometry of the picture already on screen.
+Pending metadata is discarded on error or close.
+
+A homography still has no maximum age within a camera session (see
+[vision.md](./vision.md#the-board-mask)). This is distinct from a camera restart: a camera that has
+been nudged can retain its last solved homography until another inference succeeds.
+
+**Compatibility.** There is no protocol version handshake. An older tab without geometry support
+may hand geometry bytes to its decoder and fail to show video. A tab with geometry support but no
+reset support will ignore reset flags and can retain stale framing. Reload both ends after an
+upgrade. New receivers treat frames from senders without metadata as unchanged.
 
 ### ICE, and why video may simply not work
 

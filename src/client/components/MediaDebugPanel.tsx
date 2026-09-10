@@ -313,7 +313,7 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
         // The resting shot's side, in board space — the receiver's counterpart to the publisher's
         // `described` counter. A number here at all is the one thing about the geometry block a
         // person can check by eye: a block arrived, read, and belongs to a picture that decoded.
-        shot: counters.geometry?.shot.size ?? null,
+        shot: counters.restingGeometry?.shot.size ?? null,
       } : null);
     };
     tick();

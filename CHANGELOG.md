@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.5
 
 - **Stream board only:** shared video now blacks out the surroundings once the board is detected.
   On by default; turn it off on the scoring device under Settings → Sharing and power.

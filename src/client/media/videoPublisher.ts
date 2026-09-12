@@ -96,7 +96,7 @@ export interface VideoFeedClock {
  * FIFO pairing for the realtime H.264 encoder. See docs/media.md for the codec assumptions.
  * Empty means no update; null is a recorded reset and must keep its place.
  */
-export interface FrameGeometryQueue<T = BoardGeometry | null> {
+export interface FrameGeometryQueue<T> {
   /** Record the geometry of a frame the encoder has just taken. */
   push(geometry: T): void;
   /** The next frame's resting geometry, or undefined when there is no pending frame. */
@@ -104,7 +104,7 @@ export interface FrameGeometryQueue<T = BoardGeometry | null> {
   clear(): void;
 }
 
-export function createFrameGeometryQueue<T = BoardGeometry | null>(capacity = 8): FrameGeometryQueue<T> {
+export function createFrameGeometryQueue<T>(capacity = 8): FrameGeometryQueue<T> {
   const items: T[] = [];
 
   return {
@@ -170,6 +170,15 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
   const pack = createVideoPacker(feedId);
   const knownViewers = new Set<string>();
   const recovery = new Map<string, number>();
+  /**
+   * Per viewer, the message ceiling a keyframe was last refused at.
+   *
+   * A link whose `maxMessageBytes` cannot hold a keyframe cannot be repaired, and a viewer stuck in
+   * `recovery` would otherwise ask for one every `keyframeMinIntervalMs` for as long as the feed
+   * lasts — spending four times the keyframe bitrate of **every other viewer** on frames that one
+   * peer can never take. This is the memory that stops it: see `keyframeDue`.
+   */
+  const oversizeCeiling = new Map<string, number>();
   let generation = 0;
 
   function needKeyframe(peerId: string): void {
@@ -182,7 +191,11 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
     const links = mesh.viewers(audience()).filter((link) => allowed.has(link.peerId));
     const current = new Set(links.map((link) => link.peerId));
     for (const peerId of knownViewers) {
-      if (!current.has(peerId)) { knownViewers.delete(peerId); recovery.delete(peerId); }
+      if (!current.has(peerId)) {
+        knownViewers.delete(peerId);
+        recovery.delete(peerId);
+        oversizeCeiling.delete(peerId);
+      }
     }
     for (const peerId of current) {
       if (!knownViewers.has(peerId)) { knownViewers.add(peerId); needKeyframe(peerId); }
@@ -253,6 +266,9 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       if (!key && recovery.has(link.peerId)) continue;
       if (packet.byteLength > link.maxMessageBytes) {
         refused = true;
+        // Only a refused *keyframe* says this link cannot be repaired. A delta that did not fit is
+        // one large frame, and says nothing about the size of the next keyframe.
+        if (key) oversizeCeiling.set(link.peerId, link.maxMessageBytes);
         if (!recovery.has(link.peerId)) needKeyframe(link.peerId);
         continue;
       }
@@ -267,6 +283,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
         continue;
       }
       sent++;
+      oversizeCeiling.delete(link.peerId);
       const requested = recovery.get(link.peerId);
       // Sending an older in-flight keyframe must not consume a newer repair request.
       if (key && requested !== undefined && metadata && requested <= metadata.generation) {
@@ -304,11 +321,21 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
    *
    * `keyframeMinIntervalMs` therefore rations keyframes themselves rather than requests for them,
    * which is also what makes `requestKeyframe` free to call.
+   *
+   * A viewer that refused a keyframe at its current message ceiling waits for the periodic cadence,
+   * in case a simpler scene fits. Count attempts as well as deliveries for that viewer, so retries
+   * stay spaced even when nobody can receive a keyframe. A changed ceiling allows a repair retry
+   * after the global minimum interval.
    */
   function keyframeDue(now: number, addressed: ReturnType<typeof viewers>): boolean {
     if (now - keyframeTriedAt < VIDEO.keyframeMinIntervalMs) return false;
-    return addressed.some((link) => link.ready && link.bufferedAmount <= backlogLimit
-      && (now - lastKeyframeAt >= profile.keyFrameIntervalMs || recovery.has(link.peerId)));
+    return addressed.some((link) => {
+      if (!link.ready || link.bufferedAmount > backlogLimit) return false;
+      if (oversizeCeiling.get(link.peerId) === link.maxMessageBytes) {
+        return now - Math.max(lastKeyframeAt, keyframeTriedAt) >= profile.keyFrameIntervalMs;
+      }
+      return now - lastKeyframeAt >= profile.keyFrameIntervalMs || recovery.has(link.peerId);
+    });
   }
 
   function ensureEncoder(): VideoEncoder | null {
@@ -476,6 +503,7 @@ export function createVideoPublisher({ mesh, profile, source, feedId, audience, 
       encoder = null;
       geometries.clear();
       recovery.clear();
+      oversizeCeiling.clear();
       knownViewers.clear();
       stats = { ...stats, awaitingKeyframe: 0 };
       lastSentGeometry = undefined;

@@ -159,6 +159,10 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
+  /**
+   * Rebuild the rows. Called wherever `offers` changes and nowhere else — the rows *are* the offers,
+   * and a frame or a packet changes none of them.
+   */
   const refreshStats = useCallback(() => {
     stats.current = [...offers.current].map(([peerId, offer]) => ({
       peerId,
@@ -217,7 +221,6 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         requestKeyframe: () => meshRef.current?.link(from)?.sendControl({ kind: 'keyframe', feedId: id }),
         onFrame: () => {
           lastFrames.current.set(from, Date.now());
-          refreshStats();
           if (!fresh.current.has(from)) {
             fresh.current.add(from);
             changed();
@@ -228,9 +231,11 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
       receivers.current.set(from, state);
       changed();
     }
+    // No `refreshStats()` on either path. The rows are derived from `offers`, and their counters are
+    // read through a getter bound to the receiver — so a frame changes nothing this array holds, and
+    // rebuilding it per packet was work with no reader.
     state.receiver.accept(data);
-    refreshStats();
-  }, [changed, refreshStats]);
+  }, [changed]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     if (message.kind === 'video_offer') {

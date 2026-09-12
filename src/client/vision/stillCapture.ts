@@ -2,24 +2,23 @@
 //
 // A still request names a region in **board space** — "this quarter of the board, centred on where
 // that dart landed" — and says nothing about cameras, because the asker knows nothing about this
-// one. Turning that into pixels is this file's whole job, and it is the only place in the app where
-// the geometry runs backwards.
+// one. Turning that into pixels is this file's whole job.
 //
 // ```
-// board point ──(inverse homography)──▶ undistorted normalized
-//              ──(distortNormalizedPoint)──▶ normalized frame
+// board point ──(boardToNormalized)──▶ normalized input square
 //              ──(the model's centre-square crop)──▶ video pixels
 // ```
 //
-// Every step but the inverse already existed, because the forward trip — a keypoint becoming a board
-// coordinate — is what the pipeline does on every inference. This just walks it the other way, with
-// the same lens value the homography was solved under.
+// The first step is the forward trip — a keypoint becoming a board coordinate — walked the other
+// way, with the same lens value the homography was solved under. It lives in shared/vision beside
+// the inverse it uses, because the board mask makes the same journey for the rim; the second step,
+// and the bounding square that comes out of it, are this file's.
 
 import type { Matrix3x3, Point2D } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
 import { BOARD_MAX } from '../../shared/scoring';
-import { invertMatrix3x3, transformPoint } from '../../shared/vision/homography';
-import { distortNormalizedPoint, sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
+import { boardToNormalized, invertMatrix3x3 } from '../../shared/vision/homography';
+import { sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
 import { getCenterSquareCrop } from './frame';
 
 /** A square of the source frame, in its own pixels. */
@@ -79,7 +78,6 @@ export function regionToCrop({ region, homography, lensCalibration, crop, frame 
   if (!inverse) return null;
 
   const k1 = sliderValueToLensK1(lensCalibration);
-  const useLens = Math.abs(k1) >= 1e-12;
   const half = region.size / 2;
 
   const xs: number[] = [];
@@ -91,11 +89,8 @@ export function regionToCrop({ region, homography, lensCalibration, crop, frame 
     [region.cx - half, region.cy + half],
   ] as const) {
     const board: Point2D = [nx * BOARD_MAX, ny * BOARD_MAX];
-    const undistorted = transformPoint(board, inverse);
-    if (!undistorted) return null;
-    // Back through the lens the same way the tips came out of it, so a calibrated camera's crop
-    // lands where the dart actually is rather than where an ideal lens would have put it.
-    const normalized = useLens ? distortNormalizedPoint(undistorted, k1) : undistorted;
+    const normalized = boardToNormalized(board, inverse, k1);
+    if (!normalized) return null;
     xs.push(crop.cropX + normalized[0] * crop.cropSize);
     ys.push(crop.cropY + normalized[1] * crop.cropSize);
   }

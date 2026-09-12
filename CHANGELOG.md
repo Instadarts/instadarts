@@ -6,6 +6,9 @@
   On by default; turn it off on the scoring device under Settings → Sharing and power.
 - **Straighten board video:** view a remote board straight on.
   Enable it under Settings → Layout; off by default.
+- **Live video reliability:** feeds now repair per viewer after packet loss and retry the repair,
+  keep their frame rate on cameras that report a frozen clock, and warm the still-capture path when
+  the camera starts.
 
 ## 1.2.0
 - Match integration API: an authenticated HTTP API for external software to create matches with a

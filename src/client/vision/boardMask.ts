@@ -2,8 +2,8 @@
 // Inference reads the original video. See docs/media.md, "Blacking out the room".
 
 import { BOARD_CENTER, BOARD_MAX, NORMALIZED_RADII } from '../../shared/boardGeometry';
-import { invertMatrix3x3, transformPoint } from '../../shared/vision/homography';
-import { distortNormalizedPoint, sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
+import { boardToNormalized, invertMatrix3x3 } from '../../shared/vision/homography';
+import { sliderValueToLensK1 } from '../../shared/vision/lensDistortion';
 import type { Matrix3x3, Point2D } from '../../shared/vision/types';
 
 /** The 225mm outer rim includes the number ring; no extra margin. */
@@ -39,7 +39,6 @@ export function boardOutline({ homography, lensCalibration }: BoardOutlineInput)
   if (Math.abs(centreW) - spanW <= 1e-9) return null;
 
   const k1 = sliderValueToLensK1(lensCalibration);
-  const useLens = Math.abs(k1) >= 1e-12;
 
   const points = new Float64Array(OUTLINE_SAMPLES * 2);
   for (let i = 0; i < OUTLINE_SAMPLES; i++) {
@@ -48,11 +47,10 @@ export function boardOutline({ homography, lensCalibration }: BoardOutlineInput)
       BOARD_CENTER + MASK_RADIUS * Math.cos(theta),
       BOARD_CENTER + MASK_RADIUS * Math.sin(theta),
     ];
-    const undistorted = transformPoint(board, inverse);
-    if (!undistorted) return null;
-    // Back through the lens the same way the tips came out of it, so a calibrated camera's mask sits
-    // on the board's real edge rather than where an ideal lens would have put it.
-    const normalized = useLens ? distortNormalizedPoint(undistorted, k1) : undistorted;
+    // A point that will not project, or one that comes back non-finite, takes the whole outline with
+    // it: a mask is a closed shape, and there is no honest partial one.
+    const normalized = boardToNormalized(board, inverse, k1);
+    if (!normalized) return null;
     if (!Number.isFinite(normalized[0]) || !Number.isFinite(normalized[1])) return null;
     points[i * 2] = normalized[0];
     points[i * 2 + 1] = normalized[1];

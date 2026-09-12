@@ -822,7 +822,7 @@ describe('the frame geometry queue', () => {
   it('hands frames back in the order the encoder took them', () => {
     // The whole of the pairing, and the reason this is a queue and not a lookup: nothing about a
     // chunk identifies which frame it came from except its place in the sequence.
-    const queue = createFrameGeometryQueue(4);
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
     queue.push(GEOMETRY);
     queue.push(null);
     queue.push(OTHER);
@@ -833,12 +833,12 @@ describe('the frame geometry queue', () => {
   });
 
   it('has nothing to say about a chunk it never saw a frame for', () => {
-    const queue = createFrameGeometryQueue(4);
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
     expect(queue.shift()).toBeUndefined();
   });
 
   it('drops the oldest rather than growing, so an encoder that stops emitting cannot leak', () => {
-    const queue = createFrameGeometryQueue(2);
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(2);
     queue.push(null);
     queue.push(GEOMETRY);
     queue.push(OTHER);
@@ -848,7 +848,7 @@ describe('the frame geometry queue', () => {
   });
 
   it('is emptied with its encoder, so frames it never answered for cannot offset the next one', () => {
-    const queue = createFrameGeometryQueue(4);
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
     queue.push(GEOMETRY);
     queue.clear();
     expect(queue.shift()).toBeUndefined();

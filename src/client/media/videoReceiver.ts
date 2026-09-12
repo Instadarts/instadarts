@@ -55,6 +55,14 @@ export interface ReceiverOptions {
   onFrame?: () => void;
 }
 
+/**
+ * How many frames may be waiting on the decoder before the oldest is forgotten.
+ *
+ * Roughly eight seconds at fifteen a second, so it cannot be reached by an ordinary decode latency —
+ * only by a decoder that has stopped emitting entirely. See where it is applied.
+ */
+const MAX_PENDING_GEOMETRY = 120;
+
 export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame }: ReceiverOptions): VideoReceiver {
   const canvas = document.createElement('canvas');
   canvas.width = profile.width;
@@ -167,6 +175,16 @@ export function createVideoReceiver({ profile, feedId, requestKeyframe, onFrame 
       const restingGeometry = header.restingGeometry === undefined
         ? queuedGeometry : header.restingGeometry;
       pendingGeometry.set(header.seq, restingGeometry);
+      // Bounded for the same reason the publisher's pairing queue is: this map is pruned by decoder
+      // output, so a decoder that keeps accepting frames and stops emitting them would grow it
+      // without limit on packets from another machine. Dropping the oldest costs that frame its
+      // picture if it ever does come out — but at this depth the decoder is eight seconds behind and
+      // those pictures are of a board nobody is still throwing at.
+      while (pendingGeometry.size > MAX_PENDING_GEOMETRY) {
+        const oldest = pendingGeometry.keys().next();
+        if (oldest.done) break;
+        pendingGeometry.delete(oldest.value);
+      }
       try {
         decoder.decode(new EncodedVideoChunk({
           type: header.key ? 'key' : 'delta',

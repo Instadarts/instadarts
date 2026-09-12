@@ -223,11 +223,11 @@ fills everything outside the board's rim with black before the frame reaches the
 
 It is drawn by the virtual camera on the same canvas, immediately after the shot
 above. [`boardMask.ts`](../src/client/vision/boardMask.ts) projects the board's outer circle — the
-sisal rim at 225mm, so the number ring stays visible — through the inverse homography and the lens,
-exactly as a still's four corners are projected, and the fill is one even-odd path: the whole canvas,
-then the board. The outline is recomputed only when a new homography is solved, which on a
-motion-gated pipeline watching a still board is seconds apart, so a frame costs one affine over 128
-points and a flat fill.
+sisal rim at 225mm, so the number ring stays visible — through the inverse homography and the lens
+via `boardToNormalized`, the same trip a still's four corners make, and the fill is one even-odd
+path: the whole canvas, then the board. The outline is recomputed only when a new homography is
+solved, which on a motion-gated pipeline watching a still board is seconds apart, so a frame costs
+one affine over 128 points and a flat fill.
 
 **It is not a warp.** The board keeps the shape the camera saw it in; only the surroundings change.
 Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone that is
@@ -371,7 +371,11 @@ Dropping an encoded frame invalidates that viewer's following deltas. The publis
 withholds deltas for that viewer until it sends a repair keyframe. Acceptance, explicit keyframe
 requests, failed sends and oversized packets also mark that viewer for repair. A keyframe reaching
 one viewer never clears another's pending repair, and an in-flight keyframe cannot consume a newer
-request. Backed-up or unwritable viewers do not independently trigger extra keyframes.
+request. Backed-up or unwritable viewers do not independently trigger extra keyframes. A viewer
+whose keyframe exceeds its link's negotiated message size is remembered at that size and stops
+driving the repair cadence. It still gets a send attempt on every periodic keyframe, in case a
+simpler scene fits. When no viewer can receive a keyframe, these attempts remain spaced at the
+periodic interval. A changed negotiated size allows a repair retry after the global 500 ms minimum.
 
 The receiver requests a keyframe immediately upon losing synchronization, then retries every
 500 ms even if no further packets arrive. Successful submission of a recovery keyframe cancels
@@ -442,7 +446,9 @@ video is painted immediately rather than scheduled by source time. Output select
 state and updates `ReceiverStats.restingGeometry` alongside `drawImage`, before notifying the UI.
 Skipped outputs retain the effective state on later frames. Stale packets, rejected decode calls,
 and asynchronous decoder failures cannot change the geometry of the picture already on screen.
-Pending metadata is discarded on error or close.
+Pending metadata is discarded on error or close, and is bounded: past roughly eight seconds' worth
+the oldest entry is dropped, so a decoder that accepts frames and stops emitting them cannot grow it
+without limit.
 
 A homography still has no maximum age within a camera session (see
 [vision.md](./vision.md#the-board-mask)). This is distinct from a camera restart: a camera that has

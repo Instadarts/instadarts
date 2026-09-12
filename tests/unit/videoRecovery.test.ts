@@ -62,10 +62,10 @@ function harness(timer = false) {
       copyTo: (target: Uint8Array) => target.fill(1),
     } as unknown as EncodedVideoChunk, {});
   }
-  function tick(at: number) {
+  function tick(at: number, bytes = 1) {
     now = at;
     firstCamera.deliver(at / 1000);
-    emit();
+    emit(undefined, bytes);
   }
   return { publisher, a, b, accepted, links, grab, emit, tick, camera: firstCamera,
     setElement: (element: HTMLVideoElement | null) => { sourceElement = element; } };
@@ -108,6 +108,63 @@ describe('publisher repair per viewer', () => {
     expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(true);
     expect(h.publisher.stats().awaitingKeyframe).toBe(0);
     expect(failure === 'oversize' ? h.publisher.stats().oversize : h.publisher.stats().sendFailures).toBe(2);
+    h.publisher.stop();
+  });
+
+  it('stops a permanently oversize viewer driving the repair cadence for everybody else', () => {
+    // A link whose ceiling no keyframe can fit — the `FALLBACK_MAX_MESSAGE_BYTES` case, where a
+    // keyframe of a still board is exactly the frame that does not go. The repair is real and stays
+    // pending; what must not happen is the whole feed paying for it every 500ms until the match ends.
+    const h = harness();
+    h.tick(1000);
+    h.b.maxMessageBytes = 1;
+    h.tick(1100);
+    h.tick(1500);
+    expect(encode.mock.calls.at(-1)![1].keyFrame, 'the one attempt that learns the ceiling').toBe(true);
+
+    h.tick(2000);
+    expect(encode.mock.calls.at(-1)![1].keyFrame, 'asked again for a frame b can never take').toBe(false);
+    h.tick(2500);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(false);
+    // Still owed one — the repair is pending, it just stopped being urgent.
+    expect(h.publisher.stats().awaitingKeyframe).toBe(1);
+    // And a is unaffected throughout: it keeps taking deltas rather than being held behind b.
+    expect(h.a.sendMedia).toHaveBeenCalledTimes(5);
+
+    // A changed ceiling is new information, so the next repair is immediate rather than scheduled.
+    h.b.maxMessageBytes = 65536;
+    h.tick(3000);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(true);
+    expect(h.publisher.stats().awaitingKeyframe).toBe(0);
+    h.publisher.stop();
+  });
+
+  it.each([1, 2])('retries oversized keyframes periodically with %i viewers and no successful delivery', (count) => {
+    const h = harness();
+    if (count === 1) h.accepted.delete('a');
+    h.a.maxMessageBytes = 64;
+    h.b.maxMessageBytes = 64;
+
+    h.tick(1000, 100);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(true);
+    h.tick(1500);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(false);
+    expect(h.publisher.stats().awaitingKeyframe).toBe(count);
+    expect(h.b.sendMedia).not.toHaveBeenCalled();
+
+    h.tick(31000, 100);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(true);
+    h.tick(31500);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(false);
+    expect(h.publisher.stats().awaitingKeyframe).toBe(count);
+
+    // A simpler scene fits at the same ceiling and restores delta delivery.
+    h.tick(61000);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(true);
+    expect(h.publisher.stats().awaitingKeyframe).toBe(0);
+    h.tick(61100);
+    expect(encode.mock.calls.at(-1)![1].keyFrame).toBe(false);
+    expect(h.b.sendMedia).toHaveBeenCalledTimes(2);
     h.publisher.stop();
   });
 

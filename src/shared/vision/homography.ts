@@ -19,6 +19,7 @@
 //     relatively *more* conservative at this scale, not less.
 
 import { BOARD_MAX, BOARD_CENTER, NORMALIZED_RADII, SECTOR_ORDER } from '../boardGeometry';
+import { distortNormalizedPoint } from './lensDistortion';
 import type { Keypoint, Matrix3x3, Point2D } from './types';
 
 const HOMOGRAPHY_INLIER_SCALE_RATIO = 0.005;
@@ -88,8 +89,9 @@ export function transformPoint(point: Point2D, matrix: Matrix3x3): Point2D | nul
  * The other way round: board→image, for asking where a known board position appears in a frame.
  *
  * The pipeline only ever needs image→board — a keypoint arrives and a board coordinate comes out —
- * so this exists for the one job that runs backwards: a **still request** names a square of the
- * board, and the camera has to find it in its own picture.
+ * so this exists for the two jobs that run backwards: a **still request** names a square of the
+ * board and the camera has to find it in its own picture, and the **board mask** has to find the
+ * rim. Both then go through `boardToNormalized` below.
  *
  * Adjugate over determinant, which for 3×3 is exact arithmetic rather than an elimination, so it
  * adds no error of its own to a matrix that already spent digits mixing 1e6 destinations with unit
@@ -118,6 +120,27 @@ export function invertMatrix3x3(m: Matrix3x3): Matrix3x3 | null {
     for (const value of row) if (!isFinite(value)) return null;
   }
   return inverse;
+}
+
+/**
+ * A board point, back in the normalized coordinates of the model's input square.
+ *
+ * The whole of the backwards trip, and the only part the two callers share: through the inverted
+ * homography, then **back out through the lens** the same way a tip came in through it, so a
+ * calibrated camera lands on the board's real edge rather than where an ideal lens would have put
+ * it.
+ *
+ * Takes an already-inverted matrix and a coefficient rather than a matrix and a slider value,
+ * because both callers project many points through one of each and neither should pay for the
+ * inversion per point.
+ *
+ * Null when the point will not project. Callers also reject non-finite results: the mask checks
+ * each projected point, and still capture checks the resulting bounding box.
+ */
+export function boardToNormalized(board: Point2D, inverse: Matrix3x3, k1: number): Point2D | null {
+  const undistorted = transformPoint(board, inverse);
+  if (!undistorted) return null;
+  return Math.abs(k1) >= 1e-12 ? distortNormalizedPoint(undistorted, k1) : undistorted;
 }
 
 // ============================================================

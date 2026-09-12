@@ -272,7 +272,7 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
       const added = !accepted.current.has(from);
       accepted.current.add(from);
       syncPublisher();
-      if (added && publisher.current) publisher.current.requestKeyframe();
+      if (added && publisher.current) publisher.current.requestKeyframe(from);
       return;
     }
 
@@ -286,7 +286,7 @@ export function useVideoResponder({ meshRef, links, sourceRef, directRef, tier, 
     if (message.kind === 'keyframe') {
       if (!accepted.current.has(from)
         || !canChooseVideoFeed(feedId.current, message.feedId, eligible().map((link) => link.peerId), from)) return;
-      publisher.current?.requestKeyframe();
+      publisher.current?.requestKeyframe(from);
       return;
     }
 

@@ -9,7 +9,10 @@ import { useDartEvidence } from './hooks/useDartEvidence';
 import { labelVideoFeedsForMatch, selectVideoFeed, useVideoFeed } from './hooks/useVideoFeed';
 import { MediaDebugPanel } from './components/MediaDebugPanel';
 import { VideoOfferDialog } from './components/VideoOfferDialog';
-import { loadBoardCamera, loadMediaEnabled, saveBoardCamera, saveMediaEnabled } from './lib/mediaStorage';
+import {
+  loadBoardCamera, loadMediaEnabled, loadStraightenVideo,
+  saveBoardCamera, saveMediaEnabled, saveStraightenVideo,
+} from './lib/mediaStorage';
 import { useNavigationGuard } from './hooks/useNavigationGuard';
 import { HomePage } from './pages/HomePage';
 import { LobbyPage } from './pages/LobbyPage';
@@ -69,6 +72,9 @@ export function App() {
   devicesHandler.current = devices.handleMessage;
 
   const [wantsMedia, setWantsMedia] = useState(() => loadMediaEnabled());
+  // Purely how a received board is drawn, so it is held beside the media switches but reaches only
+  // the board itself — nothing about it is declared, sent, or asked of a camera.
+  const [straightenVideo, setStraightenVideo] = useState(() => loadStraightenVideo());
   // Which of this tab's claimed devices is shared as this player's board.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
   // Nominating a board is asking to be watched, and the media switch is what decides whether this
@@ -241,6 +247,8 @@ export function App() {
         onPowerOff={devices.powerOff}
         media={media.config?.enabled ? wantsMedia : null}
         onMediaChange={(next) => setWantsMedia(saveMediaEnabled(next))}
+        straightenVideo={straightenVideo}
+        onStraightenVideoChange={(next) => setStraightenVideo(saveStraightenVideo(next))}
         boardCamera={boardCamera}
         onBoardCameraChange={changeBoardCamera}
       />
@@ -295,6 +303,7 @@ export function App() {
             onVoteRematch={voteRematch}
             evidence={evidenceImages}
             liveFeed={liveFeed}
+            straightenVideo={straightenVideo}
             videoOffers={videoFeeds}
             onAcceptVideo={feed.accept}
             onDeclineVideo={feed.decline}
@@ -304,7 +313,7 @@ export function App() {
         } />
 
         <Route path="/spectate/:id" element={
-          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} standings={standings} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} error={error} evidence={evidenceImages} liveFeed={liveFeed} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
+          <SpectateWrapper spectate={spectate} connected={connected} connectionGeneration={connectionGeneration} lobby={lobby} match={match} view={view} standings={standings} panel={panel} modes={modes} leaveMatch={leaveMatch} navigate={navigate} error={error} evidence={evidenceImages} liveFeed={liveFeed} straightenVideo={straightenVideo} videoOffers={videoFeeds} onAcceptVideo={feed.accept} onDeclineVideo={feed.decline} />
         } />
 
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -388,6 +397,7 @@ interface MatchWrapperProps {
   onVoteRematch: (playerId: string, answer: RematchAnswer | 'neutral') => void;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
+  straightenVideo: boolean;
   videoOffers: readonly VideoFeedView[];
   onAcceptVideo: (feedId: VideoFeedId) => void;
   onDeclineVideo: (feedId: VideoFeedId) => void;
@@ -395,7 +405,7 @@ interface MatchWrapperProps {
   error: string | null;
 }
 
-function MatchWrapper({ match, view, standings, panel, ownPlayerIds, isSpectator, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
+function MatchWrapper({ match, view, standings, panel, ownPlayerIds, isSpectator, evidence, liveFeed, straightenVideo, videoOffers, onAcceptVideo, onDeclineVideo, leaveMatch, addDart, undoDart, submitVisit, onVoteRematch, navigate, error }: MatchWrapperProps) {
   useNavigationGuard(match, error, navigate);
 
   if (!match || !view || !standings) return <LoadingRoute label="Loading match…" />;
@@ -414,6 +424,7 @@ function MatchWrapper({ match, view, standings, panel, ownPlayerIds, isSpectator
       onVoteRematch={onVoteRematch}
       evidence={evidence}
       liveFeed={liveFeed}
+      straightenVideo={straightenVideo}
       videoOffers={videoOffers}
       onAcceptVideo={onAcceptVideo}
       onDeclineVideo={onDeclineVideo}
@@ -436,12 +447,13 @@ interface SpectateWrapperProps {
   error: string | null;
   evidence: (string | undefined)[] | null;
   liveFeed: ReturnType<typeof selectVideoFeed>;
+  straightenVideo: boolean;
   videoOffers: readonly VideoFeedView[];
   onAcceptVideo: (feedId: VideoFeedId) => void;
   onDeclineVideo: (feedId: VideoFeedId) => void;
 }
 
-function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, standings, panel, modes, leaveMatch, navigate, error, evidence, liveFeed, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
+function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, match, view, standings, panel, modes, leaveMatch, navigate, error, evidence, liveFeed, straightenVideo, videoOffers, onAcceptVideo, onDeclineVideo }: SpectateWrapperProps) {
   const { id } = useParams<{ id: string }>();
   const lastSpectateRef = useRef<string | null>(null);
 
@@ -502,6 +514,7 @@ function SpectateWrapper({ spectate, connected, connectionGeneration, lobby, mat
         onVoteRematch={() => {}}
         evidence={evidence}
         liveFeed={liveFeed}
+        straightenVideo={straightenVideo}
         videoOffers={videoOffers}
         onAcceptVideo={onAcceptVideo}
         onDeclineVideo={onDeclineVideo}

@@ -45,7 +45,9 @@ camera is a complete declaration: it counts toward setup but creates no peer ide
 nominates at most one claimed device as its `boardCamera`; none is valid. A device becomes a media
 source only when its own tier and the frontend's nomination both allow it. The frontend's media
 switch controls whether that browser participates at all, while the board-camera choice controls
-only whether it publishes its board.
+only whether it publishes its board. The tier says how much of its view a phone is willing to send;
+the **board mask** below says how much of that picture is board rather than room. Both belong to the
+phone, and neither can be changed from the other end.
 
 Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A scoring phone may
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
@@ -171,6 +173,12 @@ Queued captures retain the requesting owner link, mesh and camera-stream identit
 rechecks all three and current ownership before capture and after each asynchronous step; a
 restart, roster removal or replacement owner link discards the old work.
 
+Camera startup performs one discarded centre-square capture with the real still size and JPEG
+settings, after applying stored optical zoom and before arming automatic scanning. It warms the
+reused still canvas and encoding path without requiring a located board or sending evidence.
+Warm-up and real captures share a serial barrier across camera restarts; failures do not prevent
+camera startup, and stale completion cannot arm a stopped or replaced camera.
+
 **Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
 it when a dart appears, every eligible viewer receives the same image, undo removes it with the
 dart, and submitting clears it with the visit.
@@ -203,6 +211,40 @@ re-resolves the requested board region on every frame, allowing a feed to start 
 crop and move into place once board geometry is available. A command that interrupts another begins
 from the current interpolated position.
 
+The resolved destination is cached until the region, homography, lens setting or source geometry
+changes. The mask reuses its transformed-point storage; the video canvas and encoder remain alive
+through movements. Animation timing and target changes retain their existing behavior.
+
+### Blacking out the room
+
+A scoring phone is pointed at a board in somebody's home, and the square it publishes carries
+whatever is around that board. **Board only** — a per-device setting beside the tier, on by default —
+fills everything outside the board's rim with black before the frame reaches the encoder.
+
+It is drawn by the virtual camera on the same canvas, immediately after the shot
+above. [`boardMask.ts`](../src/client/vision/boardMask.ts) projects the board's outer circle — the
+sisal rim at 225mm, so the number ring stays visible — through the inverse homography and the lens
+via `boardToNormalized`, the same trip a still's four corners make, and the fill is one even-odd
+path: the whole canvas, then the board. The outline is recomputed only when a new homography is
+solved, which on a motion-gated pipeline watching a still board is seconds apart, so a frame costs
+one affine over 128 points and a flat fill.
+
+**It is not a warp.** The board keeps the shape the camera saw it in; only the surroundings change.
+Rectifying it to front-facing needs a per-pixel inverse map and therefore a GPU, on a phone that is
+already running the detection model. So the frame carries the arithmetic instead, and a viewer that
+wants a front-facing board does it for itself at no cost to the phone — see
+[Straightening it on the viewer](#straightening-it-on-the-viewer).
+
+**No homography means no mask.** The same honesty as the fallback crop: a feed that has not located
+the board publishes its camera's own square, unmasked, rather than guessing where to put the black.
+The same is true of a homography that will not invert, a board that projects across the horizon, and
+one that comes out too small to believe — that last guard exists because a wrong homography is the
+only failure here that is silent, and it reaches a viewer as a black square nobody at the source can
+see.
+
+**It changes only what is published, never what is scored.** Inference reads the `<video>` element
+directly and never this canvas. Turning it on must not move a single tip.
+
 ### Live board video
 
 Consent decides what a viewer *may* decode; the screen decides what it shows, and the two are not the
@@ -226,6 +268,55 @@ Feed labels are derived from match participants, never from the device that publ
 is labelled with everybody who throws at it, so one user who brought two players gets one board
 carrying both names. Feed identity remains an opaque source-generated UUID, and peer rosters
 deliberately carry no device names.
+
+### Straightening it on the viewer
+
+A board photographed from off to one side — which is where the model
+[wants the camera](./vision.md#the-camera) — arrives as a lopsided ellipse laid over a perfectly
+round drawing of the same board. **Straighten board video** (Settings → Layout, off by default) puts
+it square-on and in register, using the geometry the frame carries.
+
+It is one CSS `matrix3d`, and nothing else: **a `matrix3d` on a flat element is a homography**. The
+browser computes three linear combinations of the element's own coordinates and divides by the third,
+which is the same arithmetic and the same perspective divide, per pixel and in the compositor. No
+canvas, no shader, no second copy of the picture.
+
+That is worth stating plainly because [`videoCamera.ts`](../src/client/vision/videoCamera.ts) argues
+at length that CSS *cannot* do this. That argument is about the **publisher**, where `drawImage`,
+`new VideoFrame(...)` and `captureStream()` all read the bitmap and a transform reaches none of them.
+Here the only consumer is an eye.
+
+Three things follow from the choice, and all three are deliberate:
+
+- **The lens correction is dropped.** A radial distortion is not projective, so no 3×3 and no CSS can
+  carry it. On an uncalibrated camera — `lensK1` zero, which is the default — the transform is exact;
+  from there the error grows with the slider, reaching about a tenth of the board's radius at the
+  maximum. `tests/unit/vision-geometry.test.ts` measures it rather than assuming it. This is a
+  picture to look at: it scores nothing, and nobody throws at it.
+- **Outside the rim is cut away, not painted over.** The clip is a hole at the same radius the device
+  masks at, so the virtual board shows through rather than a square of somebody's living room. Both
+  ends read `NORMALIZED_RADII.boardOuter`, so they agree by construction. The clip lives on an
+  untransformed ancestor, because `clip-path` resolves in an element's own coordinate space and a
+  circle on the warped box would come out warped too.
+- **A director's zoom is still a zoom.** A description is an answer about the feed's *resting*
+  framing rather than about one frame's pixels. The runtime holds that framing through a director
+  command, and repeats it on keyframes so new viewers get the same transform. The zoomed picture
+  then runs through that transform and fills the board and grows, which is what a camera moving
+  in on a dart is supposed to look like. Describing every frame would be more literally true and
+  quite wrong: each one would be placed on the quarter of the board it showed, so the picture would
+  shrink into the dart instead of zooming into it.
+
+No geometry, a transform that cannot be placed honestly, or a corner of the frame projecting behind
+the camera, and nothing is applied: the feed is the stretched square it has always been, uncut. The
+last of those is the one that needs a guard rather than a fallback — a browser handed a frame that
+folds through its own vanishing line draws something torn rather than declining to.
+
+The transform is written from a `requestAnimationFrame` loop rather than a React render, because
+neither of its inputs has a clock React can hear: the geometry lands with a decoded frame and the
+board box's side comes from a `ResizeObserver`. The loop exists only while the setting is on, so a
+viewer who never turned it on holds no frame callback at all; while it is on it costs almost nothing,
+a described board changing only when the camera re-solves its homography between throws, so the
+ordinary tick is a reference comparison and nothing else.
 
 ## Match setup presentation
 
@@ -275,6 +366,98 @@ Two things follow. Quality is settled once at the source from the deployment's `
 rather than negotiated per viewer; and each recipient is judged separately, so one that cannot keep
 up has frames dropped for it — `bufferedAmount` past the backlog limit means skip, never queue —
 without holding the others back.
+
+Dropping an encoded frame invalidates that viewer's following deltas. The publisher therefore
+withholds deltas for that viewer until it sends a repair keyframe. Acceptance, explicit keyframe
+requests, failed sends and oversized packets also mark that viewer for repair. A keyframe reaching
+one viewer never clears another's pending repair, and an in-flight keyframe cannot consume a newer
+request. Backed-up or unwritable viewers do not independently trigger extra keyframes. A viewer
+whose keyframe exceeds its link's negotiated message size is remembered at that size and stops
+driving the repair cadence. It still gets a send attempt on every periodic keyframe, in case a
+simpler scene fits. When no viewer can receive a keyframe, these attempts remain spaced at the
+periodic interval. A changed negotiated size allows a repair retry after the global 500 ms minimum.
+
+The receiver requests a keyframe immediately upon losing synchronization, then retries every
+500 ms even if no further packets arrive. Successful submission of a recovery keyframe cancels
+the timer, as does receiver teardown. Keyframe requests are combined at the publisher, retaining
+the global 500 ms minimum between keyframe attempts and the normal periodic schedule. No protocol
+acknowledgement or packet fragmentation is added.
+
+Frame selection uses source `mediaTime` from video callbacks, with a persistent sampling deadline.
+Callback jitter cannot restart that deadline and halve the output rate. Without source timestamps,
+the publisher uses wall time with a small tolerance; the timer fallback subtracts processing time
+from its next wait. Missed intervals are skipped without catch-up bursts, while the existing feed
+clock continues to own transmitted timestamps and sequence numbers.
+
+A finite source timestamp must also advance. Firefox/Windows cameras can report `mediaTime: 0`
+while `presentedFrames` increases. That switches sampling to the callback clock for the remainder of
+that source element's session. Without a usable frame counter, repeated timestamps lasting at least
+250 ms (or two configured frame intervals, if longer) also trigger fallback. A replacement element
+gets a fresh source-clock check.
+
+The diagnostics panel reports pacing skips, encoder-busy skips, failed sends and viewers awaiting
+a keyframe, plus receiver repair requests and completed recoveries. Encoded chunks are copied
+directly into a fresh final packet using cached feed-ID bytes; packet buffers are never recycled
+while transport may own them.
+Submitted input counts, emitted chunk counts and the selected pacing clock distinguish a stalled
+camera clock from an encoder that has accepted input but produced no output.
+
+### Geometry travels with the frame
+
+Video metadata describes **resting framing**, held through director zooms. It contains the
+image→board homography, radial lens coefficient, and resting shot rectangle. The matrix maps the
+undistorted normalized model input square to normalized board space (`[0, 1]`, y-up); the shot uses the input
+square's coordinates. The shape is defined in
+[`feedGeometry.ts`](../src/shared/vision/feedGeometry.ts), and byte offsets in
+[`frames.ts`](../src/client/media/frames.ts).
+
+`restingGeometry` has three transport states:
+
+| Value | Meaning | Wire representation |
+| --- | --- | --- |
+| omitted / `undefined` | Keep the current resting framing | Neither geometry flag |
+| `null` | Clear resting framing; show unstraightened video | Flag bit 2, no extra bytes |
+| geometry object | Replace resting framing | Flag bit 1 and thirteen float32 values (52 bytes) |
+
+Bit 0 remains the keyframe flag. Only bit 1 changes the payload offset. Invalid geometry values or
+conflicting geometry flags are ignored while retaining the video payload.
+
+**The camera runtime owns the resting state.** It updates it on settled, undirected frames and holds
+it through the whole director command, including the return transition. Stopping the camera clears
+it. Until a new resting shot has been located, a restarted camera publishes reset state. Stopping only
+the encoder, for example during a link outage, preserves the runtime's resting state. Neither kind
+of pause changes the feed UUID or asks for consent again.
+
+**The publisher sends changes and repeats state on every keyframe**, including resets. The first
+frame from a fresh encoder also sends the current state. Repetition repairs lost updates and gives
+late joiners the held resting framing even during a zoom. A viewer joining before any resting shot
+has been located sees unstraightened video until one is available. Ordinary unchanged frames add
+no metadata bytes.
+
+The source frame and its resting state are captured together and paired through the realtime H.264
+encoder in FIFO order. This relies on its ordered, one-chunk-per-frame output without B-frames;
+the sender does not use encoder timestamps for pairing because hardware encoders have been observed
+to alter them. The queue is cleared with the encoder.
+
+**The receiver commits geometry only when it paints the matching decoded frame.** Decode submission
+resolves each frame's effective resting state into a pending map. The receiver uses the packet
+sequence as a unique local decoder timestamp, independent of possibly repeated source timestamps;
+video is painted immediately rather than scheduled by source time. Output selects the matching
+state and updates `ReceiverStats.restingGeometry` alongside `drawImage`, before notifying the UI.
+Skipped outputs retain the effective state on later frames. Stale packets, rejected decode calls,
+and asynchronous decoder failures cannot change the geometry of the picture already on screen.
+Pending metadata is discarded on error or close, and is bounded: past roughly eight seconds' worth
+the oldest entry is dropped, so a decoder that accepts frames and stops emitting them cannot grow it
+without limit.
+
+A homography still has no maximum age within a camera session (see
+[vision.md](./vision.md#the-board-mask)). This is distinct from a camera restart: a camera that has
+been nudged can retain its last solved homography until another inference succeeds.
+
+**Compatibility.** There is no protocol version handshake. An older tab without geometry support
+may hand geometry bytes to its decoder and fail to show video. A tab with geometry support but no
+reset support will ignore reset flags and can retain stale framing. Reload both ends after an
+upgrade. New receivers treat frames from senders without metadata as unchanged.
 
 ### ICE, and why video may simply not work
 

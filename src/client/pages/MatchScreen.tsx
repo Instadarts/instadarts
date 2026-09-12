@@ -33,6 +33,8 @@ interface MatchScreenProps {
   isSpectator: boolean;
   evidence: (string | undefined)[] | null;
   liveFeed: VideoFeedView | null;
+  /** This browser's display choice for a remote board. Nothing about it leaves the browser. */
+  straightenVideo: boolean;
   videoOffers: readonly VideoFeedView[];
   onAcceptVideo: (feedId: VideoFeedId) => void;
   onDeclineVideo: (feedId: VideoFeedId) => void;
@@ -54,6 +56,7 @@ export function MatchScreen({
   isSpectator,
   evidence,
   liveFeed,
+  straightenVideo,
   videoOffers,
   onAcceptVideo,
   onDeclineVideo,
@@ -80,6 +83,9 @@ export function MatchScreen({
   });
   const liveBoard = liveFeed?.canvas ? {
     canvas: liveFeed.canvas,
+    // Carried rather than read: the geometry belongs to the feed and changes with its frames, so it
+    // travels as the getter the feed exposes and not as a value captured by this render.
+    restingGeometry: liveFeed.restingGeometry,
     ...(liveFeed.label ? { label: liveFeed.label } : {}),
   } : null;
 
@@ -168,6 +174,7 @@ export function MatchScreen({
             onAddDart={isSpectator ? () => {} : onAddDart}
             disabled={!canAddDart}
             liveBoard={liveBoard}
+            straightenVideo={straightenVideo}
             videoOffers={videoOffers}
             onAcceptVideo={onAcceptVideo}
             onDeclineVideo={onDeclineVideo}

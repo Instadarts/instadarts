@@ -427,6 +427,9 @@ The complete design is in [media.md](./media.md).
 | **Audience** | The allowed viewer roles: `owner`, `opponent`, and `spectator` |
 | **Director command** | `video_region`: a requested region, transition time, and reset time for live video |
 | **Virtual camera** | The crop and interpolation that applies director commands without moving a physical lens |
+| **Board mask** | A scoring device blacking out everything outside the board's rim in the video it publishes; the phone's own choice, and never a change to what is scored |
+| **Resting frame geometry** | The homography, lens coefficient, and resting shot rectangle used to straighten board video; held through zooms, reset when the camera stops, and applied with the matching decoded frame |
+| **Straightened board video** | A viewer laying a received board square-on over its virtual board with a CSS transform, from the resting frame geometry; a per-browser display choice that sends and changes nothing |
 
 Important boundaries:
 

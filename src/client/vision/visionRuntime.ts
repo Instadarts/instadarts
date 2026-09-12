@@ -21,8 +21,10 @@ import type { BoardTip, Keypoint, Matrix3x3 } from '../../shared/vision/types';
 import type { Region } from '../../shared/media';
 import { DEFAULT_REGION, STILL, clampRegion } from '../../shared/media';
 import { stillSize } from '../lib/appConfig';
-import { captureCrop, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
+import { captureCrop, createVideoDestinationCache, frameGeometry, regionToCrop, type Capture, type CropRect } from './stillCapture';
 import { createVirtualCamera, grabFrame, releaseCanvas } from './videoCamera';
+import { createBoardMask } from './boardMask';
+import { publishedBoardGeometry, type BoardGeometry } from '../../shared/vision/feedGeometry';
 
 export type VisionStatus = {
   stage: 'model' | 'camera' | 'motion' | 'error';
@@ -99,14 +101,21 @@ export interface VisionRuntime {
    */
   directVideo: (region: Region | null, transitionMs: number, resetMs: number) => void;
   /**
-   * One frame of the live feed, framed as the director last asked. Null when there is no camera.
-   *
-   * **The caller must close it.** A `VideoFrame` holds a real buffer, often a GPU texture, and
-   * leaking them stalls an encoder in a second or two rather than degrading gently.
+   * A live frame with the resting framing held through director zooms. The caller closes the frame.
+   * Null when there is no camera; restingGeometry is null until a resting shot has been located.
    */
-  grabVideoFrame: (size: number, timestampUs: number, durationUs: number) => VideoFrame | null;
+  grabVideoFrame: (size: number, timestampUs: number, durationUs: number)
+    => { frame: VideoFrame; restingGeometry: BoardGeometry | null } | null;
   /** Whether the board has been located since the camera started, so a region can be placed at all. */
   readonly located: boolean;
+  /**
+   * Black out everything outside the board in the published feed.
+   *
+   * It changes only what is *sent*. Inference reads the `<video>` element and never this canvas, so
+   * a masked feed scores identically to an unmasked one — which is the first thing anybody reading
+   * this will want to know.
+   */
+  setBoardMask: (on: boolean) => void;
   /** Keep a copy of each inference's input square, for the frozen calibration frame. */
   setKeepInputFrame: (on: boolean) => void;
   /** Paint that copy into a 2D context; false when no frame has been kept yet. */
@@ -147,6 +156,11 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * would be the next refinement, and is deliberately not here.)
    */
   let lastHomography: Matrix3x3 | null = null;
+  let restingGeometry: BoardGeometry | null = null;
+  const destinationCache = createVideoDestinationCache();
+  let cameraSession = 0;
+  // Keep the barrier across stop/start: a prior JPEG must finish before this shared surface is used.
+  let stillWork: Promise<void> = Promise.resolve();
 
   /**
    * The live feed's framing. Holds only the animation — where the shot is going is re-resolved on
@@ -154,6 +168,9 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * was found slide onto it the moment it is.
    */
   const virtualCamera = createVirtualCamera();
+  // Outgoing masking defaults on, matching the stored setting.
+  const boardMask = createBoardMask();
+  let maskEnabled = true;
   let videoRegion: Region | null = null;
   /** The pending return to the default shot. See `directVideo`. */
   let videoResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -172,21 +189,17 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    * is available the instant the camera is. So a feed never waits for the board and never lies about
    * where it is looking.
    */
-  function videoDestination(): CropRect | null {
-    if (!video.videoWidth || !video.videoHeight) return null;
-    const { crop, frame } = frameGeometry(video);
-
-    if (lastHomography) {
-      const rect = regionToCrop({
-        region: clampRegion(videoRegion ?? DEFAULT_REGION),
-        homography: lastHomography,
-        lensCalibration,
-        crop,
-        frame,
-      });
-      if (rect) return rect;
-    }
-    return { x: crop.cropX, y: crop.cropY, size: crop.cropSize };
+  function videoDestination(
+    crop: { cropX: number; cropY: number; cropSize: number },
+    frame: { width: number; height: number },
+  ): CropRect {
+    return destinationCache.resolve({
+      region: clampRegion(videoRegion ?? DEFAULT_REGION),
+      homography: lastHomography,
+      lensCalibration,
+      crop,
+      frame,
+    });
   }
 
   function captureInputFrame() {
@@ -280,16 +293,29 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     infer,
 
     async start(deviceId) {
+      const session = ++cameraSession;
       await ensureModel();
+      if (session !== cameraSession) throw new Error('Camera startup cancelled.');
       const info = await camera.start(deviceId, inputSize());
+      if (session !== cameraSession) return info;
       const saved = camera.storedZoom();
       if (saved != null) await camera.applyZoom(saved).catch(() => {});
+      if (session !== cameraSession || !camera.active) return info;
+      stillWork = stillWork.then(async () => {
+        if (session !== cameraSession || !camera.active) return;
+        const { crop } = frameGeometry(video);
+        // Exercise the real surface and JPEG path before the first dart, without needing a board.
+        await captureCrop(video, { x: crop.cropX, y: crop.cropY, size: crop.cropSize }, stillSize(), STILL.mime, STILL.quality);
+      }).catch(() => { /* Warming is optional; a later real capture can retry. */ });
+      await stillWork;
+      if (session !== cameraSession || !camera.active) return info;
       motion.arm();
       cameraResolution = `${info.settings.width}×${info.settings.height}`;
       return info;
     },
 
     async stop() {
+      cameraSession++;
       // The camera goes first. `motion.reset()` publishes what the controls should look like, and
       // what it publishes for `canArm` is "is there a camera" — so resetting first announced one
       // that was still open, and the automatic-scan button sat there live and green with nothing
@@ -300,12 +326,18 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       // The homography described where a board was in *that* camera session's frames. Kept across
       // one, it would frame a still from a picture that no longer exists.
       lastHomography = null;
+      restingGeometry = null;
+      destinationCache.reset();
       // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
       // open on its new view, not slide there from where the old one was pointing. The *region*
       // survives, because that is the director's instruction and it is about the board rather than
       // about any camera — but the timer that would release it must not, or it fires into a camera
       // session that knows nothing about the command that set it.
       virtualCamera.reset();
+      // And the outline, for the reason directly above: it described where a board was in *that*
+      // camera session's frames, and a phone re-aimed between sessions would be masked to where the
+      // board used to be.
+      boardMask.reset();
       cancelVideoReset();
       releaseCanvas();
     },
@@ -313,19 +345,20 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     get located() { return lastHomography !== null; },
 
     async captureStill(region: Region) {
-      if (!camera.active || !lastHomography) return null;
-      if (!video.videoWidth || !video.videoHeight) return null;
-
-      const { crop, frame } = frameGeometry(video);
-      const rect = regionToCrop({
-        region: clampRegion(region),
-        homography: lastHomography,
-        lensCalibration,
-        crop,
-        frame,
+      const session = cameraSession;
+      const capture = stillWork.then(async () => {
+        if (session !== cameraSession || !camera.active || !lastHomography) return null;
+        if (!video.videoWidth || !video.videoHeight) return null;
+        const { crop, frame } = frameGeometry(video);
+        const rect = regionToCrop({
+          region: clampRegion(region), homography: lastHomography, lensCalibration, crop, frame,
+        });
+        if (!rect) return null;
+        const result = await captureCrop(video, rect, stillSize(), STILL.mime, STILL.quality);
+        return session === cameraSession ? result : null;
       });
-      if (!rect) return null;
-      return captureCrop(video, rect, stillSize(), STILL.mime, STILL.quality);
+      stillWork = capture.then(() => {}, () => {});
+      return capture;
     },
 
     directVideo(region: Region | null, transitionMs: number, resetMs: number) {
@@ -348,9 +381,27 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
 
     grabVideoFrame(size: number, timestampUs: number, durationUs: number) {
       if (!camera.active) return null;
-      const destination = videoDestination();
-      if (!destination) return null;
-      return grabFrame(video, virtualCamera.shot(destination, performance.now()), size, timestampUs, durationUs);
+      if (!video.videoWidth || !video.videoHeight) return null;
+
+      // One reading of the frame, used by all three of the things that follow: where the shot should
+      // point, where the mask's outline lands in it, and what the receiver is told about it. Asking
+      // the video element again between them would be asking a moving thing the same question twice.
+      const now = performance.now();
+      const { crop, frame } = frameGeometry(video);
+      const shot = virtualCamera.shot(videoDestination(crop, frame), now);
+      const outline = maskEnabled ? boardMask.outline(lastHomography, lensCalibration) : null;
+      const grabbed = grabFrame(video, shot, size, timestampUs, durationUs, outline ? { outline, crop } : null);
+      if (!grabbed) return null;
+
+      // Hold the resting framing through zooms, so straightening does not cancel the camera move.
+      // stop() clears it; publisher restarts and late joiners can always read the current state.
+      const settled = videoRegion === null && !virtualCamera.moving(now);
+      if (settled) {
+        restingGeometry = lastHomography
+          ? publishedBoardGeometry({ homography: lastHomography, lensCalibration, crop, shot })
+          : null;
+      }
+      return { frame: grabbed, restingGeometry };
     },
 
     async unload() {
@@ -380,6 +431,8 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     get modelKey() { return modelKey; },
     get inputSize() { return inputSize(); },
     get cameraResolution() { return cameraResolution; },
+
+    setBoardMask(on: boolean) { maskEnabled = Boolean(on); },
 
     /** Keep a copy of each inference's input square (calibration only — it costs a full draw). */
     setKeepInputFrame(on: boolean) {

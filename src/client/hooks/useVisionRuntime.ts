@@ -107,6 +107,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     runtime.setModel(stored.model);
     runtime.setThresholds({ board: stored.boardThreshold, tip: stored.tipThreshold });
     runtime.setComputeOptions(stored);
+    runtime.setBoardMask(stored.boardMask);
     runtimeRef.current = runtime;
     setReady(true);
 
@@ -253,6 +254,13 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     return stored;
   }, []);
 
+  const setBoardMask = useCallback((on: boolean): ScorerSettings => {
+    const stored = saveSettings({ boardMask: on });
+    setSettings(stored);
+    runtimeRef.current?.setBoardMask(on);
+    return stored;
+  }, []);
+
   const setLens = useCallback((value: number) => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
@@ -285,6 +293,7 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     setModel,
     setThresholds,
     setComputeOptions,
+    setBoardMask,
     setLens,
     /**
      * Photograph a square of the board. Read through the ref rather than bound, because a still
@@ -296,7 +305,10 @@ export function useVisionRuntime({ onTips, onCameraActive }: Options) {
     /** Point the live feed at a square of the board. Read through the ref for the same reason. */
     directVideo: (region: Region | null, transitionMs: number, resetMs: number) =>
       runtimeRef.current?.directVideo(region, transitionMs, resetMs),
-    /** One frame of the live feed. The caller closes it — see VisionRuntime.grabVideoFrame. */
+    /**
+     * One frame of the live feed and where the board is in it. The caller closes the frame — see
+     * VisionRuntime.grabVideoFrame.
+     */
     grabVideoFrame: (size: number, timestampUs: number, durationUs: number) =>
       runtimeRef.current?.grabVideoFrame(size, timestampUs, durationUs) ?? null,
     /** The element the publisher paces against, where the platform lets it. */

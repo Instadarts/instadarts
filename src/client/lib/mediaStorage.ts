@@ -37,6 +37,30 @@ export function saveMediaEnabled(enabled: boolean): boolean {
 }
 
 // ============================================================
+// How a received board is drawn
+// ============================================================
+
+export const STRAIGHTEN_VIDEO_KEY = 'instadarts_straighten_video';
+
+/** Per-browser display preference, off until explicitly enabled. */
+export function loadStraightenVideo(): boolean {
+  try {
+    return localStorage.getItem(STRAIGHTEN_VIDEO_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveStraightenVideo(enabled: boolean): boolean {
+  try {
+    localStorage.setItem(STRAIGHTEN_VIDEO_KEY, enabled ? '1' : '0');
+  } catch {
+    // Private mode: the answer holds for this session and has to be given again next time.
+  }
+  return enabled;
+}
+
+// ============================================================
 // The board camera
 // ============================================================
 

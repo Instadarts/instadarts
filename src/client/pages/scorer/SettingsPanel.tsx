@@ -195,6 +195,18 @@ export function SettingsPanel({
             ]}
           />
 
+          {/* Only where there is video to mask. Hiding it does not clear it: a phone dropped to
+              stills and brought back finds its answer where it was left, and the tier above is
+              already the control for whether anything is sent at all. */}
+          {settings.media === 'video' && (
+            <Switch
+              label="Board only"
+              description="Blacks out everything around the board in the video this phone sends. Scoring is unaffected."
+              checked={settings.boardMask}
+              onChange={(event) => onSettingsChange(vision.setBoardMask(event.currentTarget.checked))}
+            />
+          )}
+
           <Minutes
             label="Camera off after"
             hint="Idle time outside a match. A match starting turns it back on."

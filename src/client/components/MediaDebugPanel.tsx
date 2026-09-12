@@ -277,11 +277,13 @@ function PublisherRow({ stats, offer, open }: { stats?: () => PublisherStats | n
   return (
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {shown.offer.feedId.slice(0, 8)} · {shown.offer.audience.join(' ')} · {shown.offer.accepted.length} accepted
-      {counters && ` · ${counters.frames}f ${counters.keyframes}k · ${Math.round(counters.bytes / 1024)}kB`}
+      {counters && ` · ${counters.frames}f ${counters.keyframes}k ${counters.described}g · ${Math.round(counters.bytes / 1024)}kB`}
       {canvasLabel && <Text span c="dimmed"> · {canvasLabel}</Text>}
       {counters && counters.dropped > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {counters.dropped} dropped</Text>}
       {counters && counters.oversize > 0 && <Text span c="var(--instadarts-tone-danger-fg)"> · {counters.oversize} oversize</Text>}
       {counters && counters.missed > 0 && <Text span c="dimmed"> · {counters.missed} missed</Text>}
+      {counters && ` · ${counters.pacingSkipped} paced out · ${counters.encoderBusy} encoder busy · ${counters.sendFailures} send failures · ${counters.awaitingKeyframe} awaiting keyframe`}
+      {counters && ` · ${counters.submitted} submitted / ${counters.encoded} encoded · ${counters.pacingClock} clock`}
       {counters?.error && <Text span c="var(--instadarts-tone-danger-fg)"> · {counters.error}</Text>}
     </Text>
   );
@@ -297,14 +299,26 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
   feed: VideoFeed;
   open: boolean;
 }) {
-  const [shown, setShown] = useState<{ decoded: number; dropped: number; gaps: number } | null>(null);
+  const [shown, setShown] = useState<
+    { decoded: number; dropped: number; gaps: number; recoveryRequests: number; recoveries: number; shot: number | null } | null
+  >(null);
 
   useEffect(() => {
     if (!open) return;
     const tick = () => {
       const entry = feed.stats.current.find((s) => s.peerId === peerId);
       const counters = entry?.stats;
-      setShown(counters ? { decoded: counters.decoded, dropped: counters.dropped, gaps: counters.gaps } : null);
+      setShown(counters ? {
+        decoded: counters.decoded,
+        dropped: counters.dropped,
+        gaps: counters.gaps,
+        recoveryRequests: counters.recoveryRequests,
+        recoveries: counters.recoveries,
+        // The resting shot's side, in board space — the receiver's counterpart to the publisher's
+        // `described` counter. A number here at all is the one thing about the geometry block a
+        // person can check by eye: a block arrived, read, and belongs to a picture that decoded.
+        shot: counters.restingGeometry?.shot.size ?? null,
+      } : null);
     };
     tick();
     const handle = setInterval(tick, 500);
@@ -314,7 +328,8 @@ function ReceiverRow({ peerId, feedId, label, status, choice, feed, open }: {
   return (
     <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
       offer {feedId.slice(0, 8)} · {label ?? peerId.slice(0, 8)} · {choice} · {status}
-      {shown && ` · ${shown.decoded}f`}
+      {shown && ` · ${shown.decoded}f · ${shown.recoveryRequests} repair requests · ${shown.recoveries} recovered`}
+      {shown?.shot != null && ` · geom ${shown.shot.toFixed(2)}`}
       {shown && shown.gaps > 0 && <Text span c="var(--instadarts-tone-warning-fg)"> · {shown.gaps} gaps</Text>}
       {shown && shown.dropped > 0 && <Text span c="dimmed"> · {shown.dropped} dropped</Text>}
     </Text>

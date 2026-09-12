@@ -10,6 +10,7 @@ import type { MatchState } from '../../shared/types';
 import type { Mesh, MeshLink } from '../media/mesh';
 import type { LinkState } from '../media/peerLink';
 import { canReceive, createVideoReceiver, type ReceiverStats, type VideoReceiver } from '../media/videoReceiver';
+import type { BoardGeometry } from '../../shared/vision/feedGeometry';
 
 export const VIDEO_STALL_MS = 3000;
 
@@ -24,6 +25,8 @@ export interface VideoFeedView {
   label?: string;
   choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
+  /** Latest painted resting framing. A getter keeps it current between React renders. */
+  restingGeometry: () => BoardGeometry | null;
   status: VideoFeedStatus;
   lastFrameAt: number | null;
   stats: ReceiverStats | null;
@@ -156,12 +159,17 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
+  /**
+   * Rebuild the rows. Called wherever `offers` changes and nowhere else — the rows *are* the offers,
+   * and a frame or a packet changes none of them.
+   */
   const refreshStats = useCallback(() => {
     stats.current = [...offers.current].map(([peerId, offer]) => ({
       peerId,
       feedId: offer.feedId,
       choice: offer.choice,
-      stats: receivers.current.get(peerId)?.receiver.stats() ?? null,
+      // Recovery counters can advance during complete packet silence.
+      get stats() { return receivers.current.get(peerId)?.receiver.stats() ?? null; },
     }));
   }, []);
 
@@ -223,9 +231,11 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
       receivers.current.set(from, state);
       changed();
     }
+    // No `refreshStats()` on either path. The rows are derived from `offers`, and their counters are
+    // read through a getter bound to the receiver — so a frame changes nothing this array holds, and
+    // rebuilding it per packet was work with no reader.
     state.receiver.accept(data);
-    refreshStats();
-  }, [changed, refreshStats]);
+  }, [changed]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     if (message.kind === 'video_offer') {
@@ -350,6 +360,9 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
         ...(link.peer.playerId ? { playerId: link.peer.playerId } : {}),
         choice: offer.choice,
         canvas: receiver?.canvas ?? null,
+        // Bound to the receiver rather than to this render: `stats()` returns the object it is
+        // keeping up to date, so the getter stays correct long after the render that made it.
+        restingGeometry: () => receiver?.stats().restingGeometry ?? null,
         status,
         lastFrameAt,
         stats: receiver?.stats() ?? null,

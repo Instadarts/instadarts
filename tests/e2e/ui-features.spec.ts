@@ -9,6 +9,7 @@ import {
   MIN_APP_ZOOM,
 } from '../../src/client/layout/appZoom';
 import { APP_COLOR_SCHEME_STORAGE_KEYS } from '../../src/client/layout/appColorScheme';
+import { STRAIGHTEN_VIDEO_KEY } from '../../src/client/lib/mediaStorage';
 import {
   LIVE_MATCH_LAYOUTS,
   MATCH_LAYOUT_STORAGE_KEY,
@@ -33,6 +34,7 @@ const UI_STORAGE_KEYS = [
   APP_COLOR_SCHEME_STORAGE_KEYS.frontend,
   APP_COLOR_SCHEME_STORAGE_KEYS.scorer,
   MATCH_LAYOUT_STORAGE_KEY,
+  STRAIGHTEN_VIDEO_KEY,
 ];
 
 interface StoredGridItem {
@@ -966,5 +968,29 @@ test.describe('responsive UI branch features', () => {
       (await storedItem(page, 'match-summary', 'lg', 'result'))?.h ?? canonicalSummaryHeight
     )).toBe(canonicalSummaryHeight);
     expect(canonicalSummaryHeight).not.toBe(customSummaryHeight);
+  });
+
+  test('straightening a received board is this browser\'s own answer, kept across reloads', async ({ page }) => {
+    await clearUiPreferences(page);
+    await page.goto('/');
+
+    // Off until asked, and stored only once asked — a browser that has never opened this menu keeps
+    // the picture it has always had, and says nothing about it.
+    let menu = await openFrontendSettings(page);
+    const control = menu.getByRole('switch', { name: 'Straighten board video' });
+    await expect(control).not.toBeChecked();
+    expect(await storedValue(page, STRAIGHTEN_VIDEO_KEY)).toBeNull();
+
+    await setSwitch(control, true);
+    await expect.poll(() => storedValue(page, STRAIGHTEN_VIDEO_KEY)).toBe('1');
+
+    // It is a preference about this browser rather than about a match, so it is on the home page and
+    // survives a reload — the same character as the appearance and zoom controls beside it.
+    await page.reload();
+    menu = await openFrontendSettings(page);
+    await expect(menu.getByRole('switch', { name: 'Straighten board video' })).toBeChecked();
+
+    await setSwitch(menu.getByRole('switch', { name: 'Straighten board video' }), false);
+    await expect.poll(() => storedValue(page, STRAIGHTEN_VIDEO_KEY)).toBe('0');
   });
 });

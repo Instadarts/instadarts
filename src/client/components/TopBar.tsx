@@ -47,6 +47,12 @@ interface TopBarProps {
   onPowerOff: (deviceId: string) => void;
   media: boolean | null;
   onMediaChange: (enabled: boolean) => void;
+  /**
+   * How a received board is drawn, which is why it sits under `Layout` rather than beside the media
+   * switch: the camera menu decides whether video happens, and this decides what it looks like.
+   */
+  straightenVideo: boolean;
+  onStraightenVideoChange: (enabled: boolean) => void;
   boardCamera: string | null;
   onBoardCameraChange: (deviceId: string | null) => void;
 }
@@ -66,6 +72,8 @@ export function TopBar({
   onPowerOff,
   media,
   onMediaChange,
+  straightenVideo,
+  onStraightenVideoChange,
   boardCamera,
   onBoardCameraChange,
 }: TopBarProps) {
@@ -195,7 +203,16 @@ export function TopBar({
                   <SettingsIcon />
                 </ActionIcon>
               </Menu.Target>
-              <Menu.Dropdown miw={230}>
+              {/* Bounded in both directions and scrolling, as the camera menu already is and for
+                  the same reason: this list grows — with the layout editor, with its breakpoint's
+                  optional cards — and its widest control is a switch with a sentence under it. A
+                  menu wider or taller than the phone it is open on has controls nobody can reach. */}
+              <Menu.Dropdown
+                miw={230}
+                maw="calc(100vw - 1rem)"
+                mah="calc(100dvh - 5rem)"
+                style={{ overflowY: 'auto' }}
+              >
                 <Menu.Label>
                   Layout
                 </Menu.Label>
@@ -230,6 +247,12 @@ export function TopBar({
                         </ActionIcon>
                       </Group>
                     </Group>
+                    <Switch
+                      label="Straighten board video"
+                      description="Shows a remote board square-on, laid over the virtual board."
+                      checked={straightenVideo}
+                      onChange={(event) => onStraightenVideoChange(event.currentTarget.checked)}
+                    />
                     {editor.active && (
                       <Group justify="space-between" gap="sm" align="flex-start" wrap="nowrap">
                         <Switch

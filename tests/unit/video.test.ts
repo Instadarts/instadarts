@@ -7,7 +7,11 @@
 // the kind of wrong that looks, on a screen, like a mysteriously bad picture.
 
 import { describe, it, expect, vi } from 'vitest';
-import { createVirtualCamera, easeInOut, lerpCrop } from '../../src/client/vision/videoCamera';
+import { createVirtualCamera, easeInOut, lerpCrop, outlineInShot } from '../../src/client/vision/videoCamera';
+import { BOARD_CUTOUT, toMatrix3d } from '../../src/client/components/boardWarp';
+import { transformPoint } from '../../src/shared/vision/homography';
+import type { Matrix3x3 } from '../../src/shared/vision/types';
+import { NORMALIZED_RADII } from '../../src/shared/boardGeometry';
 import { packVideo, unpackVideo } from '../../src/client/media/frames';
 import { MEDIA_ROLES, clampAudience, createVideoFeedId, directorTiming, isVideoFeedId, maxBufferedBytes, videoProfile } from '../../src/shared/media';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
@@ -21,13 +25,30 @@ import {
 } from '../../src/client/hooks/useVideoFeed';
 import { canChooseVideoFeed, pruneIneligibleAcceptances, shouldRunVideoPublisher } from '../../src/client/hooks/useVideoResponder';
 import { createIceRestartController, iceRestartDelay, shouldRestartIce } from '../../src/client/media/peerLink';
-import { createVideoFeedClock } from '../../src/client/media/videoPublisher';
+import { createFrameGeometryQueue, createVideoFeedClock } from '../../src/client/media/videoPublisher';
+import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
 import { setupSnapshotSettled } from '../../src/client/hooks/useMatchMediaSetup';
 import type { CropRect } from '../../src/client/vision/stillCapture';
 
 /** The profile a deployment that changed nothing publishes with. */
 const DEFAULT_PROFILE = videoProfile(CONFIG_DEFAULTS.media.video);
 const FEED_ID = '12345678-1234-4123-8123-123456789abc';
+
+/**
+ * A description of one published frame, with no round number in it.
+ *
+ * Deliberately awkward values: every one of them loses something to float32, so a test that passes
+ * has been through the conversion rather than around it.
+ */
+const GEOMETRY: BoardGeometry = {
+  homography: [
+    [1.2345678, -0.3456789, 0.1234567],
+    [0.2345678, 1.4567891, -0.2345678],
+    [0.0012345, -0.0023456, 1],
+  ],
+  lensK1: 0.072,
+  shot: { x: 0.1234567, y: 0.2345678, size: 0.6543211 },
+};
 
 // ============================================================
 // Who a command's result is for
@@ -231,6 +252,7 @@ function feed(playerId: string, status: VideoFeedStatus = 'live'): VideoFeedView
     playerId,
     choice: 'accepted',
     canvas: fakeCanvas,
+    restingGeometry: () => null,
     status,
     lastFrameAt: status === 'live' ? 1000 : null,
     stats: null,
@@ -460,6 +482,83 @@ describe('lerpCrop', () => {
 });
 
 // ============================================================
+// Putting the board's edge where the shot is
+// ============================================================
+
+describe('outlineInShot', () => {
+  /** The model's input square, offset inside a landscape frame the way a real crop is. */
+  const crop = { cropX: 280, cropY: 0, cropSize: 720 };
+  /** Two corners of the input square and its centre, in the normalized coordinates the mask holds. */
+  const outline = Float64Array.from([0, 0, 1, 1, 0.5, 0.5]);
+
+  it('maps the input square onto the whole canvas when the shot is the whole crop', () => {
+    const shot = { x: 280, y: 0, size: 720 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect([...points]).toEqual([0, 0, 320, 320, 160, 160]);
+  });
+
+  it('doubles the scale for a shot half the size of the crop', () => {
+    // A shot centred on the crop and half its side: the input square's corners now fall a quarter of
+    // the canvas outside it on each side, and its centre stays in the middle. Swapping an axis or
+    // flipping a sign moves exactly these numbers and nothing the eye would catch on a live board.
+    const shot = { x: 280 + 180, y: 180, size: 360 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect([...points]).toEqual([-160, -160, 480, 480, 160, 160]);
+  });
+
+  it('lets the board run off the edge rather than clamping it', () => {
+    // A shot in the corner of the crop, so most of the board is outside the frame. Clamping here
+    // would bend the outline along the canvas edge and mask the wrong side of it; the rasterizer
+    // handles the overhang for free.
+    const shot = { x: 280, y: 0, size: 180 };
+    const points = outlineInShot(outline, crop, shot, 320);
+    expect(points[2]).toBeGreaterThan(320);
+    expect(points[3]).toBeGreaterThan(320);
+  });
+});
+
+// ============================================================
+// Spelling a homography as CSS
+// ============================================================
+
+describe('toMatrix3d', () => {
+  /** Nothing symmetric, so a transposed matrix cannot come out looking the same. */
+  const matrix: Matrix3x3 = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+
+  it('writes the sixteen numbers in the order CSS reads them', () => {
+    // Pinned as text because there is no `DOMMatrix` here to parse it, and because the failure this
+    // guards is silent: a transposed matrix is not an error, it is a picture that is wrong in a way
+    // nobody can trace back to a comma.
+    expect(toMatrix3d(matrix)).toBe('matrix3d(1, 4, 0, 7, 2, 5, 0, 8, 0, 0, 1, 0, 3, 6, 0, 9)');
+  });
+
+  it('means, to a browser, what the matrix means to us', () => {
+    // The same string read the way a browser reads it: column-major, applied to a flat element at
+    // z = 0, divided through by w. That it agrees with `transformPoint` is the whole claim behind
+    // using CSS for this at all — and it is a claim about the *ordering*, which the string above
+    // pins and this gives the meaning of.
+    const css = toMatrix3d(matrix).slice('matrix3d('.length, -1).split(',').map(Number);
+    for (const [x, y] of [[0, 0], [17, 0], [0, 23], [140, 260], [-30, 610]] as const) {
+      const w = css[3] * x + css[7] * y + css[15];
+      const browser = [(css[0] * x + css[4] * y + css[12]) / w, (css[1] * x + css[5] * y + css[13]) / w];
+      const ours = transformPoint([x, y], matrix)!;
+      expect(browser[0]).toBeCloseTo(ours[0], 10);
+      expect(browser[1]).toBeCloseTo(ours[1], 10);
+    }
+  });
+});
+
+describe('BOARD_CUTOUT', () => {
+  it('cuts at the same rim the scoring device masks at', () => {
+    // Both sides read `boardOuter`, so a masked feed's black ring falls exactly outside this hole
+    // rather than nearly outside it. Written out here so a change to either is a failure and not a
+    // thin crescent nobody can account for.
+    expect(BOARD_CUTOUT).toBe('circle(49.89% at 50% 50%)');
+    expect(Number((NORMALIZED_RADII.boardOuter * 100).toFixed(2))).toBe(49.89);
+  });
+});
+
+// ============================================================
 // The camera itself
 // ============================================================
 
@@ -562,7 +661,9 @@ describe('the video frame header', () => {
     const packed = packVideo({ feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333 }, payload);
     const read = unpackVideo(packed);
     expect(read).not.toBeNull();
-    expect(read!.header).toEqual({ feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333 });
+    expect(read!.header).toEqual({
+      feedId: FEED_ID, key: true, seq: 41, timestamp: 2_733_333, restingGeometry: undefined,
+    });
     expect([...read!.payload]).toEqual([...payload]);
   });
 
@@ -582,8 +683,10 @@ describe('the video frame header', () => {
     expect(unpackVideo(packVideo({ feedId: FEED_ID, key: false, seq, timestamp: 1 }, payload))!.header.seq).toBe(seq);
   });
 
-  it('is exactly twenty-nine bytes of overhead', () => {
+  it('is exactly twenty-nine bytes of overhead, and eighty-one with a geometry block', () => {
     expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0 }, payload).byteLength).toBe(payload.length + 29);
+    expect(packVideo({ feedId: FEED_ID, key: true, seq: 0, timestamp: 0, restingGeometry: GEOMETRY }, payload).byteLength)
+      .toBe(payload.length + 29 + 52);
   });
 
   it('returns null rather than throwing on anything too short to be one', () => {
@@ -610,5 +713,144 @@ describe('the video frame header', () => {
     // Thirty zero bytes have a finite timestamp and a payload, but UUID version/variant bits that
     // can never identify a feed created by this protocol.
     expect(unpackVideo(new ArrayBuffer(30))).toBeNull();
+  });
+
+  it('carries a geometry block, field by field, to what a float32 can hold', () => {
+    const read = unpackVideo(packVideo(
+      { feedId: FEED_ID, key: false, seq: 3, timestamp: 5, restingGeometry: GEOMETRY }, payload,
+    ))!;
+    const geometry = read.header.restingGeometry!;
+    expect(geometry).not.toBeNull();
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        expect(geometry.homography[row][col]).toBe(Math.fround(GEOMETRY.homography[row][col]));
+      }
+    }
+    expect(geometry.lensK1).toBe(Math.fround(GEOMETRY.lensK1));
+    expect(geometry.shot.x).toBe(Math.fround(GEOMETRY.shot.x));
+    expect(geometry.shot.y).toBe(Math.fround(GEOMETRY.shot.y));
+    expect(geometry.shot.size).toBe(Math.fround(GEOMETRY.shot.size));
+  });
+
+  it('finds the payload by the flag rather than by the length', () => {
+    // The one that catches somebody simplifying the offset arithmetic: with a block in front of it,
+    // the picture must still come back byte for byte and not fifty-two bytes of floats plus most of
+    // a picture — which is a stream a decoder accepts and then renders as rubbish.
+    const described = unpackVideo(packVideo(
+      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
+    ))!;
+    expect([...described.payload]).toEqual([...payload]);
+
+    const plain = unpackVideo(packVideo({ feedId: FEED_ID, key: true, seq: 1, timestamp: 0 }, payload))!;
+    expect([...plain.payload]).toEqual([...payload]);
+    expect(plain.header.restingGeometry).toBeUndefined();
+  });
+
+  it('says nothing about the board on a frame that carries no block', () => {
+    // Absent means *unchanged*, which is the sender's contract — this only pins that the reader does
+    // not invent one.
+    const read = unpackVideo(packVideo({ feedId: FEED_ID, key: false, seq: 9, timestamp: 1 }, payload))!;
+    expect(read.header.restingGeometry).toBeUndefined();
+  });
+
+  it('distinguishes a reset from unchanged without adding payload bytes', () => {
+    for (const key of [false, true]) {
+      const packed = packVideo({ feedId: FEED_ID, key, seq: 9, timestamp: 1, restingGeometry: null }, payload);
+      expect(packed.byteLength).toBe(29 + payload.byteLength);
+      const read = unpackVideo(packed)!;
+      expect(read.header.restingGeometry).toBeNull();
+      expect(read.header.key).toBe(key);
+      expect(read.payload).toEqual(payload);
+    }
+  });
+
+  it('ignores conflicting geometry flags while preserving the payload offset', () => {
+    const packed = packVideo({ feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload);
+    new DataView(packed).setUint8(0, 7);
+    const read = unpackVideo(packed)!;
+    expect(read.header.restingGeometry).toBeUndefined();
+    expect(read.payload).toEqual(payload);
+  });
+
+  it('refuses a message that claims a block it does not carry', () => {
+    const packed = packVideo(
+      { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
+    );
+    // Exactly the header and the block, and no picture behind it.
+    expect(unpackVideo(packed.slice(0, 81))).toBeNull();
+    expect(unpackVideo(packed.slice(0, 80))).toBeNull();
+  });
+
+  it('keeps the picture when the description of it is unreadable', () => {
+    // A bad float is a lost description, never a lost frame. Trading a picture for a complaint about
+    // one would be the wrong way round on a channel that expects corruption.
+    for (const [offset, value] of [[29, Number.NaN], [29 + 48, 0]] as const) {
+      const packed = packVideo(
+        { feedId: FEED_ID, key: true, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
+      );
+      new DataView(packed).setFloat32(offset, value);
+      const read = unpackVideo(packed)!;
+      expect(read).not.toBeNull();
+      expect(read.header.restingGeometry, `offset ${offset}`).toBeUndefined();
+      expect([...read.payload]).toEqual([...payload]);
+    }
+  });
+
+  it('keeps the keyframe flag and the geometry flag independent', () => {
+    const deltaDescribed = unpackVideo(packVideo(
+      { feedId: FEED_ID, key: false, seq: 1, timestamp: 0, restingGeometry: GEOMETRY }, payload,
+    ))!.header;
+    expect(deltaDescribed.key).toBe(false);
+    expect(deltaDescribed.restingGeometry).not.toBeNull();
+
+    const keyPlain = unpackVideo(packVideo(
+      { feedId: FEED_ID, key: true, seq: 2, timestamp: 0 }, payload,
+    ))!.header;
+    expect(keyPlain.key).toBe(true);
+    expect(keyPlain.restingGeometry).toBeUndefined();
+  });
+});
+
+// ============================================================
+// Pairing a frame with its geometry, across the encoder
+// ============================================================
+
+describe('the frame geometry queue', () => {
+  /** A second description, so an out-of-order answer cannot pass as the right one. */
+  const OTHER: BoardGeometry = { ...GEOMETRY, lensK1: 0.031 };
+
+  it('hands frames back in the order the encoder took them', () => {
+    // The whole of the pairing, and the reason this is a queue and not a lookup: nothing about a
+    // chunk identifies which frame it came from except its place in the sequence.
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
+    queue.push(GEOMETRY);
+    queue.push(null);
+    queue.push(OTHER);
+    expect(queue.shift()).toBe(GEOMETRY);
+    // A reset is a recorded answer too, and holds its place.
+    expect(queue.shift()).toBeNull();
+    expect(queue.shift()).toBe(OTHER);
+  });
+
+  it('has nothing to say about a chunk it never saw a frame for', () => {
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
+    expect(queue.shift()).toBeUndefined();
+  });
+
+  it('drops the oldest rather than growing, so an encoder that stops emitting cannot leak', () => {
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(2);
+    queue.push(null);
+    queue.push(GEOMETRY);
+    queue.push(OTHER);
+    expect(queue.shift(), 'the oldest entry was not dropped').toBe(GEOMETRY);
+    expect(queue.shift()).toBe(OTHER);
+    expect(queue.shift()).toBeUndefined();
+  });
+
+  it('is emptied with its encoder, so frames it never answered for cannot offset the next one', () => {
+    const queue = createFrameGeometryQueue<BoardGeometry | null>(4);
+    queue.push(GEOMETRY);
+    queue.clear();
+    expect(queue.shift()).toBeUndefined();
   });
 });

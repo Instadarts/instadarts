@@ -7,6 +7,8 @@ import {
   undistortNormalizedPoint,
 } from '../../src/shared/vision/lensDistortion';
 import { processPredictions } from '../../src/client/vision/predictionPipeline';
+import { boardWarpMatrix, publishedBoardGeometry, type BoardGeometry } from '../../src/shared/vision/feedGeometry';
+import { NORMALIZED_RADII } from '../../src/shared/boardGeometry';
 import type { Keypoint, Matrix3x3, Point2D } from '../../src/shared/vision/types';
 
 // ============================================================
@@ -291,5 +293,298 @@ describe('processPredictions', () => {
       uncorrected!.tips[0].y - corrected!.tips[0].y,
     );
     expect(drift).toBeGreaterThan(1_000);
+  });
+});
+
+// ============================================================
+// What a published frame says about the board
+// ============================================================
+
+/**
+ * The receiver's half of the geometry block, written out here and nowhere else.
+ *
+ * The point-wise journey, **lens correction included** — which is what `boardWarpMatrix` drops, a
+ * radial term not being projective. So this one has no implementation in `src/` and is not about to
+ * get one; it is here to say that the thirteen numbers are *sufficient* for the exact map, whatever
+ * a display path chooses to spend on it. If it stops passing, no receiver code would have helped.
+ */
+function pixelToBoard(geometry: BoardGeometry, pixelX: number, pixelY: number, frameSize: number): Point2D {
+  const u = pixelX / frameSize;
+  const v = pixelY / frameSize;
+  const distorted: Point2D = [
+    geometry.shot.x + u * geometry.shot.size,
+    geometry.shot.y + v * geometry.shot.size,
+  ];
+  const undistorted = Math.abs(geometry.lensK1) >= 1e-12
+    ? undistortNormalizedPoint(distorted, geometry.lensK1)
+    : distorted;
+  const board = transformPoint(undistorted, geometry.homography);
+  if (!board) throw new Error('the block did not describe a board');
+  return [board[0] * BOARD_MAX, board[1] * BOARD_MAX];
+}
+
+/** Push every number in a block through float32, as the wire does. */
+function throughFloat32(geometry: BoardGeometry): BoardGeometry {
+  return {
+    homography: geometry.homography.map((row) => row.map(Math.fround)) as Matrix3x3,
+    lensK1: Math.fround(geometry.lensK1),
+    shot: {
+      x: Math.fround(geometry.shot.x),
+      y: Math.fround(geometry.shot.y),
+      size: Math.fround(geometry.shot.size),
+    },
+  };
+}
+
+describe('publishedBoardGeometry', () => {
+  /** The model's input square inside a 1280×720 stream — the centre crop the pipeline feeds. */
+  const crop = { cropX: 280, cropY: 0, cropSize: 720 };
+  /** An off-centre square inside it, the shape `videoDestination` resolves a resting framing to. */
+  const shot = { x: 280 + 150, y: 130, size: 430 };
+  const FRAME = 320;
+
+  /** The camera's own solved matrix, in board units, exactly as `visionRuntime` holds it. */
+  function solved(lens: number): Matrix3x3 {
+    const keypoints = lens === 0 ? boardKeypoints() : boardKeypoints().map((kp) => {
+      const [x, y] = distortNormalizedPoint([kp[0], kp[1]], sliderValueToLensK1(lens));
+      return [x, y, kp[2], kp[3]] as Keypoint;
+    });
+    const result = processPredictions(keypoints, 0.85, 0.8, lens);
+    if (!result) throw new Error('the synthetic board did not solve');
+    return result.homography;
+  }
+
+  for (const lens of [0, 40]) {
+    it(`sends a published pixel back to the board point it came from (lens ${lens})`, () => {
+      const homography = solved(lens);
+      const k1 = sliderValueToLensK1(lens);
+      const geometry = publishedBoardGeometry({ homography, lensCalibration: lens, crop, shot })!;
+      expect(geometry).not.toBeNull();
+
+      for (const board of [polar(0, 0), polar(103_000, 18), polar(330_000, 180), polar(165_000, 306)]) {
+        // Forward, the way a camera makes a frame: board → this camera's picture → the lens →
+        // source pixels → the square that was actually published.
+        const ideal = project(board);
+        const seen = Math.abs(k1) >= 1e-12 ? distortNormalizedPoint(ideal, k1) : ideal;
+        const sourceX = crop.cropX + seen[0] * crop.cropSize;
+        const sourceY = crop.cropY + seen[1] * crop.cropSize;
+        const pixelX = ((sourceX - shot.x) / shot.size) * FRAME;
+        const pixelY = ((sourceY - shot.y) / shot.size) * FRAME;
+
+        // And back, with nothing but the thirteen numbers and the frame's own width.
+        const [x, y] = pixelToBoard(geometry, pixelX, pixelY, FRAME);
+        expect(Math.hypot(x - board[0], y - board[1])).toBeLessThan(200);
+      }
+    });
+  }
+
+  it('survives the float32 the wire carries it in', () => {
+    // The bound is two hundred board units — under a tenth of a millimetre, and against the three
+    // thousand a single pixel of a 320px frame covers. What float32 actually costs here is nearer a
+    // twentieth of a unit; the slack is for the fixed-point undistortion, which is the loose step in
+    // this chain and has nothing to do with the wire.
+    const geometry = publishedBoardGeometry({
+      homography: solved(40), lensCalibration: 40, crop, shot,
+    })!;
+    const wire = throughFloat32(geometry);
+
+    for (const board of [polar(0, 0), polar(103_000, 18), polar(330_000, 180)]) {
+      const ideal = project(board);
+      const seen = distortNormalizedPoint(ideal, sliderValueToLensK1(40));
+      const pixelX = ((crop.cropX + seen[0] * crop.cropSize - shot.x) / shot.size) * FRAME;
+      const pixelY = ((crop.cropY + seen[1] * crop.cropSize - shot.y) / shot.size) * FRAME;
+
+      const [x, y] = pixelToBoard(wire, pixelX, pixelY, FRAME);
+      expect(Math.hypot(x - board[0], y - board[1])).toBeLessThan(200);
+    }
+  });
+
+  it('describes nothing rather than something invented', () => {
+    const homography = solved(0);
+    expect(publishedBoardGeometry({
+      homography, lensCalibration: 0, crop: { cropX: 0, cropY: 0, cropSize: 0 }, shot,
+    })).toBeNull();
+    expect(publishedBoardGeometry({
+      homography, lensCalibration: 0, crop, shot: { x: 0, y: 0, size: 0 },
+    })).toBeNull();
+    expect(publishedBoardGeometry({
+      homography: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]], lensCalibration: 0, crop, shot,
+    })).toBeNull();
+  });
+});
+
+// ============================================================
+// Laying a published frame over the board it shows
+// ============================================================
+
+describe('boardWarpMatrix', () => {
+  /** The model's input square inside a 1280×720 stream, as elsewhere in this file. */
+  const crop = { cropX: 280, cropY: 0, cropSize: 720 };
+  /** The board box, in the CSS pixels a frontend draws it at. */
+  const BOX = 600;
+
+  function solved(lens: number): Matrix3x3 {
+    const keypoints = lens === 0 ? boardKeypoints() : boardKeypoints().map((kp) => {
+      const [x, y] = distortNormalizedPoint([kp[0], kp[1]], sliderValueToLensK1(lens));
+      return [x, y, kp[2], kp[3]] as Keypoint;
+    });
+    const result = processPredictions(keypoints, 0.85, 0.8, lens);
+    if (!result) throw new Error('the synthetic board did not solve');
+    return result.homography;
+  }
+
+  /**
+   * Where a board point appears in the transformed element, in its own CSS pixels.
+   *
+   * The forward journey a camera makes — board, this camera's picture, the lens, the published
+   * square — ending in the element the transform is applied to, which is the published canvas
+   * stretched across the whole board box.
+   */
+  function elementPixel(
+    board: Point2D, lens: number, shot: { x: number; y: number; size: number },
+  ): Point2D {
+    const k1 = sliderValueToLensK1(lens);
+    const ideal = project(board);
+    const seen = Math.abs(k1) >= 1e-12 ? distortNormalizedPoint(ideal, k1) : ideal;
+    return [
+      ((crop.cropX + seen[0] * crop.cropSize - shot.x) / shot.size) * BOX,
+      ((crop.cropY + seen[1] * crop.cropSize - shot.y) / shot.size) * BOX,
+    ];
+  }
+
+  /** Where the transform puts it, in the board box's pixels. */
+  function placed(matrix: Matrix3x3, pixel: Point2D): Point2D {
+    const point = transformPoint(pixel, matrix);
+    if (!point) throw new Error('the transform placed nothing');
+    return point;
+  }
+
+  /**
+   * Where the virtual board draws that same point, in the same pixels.
+   *
+   * **Board y is up and a screen's y is down** — the crossing `toSvg` makes in
+   * `client/components/boardGeometry.ts`. Written out here rather than inline because the first
+   * version of this test compared against board y directly: a vertically mirrored board, which every
+   * assertion symmetric about the bull passes happily.
+   */
+  function onScreen(board: Point2D): Point2D {
+    return [(board[0] / BOARD_MAX) * BOX, (1 - board[1] / BOARD_MAX) * BOX];
+  }
+
+  const wholeBoard = { x: crop.cropX, y: crop.cropY, size: crop.cropSize };
+  /** What a dart-evidence command produces: a quarter of the frame, here centred on the bull. */
+  const zoomed = (() => {
+    const bull = project(polar(0, 0));
+    const side = crop.cropSize / 4;
+    return {
+      x: crop.cropX + bull[0] * crop.cropSize - side / 2,
+      y: crop.cropY + bull[1] * crop.cropSize - side / 2,
+      size: side,
+    };
+  })();
+
+  for (const [name, shot] of [['the whole board', wholeBoard], ['a director\'s zoom', zoomed]] as const) {
+    it(`lays ${name} over the board it shows`, () => {
+      const geometry = publishedBoardGeometry({
+        homography: solved(0), lensCalibration: 0, crop, shot,
+      })!;
+      const matrix = boardWarpMatrix(geometry, BOX)!;
+      expect(matrix).not.toBeNull();
+
+      // The registration claim itself: whatever the camera saw, wherever the shot was pointed, a
+      // board point lands where the virtual board draws it. Deliberately above and below the bull
+      // as well as left and right of it, so a mirrored board cannot pass: the treble 20 is at the
+      // top, and the rim point at 234° is down and to the left.
+      for (const board of [polar(0, 0), polar(103_000, 0), polar(NORMALIZED_RADII.boardOuter * BOARD_MAX, 234)]) {
+        const [x, y] = placed(matrix, elementPixel(board, 0, shot));
+        const [wantX, wantY] = onScreen(board);
+        expect(x).toBeCloseTo(wantX, 6);
+        expect(y).toBeCloseTo(wantY, 6);
+      }
+    });
+  }
+
+  it('places a shot by what it covers rather than stretching it over the board', () => {
+    // The behaviour change worth pinning: a director command that fills the published frame with a
+    // quarter of the board must not fill the *board box* with it. The video goes where the video is.
+    const geometry = publishedBoardGeometry({
+      homography: solved(0), lensCalibration: 0, crop, shot: zoomed,
+    })!;
+    const matrix = boardWarpMatrix(geometry, BOX)!;
+
+    const spread = (shot: { x: number; y: number; size: number }) => {
+      const m = boardWarpMatrix(publishedBoardGeometry({
+        homography: solved(0), lensCalibration: 0, crop, shot,
+      })!, BOX)!;
+      const corners = ([[0, 0], [BOX, 0], [BOX, BOX], [0, BOX]] as Point2D[]).map((c) => placed(m, c));
+      return Math.max(...corners.map(([x]) => x)) - Math.min(...corners.map(([x]) => x));
+    };
+
+    // A quarter of the frame covers about a quarter of the board, and this places it there. Note
+    // what that means and why the device does not lean on it: a shot like this is never described
+    // in practice, because a viewer given it would watch a camera move *shrink* into a dart rather
+    // than zoom into one. See `grabVideoFrame`. The arithmetic still has to be right — the same shot
+    // affine carries the resting framing — so it is pinned here.
+    expect(spread(wholeBoard)).toBeGreaterThan(BOX * 0.9);
+    expect(spread(zoomed)).toBeLessThan(BOX * 0.5);
+  });
+
+  it('refuses rather than handing a browser something it will tear', () => {
+    const geometry = publishedBoardGeometry({
+      homography: solved(0), lensCalibration: 0, crop, shot: wholeBoard,
+    })!;
+
+    expect(boardWarpMatrix(geometry, 0)).toBeNull();
+    expect(boardWarpMatrix(geometry, -1)).toBeNull();
+    expect(boardWarpMatrix({ ...geometry, homography: [[Number.NaN, 0, 0], [0, 1, 0], [0, 0, 1]] }, BOX)).toBeNull();
+
+    // A horizon crossing the picture: the divisor changes sign half way along, and past it the frame
+    // folds through the vanishing line. Browsers draw that rather than declining to.
+    const horizon: BoardGeometry = {
+      homography: [[1, 0, 0], [0, 1, 0], [-2, 0, 1]],
+      lensK1: 0,
+      shot: { x: 0, y: 0, size: 1 },
+    };
+    expect(boardWarpMatrix(horizon, BOX)).toBeNull();
+  });
+
+  it('costs this much for dropping the lens correction', () => {
+    // Not a tolerance — a measurement, kept where somebody changing the distortion model will see
+    // what it does to the picture. A radial term is not projective, so no matrix can carry it; the
+    // question is only whether what is left over is small enough to look at. It is nothing at all on
+    // an uncalibrated camera and about a tenth of the board's radius at the far end of the slider,
+    // which is the table below.
+    const radius = NORMALIZED_RADII.boardOuter * BOX;
+    const worstAt = (lens: number) => {
+      const geometry = publishedBoardGeometry({
+        homography: solved(lens), lensCalibration: lens, crop, shot: wholeBoard,
+      })!;
+      const matrix = boardWarpMatrix(geometry, BOX)!;
+      let worst = 0;
+      for (let bearing = 0; bearing < 360; bearing += 15) {
+        const board = polar(NORMALIZED_RADII.boardOuter * BOARD_MAX, bearing);
+        const [x, y] = placed(matrix, elementPixel(board, lens, wholeBoard));
+        const [wantX, wantY] = onScreen(board);
+        worst = Math.max(worst, Math.hypot(x - wantX, y - wantY));
+      }
+      return worst / radius;
+    };
+
+    // Exact for a camera nobody has calibrated, which is most of them: with k1 at zero the whole
+    // journey is projective and a matrix carries it perfectly.
+    expect(worstAt(0)).toBeLessThan(1e-9);
+
+    // And from there it grows in proportion to the slider — measured on this synthetic camera at
+    // roughly a tenth of a percent of the rim radius per point of it:
+    //
+    //   slider  20 → 1.9% of the rim radius →  6px of a 600px board
+    //   slider  60 → 5.8%                    → 18px
+    //   slider 100 → 9.8%                    → 29px
+    //
+    // A phone that needed the whole slider would show a rim visibly off the drawn one. Nothing is
+    // scored from this picture, and the fix is a shader; if these numbers ever matter, that is the
+    // conversation, and this is the test that would start it.
+    expect(worstAt(20)).toBeLessThan(0.03);
+    expect(worstAt(100)).toBeLessThan(0.11);
   });
 });

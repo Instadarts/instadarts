@@ -16,6 +16,10 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
+import { invertMatrix3x3, transformPoint } from '../../src/shared/vision/homography';
+import { undistortNormalizedPoint } from '../../src/shared/vision/lensDistortion';
+import type { BoardGeometry } from '../../src/shared/vision/feedGeometry';
+import { DEFAULT_BOARD_THRESHOLD } from '../../src/shared/vision/constants';
 import { clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera, submitVisit } from './appHelpers';
 
 // `empty` first, so that is what the camera opens on: the first key is the initial scene, and a
@@ -644,6 +648,266 @@ test.describe('board video', () => {
     await scorer.context.close();
   });
 
+  test('a masked camera publishes a board and no room', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    // The mask needs a board before it can cut to one, and a feed that has not found one publishes
+    // its camera's own square unmasked. Asserting the homography rather than assuming it is what
+    // stops "the board was never located" from reading as a passing test.
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+    await showScene(scorer.page, 'darts');
+    const decodedAtSceneChange = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 20_000 })
+      .toBeGreaterThan(decodedAtSceneChange + 2);
+
+    // The corners of an 8×8 grid over the frame. The published square is the board's own bounding
+    // square, so under any perspective the board's circle falls inside it and these four cells are
+    // entirely outside the rim — which is what makes them the room and not the board.
+    const corners = (cells: number[]) => [cells[0], cells[7], cells[56], cells[63]];
+    const middle = (cells: number[]) => [cells[27], cells[28], cells[35], cells[36]];
+
+    // Black rather than merely dark, and this is an absolute reading rather than a comparison
+    // because it can be: the mask fills with `#000`, and the room it replaces is bright enough in at
+    // least one corner of this scene to make the difference unmistakable — see the other side of it
+    // below. The board underneath is untouched, which is the second half of the claim.
+    const masked = (await fingerprint(guest))!;
+    expect(Math.max(...corners(masked)), 'the room is still in the corners').toBeLessThan(24);
+    expect(Math.min(...middle(masked)), 'the board went black too').toBeGreaterThan(24);
+
+    // Turned off mid-feed, through the settings screen: it is the phone's own answer, and it takes
+    // effect on the next frame rather than on the next feed — which is the whole reason it is a
+    // setter on a runtime that is never rebuilt.
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(scorer.page.getByRole('switch', { name: 'Board only' }), false);
+    await closeScorerSettings(scorer.page);
+
+    // The room comes back, and it is not subtle: the corner that carries the cabinet behind the
+    // board reads about 126 unmasked against 0 masked. Only one corner is asserted because the
+    // scene's other three are genuinely dark, which is the honest thing to say about a photograph.
+    await expect
+      .poll(async () => Math.max(...corners((await fingerprint(guest)) ?? masked)), { timeout: 20_000 })
+      .toBeGreaterThan(40);
+
+    // And the board itself did not move a pixel while the surroundings came and went. This is the
+    // assertion that says the mask is a mask and not a change of shot.
+    const unmasked = (await fingerprint(guest))!;
+    for (const [i, cell] of middle(unmasked).entries()) {
+      expect(Math.abs(cell - middle(masked)[i]), `board cell ${i} moved with the mask`).toBeLessThan(3);
+    }
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
+  test('a published frame says where the board is in it', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    // A homography, so there is something to describe. Deliberately no assertion that nothing was
+    // described *before* this: the motion gate fires on its own as soon as a camera opens, so a
+    // board is often located before a test could look. That a camera without one sends no block is
+    // `visionRuntime`'s to keep and the unit suite's to pin.
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+
+    await expect.poll(async () => (await published(scorer.page)).described, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+
+    // Sent on change and on keyframes, so blocks are a small fraction of frames rather than all of
+    // them. Measured over enough frames for that to mean something: a keyframe every two seconds at
+    // fifteen frames a second is one frame in thirty, and this scene changes nothing in between, so
+    // a third is a wide margin around a number that should be nearer a thirtieth. A block on every
+    // frame — the cadence quietly reverting to "always" — fails here and nowhere else.
+    await expect.poll(async () => (await published(scorer.page)).frames, { timeout: 30_000 })
+      .toBeGreaterThan(30);
+    const stats = await published(scorer.page);
+    expect(stats.described * 3, 'a block on far too many frames').toBeLessThan(stats.frames);
+
+    const geometry = await guest.evaluate(() =>
+      ((window as any).__media.video().watching[0]?.stats?.restingGeometry ?? null) as BoardGeometry | null);
+    expect(geometry, 'the viewer never received a description').not.toBeNull();
+    expect(geometry!.homography.flat().every(Number.isFinite)).toBe(true);
+    expect(geometry!.shot.size).toBeGreaterThan(0);
+    expect(geometry!.shot.size).toBeLessThanOrEqual(1);
+
+    // The whole point of the block, run for real: one pixel of a frame that crossed an encoder, a
+    // datachannel and a decoder, sent back to a board coordinate — with no warping code anywhere in
+    // the app. The centre of an undirected shot is the centre of the board's own bounding square,
+    // which is near the bull; the tolerance is wide because that square is not symmetric about the
+    // bull under perspective, not because the geometry is loose.
+    const centre: [number, number] = [
+      geometry!.shot.x + 0.5 * geometry!.shot.size,
+      geometry!.shot.y + 0.5 * geometry!.shot.size,
+    ];
+    const undistorted = Math.abs(geometry!.lensK1) >= 1e-12
+      ? undistortNormalizedPoint(centre, geometry!.lensK1)
+      : centre;
+    const board = transformPoint(undistorted, geometry!.homography);
+    expect(board, 'the description does not describe a board').not.toBeNull();
+    expect(Math.hypot(board![0] - 0.5, board![1] - 0.5)).toBeLessThan(0.2);
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
+  test('a viewer lays the board square-on over the virtual one', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pairAndNominate(host, scorer.page, 'Alice board');
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await acceptOffer(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 30_000 }).toBeGreaterThan(0);
+    await scan(scorer.page);
+    await expect.poll(() => scorer.page.evaluate(() =>
+      (window as unknown as { __scorer: { located: boolean } }).__scorer.located), { timeout: 30_000 }).toBe(true);
+
+    /** The transform as the browser resolved it, and where it puts a point of the published frame. */
+    const placePoint = (page: Page, u: number, v: number) => page.evaluate(({ x, y }) => {
+      const outer = document.querySelector('[data-testid="live-board-feed"]') as HTMLElement | null;
+      const inner = outer?.firstElementChild as HTMLElement | null;
+      if (!outer || !inner) return null;
+      const box = outer.getBoundingClientRect();
+      const css = getComputedStyle(inner).transform;
+      if (!css || css === 'none') return { css, side: box.width, clip: getComputedStyle(outer).clipPath };
+      // `transformPoint` multiplies but does not divide: the perspective divide is ours to do, and
+      // it is the whole reason a 3D matrix can carry a homography at all.
+      const point = new DOMMatrix(css).transformPoint(new DOMPoint(x * box.width, y * box.height, 0, 1));
+      return {
+        css,
+        side: box.width,
+        clip: getComputedStyle(outer).clipPath,
+        placed: { x: point.x / point.w, y: point.y / point.w },
+      };
+    }, { x: u, y: v });
+
+    // Nobody has asked for it, so the feed is the stretched square it has always been.
+    await expect(guest.getByTestId('live-board-feed')).toBeVisible();
+    expect((await placePoint(guest, 0.5, 0.5))!.css).toBe('none');
+
+    await guest.getByRole('button', { name: 'Settings' }).click();
+    await setSwitch(guest.getByRole('switch', { name: 'Straighten board video' }), true);
+    await guest.keyboard.press('Escape');
+
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toContain('matrix3d');
+
+    const geometry = await guest.evaluate(() =>
+      ((window as any).__media.video().watching[0]?.stats?.restingGeometry ?? null) as BoardGeometry | null);
+    expect(geometry, 'the viewer straightened a board nothing described').not.toBeNull();
+    // Nobody calibrates a lens in this suite, so the map is projective end to end and the transform
+    // is exact rather than merely close. What a calibrated camera costs is measured in
+    // tests/unit/vision-geometry.test.ts instead, where the number can be stated.
+    expect(geometry!.lensK1).toBe(0);
+
+    // Where a chosen board point sits in the published frame, worked out from the block the camera
+    // sent: board space, back through the homography, then into the published square.
+    //
+    // Deliberately **not** the bull. The board's centre is the one point a vertical mirror leaves
+    // exactly where it was, and a flipped board once passed this test because of it. This point is
+    // above the bull, so it has to land above the middle of the box, where a screen counts y down.
+    const inverse = invertMatrix3x3(geometry!.homography)!;
+    const above = transformPoint([0.5, 0.8], inverse)!;
+    const u = (above[0] - geometry!.shot.x) / geometry!.shot.size;
+    const v = (above[1] - geometry!.shot.y) / geometry!.shot.size;
+
+    // And the proof: that pixel, put through the transform the browser actually resolved, lands
+    // where the virtual board draws the same point — halfway across the box and a fifth of the way
+    // down it. Device geometry, the wire, the receiver, the matrix, the DOM, and a position on a
+    // screen.
+    //
+    // One pixel, and it is not a hedge: measured, this lands within two thousandths of a pixel,
+    // because with no lens correction in play the whole map is projective and the only losses are
+    // the float32 the block travels in and however Chrome serializes a matrix. The bound is loose
+    // enough to survive that and tight enough to be worth having — transposing the matrix, which is
+    // the mistake this whole path invites, moves the point fifteen pixels.
+    const shown = (await placePoint(guest, u, v))!;
+    expect(Math.abs(shown.placed!.x - shown.side / 2)).toBeLessThan(1);
+    expect(Math.abs(shown.placed!.y - shown.side * 0.2)).toBeLessThan(1);
+
+    // And the room around it is cut away rather than painted over: what is outside the rim is a hole
+    // the virtual board shows through.
+    expect(shown.clip).toContain('circle');
+
+    // Resting geometry stays fixed through the zoom, including any intervening keyframes.
+    await linkedToCamera(host);
+    const camera = await cameraPeer(host);
+    const framing = shown.css;
+    const wide = (await fingerprint(guest))!;
+
+    // `resetMs: 0` keeps it there, so the assertions below are about a held shot and not a race
+    // against the camera coming back on its own.
+    const sent = await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_region', region: { cx: 0.3, cy: 0.3, size: 0.25 }, transitionMs: 300, resetMs: 0,
+    }), camera.peerId);
+    expect(sent, 'the camera control channel was not writable').toBe(true);
+
+    const decodedAtCommand = await decodedFrames(guest);
+    await expect.poll(() => decodedFrames(guest), { timeout: 20_000 })
+      .toBeGreaterThan(decodedAtCommand + 8);
+
+    // The picture moved — otherwise the assertion below would hold for a command nobody obeyed.
+    expect(distance(wide, (await fingerprint(guest))!), 'the camera never moved').toBeGreaterThan(5);
+    expect((await placePoint(guest, u, v))!.css, 'the framing moved with the shot').toBe(framing);
+
+    // Stop the camera during the held zoom. Prevent location on restart to exercise the reset
+    // state for several frames, rather than racing the normal startup inference.
+    const beforeRestart = await sourceOffer(scorer.page);
+    await scorer.page.evaluate(() => (window as any).__scorer.setThresholds({ board: 1 }));
+    await setSwitch(scorer.page.getByRole('switch', {
+      name: /^(?:Start camera|Resume camera|Turn camera off)$/,
+    }), false);
+    await expect.poll(() => scorer.page.evaluate(() => (window as any).__scorer.located)).toBe(false);
+    await startScorerCamera(scorer.page);
+    await expect.poll(async () => (await published(scorer.page))?.frames ?? 0, { timeout: 20_000 })
+      .toBeGreaterThan(3);
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toBe('none');
+    expect((await placePoint(guest, 0.5, 0.5))?.clip).toBe('none');
+    expect(await guest.evaluate(() => (window as any).__media.video().watching[0]?.stats?.restingGeometry))
+      .toBeNull();
+    expect((await sourceOffer(scorer.page)).feedId).toBe(beforeRestart.feedId);
+    expect((await sourceOffer(scorer.page)).accepted).toEqual(beforeRestart.accepted);
+
+    // Release the director's zoom and locate a resting shot again in the same accepted feed.
+    await host.evaluate((peerId) => (window as any).__media.sendControl(peerId, {
+      kind: 'video_region', region: null, transitionMs: 0, resetMs: 0,
+    }), camera.peerId);
+    await scorer.page.evaluate((board) => (window as any).__scorer.setThresholds({ board }), DEFAULT_BOARD_THRESHOLD);
+    await scan(scorer.page);
+    await expect.poll(async () => (await placePoint(guest, 0.5, 0.5))?.css, { timeout: 20_000 })
+      .toContain('matrix3d');
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+
   test('a stills-only camera offers and publishes no video', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
@@ -654,7 +918,12 @@ test.describe('board video', () => {
     // through the settings screen rather than through storage, because the point is that it is the
     // phone's own answer and its owner is the one who gives it.
     await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    // And while the menu is open, the one control that hangs off the tier. A mask switch under
+    // `stills` would offer to black out a picture nobody receives, so it is there for `video` and
+    // gone otherwise — asserted in both states, so neither half can rot unnoticed.
+    await expect(scorer.page.getByRole('switch', { name: 'Board only' })).toBeVisible();
     await scorer.page.getByRole('combobox', { name: 'Share this view' }).selectOption('stills');
+    await expect(scorer.page.getByRole('switch', { name: 'Board only' })).toHaveCount(0);
     await closeScorerSettings(scorer.page);
 
     await host.click('text=Start Match');

@@ -7,7 +7,7 @@ import {
   type PowerInput,
   type PowerStage,
 } from '../../src/client/lib/scorerPower';
-import { loadSettings, saveSettings } from '../../src/client/lib/scorerStorage';
+import { loadSettings, resetSettings, saveSettings } from '../../src/client/lib/scorerStorage';
 import { classifyScoringActivation } from '../../src/client/lib/scorerReconnect';
 
 /**
@@ -206,17 +206,44 @@ describe('the delays a user can set', () => {
     expect(loadSettings().forceCpuMotion).toBe(false);
     expect(loadSettings().forceCpuPreprocessing).toBe(false);
     expect(loadSettings().forceCpuInference).toBe(false);
+    expect(loadSettings().boardMask).toBe(true);
 
     saveSettings({
       standbyAfterMinutes: 45,
       forceCpuMotion: true,
       forceCpuPreprocessing: true,
       forceCpuInference: true,
+      boardMask: false,
     });
     expect(loadSettings().standbyAfterMinutes).toBe(45);
     expect(loadSettings().forceCpuMotion).toBe(true);
     expect(loadSettings().forceCpuPreprocessing).toBe(true);
     expect(loadSettings().forceCpuInference).toBe(true);
+    expect(loadSettings().boardMask).toBe(false);
+    localStorage.clear();
+  });
+
+  it('mask a phone that has never heard of the setting, rather than leaving it exposed', () => {
+    // The one boolean here that reads `!== false` rather than `=== true`: it defaults to on, so a
+    // device upgrading from a build that had no such setting must land on the default and not on the
+    // opposite of it.
+    localStorage.setItem('instadarts_scorer_settings', JSON.stringify({ deviceName: 'Oche' }));
+    expect(loadSettings().boardMask).toBe(true);
+    localStorage.clear();
+  });
+
+  it('keep what somebody decided about sharing when the device is set up again', () => {
+    localStorage.clear();
+    saveSettings({ media: 'stills', boardMask: false, forceCpuInference: true, deviceName: 'Oche' });
+
+    const after = resetSettings();
+    // Both survive for the same reason: they are answers about what this phone shows of the room it
+    // stands in, and re-checking the model is no reason to broadcast a living room again.
+    expect(after.media).toBe('stills');
+    expect(after.boardMask).toBe(false);
+    expect(after.deviceName).toBe('Oche');
+    // While what the self-test measures is measured again.
+    expect(after.forceCpuInference).toBe(false);
     localStorage.clear();
   });
 });

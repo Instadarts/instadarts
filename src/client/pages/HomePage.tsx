@@ -1,12 +1,34 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Alert, Button, Stack, Text, TextInput } from '@mantine/core';
-import { CameraIcon } from '../components/AppIcons';
+import { Alert, Anchor, Button, Stack, Text, TextInput } from '@mantine/core';
+import { CameraIcon, GithubIcon } from '../components/AppIcons';
 import { Wordmark } from '../components/Wordmark';
 import { APP_VERSION } from '../lib/version';
+import { PROJECT_LINKS } from '../lib/links';
 import { GridBox } from '../layout/GridBox';
 import { ResponsiveBoxGrid } from '../layout/ResponsiveBoxGrid';
 import { HOME_LAYOUTS } from '../layout/frontendLayout';
+
+// Where somebody stuck, annoyed or curious goes next. The three destinations answer three different
+// questions — how do I use this, this is broken, how do I change it — so each carries the line of
+// prose that tells them apart; the labels alone read as three names for the same repository.
+const HELP_LINKS = [
+  {
+    href: PROJECT_LINKS.readme,
+    label: 'Help and documentation',
+    description: 'Setting up a scoring device, playing a first match, and running your own server.',
+  },
+  {
+    href: PROJECT_LINKS.issues,
+    label: 'Report an issue or suggest a feature',
+    description: 'Bug reports and ideas both belong in the issue tracker.',
+  },
+  {
+    href: PROJECT_LINKS.contributing,
+    label: 'Develop and contribute',
+    description: 'How to build InstaDarts, and what a pull request needs before it is opened.',
+  },
+] as const;
 
 interface HomePageProps {
   onCreateLocalMatch: () => void;
@@ -124,6 +146,34 @@ export function HomePage({
     </Stack>
   );
 
+  // Deliberately quiet: reference material, not a fourth way to start a match. Anchors and a line of
+  // prose each keep the large buttons above it the loudest thing on the page, and the card sits last
+  // because nobody arrives here looking for it — they arrive here having already tried something.
+  const help = (
+    <GridBox
+      title="InstaDarts Links"
+      // Dimmed to sit with the title rather than in front of it: the mark is there to say where
+      // these three links go, which is a label, not a button.
+      titlePrefix={<Text component="span" c="dimmed"><GithubIcon size={18} /></Text>}
+      editable={false}
+    >
+      <Stack maw={420} mx="auto" gap="md">
+        {HELP_LINKS.map(({ href, label, description }) => (
+          <Stack key={href} gap={2}>
+            {/* External destinations, so a plain anchor in a new tab: a match or a pairing dialog
+                left open in this one survives the trip to GitHub. */}
+            <Anchor href={href} target="_blank" rel="noopener noreferrer" fw={600}>
+              {/* Decoration, so it stays out of the link's accessible name: a screen reader
+                  announcing "black right-pointing triangle" ahead of every one of these is noise. */}
+              <span aria-hidden="true">➤{"\t"}</span>{label}
+            </Anchor>
+            <Text c="dimmed" fz="sm" ml="1.5em">{description}</Text>
+          </Stack>
+        ))}
+      </Stack>
+    </GridBox>
+  );
+
   return (
     <ResponsiveBoxGrid
       defaultLayouts={HOME_LAYOUTS}
@@ -131,6 +181,7 @@ export function HomePage({
         { id: 'welcome', content: welcome, autoHeight: true },
         { id: 'actions', content: actions, autoHeight: true },
         { id: 'scorer', content: scorer, autoHeight: true },
+        { id: 'help', content: help, autoHeight: true },
       ]}
     />
   );

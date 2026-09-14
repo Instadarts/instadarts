@@ -20,6 +20,7 @@ import type { DeviceView, PairingCode } from '../hooks/useScoringDevices';
 import { FullscreenButton } from './FullscreenButton';
 import { CameraIcon, SettingsIcon } from './AppIcons';
 import { AppearanceControl } from './AppearanceControl';
+import { PROJECT_LINKS } from '../lib/links';
 import { Wordmark } from './Wordmark';
 import { PairDeviceDialog } from './PairDeviceDialog';
 import { useLayoutEditor } from '../layout/LayoutEditorContext';
@@ -295,7 +296,7 @@ export function TopBar({
                 <Menu.Label>Links</Menu.Label>
                 <Menu.Item
                   component="a"
-                  href="https://github.com/Instadarts"
+                  href={PROJECT_LINKS.organisation}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

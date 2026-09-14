@@ -307,6 +307,21 @@ goes `light` rather than `default`. Playwright matches `getByRole`'s `name` as a
 many specs that reach the menu by `Cameras` work at either label; a selector that needs the whole
 name has to allow the count, as `ui-features.spec.ts` does with `/^Cameras(?: · \d+)?$/`.
 
+### Links out of the application
+
+Every link that leaves for GitHub comes from [`links.ts`](../src/client/lib/links.ts), so a move or
+a rename is one edit. The settings menu's **Source code** item points at the organisation, as it
+always has. The home page's **InstaDarts Links** card names three destinations inside the
+repository: the README for help, the issue tracker for bugs and feature ideas, and `CONTRIBUTING.md`
+for anyone who wants to build or change it. GitHub's own mark sits in that card's title bar, through
+`GridBox`'s `titlePrefix` — the slot the match edit handle also uses, which is why the two are
+composed in one place and why the mark leaves with the rest of the header when a title bar is
+switched off. The card is last on the page and deliberately quiet — anchors with a line of prose
+each, not a fourth stack of large buttons — because it answers a question somebody has after trying
+something, not before. All of them open in a new tab, so a lobby or an open pairing dialog survives
+the trip. `home.spec.ts` asserts the three hrefs rather than following them; a spec that reaches the
+public internet fails for reasons that have nothing to do with this application.
+
 ## Match layout editing and persistence
 
 The settings menu exposes **Edit Match Layout** only while a live or finished match grid is

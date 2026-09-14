@@ -55,6 +55,24 @@ test.describe('Home screen', () => {
       .toHaveAttribute('href', '/scorer');
   });
 
+  test('points at the repository for help, issues and contributing', async ({ page }) => {
+    await page.goto('/');
+    // Asserted rather than followed: the destinations are on GitHub, and a spec that reaches the
+    // public internet fails for reasons that have nothing to do with this application.
+    const help = page.locator('[data-grid-item="help"]');
+    const repository = 'https://github.com/instadarts/instadarts';
+    for (const [name, href] of [
+      ['Help and documentation', repository],
+      ['Report an issue or suggest a feature', `${repository}/issues`],
+      ['Develop and contribute', `${repository}/blob/main/CONTRIBUTING.md`],
+    ]) {
+      const link = help.getByRole('link', { name, exact: true });
+      await expect(link).toHaveAttribute('href', href);
+      // A new tab, so whatever this one is holding — a lobby, an open pairing dialog — survives.
+      await expect(link).toHaveAttribute('target', '_blank');
+    }
+  });
+
   test('join online match shows invite code input', async ({ page }) => {
     await page.goto('/');
     await page.click('text=Join Online Match');

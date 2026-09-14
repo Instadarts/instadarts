@@ -101,6 +101,7 @@ const HOME_BOXES = [
   { i: 'welcome', h: 11 },
   { i: 'actions', h: 16 },
   { i: 'scorer', h: 6 },
+  { i: 'help', h: 13 },
 ] as const;
 
 export const HOME_LAYOUTS = makeResponsiveLayouts((cols, breakpoint) => (

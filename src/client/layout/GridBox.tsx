@@ -6,6 +6,8 @@ import { useLayoutEditor } from './LayoutEditorContext';
 
 interface GridBoxProps {
   title?: ReactNode;
+  /** A mark shown ahead of the title, beside the drag handle when a match grid is being edited. */
+  titlePrefix?: ReactNode;
   headerCenter?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
@@ -17,6 +19,7 @@ interface GridBoxProps {
 
 export function GridBox({
   title,
+  titlePrefix,
   headerCenter,
   badge,
   actions,
@@ -31,32 +34,43 @@ export function GridBox({
   const titleBarVisible = chrome?.titleBarVisible ?? true;
   const showHeaderContent = titleBarVisible || showHandle;
   const overlayEditHeader = showHandle && !titleBarVisible;
+  // The edit handle and a card's own mark share AppCard's single prefix slot. The handle comes
+  // first, since in edit mode it is the thing being reached for; the mark leaves with the rest of
+  // the header content when the title bar is switched off, because it names a card nobody can see.
+  const handle = showHandle ? (
+    <Fragment>
+      <Text
+        component="span"
+        className="frontend-grid-drag-handle"
+        aria-label="Drag box"
+        title="Drag box"
+        c="dimmed"
+        fz="lg"
+      >
+        ⠿
+      </Text>
+      {chrome?.setTitleBarVisible && (
+        <Switch
+          size="xs"
+          checked={titleBarVisible}
+          onChange={(event) => chrome.setTitleBarVisible?.(event.currentTarget.checked)}
+          aria-label="Show title bar"
+          title={titleBarVisible ? 'Hide title bar' : 'Show title bar'}
+        />
+      )}
+    </Fragment>
+  ) : null;
+  const mark = showHeaderContent ? titlePrefix : undefined;
+
   return (
     <AppCard
       title={showHeaderContent ? title : undefined}
-      titlePrefix={showHandle ? (
+      titlePrefix={handle === null && mark === undefined ? undefined : (
         <Fragment>
-          <Text
-            component="span"
-            className="frontend-grid-drag-handle"
-            aria-label="Drag box"
-            title="Drag box"
-            c="dimmed"
-            fz="lg"
-          >
-            ⠿
-          </Text>
-          {chrome?.setTitleBarVisible && (
-            <Switch
-              size="xs"
-              checked={titleBarVisible}
-              onChange={(event) => chrome.setTitleBarVisible?.(event.currentTarget.checked)}
-              aria-label="Show title bar"
-              title={titleBarVisible ? 'Hide title bar' : 'Show title bar'}
-            />
-          )}
+          {handle}
+          {mark}
         </Fragment>
-      ) : undefined}
+      )}
       headerCenter={showHeaderContent ? headerCenter : undefined}
       badge={showHeaderContent ? badge : undefined}
       actions={showHeaderContent ? actions : undefined}

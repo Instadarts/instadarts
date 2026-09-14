@@ -1,7 +1,9 @@
 # Changelog
 
-## 1.2.5
+## 1.2.6
+- Add project links to start page.
 
+## 1.2.5
 - **Stream board only:** shared video now blacks out the surroundings once the board is detected.
   On by default; turn it off on the scoring device under Settings → Sharing and power.
 - **Straighten board video:** view a remote board straight on.

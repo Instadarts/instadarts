@@ -181,7 +181,7 @@ export function SettingsPanel({
 
           <NativeSelect
             label="Share this view"
-            description="The most this device will send. Whether anyone watches is decided on the paired frontend."
+            description="The most this device will send. Stills are dart evidence photos; only a live video device can be chosen as the board camera on the paired frontend."
             value={settings.media}
             onChange={(event) => {
               const media = event.currentTarget.value as MediaTier;

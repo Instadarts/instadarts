@@ -6,6 +6,7 @@ import { useDartEvidence } from '../../src/client/hooks/useDartEvidence';
 import { useStillResponder } from '../../src/client/hooks/useStillResponder';
 import type { Mesh } from '../../src/client/media/mesh';
 import type { ControlMessage, MediaPeer } from '../../src/shared/media';
+import type { DartDetection, DartThrow } from '../../src/shared/types';
 import type { Capture } from '../../src/client/vision/stillCapture';
 
 // A synchronous hook runner: state/refs and effect dependencies survive renders. No browser,
@@ -49,12 +50,19 @@ function render<T>(hook: () => T): T {
   return result;
 }
 
-function meshFixture() {
-  const camera: MediaPeer = { peerId: 'camera', kind: 'device', playerId: 'board', tier: 'stills',
-    own: true, role: 'owner', polite: false, send: true, recv: false };
-  const opponent: MediaPeer = { ...camera, peerId: 'opponent-camera', playerId: 'other-board', own: false, role: 'opponent' };
-  const owner: MediaPeer = { ...camera, peerId: 'owner', kind: 'user', recv: true };
-  const peers = [camera, opponent, owner];
+/** A scorer of the thrower's own, as the owner's roster describes it. */
+function ownScorer(peerId: string, scorer: string, fields: Partial<MediaPeer> = {}): MediaPeer {
+  return { peerId, kind: 'device', playerId: 'board', tier: 'stills', own: true, role: 'owner',
+    polite: false, send: true, recv: false, scorer, live: false, cameraOn: true, ...fields };
+}
+
+function meshFixture(extra: MediaPeer[] = []) {
+  const camera = ownScorer('camera', 'Phone', { live: true });
+  const opponent: MediaPeer = { peerId: 'opponent-camera', kind: 'device', playerId: 'other-board', tier: 'stills',
+    own: false, role: 'opponent', polite: false, send: true, recv: false };
+  const owner: MediaPeer = { peerId: 'owner', kind: 'user', playerId: 'board', tier: 'stills',
+    own: true, role: 'owner', polite: false, send: true, recv: true };
+  const peers = [camera, opponent, owner, ...extra];
   const sendControl = () => vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true);
   const wires = new Map(peers.map((peer) => [peer.peerId, { sendControl: sendControl() }]));
   const mesh = {
@@ -109,21 +117,22 @@ describe('server evidence identities', () => {
   });
 });
 
+function setup(isThrower = false, { extra = [] as MediaPeer[], dart = {} as Partial<DartThrow> } = {}) {
+  const fixture = meshFixture(extra);
+  const options = { mesh: fixture.mesh, links: fixture.mesh.links(), matchId: 'match', boardId: 'board',
+    currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart', ...dart }] },
+    isThrower, enabled: true };
+  const run = () => render(() => useDartEvidence(options));
+  run();
+  const request = fixture.wires.get('camera')!.sendControl.mock.calls[0]?.[0] as unknown as { id: string; tag: unknown } | undefined;
+  const tag = { kind: 'dart_evidence', matchId: 'match', boardId: 'board', visitId: 'visit', dartId: 'dart', dart: 0 };
+  const response: ControlMessage = { kind: 'still', id: request?.id ?? 'observer-copy', tag,
+    width: 480, height: 480, mime: 'image/jpeg' };
+  return { ...fixture, options, run, response, request };
+}
+const bytes = new Uint8Array([1, 2, 3]);
+
 describe('dart evidence admission', () => {
-  function setup(isThrower = false) {
-    const fixture = meshFixture();
-    const options = { mesh: fixture.mesh, links: fixture.mesh.links(), matchId: 'match', boardId: 'board',
-      currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart' }] },
-      isThrower, enabled: true };
-    const run = () => render(() => useDartEvidence(options));
-    run();
-    const request = fixture.wires.get('camera')!.sendControl.mock.calls[0]?.[0] as unknown as { id: string; tag: unknown } | undefined;
-    const tag = { kind: 'dart_evidence', matchId: 'match', boardId: 'board', visitId: 'visit', dartId: 'dart', dart: 0 };
-    const response: ControlMessage = { kind: 'still', id: request?.id ?? 'observer-copy', tag,
-      width: 480, height: 480, mime: 'image/jpeg' };
-    return { ...fixture, options, run, response, request };
-  }
-  const bytes = new Uint8Array([1, 2, 3]);
 
   it.each(['matchId', 'boardId', 'visitId', 'dartId'])('rejects a picture tagged for a different %s', (field) => {
     const f = setup();
@@ -205,6 +214,75 @@ describe('dart evidence admission', () => {
     f.options.enabled = true;
     f.options.boardId = 'absent-board';
     expect(f.run().available).toBe(false);
+  });
+});
+
+describe('which scorer is asked', () => {
+  const placedBy = (winningScorer: string): Partial<DartThrow> => ({ detection: {
+    expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer, winningConfidence: 0.9,
+  } satisfies DartDetection });
+  const asked = (f: ReturnType<typeof setup>, peerId: string) => f.wires.get(peerId)!.sendControl.mock.calls.length;
+
+  it('asks the scorer that placed the dart, not the live camera', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(0);
+  });
+
+  it('falls back to the live camera when the scorer that placed the dart is not sharing', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Gone') });
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(0);
+  });
+
+  it('asks the live camera first about a manually added dart', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+    expect(asked(f, 'camera')).toBe(1);
+  });
+
+  it('passes over a live camera whose camera is off, then takes the rest by label', () => {
+    const f = setup(true, { extra: [ownScorer('zed', 'Zed'), ownScorer('left', 'Left')] });
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    f.options.links = f.mesh.links();
+    f.options.currentVisit = { ...f.options.currentVisit, darts: [{ ...f.options.currentVisit.darts[0], id: 'next' }] };
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'zed')).toBe(0);
+  });
+
+  it('has no evidence at all when no scorer of ours has a camera on', () => {
+    const f = meshFixture();
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    const evidence = render(() => useDartEvidence({ mesh: f.mesh, links: f.mesh.links(), matchId: 'match',
+      boardId: 'board', isThrower: true, enabled: true,
+      currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart' }] } }));
+    expect(evidence.available).toBe(false);
+    expect(f.wires.get('camera')!.sendControl).not.toHaveBeenCalled();
+  });
+
+  it('asks again of the next scorer when the one asked leaves the roster', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    expect(asked(f, 'left')).toBe(1);
+    f.peers.splice(f.peers.findIndex((peer) => peer.peerId === 'left'), 1);
+    f.wires.delete('left');
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+  });
+
+  it('takes the answer only from the scorer it asked', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const request = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: request.id }, bytes);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    f.run().handleControl('left', { ...f.response, id: request.id }, bytes);
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('lets an observer take the picture from any scorer at the thrower\'s board', () => {
+    const f = setup(false, { extra: [ownScorer('left', 'Left', { own: false, role: 'opponent' })] });
+    f.run().handleControl('left', f.response, bytes);
+    expect(f.run().images[0]).toMatch(/^blob:/);
   });
 });
 

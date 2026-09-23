@@ -6,22 +6,24 @@
 //
 // Who asks and who watches are deliberately different:
 //
-//   · the **thrower** asks their own board camera, once per dart as it lands. Only they can: the
-//     camera answers the frontend that claimed it and nobody else.
+//   · the **thrower** asks one of their own scorers, once per dart as it lands — the scorer that
+//     placed the dart, when the roster has it, since that is the camera that saw it. Only they can
+//     ask: a scorer answers the frontend that claimed it and nobody else.
 //   · **everyone else** — the opponent, any spectators — receives the same picture unasked, because
-//     the camera sends to every viewer. That is why an answer carries a `tag` saying which dart it
+//     the scorer sends to every viewer. That is why an answer carries a `tag` saying which dart it
 //     belongs to: an observer never sent a request and has no id of its own to match against.
 //
 // Evidence belongs to the visit in progress. It is pruned on undo and dropped when the visit is
 // submitted, along with the slots it sits under.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ControlMessage, Region } from '../../shared/media';
+import type { ControlMessage, MediaPeer, Region } from '../../shared/media';
 import { MEDIA_ROLES, STILL } from '../../shared/media';
 import { dartEvidence } from '../lib/appConfig';
-import type { CurrentVisit } from '../../shared/types';
+import type { CurrentVisit, DartThrow } from '../../shared/types';
 import { BOARD_MAX } from '../../shared/scoring';
 import type { Mesh, MeshLink } from '../media/mesh';
+import type { PeerLink } from '../media/peerLink';
 import { e2eEnabled } from '../lib/e2e';
 
 const TIMING_LIMIT = 20;
@@ -100,12 +102,20 @@ export interface DartEvidence {
   /** Feed every control message here. */
   handleControl: (from: string, message: ControlMessage, payload?: Uint8Array) => void;
   /**
-   * Whether a board camera is in play at all, for the peer being watched.
+   * Whether any scorer can photograph the board being watched — one of ours if we are throwing, one
+   * of the thrower's if we are watching.
    *
    * What the strip's existence keys off, and it must be answerable *before* any picture arrives —
    * an element that appears when its content does is the screen jumping.
    */
   available: boolean;
+}
+
+/** One dart's request: which scorer it went to, and over which link, so only that link answers. */
+interface Request {
+  id: string;
+  peerId: string;
+  link: PeerLink;
 }
 
 export function useDartEvidence({
@@ -115,7 +125,7 @@ export function useDartEvidence({
   /** Object URLs we made, so they can be revoked. A blob URL leaks until it is. */
   const urls = useRef<(string | undefined)[]>([]);
   /** Darts already asked about, so a re-render is not a second request. */
-  const asked = useRef(new Map<number, string>());
+  const asked = useRef(new Map<number, Request>());
   /** When each was asked, for the round trip — and never filled in a shipped build. */
   const requestedAt = useRef(new Map<number, number>());
   const timings = useRef<EvidenceTiming[]>([]);
@@ -135,30 +145,36 @@ export function useDartEvidence({
 
   const darts = currentVisit?.darts;
   const visitId = currentVisit?.id;
-  const camera = boardCamera(mesh, boardId);
-  const cameraLink = camera ? mesh?.link(camera.peerId) : undefined;
-  const context = JSON.stringify([matchId, boardId, visitId, camera?.peerId, enabled, isThrower]);
+  const sources = boardScorers(mesh, boardId, isThrower);
+  // Which scorers, in which order, over which links: a request effect that must run again when any
+  // of that changes, since a dart may now have a scorer to ask, or a better one.
+  const sourceKey = sources.map((peer) =>
+    `${peer.peerId}:${linkKey(mesh?.link(peer.peerId))}:${peer.scorer ?? ''}`).join(' ');
+  const context = JSON.stringify([matchId, boardId, visitId, enabled, isThrower]);
 
-  const previous = useRef<{ context: string; mesh: Mesh | null; link: typeof cameraLink; ids: (string | undefined)[] } | null>(null);
+  const previous = useRef<{ context: string; mesh: Mesh | null; ids: (string | undefined)[] } | null>(null);
   // Compare identities, not counts or coordinates: undo/replacement and consecutive turns by the
   // same player may look identical. Also run before receiving, in case a frame beats the effect.
   const reconcile = useCallback(() => {
     const ids = darts?.map((dart) => dart.id) ?? [];
     const before = previous.current;
-    const reset = before?.context !== context || before.mesh !== mesh || before.link !== cameraLink;
-    for (const index of asked.current.keys()) {
-      if (reset || !ids[index] || before?.ids[index] !== ids[index]) {
+    const reset = before?.context !== context || before.mesh !== mesh;
+    for (const [index, request] of asked.current) {
+      const sameDart = !reset && ids[index] && before?.ids[index] === ids[index];
+      // A request whose link has gone can never be answered. Forgetting it lets the dart be asked
+      // again, of whichever scorer is best now.
+      if (!sameDart || meshRef.current?.link(request.peerId) !== request.link) {
         asked.current.delete(index);
         requestedAt.current.delete(index);
       }
     }
     const next = reset ? [] : urls.current.slice(0, ids.length).map((url, index) =>
       ids[index] && before?.ids[index] === ids[index] ? url : undefined);
-    previous.current = { context, mesh, link: cameraLink, ids };
+    previous.current = { context, mesh, ids };
     if (next.length !== urls.current.length || next.some((url, index) => url !== urls.current[index])) {
       replace(next);
     }
-  }, [darts, context, mesh, cameraLink, replace]);
+  }, [darts, context, mesh, replace]);
   useEffect(reconcile, [reconcile]);
 
   // Ask, once per dart, as it lands. Manual or camera-scored alike: either way a dart appeared in
@@ -166,15 +182,18 @@ export function useDartEvidence({
   useEffect(() => {
     reconcile();
     if (!enabled || !isThrower || !darts?.length || !matchId || !boardId || !visitId) return;
-    if (!camera?.own || !cameraLink) return;
 
     for (let index = 0; index < darts.length; index++) {
-      if (asked.current.has(index)) continue;
+      // A dart with its picture is done, even if the link that brought it has since been replaced.
+      if (asked.current.has(index) || urls.current[index]) continue;
       const dartId = darts[index].id;
       if (!dartId) continue;
+      const source = scorerFor(darts[index], sources);
+      const link = source ? meshRef.current?.link(source.peerId) : undefined;
+      if (!source || !link) continue;
       const region = dartRegion(darts[index]);
       const id = crypto.randomUUID();
-      const sent = cameraLink.sendControl({
+      const sent = link.sendControl({
         kind: 'still_request',
         id,
         region,
@@ -188,9 +207,10 @@ export function useDartEvidence({
       // the message silently, and marking it regardless meant a dart thrown in the moment after a
       // link was rebuilt never got a picture at all — the next match state retries it instead.
       if (!sent) continue;
-      asked.current.set(index, id);
+      asked.current.set(index, { id, peerId: source.peerId, link });
       // The same square, as a camera move rather than a photograph. Not conditional on the still
-      // having arrived: they are two independent answers to one dart landing.
+      // having arrived: they are two independent answers to one dart landing, and the move goes to
+      // the live camera whichever scorer takes the picture.
       //
       // Both timings said outright. Leaving either off would fall back to `media.virtualCamera`,
       // which is the backstop for callers with no opinion — and this caller has one: how long a dart
@@ -200,9 +220,10 @@ export function useDartEvidence({
       directRef.current?.(region, transitionMs, resetMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
-    // `links` is not read in here — it is the signal that a link may have become writable,
-    // which is what turns the `if (!sent) continue;` above into a retry rather than a loss.
-  }, [darts, enabled, isThrower, measuring, links, matchId, boardId, visitId, camera?.own, cameraLink, reconcile]);
+    // `links` and `sourceKey` are not read in here — they are the signal that a link may have
+    // become writable or a scorer appeared, which is what turns the `continue`s above into a retry
+    // rather than a loss.
+  }, [darts, enabled, isThrower, measuring, links, sourceKey, matchId, boardId, visitId, reconcile]);
 
   const handleControl = useCallback((from: string, message: ControlMessage, payload?: Uint8Array) => {
     reconcile();
@@ -211,11 +232,17 @@ export function useDartEvidence({
     if (!tag || tag.matchId !== matchId || tag.boardId !== boardId || tag.visitId !== visitId) return;
     const index = tag.dart;
     if (darts?.[index]?.id !== tag.dartId) return;
-    const source = boardCamera(meshRef.current, boardId);
-    if (!source || source.peerId !== from || meshRef.current?.link(from) !== cameraLink) return;
-    // Observers did not ask, but the requester must receive the answer to its exact request.
-    if (isThrower && (!source.own || asked.current.get(index) !== message.id)) return;
     if (urls.current[index]) return; // duplicate replies cannot replace accepted evidence
+    if (isThrower) {
+      // The answer to the exact request, from the scorer it went to, over the link it went out on.
+      const request = asked.current.get(index);
+      if (request?.id !== message.id || request.peerId !== from) return;
+      if (meshRef.current?.link(from) !== request.link) return;
+    } else if (!boardScorers(meshRef.current, boardId, false).some((peer) => peer.peerId === from)) {
+      // Observers did not ask, so they cannot know which scorer was asked. Any the server placed at
+      // this board will do, and none placed anywhere else.
+      return;
+    }
 
     if (measuring) {
       const sentAt = requestedAt.current.get(index);
@@ -232,7 +259,7 @@ export function useDartEvidence({
     const next = [...urls.current];
     next[index] = url;
     replace(next);
-  }, [darts, replace, measuring, enabled, matchId, boardId, visitId, isThrower, cameraLink, reconcile]);
+  }, [darts, replace, measuring, enabled, matchId, boardId, visitId, isThrower, reconcile]);
 
   useEffect(() => () => {
     for (const url of urls.current) if (url) URL.revokeObjectURL(url);
@@ -242,16 +269,49 @@ export function useDartEvidence({
     images,
     timings,
     handleControl,
-    // A board camera in the room at all — ours if we are throwing, the thrower's if we are watching.
     // Asked of the roster rather than of what has arrived, so the answer is stable from the first
     // frame of the visit rather than appearing with the first picture. A mode that declined evidence
-    // reads as no camera, so the visit shows unavailable-evidence placeholders.
-    available: enabled && Boolean(camera),
+    // reads as no scorer, so the visit shows unavailable-evidence placeholders.
+    available: enabled && sources.length > 0,
   };
 }
 
-/** The server-selected source for this board, whether we own it or observe it. */
-function boardCamera(mesh: Mesh | null, boardId: string | null) {
-  if (!boardId) return undefined;
-  return mesh?.links().find(({ peer }) => peer.kind === 'device' && peer.send && peer.playerId === boardId)?.peer;
+/**
+ * The scorers that may answer for this board.
+ *
+ * A thrower asks its own, and only those with a camera on — the live camera first, since it is the
+ * one its owner chose to show the board, then the rest by label. An observer asks nobody and takes
+ * a picture from any scorer the server placed at the board.
+ */
+function boardScorers(mesh: Mesh | null, boardId: string | null, isThrower: boolean): MediaPeer[] {
+  if (!mesh || !boardId) return [];
+  const board = mesh.links()
+    .map(({ peer }) => peer)
+    .filter((peer) => peer.kind === 'device' && peer.send && peer.playerId === boardId);
+  if (!isThrower) return board;
+  return board
+    .filter((peer) => peer.own && peer.cameraOn)
+    .sort((a, b) => Number(b.live ?? false) - Number(a.live ?? false)
+      || (a.scorer ?? '').localeCompare(b.scorer ?? ''));
+}
+
+/**
+ * Which of the thrower's scorers to ask for this dart: the one that placed it, which saw it, when
+ * it is still in the roster; otherwise the first in line. A manually added dart has no scorer of
+ * its own and goes straight to the first in line.
+ */
+function scorerFor(dart: DartThrow, sources: MediaPeer[]): MediaPeer | undefined {
+  const winner = dart.detection?.winningScorer;
+  return sources.find((peer) => winner !== undefined && peer.scorer === winner) ?? sources[0];
+}
+
+const linkIds = new WeakMap<PeerLink, number>();
+let nextLinkId = 0;
+
+/** A stable name for one link object, so a replaced link changes a dependency key. */
+function linkKey(link: PeerLink | undefined): string {
+  if (!link) return '-';
+  let id = linkIds.get(link);
+  if (id === undefined) linkIds.set(link, id = ++nextLinkId);
+  return String(id);
 }

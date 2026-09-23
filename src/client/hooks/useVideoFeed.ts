@@ -21,7 +21,7 @@ export interface VideoFeedView {
   feedId: VideoFeedId;
   peerId: string;
   playerId?: string;
-  /** Match-derived display name. Peer rosters deliberately carry no device names. */
+  /** Match-derived display name. Only an owner's roster names a device, and only its own. */
   label?: string;
   choice: VideoOfferChoice;
   canvas: HTMLCanvasElement | null;
@@ -277,8 +277,10 @@ export function useVideoFeed({ mesh, config, links, receive, anticipate }: Optio
   }, [changed, closeReceiver, refreshStats]);
 
   const direct = useCallback((region: Region, transitionMs: number, resetMs?: number) => {
+    // The live camera, which the roster marks: an owner may have several scorers at `video`, and
+    // only the nominated one is publishing a picture to move.
     const camera = meshRef.current?.ownPeers()
-      .find((peer) => peer.kind === 'device' && peer.tier === 'video')?.peerId;
+      .find((peer) => peer.kind === 'device' && peer.live)?.peerId;
     if (!camera) return;
     meshRef.current?.link(camera)?.sendControl({ kind: 'video_region', region, transitionMs, resetMs });
   }, []);

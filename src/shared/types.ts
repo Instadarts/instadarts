@@ -84,8 +84,10 @@ export interface DartDetection {
   /** Distinct scorers whose tips were fused into this dart. */
   contributingScorers: number;
   /**
-   * Name of the scorer whose tip, the highest-confidence one, is the dart's position. A name rather
-   * than a device id, because match history reaches every participant and the API. May be empty.
+   * Label of the scorer whose tip, the highest-confidence one, is the dart's position: its name made
+   * unique among its owner's scorers ("Phone (2)"), or "Scorer" for one without a name. Not a device
+   * id, because match history reaches every participant and the API; unique, because the owner's
+   * media roster carries the same label and evidence is asked of that scorer by it.
    */
   winningScorer: string;
   /** The model's confidence in that tip, 0–1. */

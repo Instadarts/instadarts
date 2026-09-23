@@ -218,6 +218,21 @@ describe('camera darts', () => {
     expect(visitLabels(match())).toEqual(['T20', 'T20', 'T20']);
   });
 
+  it('names the winning scorer by its label, so two phones called the same are told apart', () => {
+    const { frontend, scorer, match } = setup();
+    const second = pairTo(frontend);
+    scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_camera', active: true });
+
+    tips(scorer); // one window, both cameras: only the second one sees the dart
+    tips(second.scorer, T20);
+
+    expect(match().currentVisit!.darts[0].detection).toEqual(
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer: 'Phone (2)', winningConfidence: 0.9 },
+    );
+  });
+
   it('a dart corrected by hand is not re-added by the camera that misread it', () => {
     const { frontend, scorer, match } = setup();
     tips(scorer, T20_GROUP[0]);

@@ -7,5 +7,5 @@ import type { DartThrow } from '../../shared/types';
 export function dartOrigin(dart: DartThrow): string {
   if (!dart.detection) return 'Manually added';
   const { winningScorer, contributingScorers, reportingScorers, expectedScorers } = dart.detection;
-  return `Detected by ${winningScorer || 'an unnamed scorer'} (${contributingScorers}/${reportingScorers}/${expectedScorers})`;
+  return `Detected by ${winningScorer} (${contributingScorers}/${reportingScorers}/${expectedScorers})`;
 }

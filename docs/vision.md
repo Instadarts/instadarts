@@ -56,7 +56,8 @@ match and owning player holds this fusion state.
 
 Each dart a camera scores keeps a **detection record** of the window it came from: the most scorers
 active at once while it was open and how many reported in it, how many contributed to the dart,
-and the name and confidence of the scorer whose highest-confidence tip is the dart's position. It is
+and the label and confidence of the scorer whose highest-confidence tip is the dart's position — its
+name, made unique among its owner's scorers, which is also how evidence is asked of that scorer. It is
 a snapshot taken when the dart is scored; a scorer that sees the dart only in a later window does
 not change it. Manual darts have no record, and a client cannot supply one.
 

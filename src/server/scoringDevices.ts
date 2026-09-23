@@ -16,7 +16,12 @@ import { sanitizeCameraError, sanitizeName, validateDeviceClaims, validateTips }
 import { getScoringSession, dropScoringSessions, scoringContextId } from './scoring/store';
 import { SUMMARY_TTL_MS, touch } from './lifecycle';
 import { archiveApiMatch } from './apiMatches';
-import { finishMediaForMatch, revalidateMediaDeviceOwner, withdrawMediaDevice } from './media';
+import {
+  finishMediaForMatch,
+  publishMediaForOwner,
+  revalidateMediaDeviceOwner,
+  withdrawMediaDevice,
+} from './media';
 import { canAcceptDevice } from './capacity';
 import {
   allClients,
@@ -217,11 +222,14 @@ export function handleActivateDevices(ws: WebSocket, msg: any): void {
       const loser = findSessionSocket(previousOwner);
       if (loser) send(loser, { type: 'device_lost', deviceId: claim.deviceId });
       publishDevicesState(previousOwner);
+      publishMediaForOwner(previousOwner);
     }
     publishScorerState(claim.deviceId);
   }
 
   publishDevicesState(client.sessionId);
+  // Every scorer a sharing owner holds may take stills, so a claim is a change of membership.
+  publishMediaForOwner(client.sessionId);
 }
 
 export function handleDeactivateDevice(ws: WebSocket, msg: any): void {
@@ -229,6 +237,7 @@ export function handleDeactivateDevice(ws: WebSocket, msg: any): void {
   if (!client || typeof msg.deviceId !== 'string') return;
   if (!unclaimDevice(msg.deviceId, client.sessionId)) return;
   withdrawMediaDevice(msg.deviceId);
+  publishMediaForOwner(client.sessionId);
   publishScorerState(msg.deviceId);
   publishDevicesState(client.sessionId);
 }
@@ -329,6 +338,7 @@ export function handleScorerUnpair(ws: WebSocket): void {
   if (target) {
     getScoringSession(target.match.id, target.ownerPlayerIds, commitScoredMatch).setCameras(activeCameras(owner));
   }
+  publishMediaForOwner(owner);
   publishDevicesState(owner);
 }
 
@@ -339,7 +349,10 @@ export function handleScorerName(ws: WebSocket, msg: any): void {
 
   setDeviceName(client.deviceId, sanitizeName(msg.name) ?? '');
   const owner = ownerOf(client.deviceId);
-  if (owner) publishDevicesState(owner);
+  if (!owner) return;
+  publishDevicesState(owner);
+  // The owner's roster carries each scorer's label, and a rename can move a clashing sibling's too.
+  publishMediaForOwner(owner);
 }
 
 export function handleScorerCamera(ws: WebSocket, msg: any): void {
@@ -349,6 +362,8 @@ export function handleScorerCamera(ws: WebSocket, msg: any): void {
   setCameraActive(client.deviceId, Boolean(msg.active), sanitizeCameraError(msg.error) ?? undefined);
   const owner = ownerOf(client.deviceId);
   if (owner) {
+    // A scorer takes stills only with its camera on, so this is a change of membership too.
+    publishMediaForOwner(owner);
     // A camera leaving must leave the roster at once, or every throw window afterwards waits for a
     // report that is never coming.
     const target = resolveScoringTarget(owner);

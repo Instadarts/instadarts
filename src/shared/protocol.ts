@@ -471,6 +471,8 @@ export interface DevicesStateMessage {
   devices: {
     deviceId: string;
     name: string;
+    /** The name made unique among this frontend's devices. What detection records and rosters use. */
+    label: string;
     online: boolean;
     cameraActive: boolean;
     /**

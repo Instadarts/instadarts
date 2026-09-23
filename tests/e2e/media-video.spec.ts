@@ -371,7 +371,7 @@ test.describe('board video', () => {
       .toBeGreaterThan(0);
     expect((await sourceOffer(scorer.page)).feedId).not.toBe(firstFeedId);
     await expect(guest.getByTestId('live-board-feed')).toBeVisible();
-    await setSwitch(host.getByRole('switch', { name: 'Live video' }), false);
+    await setSwitch(host.getByRole('switch', { name: 'Share media' }), false);
     await expect.poll(() => published(scorer.page), { timeout: 10_000 }).toBeNull();
     await expect(guest.getByTestId('live-board-feed')).toHaveCount(0);
     await expect(guest.getByTestId('dartboard')).toBeVisible();

@@ -462,7 +462,7 @@ test.describe('responsive UI branch features', () => {
     await page.keyboard.press('Escape');
     const cameras = await openCameraMenu(page);
     await expect(cameras.getByRole('button', { name: 'Pair scoring device' })).toBeVisible();
-    await expect(cameras.getByRole('switch', { name: 'Live video' })).toBeVisible();
+    await expect(cameras.getByRole('switch', { name: 'Share media' })).toBeVisible();
     await expectInsideViewport(page, cameras);
   });
 

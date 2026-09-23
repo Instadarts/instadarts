@@ -46,6 +46,11 @@ interface TopBarProps {
   onForget: (deviceId: string) => void;
   onSetCamera: (deviceId: string, active: boolean) => void;
   onPowerOff: (deviceId: string) => void;
+  /**
+   * Whether this browser shares media at all, or null where media is off for the deployment. Off
+   * takes it out of the mesh and every one of its scorers with it: no live video either way, and no
+   * dart evidence.
+   */
   media: boolean | null;
   onMediaChange: (enabled: boolean) => void;
   /**
@@ -161,7 +166,7 @@ export function TopBar({
                     </Button>
                     {media !== null && (
                       <Switch
-                        label="Live video"
+                        label="Share media"
                         checked={media}
                         onChange={(event) => onMediaChange(event.currentTarget.checked)}
                       />
@@ -350,7 +355,9 @@ function DeviceBox({
 }: DeviceBoxProps) {
   const [confirmingPowerOff, setConfirmingPowerOff] = useState(false);
   const reachable = device.active && device.online;
-  const offered = device.media !== 'disabled';
+  // Only a phone willing to send live video can be the board camera. A stills phone still takes dart
+  // evidence without being nominated; nominating it would be a switch that did nothing.
+  const live = device.media === 'video';
 
   return (
     <Card
@@ -358,13 +365,13 @@ function DeviceBox({
       bg="var(--instadarts-surface-sunken)"
       padding="sm"
       role="group"
-      aria-label={`Scoring device: ${device.name}`}
+      aria-label={`Scoring device: ${device.label}`}
     >
       <Stack gap="xs">
         <Group justify="space-between" gap="xs" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" miw={0}>
             <Box w={8} h={8} bg={statusColor(device)} style={{ borderRadius: '50%', flexShrink: 0 }} />
-            <Text fz="sm" truncate data-testid="device-name">{device.name}</Text>
+            <Text fz="sm" truncate data-testid="device-name">{device.label}</Text>
           </Group>
           <Text fz="xs" c="dimmed" style={{ flexShrink: 0 }} data-testid="device-status">
             {statusLabel(device)}
@@ -393,9 +400,12 @@ function DeviceBox({
         {showBoardCamera && reachable && (
           <Switch
             label="Board camera"
-            description={!offered ? 'This device is not sharing its view' : device.media === 'stills' ? 'Stills only' : undefined}
-            checked={boardCamera === device.deviceId}
-            disabled={!offered}
+            description={device.media === 'disabled'
+              ? 'This device is not sharing its view'
+              : device.media === 'stills' ? 'Stills only — takes dart evidence, no live video' : undefined}
+            // A nomination outlives a phone dropping to stills, and comes back with live video.
+            checked={live && boardCamera === device.deviceId}
+            disabled={!live}
             onChange={(event) => onBoardCameraChange(event.currentTarget.checked)}
           />
         )}

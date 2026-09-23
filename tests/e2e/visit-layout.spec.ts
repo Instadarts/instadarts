@@ -118,7 +118,7 @@ test('says where each dart came from, on the tile and in the popup', async ({ pa
     detections: [
       { expectedScorers: 3, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left phone', winningConfidence: 0.9 },
       undefined,
-      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: '', winningConfidence: 0.8 },
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Phone (2)', winningConfidence: 0.8 },
     ],
   });
 
@@ -126,7 +126,7 @@ test('says where each dart came from, on the tile and in the popup', async ({ pa
   await expect(tiles.nth(0)).toHaveAttribute('title', 'Detected by Left phone (2/2/3)');
   await expect(tiles.nth(1)).toHaveAttribute('title', 'Manually added');
   // No picture, but the dart is there and so is where it came from.
-  await expect(tiles.nth(2)).toHaveAttribute('title', 'Detected by an unnamed scorer (1/1/1)');
+  await expect(tiles.nth(2)).toHaveAttribute('title', 'Detected by Phone (2) (1/1/1)');
 
   await page.getByRole('button', { name: 'Dart 1 evidence', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Dart evidence' }).getByTestId('dart-origin'))

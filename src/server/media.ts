@@ -13,7 +13,7 @@ import { INTERNAL_ICE } from '../shared/config';
 import { CONFIG } from './config';
 import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 import { allClients, getClient, send } from './connections';
-import { ownerOf, setDeviceMediaTier } from './devices';
+import { devicesForSession, isCameraActive, ownerOf, scorerLabel, setDeviceMediaTier } from './devices';
 import { getMatch } from './store';
 import { meshEligible } from './match';
 import { getMode } from './modes/types';
@@ -56,10 +56,18 @@ export function reportInternalStun(): void {
 }
 
 interface SourceSlot {
+  /** The nominated board camera: the only device this board may publish live video from. */
   deviceId: string | null;
   sourcePeerId: string | null;
   sourceEpoch: string | null;
   socket: WebSocket | null;
+  /**
+   * The session of the board's owner while it shares media, else null. Its other scorers join for
+   * stills only while this is set, and like the nomination it outlives the owner's socket, so a
+   * reload does not drop them. Held here rather than looked up in the match so that finding a
+   * device's matches never has to read one.
+   */
+  sharedBy: string | null;
 }
 
 interface MatchMediaSession {
@@ -96,7 +104,7 @@ const bindings = new Map<WebSocket, PeerBinding>();
 const published = new Map<WebSocket, string>();
 
 function blankSource(): SourceSlot {
-  return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null };
+  return { deviceId: null, sourcePeerId: null, sourceEpoch: null, socket: null, sharedBy: null };
 }
 
 /** Create the one media incarnation belonging to this match. Lobbies never call this. */
@@ -190,6 +198,10 @@ interface Participant {
   slotId: string | null;
   tier: Exclude<MediaTier, 'disabled'>;
   playerId?: string;
+  /** Devices only: the scorer label, whether it is the live board camera, and whether it can shoot. */
+  label?: string;
+  live?: boolean;
+  cameraOn?: boolean;
 }
 
 interface Pairing { a: Participant; b: Participant }
@@ -277,20 +289,13 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
   }
 
   for (const [slotId, source] of session.sources) {
-    if (!source.deviceId) { syncSource(session, source); continue; }
-    const ws = scorerSocket(source.deviceId);
-    const tier = ws ? deviceTiers.get(ws) ?? 'disabled' : 'disabled';
-    if (!ws || tier === 'disabled') { syncSource(session, source); continue; }
-    const binding = ensureBinding(ws, session);
-    const device: Participant = {
-      ws, peerId: binding.peerId, kind: 'device', spectator: false, slotId,
-      tier: tier as Exclude<MediaTier, 'disabled'>,
-    };
-    const player = match.players.find((candidate) => candidate.id === slotId);
-    if (player) device.playerId = player.id;
-    devices.push(device);
-    syncSource(session, source, device);
+    const { members, nominee } = boardDevices(session, slotId, source);
+    devices.push(...members);
+    syncSource(session, source, nominee);
   }
+  // The live cameras claim their links first, so a full budget costs an extra stills camera rather
+  // than somebody's board video. A stable sort keeps each board's own order behind that.
+  devices.sort((a, b) => Number(b.live) - Number(a.live));
 
   const admitted = spectators.slice(0, MEDIA_VIEWERS_PER_ROOM);
   const pairs: Pairing[] = [];
@@ -320,6 +325,49 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
   return { participants: [...users, ...admitted, ...devices], pairs };
 }
 
+/**
+ * The scorers one board brings to the mesh, and which of them is its nominated camera.
+ *
+ * Two ways in. The **nominee** joins exactly as it always has — whenever it is online and sharing
+ * anything — because it is the live source, and a camera restart must not cost it its source epoch
+ * and every viewer their consent. **Every other scorer** its owner holds joins for stills, and only
+ * with its camera on: a camera that is off can neither win a dart nor photograph one, and each
+ * member is a link to every viewer. Both need the owner to be sharing media at all.
+ */
+function boardDevices(
+  session: MatchMediaSession,
+  slotId: string,
+  source: SourceSlot,
+): { members: Participant[]; nominee?: Participant } {
+  const views = source.sharedBy ? devicesForSession(source.sharedBy) : [];
+  const admit = (deviceId: string, label: string, cameraOn: boolean): Participant | undefined => {
+    const ws = scorerSocket(deviceId);
+    const tier = ws ? deviceTiers.get(ws) ?? 'disabled' : 'disabled';
+    if (!ws || tier === 'disabled') return undefined;
+    const binding = ensureBinding(ws, session);
+    return {
+      ws, peerId: binding.peerId, kind: 'device', spectator: false, slotId, playerId: slotId,
+      tier: tier as Exclude<MediaTier, 'disabled'>,
+      label,
+      live: deviceId === source.deviceId && tier === 'video' && !session.bans.includes('boardVideo'),
+      cameraOn,
+    };
+  };
+
+  // A replacement frontend can re-declare its nominee before its claim has moved to the new session
+  // id, so the nominee is looked up by its own id rather than found among the owner's devices.
+  const nomineeView = views.find((view) => view.deviceId === source.deviceId);
+  const nominee = source.deviceId
+    ? admit(source.deviceId, nomineeView?.label ?? scorerLabel(source.deviceId), nomineeView?.cameraActive ?? false)
+    : undefined;
+  const others = views
+    .filter((view) => view.deviceId !== source.deviceId && view.online && view.cameraActive)
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((view) => admit(view.deviceId, view.label, true))
+    .filter((member) => member !== undefined);
+  return { members: nominee ? [nominee, ...others] : others, nominee };
+}
+
 function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
   const roster: MediaPeer[] = [];
   for (const { a, b } of pairs) {
@@ -333,6 +381,10 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
       own,
       role: own ? 'owner' : other.spectator ? 'spectator' : 'opponent',
       ...(other.playerId ? { playerId: other.playerId } : {}),
+      // Only the owner learns which of its scorers is which. Nobody else needs a device's name.
+      ...(own && other.kind === 'device'
+        ? { scorer: other.label, live: other.live, cameraOn: other.cameraOn }
+        : {}),
       polite: self.peerId < other.peerId,
       send: !other.spectator && self.kind !== 'device',
       recv: other.kind !== 'device' && !self.spectator,
@@ -380,20 +432,47 @@ export function publishMediaFor(ws: WebSocket, previousMatch?: string | null): v
   const client = getClient(ws);
   if (client?.matchId) affected.add(client.matchId);
   if (client?.deviceId) {
-    for (const matchId of matchesSelectingDevice(client.deviceId)) affected.add(matchId);
+    for (const matchId of matchesUsingDevice(client.deviceId)) affected.add(matchId);
   }
   for (const matchId of affected) publishSession(matchId);
 }
 
-/** Inspect source nominations once; only selected matches need a full topology plan. */
-function matchesSelectingDevice(deviceId: string): string[] {
-  const affected: string[] = [];
+/**
+ * The matches whose plan a change to this device's tier or connection can move: those nominating
+ * it, and — only while its camera is on — those its owner shares media in. A scorer with its camera
+ * off is a member nowhere it is not nominated, so its readiness is not worth a plan.
+ */
+function matchesUsingDevice(deviceId: string): string[] {
+  const owner = isCameraActive(deviceId) ? ownerOf(deviceId) : null;
+  const affected = new Set(owner ? matchesSharedBy(owner) : []);
   for (const session of sessions.values()) {
     if ([...session.sources.values()].some((source) => source.deviceId === deviceId)) {
+      affected.add(session.matchId);
+    }
+  }
+  return [...affected];
+}
+
+/** The matches where this frontend session holds a board that is sharing media. */
+function matchesSharedBy(sessionId: string): string[] {
+  const affected: string[] = [];
+  for (const session of sessions.values()) {
+    if ([...session.sources.values()].some((source) => source.sharedBy === sessionId)) {
       affected.push(session.matchId);
     }
   }
   return affected;
+}
+
+/**
+ * Something that decides which of this frontend's scorers are members changed: a claim, a camera
+ * going on or off, or a rename — a label, which can move a clashing sibling's label with it.
+ * Replans only the matches it shares media in, and is asked by owner because a device it has just
+ * released no longer names it.
+ */
+export function publishMediaForOwner(sessionId: string): void {
+  if (!MEDIA_ENABLED) return;
+  for (const matchId of matchesSharedBy(sessionId)) publishSession(matchId);
 }
 
 export function publishMediaForRoom(matchId: string): void {
@@ -432,7 +511,7 @@ export function handleMediaReady(ws: WebSocket, msg: any): void {
   // A phone may declare before pairing. Keep its capability, but it cannot affect any source yet.
   if (!client.deviceId) return;
   noteDeviceTier(client.deviceId, tier);
-  for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
+  for (const matchId of matchesUsingDevice(client.deviceId)) publishSession(matchId);
 }
 
 function validateTier(raw: unknown): MediaTier {
@@ -452,7 +531,7 @@ export function syncDeviceTier(ws: WebSocket): void {
   if (!client?.deviceId) return;
   if (tier) noteDeviceTier(client.deviceId, tier);
   // Identity may have just changed even though the socket's cached tier did not.
-  for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
+  for (const matchId of matchesUsingDevice(client.deviceId)) publishSession(matchId);
 }
 
 export function handleMediaLeave(ws: WebSocket): void {
@@ -462,7 +541,7 @@ export function handleMediaLeave(ws: WebSocket): void {
     noteDeviceTier(client.deviceId, 'disabled');
     deviceTiers.set(ws, 'disabled');
     removeBinding(ws);
-    for (const matchId of matchesSelectingDevice(client.deviceId)) publishSession(matchId);
+    for (const matchId of matchesUsingDevice(client.deviceId)) publishSession(matchId);
     return;
   }
   const join = frontendJoins.get(ws);
@@ -473,6 +552,7 @@ export function handleMediaLeave(ws: WebSocket): void {
     const source = session.sources.get(join.slotId)!;
     deactivateSource(session, source);
     source.deviceId = null;
+    source.sharedBy = null;
   }
   removeBinding(ws);
   publishSession(session.matchId);
@@ -532,6 +612,7 @@ export function handleMediaJoin(ws: WebSocket, msg: any): void {
 
   if (slotId) {
     const source = session.sources.get(slotId)!;
+    source.sharedBy = tier === 'disabled' ? null : client.sessionId;
     const requested = tier === 'disabled' ? null : msg.boardCamera;
     // The current source was already validated for this immutable participant slot. A replacement
     // frontend may re-declare that exact choice before activate_devices has moved the transient

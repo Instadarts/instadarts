@@ -52,7 +52,7 @@ export interface ScoringSessionOptions {
   ownerPlayerIds: string[];
   /** Persist and broadcast a mutated match. */
   commit: (match: MatchState) => void;
-  /** What a scoring device currently calls itself, for the detection record on its darts. */
+  /** A scoring device's label, unique among its owner's devices, for the detection record. */
   scorerName: (deviceId: string) => string;
 }
 

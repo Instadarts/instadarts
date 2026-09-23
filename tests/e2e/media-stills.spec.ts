@@ -15,7 +15,9 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
+import {
+  closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera,
+} from './appHelpers';
 
 const SCENES = {
   // Camera startup now performs a real cold inference. Begin where the test's prose always said it
@@ -37,8 +39,8 @@ async function openScorer(browser: Browser) {
   return { context, page };
 }
 
-/** Pair this phone to that frontend and nominate it as the board camera. */
-async function pairAndNominate(player: Page, scorer: Page, name: string) {
+/** Pair this phone to that frontend, leaving the camera menu open on it. */
+async function pair(player: Page, scorer: Page, name: string) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
   const code = (await pairingCode(player).textContent())!.trim();
@@ -46,7 +48,11 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
   await renameScorerDevice(scorer, name);
+}
 
+/** Pair this phone to that frontend and nominate it as the board camera. */
+async function pairAndNominate(player: Page, scorer: Page, name: string) {
+  await pair(player, scorer, name);
   await setSwitch(scoringDeviceControls(player, name).getByRole('switch', { name: 'Board camera' }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
 }
@@ -229,6 +235,35 @@ test.describe('dart evidence', () => {
     await alice.close();
     await bob.close();
     await watching.close();
+    await scorer.context.close();
+  });
+
+  test('a stills-only scorer nobody nominated photographs the dart it placed', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pair(host, scorer.page, 'Alice left');
+
+    await scorer.page.getByRole('button', { name: 'Settings' }).click();
+    await scorer.page.getByRole('combobox', { name: 'Share this view' }).selectOption('stills');
+    await closeScorerSettings(scorer.page);
+    // The nomination is live video's alone, and this phone offers none.
+    await expect(scoringDeviceControls(host, 'Alice left').getByRole('switch', { name: 'Board camera' })).toBeDisabled();
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+    await Promise.all([linkedToCamera(host), linkedToCamera(guest)]);
+
+    await showScene(scorer.page, 'darts');
+    await scan(scorer.page);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    await expect(host.getByTestId('dart-evidence').first()).toHaveAttribute('title', /^Detected by Alice left \(/);
+
+    await alice.close();
+    await bob.close();
     await scorer.context.close();
   });
 

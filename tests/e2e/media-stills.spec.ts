@@ -538,6 +538,40 @@ test.describe('several scorers at one board', () => {
     await hidden.context.close();
   });
 
+  test('records a camera that stayed silent as expected but not reporting', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const live = await openScorer(browser);
+    await pairAndNominate(host, live.page, 'Alice board');
+    const quiet = await openScorer(browser);
+    await pair(host, quiet.page, 'Alice side');
+    await shareFromScorer(quiet.page, 'stills');
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await Promise.all([startScorerCamera(live.page), startScorerCamera(quiet.page)]);
+    await expect.poll(() => linkedScorers(host), { timeout: 30_000 }).toBe(2);
+
+    // Only the live camera looks. The other phone's camera is on, so the throw window waits for its
+    // report, and closes on its timeout when none comes — a count that no longer depends on timing.
+    await showScene(live.page, 'darts');
+    await scan(live.page);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+    const tiles = host.getByTestId('dart-evidence');
+    for (let index = 0; index < 3; index++) {
+      await expect(tiles.nth(index)).toHaveAttribute('title', 'Detected by Alice board (1/1/2)');
+    }
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    expect(await captured(live.page)).toBe(3);
+    expect(await captured(quiet.page)).toBe(0);
+
+    await alice.close();
+    await bob.close();
+    await live.context.close();
+    await quiet.context.close();
+  });
+
   test('has no evidence while its owner does not share media, and still says who placed each dart', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);

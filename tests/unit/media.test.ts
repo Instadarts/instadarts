@@ -12,6 +12,7 @@ import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
+import { MEDIA_PEERS_PER_PEER } from '../../src/server/capacity';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
 import * as store from '../../src/server/store';
@@ -417,6 +418,47 @@ describe('stills scorers', () => {
 
     extra.send({ type: 'scorer_name', name: 'Left' });
     expect(entryFor(host, extra)?.scorer).toBe('Left');
+  });
+
+  it('stays within the link budget, giving up an extra stills camera before a live one or a player', () => {
+    expect(MEDIA_PEERS_PER_PEER).toBe(10);
+    const { host, guest, match, camera } = startOnline();
+    // The five scorers a user may hold, on each side, with one live camera each and every camera on.
+    const aliceStills = ['A1', 'A2', 'A3', 'A4'].map((name) => pairDevice(host, name, 'stills'));
+    const bobLive = pairDevice(guest, 'Bob board');
+    const bobStills = ['B1', 'B2', 'B3', 'B4'].map((name) => pairDevice(guest, name, 'stills'));
+    guest.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: bobLive.deviceId });
+    for (const scorer of [camera!, ...aliceStills, bobLive, ...bobStills]) {
+      scorer.send({ type: 'scorer_camera', active: true });
+    }
+    const watchers = [connect(), connect()];
+    for (const watcher of watchers) {
+      watcher.send({ type: 'spectate', id: match.id });
+      watcher.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: null });
+    }
+
+    // Alice's frontend would need thirteen: her five, Bob, his five and two spectators. What it keeps
+    // is decided by priority — her own scorers, then the other player, then the other board's live
+    // camera, then its stills cameras by label for as long as there is room.
+    expect(host.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+    for (const own of [camera!, ...aliceStills]) expect(entryFor(host, own)).toMatchObject({ own: true });
+    expect(entryFor(host, guest)).toBeDefined();
+    expect(entryFor(host, bobLive)).toBeDefined();
+    expect(bobStills.map((scorer) => entryFor(host, scorer) !== undefined)).toEqual([true, true, true, false]);
+    for (const watcher of watchers) expect(entryFor(host, watcher)).toBeUndefined();
+
+    // Bob's side is the mirror image.
+    expect(guest.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+    expect(entryFor(guest, camera!)).toBeDefined();
+    expect(aliceStills.map((scorer) => entryFor(guest, scorer) !== undefined)).toEqual([true, true, true, false]);
+
+    // The audience is last, but it is not left without a board: it reaches every scorer, both live
+    // cameras included.
+    for (const watcher of watchers) {
+      expect(watcher.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+      expect(entryFor(watcher, camera!)).toBeDefined();
+      expect(entryFor(watcher, bobLive)).toBeDefined();
+    }
   });
 
   it('leaves the mesh when its owner releases it', () => {

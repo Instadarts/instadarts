@@ -118,9 +118,9 @@ The normal online topology is:
 - spectator ↔ participant frontends and member scorers;
 - never device ↔ device or spectator ↔ spectator.
 
-Pairs are made in that priority order until a peer reaches `MEDIA_PEERS_PER_PEER` (10), with live
-cameras ahead of stills-only scorers, so a full budget costs an extra stills camera rather than
-somebody's board video.
+Pairs are made in that priority order until a peer reaches `MEDIA_PEERS_PER_PEER` (10), with each
+board's live camera ahead of its stills-only scorers, so a full budget costs an extra stills camera
+rather than somebody's board video.
 
 A match with one board has one source, and `audienceFor` derives its audience from that: there is
 nobody at another board, so it is addressed to spectators alone and the playing screen never shows

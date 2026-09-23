@@ -190,6 +190,8 @@ describe('dart evidence admission', () => {
     f.wires.set('camera', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     evidence.handleControl('camera', f.response, bytes);
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+    // A replaced link is a mesh change, and the mesh reports every one of those as new links.
+    f.options.links = f.mesh.links();
     f.run();
     expect(f.wires.get('camera')!.sendControl).toHaveBeenCalledOnce();
   });

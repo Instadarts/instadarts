@@ -357,7 +357,7 @@ function DeviceBox({
   const reachable = device.active && device.online;
   // Only a phone willing to send live video can be the board camera. A stills phone still takes dart
   // evidence without being nominated; nominating it would be a switch that did nothing.
-  const live = device.media === 'video';
+  const streams = device.media === 'video';
 
   return (
     <Card
@@ -404,8 +404,8 @@ function DeviceBox({
               ? 'This device is not sharing its view'
               : device.media === 'stills' ? 'Stills only — takes dart evidence, no live video' : undefined}
             // A nomination outlives a phone dropping to stills, and comes back with live video.
-            checked={live && boardCamera === device.deviceId}
-            disabled={!live}
+            checked={streams && boardCamera === device.deviceId}
+            disabled={!streams}
             onChange={(event) => onBoardCameraChange(event.currentTarget.checked)}
           />
         )}

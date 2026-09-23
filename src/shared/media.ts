@@ -136,8 +136,9 @@ export interface MediaPeer {
    *
    *   · a **device** honours a command only from the peer marked `own`, which is what stops an
    *     opponent deciding what somebody else's camera photographs;
-   *   · a **frontend** finds its own board camera by it, since a roster addresses peers by opaque id
-   *     and nothing else in it says which camera is yours.
+   *   · a **frontend** finds its own scorers by it, since a roster addresses peers by opaque id and
+   *     nothing else in it says which cameras are yours. Which of them is the board camera is then
+   *     `live`, below.
    *
    * This is "the roster is the authorization" widened from who may *connect* to who may *command*.
    */
@@ -181,7 +182,7 @@ export interface MediaPeer {
   polite: boolean;
   /**
    * Whether this peer may send media to you. False for a spectator, who only ever watches — and
-   * false in a **scoring device's** roster, because a board camera has nothing to do with anybody
+   * false in a **scoring device's** roster, because a scorer has nothing to do with anybody
    * else's picture and should never decode one.
    */
   send: boolean;

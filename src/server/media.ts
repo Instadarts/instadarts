@@ -293,9 +293,6 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
     devices.push(...members);
     syncSource(session, source, nominee);
   }
-  // The live cameras claim their links first, so a full budget costs an extra stills camera rather
-  // than somebody's board video. A stable sort keeps each board's own order behind that.
-  devices.sort((a, b) => Number(b.live) - Number(a.live));
 
   const admitted = spectators.slice(0, MEDIA_VIEWERS_PER_ROOM);
   const pairs: Pairing[] = [];
@@ -326,7 +323,8 @@ function planFor(session: MatchMediaSession): { participants: Participant[]; pai
 }
 
 /**
- * The scorers one board brings to the mesh, and which of them is its nominated camera.
+ * The scorers one board brings to the mesh, and which of them is its nominated camera — first, so
+ * that a full link budget costs an extra stills camera rather than somebody's board video.
  *
  * Two ways in. The **nominee** joins exactly as it always has — whenever it is online and sharing
  * anything — because it is the live source, and a camera restart must not cost it its source epoch

@@ -62,13 +62,14 @@ interface Options {
   boardId: string | null;
   /**
    * The links as they stand, so that a request dropped on a channel that was not open yet is tried
-   * again the moment one is. Reactive where `mesh` is not, and wanted only for that — the same
-   * reason `useVideoFeed` watches them.
+   * again the moment one is, and a dart is asked of a scorer that has only just joined. Reactive
+   * where `mesh` is not — it changes with every roster and every link — and wanted only for that,
+   * the same reason `useVideoFeed` watches them.
    */
   links: MeshLink[];
   /** The visit being thrown, or undefined between visits. */
   currentVisit: CurrentVisit | undefined;
-  /** Whether this user is the one throwing — only they may ask their camera for anything. */
+  /** Whether this user is the one throwing — only they may ask their scorers for anything. */
   isThrower: boolean;
   /**
    * Whether this match wants evidence at all. False for a game mode that declined the feature.
@@ -146,10 +147,6 @@ export function useDartEvidence({
   const darts = currentVisit?.darts;
   const visitId = currentVisit?.id;
   const sources = boardScorers(mesh, boardId, isThrower);
-  // Which scorers, in which order, over which links: a request effect that must run again when any
-  // of that changes, since a dart may now have a scorer to ask, or a better one.
-  const sourceKey = sources.map((peer) =>
-    `${peer.peerId}:${linkKey(mesh?.link(peer.peerId))}:${peer.scorer ?? ''}`).join(' ');
   const context = JSON.stringify([matchId, boardId, visitId, enabled, isThrower]);
 
   const previous = useRef<{ context: string; mesh: Mesh | null; ids: (string | undefined)[] } | null>(null);
@@ -220,10 +217,10 @@ export function useDartEvidence({
       directRef.current?.(region, transitionMs, resetMs);
       if (measuring) requestedAt.current.set(index, performance.now());
     }
-    // `links` and `sourceKey` are not read in here — they are the signal that a link may have
-    // become writable or a scorer appeared, which is what turns the `continue`s above into a retry
-    // rather than a loss.
-  }, [darts, enabled, isThrower, measuring, links, sourceKey, matchId, boardId, visitId, reconcile]);
+    // `links` is not read in here — it is the signal that a link may have become writable or a
+    // scorer appeared, which is what turns the `continue`s above into a retry rather than a loss.
+    // `sources` is derived from the same mesh, so it cannot change without `links` changing too.
+  }, [darts, enabled, isThrower, measuring, links, matchId, boardId, visitId, reconcile]);
 
   const handleControl = useCallback((from: string, message: ControlMessage, payload?: Uint8Array) => {
     reconcile();
@@ -303,15 +300,4 @@ function boardScorers(mesh: Mesh | null, boardId: string | null, isThrower: bool
 function scorerFor(dart: DartThrow, sources: MediaPeer[]): MediaPeer | undefined {
   const winner = dart.detection?.winningScorer;
   return sources.find((peer) => winner !== undefined && peer.scorer === winner) ?? sources[0];
-}
-
-const linkIds = new WeakMap<PeerLink, number>();
-let nextLinkId = 0;
-
-/** A stable name for one link object, so a replaced link changes a dependency key. */
-function linkKey(link: PeerLink | undefined): string {
-  if (!link) return '-';
-  let id = linkIds.get(link);
-  if (id === undefined) linkIds.set(link, id = ++nextLinkId);
-  return String(id);
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Camera-scored darts keep detection meta data in the match history.
+- Dart evidence says where each dart came from.
+
 ## 1.2.6
 - Add project links to start page.
 

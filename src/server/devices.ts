@@ -220,6 +220,11 @@ export function setDeviceName(deviceId: string, name: string): void {
   if (device) device.name = name;
 }
 
+/** What a device calls itself, or an empty string for one the registry has forgotten. */
+export function deviceName(deviceId: string): string {
+  return devices.get(deviceId)?.name ?? '';
+}
+
 /** A device saying how much of its view it is willing to share. */
 export function setDeviceMediaTier(deviceId: string, tier: MediaTier): void {
   const device = devices.get(deviceId);

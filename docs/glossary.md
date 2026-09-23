@@ -392,11 +392,13 @@ Pairing state is the device identity and shared credential. Device state describ
 name, camera selection, per-lens calibration and zoom, power delays, and media tier. Unpairing
 removes the relationship but preserves the hardware settings and presentation zoom on the phone.
 
-### Tip, throw window, tracked dart, takeout, and scoring session
+### Tip, throw window, tracked dart, detection record, takeout, and scoring session
 
 - **Tip:** one device observation of a dart tip in board coordinates.
 - **Throw window:** the interval in which observations of the same throw are fused.
 - **Tracked dart:** a dart the server believes remains in the board.
+- **Detection record:** the `detection` a camera-scored dart keeps of the throw window it came from:
+  scorers expected, reporting and contributing, and the winning scorer's name and confidence.
 - **Takeout:** an empty observation from every active camera, meaning the darts were removed.
 - **Scoring session:** the per-match, per-board object that owns fusion and tracking state.
 

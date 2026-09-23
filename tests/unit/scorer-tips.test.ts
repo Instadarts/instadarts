@@ -193,6 +193,19 @@ describe('camera darts', () => {
     expect(visitLabels(match())).toEqual(['S20', 'T20']);
   });
 
+  it('a camera dart records its window and the scorer\'s name; a manual one records none', () => {
+    const { frontend, scorer, match } = setup();
+    scorer.send({ type: 'scorer_name', name: 'Left phone' });
+    frontend.send({ type: 'add_dart', dart: { x: polar(150_000, 0)[0], y: polar(150_000, 0)[1] } });
+    tips(scorer, T20);
+
+    const [manual, camera] = match().currentVisit!.darts;
+    expect(manual.detection).toBeUndefined();
+    expect(camera.detection).toEqual(
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left phone', winningConfidence: 0.9 },
+    );
+  });
+
   it('a manual submit hands the next player a clean board', () => {
     const { frontend, scorer, match } = setup();
     tips(scorer, ...T20_GROUP);

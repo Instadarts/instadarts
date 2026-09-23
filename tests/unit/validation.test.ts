@@ -233,6 +233,16 @@ describe('validateDartThrow', () => {
     expect(result!.score.points).toBe(50);
   });
 
+  it('drops a client-supplied detection record — only a camera dart carries one', () => {
+    const result = validateDartThrow({
+      x: 500_000,
+      y: 500_000,
+      detection: { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left', winningConfidence: 1 },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.detection).toBeUndefined();
+  });
+
   it('accepts edge coordinates', () => {
     expect(validateDartThrow({ x: 0, y: 0 })).not.toBeNull();
     expect(validateDartThrow({ x: 1_000_000, y: 1_000_000 })).not.toBeNull();

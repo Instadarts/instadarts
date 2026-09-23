@@ -1,8 +1,9 @@
 // Board-plane tips → darts with numbers on them.
 //
 // The camera does the lens, the model and the geometry — everything that is a property of one lens
-// on one mount — and hands over a board coordinate. From here on nothing knows or cares which
-// camera produced it, with two consequences:
+// on one mount — and hands over a board coordinate. From here on, which camera produced it never
+// changes how it is scored — it is only recorded, in the dart's detection record — with two
+// consequences:
 //
 //   · A tip becomes a number only AFTER fusion. Scoring happens once, here, on the fused position
 //     — never per camera, which is what makes two cameras agreeing on a dart produce one dart.
@@ -18,11 +19,11 @@ import type { TipReport } from './throwWindow';
 export interface ScoredDart {
   x: number;
   y: number;
+  /** The camera whose tip is the dart's position, and that tip's confidence. */
+  deviceId: string;
   confidence: number;
   /** How many distinct cameras contributed to this dart. */
   cameraCount: number;
-  /** How many tips were fused into it — one camera may contribute more than one. */
-  sightings: number;
   score: ScoreResult;
 }
 
@@ -68,9 +69,9 @@ export class DartTracker {
       fresh.push({
         x: candidate.x,
         y: candidate.y,
+        deviceId: candidate.deviceId,
         confidence: candidate.confidence,
         cameraCount: candidate.cameraCount,
-        sightings: candidate.observations.length,
         score: scoreFromBoardCoords(candidate.x, candidate.y),
       });
     }

@@ -52,6 +52,8 @@ export interface ScoringSessionOptions {
   ownerPlayerIds: string[];
   /** Persist and broadcast a mutated match. */
   commit: (match: MatchState) => void;
+  /** What a scoring device currently calls itself, for the detection record on its darts. */
+  scorerName: (deviceId: string) => string;
 }
 
 export class ScoringSession {
@@ -173,7 +175,18 @@ export class ScoringSession {
       const before = current.currentVisit?.darts.length ?? 0;
       // A refusal is not a failure: it is not this player's turn, or the visit has no room. Either
       // way the dart stays tracked, so it is never counted twice and never silently forgotten.
-      const outcome = addDartToMatch(current, playerId, { x: dart.x, y: dart.y, score: dart.score });
+      const outcome = addDartToMatch(current, playerId, {
+        x: dart.x,
+        y: dart.y,
+        score: dart.score,
+        detection: {
+          expectedScorers: result.expected,
+          reportingScorers: result.reports.length,
+          contributingScorers: dart.cameraCount,
+          winningScorer: this.opts.scorerName(dart.deviceId),
+          winningConfidence: dart.confidence,
+        },
+      });
       if (!outcome.success) break;
       const after = outcome.match.currentVisit?.darts.length ?? 0;
       if (after === before) break; // locked: the visit is full or already won

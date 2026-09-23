@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BOARD_CENTER } from '../../src/shared/scoring';
 import { ScoringSession } from '../../src/server/scoring/session';
+import { THROW_WINDOW_MAX_MS } from '../../src/server/scoring/throwWindow';
 import { submitVisitToMatch } from '../../src/server/match';
 import type { MatchState } from '../../src/shared/types';
 import type { BoardTip } from '../../src/shared/vision/types';
@@ -28,6 +29,9 @@ const S20 = polar(150_000, 0);
 const D20 = polar(365_000, 0);
 const S1 = polar(150_000, 18);
 
+/** What each test camera calls itself. */
+const SCORER_NAMES: Record<string, string> = { 'cam-a': 'Left', 'cam-b': 'Right' };
+
 /**
  * A live match plus a session watching it, wired the way the server wires them: the session
  * re-resolves the match every time, and commits replace it.
@@ -47,6 +51,7 @@ function harness(overrides: Parameters<typeof makeMatch>[0] = {}, owner: string[
       match = next;
       commits.push(next);
     },
+    scorerName: (deviceId) => SCORER_NAMES[deviceId] ?? '',
   });
   session.setCameraActive('cam-a', true);
 
@@ -108,6 +113,104 @@ describe('ScoringSession — darts', () => {
     const h = harness({ status: 'finished' });
     h.see('cam-a', tip(T20));
     expect(h.commits).toHaveLength(0);
+  });
+});
+
+describe('ScoringSession — detection record', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function detections(match: MatchState) {
+    return (match.currentVisit?.darts ?? []).map((d) => d.detection);
+  }
+
+  it('records a lone scorer as the whole window', () => {
+    const h = harness();
+    h.see('cam-a', tip(T20));
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+    ]);
+  });
+
+  it('names the scorer with the most confident tip when two agree', () => {
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20, 0.8));
+    h.see('cam-b', tip(T20, 0.95));
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Right', winningConfidence: 0.95 },
+    ]);
+  });
+
+  it('counts a scorer that reported but did not see the dart as reporting, not contributing', () => {
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20), tip(S1));
+    h.see('cam-b', tip(T20));
+    const s1 = h.match.currentVisit!.darts.find((d) => d.score.label === 'S1');
+    expect(s1?.detection).toEqual(
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+    );
+  });
+
+  it('shows a window that closed on its timeout as fewer reporting than expected', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20));
+    expect(h.match.currentVisit).toBeUndefined(); // still waiting for cam-b
+
+    vi.advanceTimersByTime(THROW_WINDOW_MAX_MS);
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+    ]);
+  });
+
+  it('counts the scorers active when the window opened, even one that stops before reporting', () => {
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20));
+    h.session.setCameraActive('cam-b', false); // releases the window at once
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+    ]);
+  });
+
+  it('counts a scorer that starts while the window is open, so reporting never exceeds expected', () => {
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20));
+    h.session.setCameraActive('cam-c', true);
+    h.see('cam-b', tip(T20));
+    h.see('cam-c', tip(T20));
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 3, reportingScorers: 3, contributingScorers: 3, winningScorer: 'Left', winningConfidence: 0.9 },
+    ]);
+  });
+
+  it('is a snapshot: a later sighting by another scorer leaves it alone', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.session.setCameraActive('cam-b', true);
+    h.see('cam-a', tip(T20));
+    vi.advanceTimersByTime(THROW_WINDOW_MAX_MS);
+
+    h.see('cam-a', tip(T20));
+    h.see('cam-b', tip(T20, 0.99));
+    expect(detections(h.match)).toEqual([
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+    ]);
+  });
+
+  it('survives into the submitted visit, and a padded miss has none', () => {
+    const h = harness();
+    h.see('cam-a', tip(T20));
+    h.manualSubmit();
+    const [dart, miss] = h.match.visits[0].darts;
+    expect(dart.detection?.winningScorer).toBe('Left');
+    expect(miss.score.label).toBe('miss');
+    expect(miss.detection).toBeUndefined();
   });
 });
 

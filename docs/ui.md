@@ -191,6 +191,12 @@ each square grows within that middle space until either its height or its matchi
 becomes the limit, and remains centred under that slot. If the box is shorter than its minimum
 content, its body scrolls with both the slots and footer reachable.
 
+Once a dart is thrown, its evidence square's tooltip says where the dart came from, and so does a
+caption in the enlarged picture: "Manually added", or "Detected by <scorer> (c/r/e)". Here c is the
+scorers that saw the dart, r the scorers that reported in its throw window, and e the most scorers
+active at once while that window was open (see
+[Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to right.
+
 A match grid can drop a box too — the summary omits its re-match box for a spectator, an API-managed
 match, and a match somebody has left — and because nothing compacts, every remaining box keeps the position it was
 given. The re-match box is the trailing summary item, so removing it shortens the grid at the result

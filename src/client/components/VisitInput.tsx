@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { DartThrow, ViewText } from '../../shared/types';
 import { textOf, toneOf } from '../../shared/types';
 import { DartEvidence } from './DartEvidence';
+import { dartOrigin } from './dartOrigin';
 import { modeTextProps, slotStyle } from './modeText';
 
 interface VisitInputProps {
@@ -30,7 +31,8 @@ export function VisitInput({
 }: VisitInputProps) {
   const filled: ViewText[] = slots ?? darts.map((dart) => `${dart.score.label} (${dart.score.points})`);
   const rootRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // The dart is taken with the picture, so the caption stays with it if the visit moves on.
+  const [open, setOpen] = useState<{ image: string; dart?: DartThrow } | null>(null);
   const visitTotalVisible = textOf(visitTotal) !== '';
   const footerVisible = visitTotalVisible || !hideActions;
 
@@ -110,9 +112,10 @@ export function VisitInput({
               <Box className="visit-input__evidence-space" data-testid="visit-evidence-space">
                 <DartEvidence
                   image={evidence?.[index]}
+                  dart={darts[index]}
                   index={index}
                   unavailable={evidence === null || Boolean(darts[index])}
-                  onOpen={setOpen}
+                  onOpen={(image) => setOpen({ image, dart: darts[index] })}
                 />
               </Box>
             </Box>
@@ -140,7 +143,12 @@ export function VisitInput({
         </Stack>
       )}
       <Modal opened={open !== null} onClose={() => setOpen(null)} title="Dart evidence" centered size="auto">
-        {open && <img src={open} alt="" style={{ display: 'block', maxWidth: '90vw', maxHeight: '80dvh', objectFit: 'contain' }} />}
+        {open && <img src={open.image} alt="" style={{ display: 'block', maxWidth: '90vw', maxHeight: '80dvh', objectFit: 'contain' }} />}
+        {open?.dart && (
+          <Text ta="center" size="sm" c="dimmed" mt="xs" data-testid="dart-origin">
+            {dartOrigin(open.dart)}
+          </Text>
+        )}
       </Modal>
     </Stack>
   );

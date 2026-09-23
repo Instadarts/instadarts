@@ -33,6 +33,11 @@ export interface WindowResult {
   reports: TipReport[];
   reason: CloseReason;
   elapsedMs: number;
+  /**
+   * The most cameras active at once while the window was open: counted when it opens, raised by a
+   * camera that starts, never lowered by one that stops. Every report comes from an active camera
+   * and the window closes as soon as all active ones have reported, so `reports` never outnumbers it.
+   */
   expected: number;
 }
 
@@ -52,6 +57,7 @@ export class ThrowWindows {
     timer: ReturnType<typeof setTimeout>;
     openedAt: number;
     reason: CloseReason;
+    expected: number;
   } | null = null;
 
   constructor(opts: Options) {
@@ -74,6 +80,7 @@ export class ThrowWindows {
         timer: setTimeout(() => this.close(reason), timeout),
         openedAt: now,
         reason,
+        expected: Math.max(1, this.opts.expectedCameras()),
       };
     } else {
       // How late this camera was relative to the one that opened the window — the only difference
@@ -99,20 +106,22 @@ export class ThrowWindows {
 
   private closeIfComplete(): void {
     if (!this.open) return;
-    if (this.open.buffer.size < Math.max(1, this.opts.expectedCameras())) return;
+    const active = Math.max(1, this.opts.expectedCameras());
+    this.open.expected = Math.max(this.open.expected, active);
+    if (this.open.buffer.size < active) return;
     clearTimeout(this.open.timer);
     this.close('all-cameras');
   }
 
   private close(reason: CloseReason): void {
     if (!this.open) return;
-    const { buffer, openedAt } = this.open;
+    const { buffer, openedAt, expected } = this.open;
     this.open = null;
     this.opts.onClose({
       reports: [...buffer.values()],
       reason,
       elapsedMs: Date.now() - openedAt,
-      expected: Math.max(1, this.opts.expectedCameras()),
+      expected,
     });
   }
 

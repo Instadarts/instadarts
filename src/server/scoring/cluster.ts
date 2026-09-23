@@ -29,6 +29,8 @@ export interface DartCandidate {
   x: number;
   y: number;
   confidence: number;
+  /** The camera that saw the seed tip. */
+  deviceId: string;
   observations: DartPoint[];
   /** Number of distinct cameras that contributed. */
   cameraCount: number;
@@ -114,6 +116,7 @@ export function clusterNewTips(survivors: DartPoint[]): DartCandidate[] {
         x: tip.x,
         y: tip.y,
         confidence: tip.confidence,
+        deviceId: tip.deviceId,
         observations: [tip],
         cameraCount: 0, // finalised below
       });

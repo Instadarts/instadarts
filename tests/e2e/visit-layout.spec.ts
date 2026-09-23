@@ -110,6 +110,39 @@ test('renders unavailable, unthrown, pending and received evidence states', asyn
   await expect(page.getByRole('img', { name: /evidence unavailable/ })).toHaveCount(0);
 });
 
+test('says where each dart came from, on the tile and in the popup', async ({ page }) => {
+  const image = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="green"/></svg>';
+  await render(page, {
+    thrown: 3,
+    evidence: [image, image, undefined],
+    detections: [
+      { expectedScorers: 3, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left phone', winningConfidence: 0.9 },
+      undefined,
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: '', winningConfidence: 0.8 },
+    ],
+  });
+
+  const tiles = page.getByTestId('dart-evidence');
+  await expect(tiles.nth(0)).toHaveAttribute('title', 'Detected by Left phone (2/2/3)');
+  await expect(tiles.nth(1)).toHaveAttribute('title', 'Manually added');
+  // No picture, but the dart is there and so is where it came from.
+  await expect(tiles.nth(2)).toHaveAttribute('title', 'Detected by an unnamed scorer (1/1/1)');
+
+  await page.getByRole('button', { name: 'Dart 1 evidence', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Dart evidence' }).getByTestId('dart-origin'))
+    .toHaveText('Detected by Left phone (2/2/3)');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Dart 2 evidence', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Dart evidence' }).getByTestId('dart-origin'))
+    .toHaveText('Manually added');
+  await page.keyboard.press('Escape');
+
+  await render(page, { thrown: 0, evidence: [] });
+  await expect(page.locator('[data-testid="dart-evidence"][title]')).toHaveCount(0);
+});
+
 for (const scheme of ['dark', 'light'] as const) {
   test(`uses surface-colored crossed cameras in ${scheme} mode`, async ({ page }) => {
     await render(page, { scheme });

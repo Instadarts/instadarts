@@ -1,19 +1,24 @@
 import { AspectRatio, Box, UnstyledButton } from '@mantine/core';
+import type { DartThrow } from '../../shared/types';
 import { CameraIcon } from './AppIcons';
+import { dartOrigin } from './dartOrigin';
 
 interface DartEvidenceProps {
   image?: string;
+  /** The dart this slot shows evidence for, once one has been thrown. */
+  dart?: DartThrow;
   index: number;
   unavailable: boolean;
   onOpen: (image: string) => void;
 }
 
-export function DartEvidence({ image, index, unavailable, onOpen }: DartEvidenceProps) {
+export function DartEvidence({ image, dart, index, unavailable, onOpen }: DartEvidenceProps) {
   return (
     <AspectRatio
       ratio={1}
       bg="var(--instadarts-surface-raised)"
       w="100%"
+      title={dart ? dartOrigin(dart) : undefined}
       data-testid="dart-evidence"
       style={{
         borderRadius: 'var(--mantine-radius-sm)',

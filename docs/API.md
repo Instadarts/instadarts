@@ -292,6 +292,11 @@ history. Omitted `includeHistory` or `false` returns only the summary.
 History uses the existing scoring types. Each completed leg contains `winnerId` and `visits`; a
 visit contains `playerId`, `visitNumber`, `voided`, and `darts`. Each dart includes coordinates and
 its computed score (`label`, `points`, `mult`, `base`), and accepted darts have server-assigned IDs.
+A dart scored by camera also has `detection`: `expectedScorers` and `reportingScorers` (the most
+scorers active at once while the throw window was open, and those that reported in it),
+`contributingScorers` (scorers that saw this dart; contributing ≤ reporting ≤ expected), `winningScorer` (the device name of the scorer whose tip set the position,
+possibly empty), and `winningConfidence` (the model's 0–1 confidence in that tip). Manually entered
+darts and padded misses have no `detection`.
 The current visit is unsubmitted and may still change through scoring or undo.
 
 ### List the caller's matches

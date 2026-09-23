@@ -102,6 +102,7 @@ describe('clusterNewTips', () => {
     // The seed is the highest-confidence sighting, not an average nobody observed.
     expect(candidates[0].x).toBe(T20[0] + 4_000);
     expect(candidates[0].confidence).toBe(0.95);
+    expect(candidates[0].deviceId).toBe('cam-b');
   });
 
   it('keeps a tight three-dart group as three darts', () => {
@@ -140,7 +141,8 @@ describe('DartTracker', () => {
     ]);
     expect(darts).toHaveLength(1);
     expect(darts[0].cameraCount).toBe(2);
-    expect(darts[0].sightings).toBe(2);
+    expect(darts[0].deviceId).toBe('cam-b');
+    expect(darts[0].confidence).toBe(0.95);
     expect(darts[0].score.label).toBe('T20');
   });
 
@@ -240,6 +242,22 @@ describe('ThrowWindows', () => {
     windows.recount();
     expect(closed).toHaveLength(1);
     expect(closed[0].reason).toBe('all-cameras');
+    // Counted when the window opened, when the camera that left was still expected.
+    expect(closed[0].expected).toBe(2);
+  });
+
+  it('counts a camera that starts while the window is open as expected', () => {
+    let expected = 2;
+    const { windows, closed } = harness(() => expected);
+    windows.add(report('cam-a', tip(T20)));
+    expected = 3;
+    windows.recount();
+    windows.add(report('cam-b', tip(T20)));
+    expect(closed).toHaveLength(0); // now waiting for cam-c as well
+    windows.add(report('cam-c', tip(T20)));
+    expect(closed).toHaveLength(1);
+    expect(closed[0].reports).toHaveLength(3);
+    expect(closed[0].expected).toBe(3);
   });
 
   it('falls back to the cap when it has no latency history', async () => {

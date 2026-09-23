@@ -63,6 +63,33 @@ export interface DartThrow {
   x: number;
   y: number;
   score: ScoreResult;
+  /** How the scorers arrived at this dart. Present only on a dart a camera scored. */
+  detection?: DartDetection;
+}
+
+/**
+ * The throw window a camera dart came out of, frozen when the dart was scored.
+ *
+ * A snapshot: a scorer that sees the same dart in a later window attaches to it without changing
+ * any of this. The counts are ordered: contributing ≤ reporting ≤ expected.
+ */
+export interface DartDetection {
+  /** The most scorers active at once while the window was open. One that stops is still counted. */
+  expectedScorers: number;
+  /**
+   * Scorers that reported inside the window, an empty report included. Below expected when one
+   * timed out or stopped before reporting.
+   */
+  reportingScorers: number;
+  /** Distinct scorers whose tips were fused into this dart. */
+  contributingScorers: number;
+  /**
+   * Name of the scorer whose tip, the highest-confidence one, is the dart's position. A name rather
+   * than a device id, because match history reaches every participant and the API. May be empty.
+   */
+  winningScorer: string;
+  /** The model's confidence in that tip, 0–1. */
+  winningConfidence: number;
 }
 
 export interface Visit {

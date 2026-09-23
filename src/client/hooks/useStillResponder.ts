@@ -6,9 +6,9 @@
 //   · **Only the owner may ask.** A request from any other peer is dropped in silence — not refused,
 //     ignored — which is what stops an opponent deciding what somebody else's camera photographs.
 //     The roster is what says who the owner is; this file only reads it.
-//   · **The answer goes to everyone.** One capture, one encode, written to every open link. The
-//     opponent and any spectators see exactly the picture the owner asked for, which is the whole
-//     shape of the feature: they are observers, not requesters.
+//   · **The answer goes to everyone.** One capture, one encode, written to every open link. Each
+//     viewer keeps its first valid response, so competing cameras can produce different selections.
+//     Opponents and spectators are observers, not requesters.
 
 import { useCallback, useRef } from 'react';
 import type { ControlMessage, MediaRole, Region, StillRefusal } from '../../shared/media';
@@ -113,7 +113,7 @@ export function useStillResponder(
         try {
           const mesh = job.mesh;
           const source = sourceRef.current;
-          if (!source || !stillWanted(job)) continue;
+          if (!stillWanted(job) || !source) continue;
 
           const startedAt = performance.now();
           const capture = await source.capture(job.region ?? { cx: 0.5, cy: 0.5, size: 1 });
@@ -145,9 +145,7 @@ export function useStillResponder(
             }].slice(-TIMING_LIMIT);
           }
           // Every viewer the request addressed, which for dart evidence is all of them. One capture
-          // and one encode however many that is, and they receive the identical bytes — which is what
-          // keeps this camera the single account of what its board looks like, so an observer's copy
-          // cannot drift from the owner's.
+          // and one encode, with identical bytes on every link that accepts this response.
           //
           // A link that will not take one — never open, or a still bigger than the peer agreed to
           // receive — goes without, and the rest of the loop still runs. Which is the whole reason

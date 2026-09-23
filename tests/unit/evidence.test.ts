@@ -485,17 +485,23 @@ describe('asynchronous still capture', () => {
     expect(f.wires.get('owner')!.sendControl).not.toHaveBeenCalled();
   });
 
-  it.each([['restarted', {}], ['no_frame', null]] as const)('tells the owner %s when the stream changes under its work', async (reason, next) => {
+  it.each([
+    { reason: 'restarted', next: {}, removeSource: false },
+    { reason: 'no_frame', next: null, removeSource: false },
+    { reason: 'no_frame', next: null, removeSource: true },
+  ] as const)('tells the owner $reason when the stream changes (missing source: $removeSource)', async ({ reason, next, removeSource }) => {
     const f = meshFixture();
     let resolve!: (value: Capture) => void;
     const pending = new Promise<Capture>((done) => { resolve = done; });
     let sourceIdentity: object | null = {};
     const source = { capture: vi.fn(() => pending), located: () => true, identity: () => sourceIdentity };
-    const responder = render(() => useStillResponder({ current: f.mesh }, { current: source }));
+    const sourceRef = { current: source as typeof source | null };
+    const responder = render(() => useStillResponder({ current: f.mesh }, sourceRef));
     responder.handleControl('owner', { kind: 'still_request', id: 'one', to: ['owner'] });
     responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
-    // A camera restart is a new stream; a camera switched off is none.
+    // A camera restart is a new stream; stopping may also remove the source wrapper entirely.
     sourceIdentity = next;
+    if (removeSource) sourceRef.current = null;
     resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });
     const send = f.wires.get('owner')!.sendControl;
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));

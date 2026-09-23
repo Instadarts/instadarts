@@ -206,8 +206,10 @@ Warm-up and real captures share a serial barrier across camera restarts; failure
 camera startup, and stale completion cannot arm a stopped or replaced camera.
 
 **Dart evidence** is the still associated with a slot in the visit in progress. The thrower's
-frontend requests it when a dart appears, every eligible viewer receives the same image, undo
-removes it with the dart, and submitting clears it with the visit.
+frontend requests it when a dart appears. Each response sends identical image bytes to eligible
+viewers, and each viewer keeps its first valid response. When replies from different cameras
+race, screens can select different pictures. Undo removes evidence with its dart, and submitting
+clears it with the visit.
 
 It asks the scorer that placed the dart, matching `detection.winningScorerId` to the roster's
 `scorerId`, since that camera saw it. A manually added dart, or one whose scorer is not a member,

@@ -263,9 +263,8 @@ export function useDartEvidence({
         id,
         region,
         tag: { kind: 'dart_evidence', matchId, boardId, visitId, dartId, dart: index } satisfies EvidenceTag,
-        // Everyone. Evidence is the case the fan-out was built for: an observer's copy of what a
-        // dart did must not be able to drift from the thrower's, and the only way to guarantee that
-        // is for all of them to be looking at the same photograph.
+        // Each response sends identical bytes to every viewer. Each keeps its first valid response;
+        // replies from different cameras can arrive in different orders on different screens.
         to: [...MEDIA_ROLES],
       });
       // Recorded as asked only once the link actually took it. A channel that is not open yet drops

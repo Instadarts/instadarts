@@ -510,6 +510,9 @@ describe('topology and source intent', () => {
 
     expect(entryFor(user, camera)).toMatchObject({ own: true }); // control/stills edge
     expect(entryFor(watcher, camera)).toBeDefined();
+    for (const field of ['scorer', 'scorerId', 'live', 'cameraOn']) {
+      expect(entryFor(watcher, camera)).not.toHaveProperty(field);
+    }
     expect(camera.last('media_source_state')).toMatchObject({ active: true, audience: ['spectator'] });
     // One board, so one slot — and one declaration completes setup however many players stand at it.
     // Slots keyed per player instead would wait here for a declaration nothing can send.

@@ -193,7 +193,8 @@ content, its body scrolls with both the slots and footer reachable.
 
 Once a dart is thrown, its evidence square's tooltip says where the dart came from, and so does a
 caption in the enlarged picture: "Manually added", or "Detected by <scorer> (c/r/e)", naming the
-scorer by its label — the same name the camera menu shows, and the scorer the picture was asked of. Here c is the
+scorer by its label when the dart was scored. The picture may come from a fallback camera; unnamed
+scorers may also have a different placeholder name in the camera menu. Here c is the
 scorers that saw the dart, r the scorers that reported in its throw window, and e the most scorers
 active at once while that window was open (see
 [Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to right.

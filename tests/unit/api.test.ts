@@ -451,7 +451,7 @@ describe('detection records in the history', () => {
     const [camera, manual] = result.history.currentVisit.darts;
     expect(camera.score.label).toBe('T20');
     expect(camera.detection).toEqual({
-      expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Board', winningConfidence: 0.9,
+      expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Board', winningScorerId: expect.any(String), winningConfidence: 0.9,
     });
     expect(manual.score.label).toBe('T20');
     expect(manual).not.toHaveProperty('detection');

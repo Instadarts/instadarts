@@ -368,7 +368,8 @@ before they see its live video; see [Match-scoped media](./media.md).
 
 A scorer's **label** is its name made unique among the devices one frontend holds: a clash gets
 " (2)", " (3)" in claim order, and a phone with no name is "Scorer". Detection records and the owner's
-media roster identify a scorer by it, so the device id never has to leave the server.
+media roster display that label; evidence routing uses a stable public scorer ID scoped to the match,
+without exposing the private device ID.
 
 ### Camera off, standby, and power off
 

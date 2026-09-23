@@ -270,7 +270,7 @@ test.describe('dart evidence', () => {
     await scorer.context.close();
   });
 
-  test('undo takes the evidence with it', async ({ browser }) => {
+  test('keeps evidence when the camera stops, and removes it on undo', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
@@ -284,6 +284,16 @@ test.describe('dart evidence', () => {
     await scan(scorer.page);
     await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+
+    // Stopping the last camera must not hide pictures that have already arrived.
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 10_000 }).toBe(3);
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+    const controls = scoringDeviceControls(host, 'Alice board');
+    await controls.getByRole('button', { name: 'Camera off' }).click();
+    await expect(controls.getByRole('button', { name: 'Camera on' })).toBeVisible();
+    await expect(evidenceImages(host)).toHaveCount(3);
+    await expect(evidenceImages(guest)).toHaveCount(3);
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
 
     await host.getByRole('button', { name: 'Undo' }).click();
 

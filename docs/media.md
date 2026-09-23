@@ -133,7 +133,8 @@ the device to another slot or explicitly unclaiming it withdraws it.
 Only a frontend's edge to one of its own scorers describes the device: `scorer` is its **label** —
 its name, made unique among that owner's devices with " (2)", " (3)" in claim order, and the name a
 dart's `detection.winningScorer` carries — `live` marks the nominated board camera, and `cameraOn`
-says whether it can take a picture now. No other edge names a device.
+says whether it can take a picture now. `scorerId` is its stable public identity within this match,
+matching `detection.winningScorerId` even after a rename or reconnect. No other edge names a device.
 
 ## Source coordination and feeds
 
@@ -201,10 +202,11 @@ camera startup, and stale completion cannot arm a stopped or replaced camera.
 frontend requests it when a dart appears, every eligible viewer receives the same image, undo
 removes it with the dart, and submitting clears it with the visit.
 
-It asks the scorer that placed the dart, found by matching `detection.winningScorer` against its
-roster labels, since that camera saw it. A manually added dart, or one whose scorer is not a member,
-goes to the live camera and then the other scorers by label. Only scorers with `cameraOn` are asked;
-with none there is no evidence, and the strip shows the unavailable state.
+It asks the scorer that placed the dart, matching `detection.winningScorerId` to the roster's
+`scorerId`, since that camera saw it. A manually added dart, an older dart without that ID, or one
+whose scorer is not a member goes to the live camera and then the other scorers by label. Only
+scorers with `cameraOn` are asked. Received pictures remain visible when all cameras stop; the strip
+shows the unavailable state only when it has neither pictures nor a source.
 
 Each accepted dart receives a server-assigned `id`; the first dart also establishes the current
 visit's `id`. Appending and undo preserve the remaining identities, while a replacement dart gets
@@ -217,8 +219,9 @@ request; observers cannot know which scorer was asked and receive the fan-out wi
 their own requests. Duplicate replies cannot replace an accepted image. Missing or outdated identity
 tags are ignored, including index-only tags from older clients. A change of board or visit clears
 evidence, and undo/replacement removes only the affected dart images and requests fresh ones. A
-request whose link has gone is asked again of the best remaining scorer; a picture already received
-stays.
+request whose link has gone or whose camera stopped is asked again of the best remaining scorer.
+A refusal also tries another scorer, excluding that link for this dart to avoid retry loops.
+A picture already received stays visible even if every camera stops.
 
 ### Director commands and the virtual camera
 

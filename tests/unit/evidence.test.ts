@@ -53,7 +53,7 @@ function render<T>(hook: () => T): T {
 /** A scorer of the thrower's own, as the owner's roster describes it. */
 function ownScorer(peerId: string, scorer: string, fields: Partial<MediaPeer> = {}): MediaPeer {
   return { peerId, kind: 'device', playerId: 'board', tier: 'stills', own: true, role: 'owner',
-    polite: false, send: true, recv: false, scorer, live: false, cameraOn: true, ...fields };
+    polite: false, send: true, recv: false, scorer, scorerId: `public-${peerId}`, live: false, cameraOn: true, ...fields };
 }
 
 function meshFixture(extra: MediaPeer[] = []) {
@@ -179,6 +179,23 @@ describe('dart evidence admission', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     expect(f.wires.get('camera')!.sendControl).toHaveBeenCalledTimes(2);
   });
+  it.each([true, false])('keeps received evidence available after every source leaves (thrower=%s)', (isThrower) => {
+    const f = setup(isThrower);
+    f.run().handleControl('camera', f.response, bytes);
+    const image = f.run().images[0];
+    f.peers.splice(0);
+    f.wires.clear();
+    f.options.links = f.mesh.links();
+    const evidence = f.run();
+    expect(evidence.available).toBe(true);
+    expect(evidence.images[0]).toBe(image);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    f.options.enabled = false;
+    f.run();
+    expect(f.run().available).toBe(false);
+    expect(f.run().images).toEqual([]);
+  });
+
   it('rejects legacy index-only tags', () => {
     const f = setup();
     f.run().handleControl('camera', { ...f.response, tag: { dart: 0 } }, bytes);
@@ -221,7 +238,7 @@ describe('dart evidence admission', () => {
 
 describe('which scorer is asked', () => {
   const placedBy = (winningScorer: string): Partial<DartThrow> => ({ detection: {
-    expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer, winningConfidence: 0.9,
+    expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer, winningScorerId: `public-${winningScorer.toLowerCase()}`, winningConfidence: 0.9,
   } satisfies DartDetection });
   const asked = (f: ReturnType<typeof setup>, peerId: string) => f.wires.get(peerId)!.sendControl.mock.calls.length;
 
@@ -229,6 +246,26 @@ describe('which scorer is asked', () => {
     const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
     expect(asked(f, 'left')).toBe(1);
     expect(asked(f, 'camera')).toBe(0);
+  });
+
+  it('retries the same winning scorer after its old label moves to another camera', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    f.peers.find((peer) => peer.peerId === 'left')!.scorer = 'Renamed';
+    f.peers.find((peer) => peer.peerId === 'camera')!.scorer = 'Left';
+    f.wires.set('left', { sendControl: vi.fn(() => true) });
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(0);
+    expect(f.options.currentVisit.darts[0].detection?.winningScorer).toBe('Left');
+  });
+
+  it('uses the fallback for older darts without a stable scorer identity', () => {
+    const dart = placedBy('Left');
+    delete dart.detection!.winningScorerId;
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart });
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(0);
   });
 
   it('falls back to the live camera when the scorer that placed the dart is not sharing', () => {
@@ -270,6 +307,39 @@ describe('which scorer is asked', () => {
     f.options.links = f.mesh.links();
     f.run();
     expect(asked(f, 'camera')).toBe(1);
+  });
+
+  it('falls back when the live camera stops without losing its link', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    f.run().handleControl('camera', f.response, bytes);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('falls back on a matching refusal without looping, and clears refusals on dart replacement', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const leftRequest = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    const refusal: ControlMessage = { kind: 'still_refused', id: leftRequest.id, reason: 'no_frame' };
+    f.run().handleControl('camera', refusal); // wrong sender
+    f.run().handleControl('left', { ...refusal, id: 'stale' });
+    f.run();
+    expect(asked(f, 'camera')).toBe(0);
+    f.run().handleControl('left', refusal);
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    const cameraRequest = f.wires.get('camera')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...refusal, id: cameraRequest.id });
+    f.run();
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(1);
+    f.options.currentVisit = { ...f.options.currentVisit, darts: [{ ...f.options.currentVisit.darts[0], id: 'replacement' }] };
+    f.run();
+    expect(asked(f, 'left')).toBe(2);
   });
 
   it('takes the answer only from the scorer it asked', () => {

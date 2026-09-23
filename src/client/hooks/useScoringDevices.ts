@@ -27,7 +27,7 @@ export interface DeviceView extends PairedDevice {
   cameraError?: string;
   /**
    * How much of its view this device is willing to share, as the phone itself decided. Only a device
-   * offering something may be nominated as the board camera — and this is the phone's answer, which
+   * offering live video may be nominated as the board camera — and this is the phone's answer, which
    * no frontend can overrule.
    */
   media: MediaTier;

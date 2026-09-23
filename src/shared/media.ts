@@ -163,13 +163,14 @@ export interface MediaPeer {
    * Set only on a frontend's edge to one of its own scoring devices — nobody else is told anything
    * about somebody's cameras.
    *
-   *   · `scorer` — its label, unique among the owner's devices. A dart's detection record names the
-   *     scorer that placed it by the same label, which is how a frontend asks that one for evidence.
+   *   · `scorer` — its display label, unique among the owner's devices.
+   *   · `scorerId` — its stable identity within the match, matching detection.winningScorerId.
    *   · `live` — it is the nominated board camera, publishing live video. Director commands go here.
    *   · `cameraOn` — it can take a picture now. Always true for a scorer that is only here for
    *     stills; the live camera stays in the roster through a camera restart and may be false.
    */
   scorer?: string;
+  scorerId?: string;
   live?: boolean;
   cameraOn?: boolean;
   /**

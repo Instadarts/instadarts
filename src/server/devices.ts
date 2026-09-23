@@ -394,11 +394,9 @@ export function devicesForSession(sessionId: string): DeviceView[] {
 /**
  * A name for each of this session's devices that none of the others shares.
  *
- * A phone names itself and two may well pick the same name, but a dart's detection record and the
- * owner's media roster both identify a scorer by this label, so it has to tell them apart without
- * the device id — which is enough to squat a pairing and never leaves the server. A name keeps
- * itself if it is free; a clash gets " (2)", " (3)" in claim order, compared regardless of case,
- * and a phone with no name at all is "Scorer".
+ * A phone names itself and two may well pick the same name. A name keeps itself if it is free;
+ * a clash gets " (2)", " (3)" in claim order, compared regardless of case, and an unnamed phone
+ * is "Scorer". These are display labels; evidence routing uses `scorerId`.
  */
 export function scorerLabels(sessionId: string): Map<string, string> {
   const labels = new Map<string, string>();
@@ -419,6 +417,11 @@ export function scorerLabel(deviceId: string): string {
   const owner = ownerOf(deviceId);
   const label = owner ? scorerLabels(owner).get(deviceId) : undefined;
   return label ?? (devices.get(deviceId)?.name.trim() || 'Scorer');
+}
+
+/** Stable within a match, without exposing the private device id or relying on mutable labels. */
+export function scorerId(matchId: string, deviceId: string): string {
+  return createHash('sha256').update(JSON.stringify(['scorer', matchId, deviceId])).digest('base64url');
 }
 
 // ============================================================

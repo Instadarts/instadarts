@@ -13,7 +13,7 @@ import { INTERNAL_ICE } from '../shared/config';
 import { CONFIG } from './config';
 import { MEDIA_PEERS_PER_PEER, MEDIA_VIEWERS_PER_ROOM } from './capacity';
 import { allClients, getClient, send } from './connections';
-import { devicesForSession, isCameraActive, ownerOf, scorerLabel, setDeviceMediaTier } from './devices';
+import { devicesForSession, isCameraActive, ownerOf, scorerId, scorerLabel, setDeviceMediaTier } from './devices';
 import { getMatch } from './store';
 import { meshEligible } from './match';
 import { getMode } from './modes/types';
@@ -198,8 +198,9 @@ interface Participant {
   slotId: string | null;
   tier: Exclude<MediaTier, 'disabled'>;
   playerId?: string;
-  /** Devices only: the scorer label, whether it is the live board camera, and whether it can shoot. */
+  /** Devices only: scorer identity and label, live nomination, and camera readiness. */
   label?: string;
+  scorerId?: string;
   live?: boolean;
   cameraOn?: boolean;
 }
@@ -347,6 +348,7 @@ function boardDevices(
       ws, peerId: binding.peerId, kind: 'device', spectator: false, slotId, playerId: slotId,
       tier: tier as Exclude<MediaTier, 'disabled'>,
       label,
+      scorerId: scorerId(session.matchId, deviceId),
       live: deviceId === source.deviceId && tier === 'video' && !session.bans.includes('boardVideo'),
       cameraOn,
     };
@@ -381,7 +383,7 @@ function rosterFor(self: Participant, pairs: Pairing[]): MediaPeer[] {
       ...(other.playerId ? { playerId: other.playerId } : {}),
       // Only the owner learns which of its scorers is which. Nobody else needs a device's name.
       ...(own && other.kind === 'device'
-        ? { scorer: other.label, live: other.live, cameraOn: other.cameraOn }
+        ? { scorer: other.label, scorerId: other.scorerId, live: other.live, cameraOn: other.cameraOn }
         : {}),
       polite: self.peerId < other.peerId,
       send: !other.spectator && self.kind !== 'device',

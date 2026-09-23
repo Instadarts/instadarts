@@ -297,7 +297,9 @@ scorers active at once while the throw window was open, and those that reported 
 `contributingScorers` (scorers that saw this dart; contributing ≤ reporting ≤ expected),
 `winningScorer` (the name of the scorer whose tip set the position, made unique per user with a
 " (2)" style suffix, or "Scorer" for an unnamed one), and `winningConfidence` (the model's 0–1
-confidence in that tip). Manually entered darts and padded misses have no `detection`.
+confidence in that tip). `winningScorerId` is a public scorer identity scoped to the match, stable
+across renames and reconnects; it is absent on older darts and does not expose the private device ID.
+Manually entered darts and padded misses have no `detection`.
 The current visit is unsubmitted and may still change through scoring or undo.
 
 ### List the caller's matches

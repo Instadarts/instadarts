@@ -415,9 +415,15 @@ describe('stills scorers', () => {
     const { host, extra } = withStillsScorer('Alice board');
     extra.send({ type: 'scorer_camera', active: true });
     expect(entryFor(host, extra)?.scorer).toBe('Alice board (2)');
+    const identity = entryFor(host, extra)?.scorerId;
+    expect(identity).toEqual(expect.any(String));
+    expect(identity).not.toBe(extra.deviceId);
 
     extra.send({ type: 'scorer_name', name: 'Left' });
     expect(entryFor(host, extra)?.scorer).toBe('Left');
+    extra.send({ type: 'scorer_camera', active: false });
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(host, extra)?.scorerId).toBe(identity);
   });
 
   it('stays within the link budget, giving up an extra stills camera before a live one or a player', () => {
@@ -601,6 +607,7 @@ describe('match boundaries and signaling', () => {
     const original = host.last('match_started')!.match;
     host.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: camera.deviceId });
     guest.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: null });
+    const oldScorerId = entryFor(host, camera)?.scorerId;
     const oldMesh = host.last('media_peers')!.meshId;
     const oldPeer = host.peerId();
 
@@ -616,6 +623,7 @@ describe('match boundaries and signaling', () => {
     guest.send({ type: 'media_join', matchId: rematch.id, tier: 'video', boardCamera: null });
     expect(host.last('media_peers')!.meshId).not.toBe(oldMesh);
     expect(host.peerId()).not.toBe(oldPeer);
+    expect(entryFor(host, camera)?.scorerId).not.toBe(oldScorerId);
   });
 
   it('relays only between the exact pair in the current match roster', () => {

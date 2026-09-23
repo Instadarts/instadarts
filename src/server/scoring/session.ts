@@ -53,7 +53,9 @@ export interface ScoringSessionOptions {
   /** Persist and broadcast a mutated match. */
   commit: (match: MatchState) => void;
   /** A scoring device's label, unique among its owner's devices, for the detection record. */
-  scorerName: (deviceId: string) => string;
+  scorerLabel: (deviceId: string) => string;
+  /** Public, stable identity for evidence routing within this match. */
+  scorerId: (deviceId: string) => string;
 }
 
 export class ScoringSession {
@@ -183,7 +185,8 @@ export class ScoringSession {
           expectedScorers: result.expected,
           reportingScorers: result.reports.length,
           contributingScorers: dart.cameraCount,
-          winningScorer: this.opts.scorerName(dart.deviceId),
+          winningScorer: this.opts.scorerLabel(dart.deviceId),
+          winningScorerId: this.opts.scorerId(dart.deviceId),
           winningConfidence: dart.confidence,
         },
       });

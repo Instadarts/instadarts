@@ -103,8 +103,8 @@ export interface DartEvidence {
   /** Feed every control message here. */
   handleControl: (from: string, message: ControlMessage, payload?: Uint8Array) => void;
   /**
-   * Whether any scorer can photograph the board being watched — one of ours if we are throwing, one
-   * of the thrower's if we are watching.
+   * Whether evidence can be shown: a picture already received, or a scorer that can photograph
+   * the board — one of ours if we are throwing, one of the thrower's if we are watching.
    *
    * What the strip's existence keys off, and it must be answerable *before* any picture arrives —
    * an element that appears when its content does is the screen jumping.
@@ -127,6 +127,9 @@ export function useDartEvidence({
   const urls = useRef<(string | undefined)[]>([]);
   /** Darts already asked about, so a re-render is not a second request. */
   const asked = useRef(new Map<number, Request>());
+  /** A refusal rules out this link for this dart, so fallback cannot loop between cameras. */
+  const refused = useRef(new Map<number, Set<PeerLink>>());
+  const [retry, setRetry] = useState(0);
   /** When each was asked, for the round trip — and never filled in a shipped build. */
   const requestedAt = useRef(new Map<number, number>());
   const timings = useRef<EvidenceTiming[]>([]);
@@ -156,11 +159,15 @@ export function useDartEvidence({
     const ids = darts?.map((dart) => dart.id) ?? [];
     const before = previous.current;
     const reset = before?.context !== context || before.mesh !== mesh;
+    for (const index of refused.current.keys()) {
+      if (reset || !ids[index] || before?.ids[index] !== ids[index]) refused.current.delete(index);
+    }
+    const eligible = boardScorers(meshRef.current, boardId, isThrower);
     for (const [index, request] of asked.current) {
       const sameDart = !reset && ids[index] && before?.ids[index] === ids[index];
-      // A request whose link has gone can never be answered. Forgetting it lets the dart be asked
-      // again, of whichever scorer is best now.
-      if (!sameDart || meshRef.current?.link(request.peerId) !== request.link) {
+      // The nominee keeps its link when its camera stops, but its pending capture is lost too.
+      if (!sameDart || meshRef.current?.link(request.peerId) !== request.link
+        || !eligible.some((peer) => peer.peerId === request.peerId)) {
         asked.current.delete(index);
         requestedAt.current.delete(index);
       }
@@ -171,7 +178,7 @@ export function useDartEvidence({
     if (next.length !== urls.current.length || next.some((url, index) => url !== urls.current[index])) {
       replace(next);
     }
-  }, [darts, context, mesh, replace]);
+  }, [darts, context, mesh, boardId, isThrower, replace]);
   useEffect(reconcile, [reconcile]);
 
   // Ask, once per dart, as it lands. Manual or camera-scored alike: either way a dart appeared in
@@ -185,7 +192,11 @@ export function useDartEvidence({
       if (asked.current.has(index) || urls.current[index]) continue;
       const dartId = darts[index].id;
       if (!dartId) continue;
-      const source = scorerFor(darts[index], sources);
+      const candidates = sources.filter((peer) => {
+        const link = meshRef.current?.link(peer.peerId);
+        return link && !refused.current.get(index)?.has(link);
+      });
+      const source = scorerFor(darts[index], candidates);
       const link = source ? meshRef.current?.link(source.peerId) : undefined;
       if (!source || !link) continue;
       const region = dartRegion(darts[index]);
@@ -220,11 +231,26 @@ export function useDartEvidence({
     // `links` is not read in here — it is the signal that a link may have become writable or a
     // scorer appeared, which is what turns the `continue`s above into a retry rather than a loss.
     // `sources` is derived from the same mesh, so it cannot change without `links` changing too.
-  }, [darts, enabled, isThrower, measuring, links, matchId, boardId, visitId, reconcile]);
+  }, [darts, enabled, isThrower, measuring, links, matchId, boardId, visitId, reconcile, retry]);
 
   const handleControl = useCallback((from: string, message: ControlMessage, payload?: Uint8Array) => {
     reconcile();
-    if (!enabled || message.kind !== 'still' || !payload?.byteLength) return;
+    if (!enabled) return;
+    if (isThrower && message.kind === 'still_refused') {
+      for (const [index, request] of asked.current) {
+        if (urls.current[index] || request.id !== message.id || request.peerId !== from
+          || meshRef.current?.link(from) !== request.link) continue;
+        const failed = refused.current.get(index) ?? new Set<PeerLink>();
+        failed.add(request.link);
+        refused.current.set(index, failed);
+        asked.current.delete(index);
+        requestedAt.current.delete(index);
+        setRetry((value) => value + 1);
+        break;
+      }
+      return;
+    }
+    if (message.kind !== 'still' || !payload?.byteLength) return;
     const tag = readTag(message.tag);
     if (!tag || tag.matchId !== matchId || tag.boardId !== boardId || tag.visitId !== visitId) return;
     const index = tag.dart;
@@ -266,10 +292,8 @@ export function useDartEvidence({
     images,
     timings,
     handleControl,
-    // Asked of the roster rather than of what has arrived, so the answer is stable from the first
-    // frame of the visit rather than appearing with the first picture. A mode that declined evidence
-    // reads as no scorer, so the visit shows unavailable-evidence placeholders.
-    available: enabled && sources.length > 0,
+    // Reserve the strip before capture, and keep received pictures visible if all cameras stop.
+    available: enabled && (sources.length > 0 || images.some(Boolean)),
   };
 }
 
@@ -298,6 +322,6 @@ function boardScorers(mesh: Mesh | null, boardId: string | null, isThrower: bool
  * its own and goes straight to the first in line.
  */
 function scorerFor(dart: DartThrow, sources: MediaPeer[]): MediaPeer | undefined {
-  const winner = dart.detection?.winningScorer;
-  return sources.find((peer) => winner !== undefined && peer.scorer === winner) ?? sources[0];
+  const winner = dart.detection?.winningScorerId;
+  return sources.find((peer) => winner !== undefined && peer.scorerId === winner) ?? sources[0];
 }

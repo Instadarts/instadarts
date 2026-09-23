@@ -50,7 +50,7 @@ export interface Mesh {
   viewers(audience?: readonly MediaRole[]): PeerLink[];
   /** Whether a peer is the one that claimed us, or the one we claimed. See MediaPeer.own. */
   isOwn(peerId: string): boolean;
-  /** The peers this client owns — for a frontend, its own board camera. */
+  /** The peers this client owns — for a frontend, its own scorers. */
   ownPeers(): MediaPeer[];
   /** Close everything. The mesh may be used again afterwards; a new roster reopens it. */
   closeAll(): void;

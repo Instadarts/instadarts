@@ -89,8 +89,11 @@ export interface DartDetection {
    * Frozen for display; evidence routing uses winningScorerId because labels can change.
    */
   winningScorer: string;
-  /** Match-scoped public scorer identity, stable across renames and reconnects. Absent on older darts. */
-  winningScorerId?: string;
+  /**
+   * That scorer's public identity in this match: a one-way hash of the match and the device id,
+   * stable across renames and reconnects. What evidence is asked by, since a label can move.
+   */
+  winningScorerId: string;
   /** The model's confidence in that tip, 0–1. */
   winningConfidence: number;
 }

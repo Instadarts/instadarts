@@ -116,9 +116,9 @@ test('says where each dart came from, on the tile and in the popup', async ({ pa
     thrown: 3,
     evidence: [image, image, undefined],
     detections: [
-      { expectedScorers: 3, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left phone', winningConfidence: 0.9 },
+      { expectedScorers: 3, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left phone', winningScorerId: 'left-phone', winningConfidence: 0.9 },
       undefined,
-      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Phone (2)', winningConfidence: 0.8 },
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Phone (2)', winningScorerId: 'phone-2', winningConfidence: 0.8 },
     ],
   });
 

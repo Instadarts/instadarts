@@ -82,13 +82,27 @@ export function useStillResponder(
     meshRef.current?.link(to)?.sendControl({ kind: 'still_refused', id, reason });
   }, [meshRef]);
 
-  // A mesh can be reused after reconnection, so compare the exact owner link as well. Read the
-  // stream identity through the current wrapper: rendering alone must not cancel a capture.
-  const isCurrent = useCallback((job: Pending) =>
+  // A mesh can be reused after reconnection, so compare the exact owner link as well.
+  const ownerIsCurrent = useCallback((job: Pending) =>
     meshRef.current === job.mesh && job.mesh.isOwn(job.from)
-    && job.mesh.link(job.from) === job.ownerLink
-    && sourceRef.current?.identity() === job.sourceIdentity,
-  [meshRef, sourceRef]);
+    && job.mesh.link(job.from) === job.ownerLink,
+  [meshRef]);
+
+  /**
+   * Whether this job may still be worked on, and if not, whether its owner is owed an answer.
+   *
+   * Read the stream identity through the current wrapper: rendering alone must not cancel a capture.
+   * A changed stream cancels it, but the owner who asked is still there and would otherwise wait for
+   * an answer that never comes — so it is told, and can ask again or ask another camera. An owner
+   * that has gone, or a link that has been replaced, is not answered on the link it no longer has.
+   */
+  const stillWanted = useCallback((job: Pending): boolean => {
+    if (!ownerIsCurrent(job)) return false;
+    const identity = sourceRef.current?.identity() ?? null;
+    if (identity === job.sourceIdentity) return true;
+    job.ownerLink.sendControl({ kind: 'still_refused', id: job.id, reason: identity === null ? 'no_frame' : 'restarted' });
+    return false;
+  }, [ownerIsCurrent, sourceRef]);
 
   const drain = useCallback(async () => {
     if (working.current) return;
@@ -96,54 +110,60 @@ export function useStillResponder(
     try {
       while (queue.current.length > 0) {
         const job = queue.current.shift()!;
-        const mesh = job.mesh;
-        const source = sourceRef.current;
-        if (!source || !isCurrent(job)) continue;
+        try {
+          const mesh = job.mesh;
+          const source = sourceRef.current;
+          if (!source || !stillWanted(job)) continue;
 
-        const startedAt = performance.now();
-        const capture = await source.capture(job.region ?? { cx: 0.5, cy: 0.5, size: 1 });
-        if (!isCurrent(job)) continue;
-        if (!capture) {
-          // Which failure it was matters to whoever is looking: a camera that is off is a different
-          // problem from one that cannot find the board.
-          refuse(job.from, job.id, source.located() ? 'no_frame' : 'not_located');
-          continue;
-        }
+          const startedAt = performance.now();
+          const capture = await source.capture(job.region ?? { cx: 0.5, cy: 0.5, size: 1 });
+          if (!stillWanted(job)) continue;
+          if (!capture) {
+            // Which failure it was matters to whoever is looking: a camera that is off is a different
+            // problem from one that cannot find the board.
+            refuse(job.from, job.id, source.located() ? 'no_frame' : 'not_located');
+            continue;
+          }
 
-        const header: ControlMessage = {
-          kind: 'still',
-          id: job.id,
-          tag: job.tag,
-          width: stillSize(),
-          height: stillSize(),
-          mime: STILL.mime,
-        };
-        const payload = new Uint8Array(await capture.blob.arrayBuffer());
-        if (!isCurrent(job)) continue;
-        if (measuring) {
-          timings.current = [...timings.current, {
-            waitMs: Math.round(startedAt - job.at),
-            drawMs: Math.round(capture.timing.drawMs),
-            encodeMs: Math.round(capture.timing.encodeMs),
-            bytes: payload.byteLength,
-            audience: job.to,
-          }].slice(-TIMING_LIMIT);
+          const header: ControlMessage = {
+            kind: 'still',
+            id: job.id,
+            tag: job.tag,
+            width: stillSize(),
+            height: stillSize(),
+            mime: STILL.mime,
+          };
+          const payload = new Uint8Array(await capture.blob.arrayBuffer());
+          if (!stillWanted(job)) continue;
+          if (measuring) {
+            timings.current = [...timings.current, {
+              waitMs: Math.round(startedAt - job.at),
+              drawMs: Math.round(capture.timing.drawMs),
+              encodeMs: Math.round(capture.timing.encodeMs),
+              bytes: payload.byteLength,
+              audience: job.to,
+            }].slice(-TIMING_LIMIT);
+          }
+          // Every viewer the request addressed, which for dart evidence is all of them. One capture
+          // and one encode however many that is, and they receive the identical bytes — which is what
+          // keeps this camera the single account of what its board looks like, so an observer's copy
+          // cannot drift from the owner's.
+          //
+          // A link that will not take one — never open, or a still bigger than the peer agreed to
+          // receive — goes without, and the rest of the loop still runs. Which is the whole reason
+          // `sendControl` refuses rather than throws: an unsendable still should cost one viewer a
+          // picture, not cost every viewer after it one.
+          for (const link of mesh.viewers(job.to)) link.sendControl(header, payload);
+        } catch {
+          // A capture or an encode that failed outright is still an answer the owner is owed:
+          // otherwise its dart waits for a picture that is never coming. The queue behind it goes on.
+          if (ownerIsCurrent(job)) job.ownerLink.sendControl({ kind: 'still_refused', id: job.id, reason: 'no_frame' });
         }
-        // Every viewer the request addressed, which for dart evidence is all of them. One capture
-        // and one encode however many that is, and they receive the identical bytes — which is what
-        // keeps this camera the single account of what its board looks like, so an observer's copy
-        // cannot drift from the owner's.
-        //
-        // A link that will not take one — never open, or a still bigger than the peer agreed to
-        // receive — goes without, and the rest of the loop still runs. Which is the whole reason
-        // `sendControl` refuses rather than throws: an unsendable still should cost one viewer a
-        // picture, not cost every viewer after it one.
-        for (const link of mesh.viewers(job.to)) link.sendControl(header, payload);
       }
     } finally {
       working.current = false;
     }
-  }, [sourceRef, refuse, isCurrent]);
+  }, [sourceRef, refuse, stillWanted, ownerIsCurrent]);
 
   const handleControl = useCallback((from: string, message: ControlMessage) => {
     if (message.kind !== 'still_request') return;

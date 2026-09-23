@@ -368,7 +368,7 @@ before they see its live video; see [Match-scoped media](./media.md).
 
 A scorer's **label** is its name made unique among the devices one frontend holds: a clash gets
 " (2)", " (3)" in claim order, and a phone with no name is "Scorer". Detection records and the owner's
-media roster display that label; evidence routing uses a stable public scorer ID scoped to the match,
+media roster carry that label; evidence routing uses a stable public scorer ID scoped to the match,
 without exposing the private device ID.
 
 ### Camera off, standby, and power off
@@ -403,7 +403,8 @@ removes the relationship but preserves the hardware settings and presentation zo
 - **Throw window:** the interval in which observations of the same throw are fused.
 - **Tracked dart:** a dart the server believes remains in the board.
 - **Detection record:** the `detection` a camera-scored dart keeps of the throw window it came from:
-  scorers expected, reporting and contributing, and the winning scorer's label and confidence.
+  scorers expected, reporting and contributing, and the winning scorer's label, public ID and
+  confidence.
 - **Takeout:** an empty observation from every active camera, meaning the darts were removed.
 - **Scoring session:** the per-match, per-board object that owns fusion and tracking state.
 

@@ -476,9 +476,9 @@ export interface DevicesStateMessage {
     online: boolean;
     cameraActive: boolean;
     /**
-     * How much of its view this device is willing to share, as the phone itself decided. `disabled`
-     * means it may not be nominated as the board camera at all — the picker shows why rather than
-     * silently omitting it.
+     * How much of its view this device is willing to share, as the phone itself decided. Only
+     * `video` may be nominated as the board camera; the picker shows why another cannot be, rather
+     * than silently omitting it.
      */
     media: MediaTier;
     /** The device's last reason for not having a camera on, if it tried and failed. */

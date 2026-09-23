@@ -117,6 +117,31 @@ interface Request {
   id: string;
   peerId: string;
   link: PeerLink;
+  /** When it went, for the round trip — and never filled in a shipped build. */
+  at?: number;
+}
+
+/**
+ * How long a scorer that refused a dart's picture is left alone before it may be asked again.
+ *
+ * Refusals are mostly passing states — a camera restarting, a board not found yet, a queue full —
+ * and another scorer is asked at once, so this only decides how soon the one that refused gets a
+ * second chance when nobody else could help.
+ */
+const REFUSAL_BACKOFF_MS = 1500;
+/** How many refusals from one scorer end its asking about one dart. What makes the retries finite. */
+const MAX_REFUSALS = 3;
+
+/**
+ * One scorer's refusals of one dart: how many, and the back-off timer that is leaving it alone.
+ *
+ * The back-off ends when its own timer fires, not when a clock says it should have: a wall clock
+ * stepped back by a moment would otherwise read as "not yet" in the very run the timer caused, and
+ * nothing would come to ask again.
+ */
+interface Refusal {
+  count: number;
+  backoff: ReturnType<typeof setTimeout> | null;
 }
 
 export function useDartEvidence({
@@ -125,13 +150,20 @@ export function useDartEvidence({
   const [images, setImages] = useState<(string | undefined)[]>([]);
   /** Object URLs we made, so they can be revoked. A blob URL leaks until it is. */
   const urls = useRef<(string | undefined)[]>([]);
-  /** Darts already asked about, so a re-render is not a second request. */
+  /** The request each dart is waiting on, so a re-render is not a second request. */
   const asked = useRef(new Map<number, Request>());
-  /** A refusal rules out this link for this dart, so fallback cannot loop between cameras. */
-  const refused = useRef(new Map<number, Set<PeerLink>>());
+  /**
+   * Every request sent for each dart, by id. One given up on — its camera stopped, or another
+   * scorer has been asked since — can still be answered: whichever picture arrives first is the
+   * dart's, which is also the rule for everyone who did not ask. A picture already on its way is
+   * therefore kept by the thrower as it is by them, rather than refused by the one screen that asked.
+   */
+  const issued = useRef(new Map<number, Map<string, Request>>());
+  /** Refusals, by dart and link. A scorer that refused is asked again later, and not forever. */
+  const refused = useRef(new Map<number, Map<PeerLink, Refusal>>());
+  /** Bumped to run the asking again: after a refusal, and when a back-off ends. */
   const [retry, setRetry] = useState(0);
-  /** When each was asked, for the round trip — and never filled in a shipped build. */
-  const requestedAt = useRef(new Map<number, number>());
+  const backoffs = useRef(new Set<ReturnType<typeof setTimeout>>());
   const timings = useRef<EvidenceTiming[]>([]);
   const measuring = useRef(e2eEnabled()).current;
   const meshRef = useRef(mesh);
@@ -159,18 +191,40 @@ export function useDartEvidence({
     const ids = darts?.map((dart) => dart.id) ?? [];
     const before = previous.current;
     const reset = before?.context !== context || before.mesh !== mesh;
-    for (const index of refused.current.keys()) {
-      if (reset || !ids[index] || before?.ids[index] !== ids[index]) refused.current.delete(index);
-    }
-    const eligible = boardScorers(meshRef.current, boardId, isThrower);
-    for (const [index, request] of asked.current) {
-      const sameDart = !reset && ids[index] && before?.ids[index] === ids[index];
-      // The nominee keeps its link when its camera stops, but its pending capture is lost too.
-      if (!sameDart || meshRef.current?.link(request.peerId) !== request.link
-        || !eligible.some((peer) => peer.peerId === request.peerId)) {
-        asked.current.delete(index);
-        requestedAt.current.delete(index);
+    const sameDart = (index: number) => !reset && Boolean(ids[index]) && before?.ids[index] === ids[index];
+    const current = meshRef.current;
+    // The links of the scorers that could take a picture right now. A replaced link is not one of
+    // them, and neither is the nominee's while its camera is off: it keeps its link through a
+    // restart, but whatever it was capturing went with the camera.
+    const eligible = new Set(boardScorers(current, boardId, isThrower).map((peer) => current?.link(peer.peerId)));
+    for (const [index, requests] of issued.current) {
+      if (!sameDart(index)) {
+        issued.current.delete(index);
+        continue;
       }
+      // Nothing comes back over a link that has gone.
+      for (const [id, request] of requests) {
+        if (current?.link(request.peerId) !== request.link) requests.delete(id);
+      }
+    }
+    for (const [index, request] of asked.current) {
+      // Stop waiting, and ask again of whichever scorer is best now.
+      if (!sameDart(index) || !eligible.has(request.link)) asked.current.delete(index);
+    }
+    const forget = (refusals: Map<PeerLink, Refusal>, link: PeerLink) => {
+      const backoff = refusals.get(link)?.backoff;
+      if (backoff) {
+        clearTimeout(backoff);
+        backoffs.current.delete(backoff);
+      }
+      refusals.delete(link);
+    };
+    for (const [index, refusals] of refused.current) {
+      // A camera that stopped and came back starts again with a clean record.
+      for (const link of [...refusals.keys()]) {
+        if (!sameDart(index) || !eligible.has(link)) forget(refusals, link);
+      }
+      if (!refusals.size) refused.current.delete(index);
     }
     const next = reset ? [] : urls.current.slice(0, ids.length).map((url, index) =>
       ids[index] && before?.ids[index] === ids[index] ? url : undefined);
@@ -192,9 +246,12 @@ export function useDartEvidence({
       if (asked.current.has(index) || urls.current[index]) continue;
       const dartId = darts[index].id;
       if (!dartId) continue;
+      // Not a scorer that refused this dart and is still being left alone, or has refused too often.
+      const refusals = refused.current.get(index);
       const candidates = sources.filter((peer) => {
         const link = meshRef.current?.link(peer.peerId);
-        return link && !refused.current.get(index)?.has(link);
+        const refusal = link ? refusals?.get(link) : undefined;
+        return link && (!refusal || (refusal.count < MAX_REFUSALS && !refusal.backoff));
       });
       const source = scorerFor(darts[index], candidates);
       const link = source ? meshRef.current?.link(source.peerId) : undefined;
@@ -215,7 +272,11 @@ export function useDartEvidence({
       // the message silently, and marking it regardless meant a dart thrown in the moment after a
       // link was rebuilt never got a picture at all — the next match state retries it instead.
       if (!sent) continue;
-      asked.current.set(index, { id, peerId: source.peerId, link });
+      const request: Request = { id, peerId: source.peerId, link, ...(measuring ? { at: performance.now() } : {}) };
+      asked.current.set(index, request);
+      const requests = issued.current.get(index) ?? new Map<string, Request>();
+      requests.set(id, request);
+      issued.current.set(index, requests);
       // The same square, as a camera move rather than a photograph. Not conditional on the still
       // having arrived: they are two independent answers to one dart landing, and the move goes to
       // the live camera whichever scorer takes the picture.
@@ -226,7 +287,6 @@ export function useDartEvidence({
       // is said at all, because nothing here ever sends a second command to release the camera.
       const { transitionMs, resetMs } = dartEvidence();
       directRef.current?.(region, transitionMs, resetMs);
-      if (measuring) requestedAt.current.set(index, performance.now());
     }
     // `links` is not read in here — it is the signal that a link may have become writable or a
     // scorer appeared, which is what turns the `continue`s above into a retry rather than a loss.
@@ -237,15 +297,42 @@ export function useDartEvidence({
     reconcile();
     if (!enabled) return;
     if (isThrower && message.kind === 'still_refused') {
-      for (const [index, request] of asked.current) {
-        if (urls.current[index] || request.id !== message.id || request.peerId !== from
-          || meshRef.current?.link(from) !== request.link) continue;
-        const failed = refused.current.get(index) ?? new Set<PeerLink>();
-        failed.add(request.link);
-        refused.current.set(index, failed);
-        asked.current.delete(index);
-        requestedAt.current.delete(index);
-        setRetry((value) => value + 1);
+      for (const [index, requests] of issued.current) {
+        const request = requests.get(message.id);
+        if (!request || request.peerId !== from || meshRef.current?.link(from) !== request.link) continue;
+        requests.delete(message.id);
+        if (urls.current[index]) break;
+        // A refusal from a camera that is off now is the camera stopping, which reconcile has already
+        // accounted for: recorded, it would outlive the stop and hold the camera back when it returns.
+        const eligible = boardScorers(meshRef.current, boardId, isThrower)
+          .some((peer) => meshRef.current?.link(peer.peerId) === request.link);
+        if (!eligible) break;
+        const refusals = refused.current.get(index) ?? new Map<PeerLink, Refusal>();
+        const refusal = refusals.get(request.link) ?? { count: 0, backoff: null };
+        refusal.count += 1;
+        refusals.set(request.link, refusal);
+        refused.current.set(index, refusals);
+        // Only the request the dart is waiting on moves it on, to another scorer now. A refusal of
+        // one already given up on changes nothing but that scorer's record.
+        if (asked.current.get(index)?.id === message.id) {
+          asked.current.delete(index);
+          setRetry((value) => value + 1);
+        }
+        // And back to this one when its back-off ends, unless it has refused too often.
+        if (refusal.backoff) {
+          clearTimeout(refusal.backoff);
+          backoffs.current.delete(refusal.backoff);
+          refusal.backoff = null;
+        }
+        if (refusal.count < MAX_REFUSALS) {
+          const timer = setTimeout(() => {
+            backoffs.current.delete(timer);
+            if (refusal.backoff === timer) refusal.backoff = null;
+            setRetry((value) => value + 1);
+          }, REFUSAL_BACKOFF_MS);
+          refusal.backoff = timer;
+          backoffs.current.add(timer);
+        }
         break;
       }
       return;
@@ -257,25 +344,24 @@ export function useDartEvidence({
     if (darts?.[index]?.id !== tag.dartId) return;
     if (urls.current[index]) return; // duplicate replies cannot replace accepted evidence
     if (isThrower) {
-      // The answer to the exact request, from the scorer it went to, over the link it went out on.
-      const request = asked.current.get(index);
-      if (request?.id !== message.id || request.peerId !== from) return;
-      if (meshRef.current?.link(from) !== request.link) return;
+      // The answer to one of this dart's requests, from the scorer it went to, over the link it went
+      // out on. Not necessarily the latest one: the first picture to arrive is the dart's.
+      const request = issued.current.get(index)?.get(message.id);
+      if (!request || request.peerId !== from || meshRef.current?.link(from) !== request.link) return;
     } else if (!boardScorers(meshRef.current, boardId, false).some((peer) => peer.peerId === from)) {
       // Observers did not ask, so they cannot know which scorer was asked. Any the server placed at
       // this board will do, and none placed anywhere else.
       return;
     }
 
-    if (measuring) {
-      const sentAt = requestedAt.current.get(index);
-      if (sentAt !== undefined) {
-        timings.current = [...timings.current, {
-          dart: index,
-          roundTripMs: Math.round(performance.now() - sentAt),
-          bytes: payload.byteLength,
-        }].slice(-TIMING_LIMIT);
-      }
+    // Timed from the request that was answered, which is not always the latest one.
+    const sentAt = isThrower ? issued.current.get(index)?.get(message.id)?.at : undefined;
+    if (measuring && sentAt !== undefined) {
+      timings.current = [...timings.current, {
+        dart: index,
+        roundTripMs: Math.round(performance.now() - sentAt),
+        bytes: payload.byteLength,
+      }].slice(-TIMING_LIMIT);
     }
 
     const url = URL.createObjectURL(new Blob([payload as BlobPart], { type: message.mime || STILL.mime }));
@@ -286,6 +372,7 @@ export function useDartEvidence({
 
   useEffect(() => () => {
     for (const url of urls.current) if (url) URL.revokeObjectURL(url);
+    for (const timer of backoffs.current) clearTimeout(timer);
   }, []);
 
   return {

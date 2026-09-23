@@ -193,11 +193,11 @@ content, its body scrolls with both the slots and footer reachable.
 
 Once a dart is thrown, its evidence square's tooltip says where the dart came from, and so does a
 caption in the enlarged picture: "Manually added", or "Detected by <scorer> (c/r/e)", naming the
-scorer by its label when the dart was scored. The picture may come from a fallback camera; unnamed
-scorers may also have a different placeholder name in the camera menu. Here c is the
-scorers that saw the dart, r the scorers that reported in its throw window, and e the most scorers
-active at once while that window was open (see
-[Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to right.
+scorer by its label when the dart was scored. Here c is the scorers that saw the dart, r the scorers
+that reported in its throw window, and e the most scorers active at once while that window was open
+(see [Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to
+right. The picture may come from a fallback camera, and an unnamed scorer may have a different
+placeholder name in the camera menu.
 
 A match grid can drop a box too — the summary omits its re-match box for a spectator, an API-managed
 match, and a match somebody has left — and because nothing compacts, every remaining box keeps the position it was

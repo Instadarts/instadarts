@@ -189,8 +189,15 @@ channel. Only a scorer's owner may request one from it, and the request names th
 the response. Output size comes from `media.still.size`; mime type and quality are fixed in
 [`shared/media.ts`](../src/shared/media.ts).
 Queued captures retain the requesting owner link, mesh and camera-stream identity. The scorer
-rechecks all three and current ownership before capture and after each asynchronous step; a
-restart, roster removal or replacement owner link discards the old work.
+rechecks all three and current ownership before capture and after each asynchronous step. A roster
+removal or replacement owner link discards the old work in silence, since there is nobody left to
+answer. A camera restart discards it too, but the owner is still there and is answered with
+`still_refused` — `restarted`, or `no_frame` when the camera stopped — so it can ask again or ask
+another camera; so is a capture or encode that fails outright. A new camera session, whether after
+a stop or a switch of camera, forgets where the old one saw the board, and an inference still
+reading the old camera changes nothing. A request that arrives before the new session has located
+the board waits for that session's inference if one is running — usually the one that will locate
+it — rather than being refused `not_located` a moment too early.
 
 Camera startup performs one discarded centre-square capture with the real still size and JPEG
 settings, after applying stored optical zoom and before arming automatic scanning. It warms the
@@ -203,8 +210,8 @@ frontend requests it when a dart appears, every eligible viewer receives the sam
 removes it with the dart, and submitting clears it with the visit.
 
 It asks the scorer that placed the dart, matching `detection.winningScorerId` to the roster's
-`scorerId`, since that camera saw it. A manually added dart, an older dart without that ID, or one
-whose scorer is not a member goes to the live camera and then the other scorers by label. Only
+`scorerId`, since that camera saw it. A manually added dart, or one whose scorer is not a member,
+goes to the live camera and then the other scorers by label. Only
 scorers with `cameraOn` are asked. Received pictures remain visible when all cameras stop; the strip
 shows the unavailable state only when it has neither pictures nor a source.
 
@@ -215,13 +222,17 @@ a new one even at identical coordinates. Evidence requests carry
 `dart` the zero-based slot. The scorer echoes the tag without interpreting it. Receivers require
 the identities to match the current match state and the sender to be a scorer the roster places at
 that board. The requesting owner also requires the response `id`, scorer and link of its pending
-request; observers cannot know which scorer was asked and receive the fan-out without issuing
-their own requests. Duplicate replies cannot replace an accepted image. Missing or outdated identity
+request — any request it has sent for that dart, not only the latest, since the first picture to
+arrive is the dart's, as it is for everyone else. Observers cannot know which scorer was asked and
+receive the fan-out without issuing their own requests. Duplicate replies cannot replace an accepted image. Missing or outdated identity
 tags are ignored, including index-only tags from older clients. A change of board or visit clears
 evidence, and undo/replacement removes only the affected dart images and requests fresh ones. A
 request whose link has gone or whose camera stopped is asked again of the best remaining scorer.
-A refusal also tries another scorer, excluding that link for this dart to avoid retry loops.
-A picture already received stays visible even if every camera stops.
+A refusal moves the dart on to another scorer at once; the one that refused is asked again after a
+1.5 s back-off, until it has refused that dart three times, and starts with a clean record once its
+camera has stopped and come back. A refusal sent by a camera that is already off is part of it
+stopping and is not held against it. A picture already received stays visible even if every camera
+stops.
 
 ### Director commands and the virtual camera
 

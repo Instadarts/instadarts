@@ -367,7 +367,9 @@ export type StillRefusal =
   /** Nothing to place the region against — the board has not been located since the camera started. */
   | 'not_located'
   /** Too many already in hand. */
-  | 'busy';
+  | 'busy'
+  /** The camera restarted while this was waiting, so the frame it was asked of is gone. */
+  | 'restarted';
 
 // ============================================================
 // Regions of a board

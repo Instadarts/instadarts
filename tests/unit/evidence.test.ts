@@ -41,7 +41,8 @@ vi.mock('react', () => {
     },
   };
 });
-vi.mock('../../src/client/lib/e2e', () => ({ e2eEnabled: () => false }));
+const e2e = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../src/client/lib/e2e', () => ({ e2eEnabled: () => e2e.enabled }));
 
 function render<T>(hook: () => T): T {
   hooks.cursor = 0;
@@ -260,14 +261,6 @@ describe('which scorer is asked', () => {
     expect(f.options.currentVisit.darts[0].detection?.winningScorer).toBe('Left');
   });
 
-  it('uses the fallback for older darts without a stable scorer identity', () => {
-    const dart = placedBy('Left');
-    delete dart.detection!.winningScorerId;
-    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart });
-    expect(asked(f, 'camera')).toBe(1);
-    expect(asked(f, 'left')).toBe(0);
-  });
-
   it('falls back to the live camera when the scorer that placed the dart is not sharing', () => {
     const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Gone') });
     expect(asked(f, 'camera')).toBe(1);
@@ -309,14 +302,19 @@ describe('which scorer is asked', () => {
     expect(asked(f, 'camera')).toBe(1);
   });
 
-  it('falls back when the live camera stops without losing its link', () => {
+  it('falls back when the live camera stops without losing its link, and takes a picture already on its way', () => {
     const f = setup(true, { extra: [ownScorer('left', 'Left')] });
     f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
     f.options.links = f.mesh.links();
     f.run();
     expect(asked(f, 'left')).toBe(1);
+    // The stopped camera's picture was sent before it stopped. Everyone else takes it, so the
+    // thrower does too — and then the fallback's is a duplicate.
     f.run().handleControl('camera', f.response, bytes);
-    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    const leftRequest = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('left', { ...f.response, id: leftRequest.id }, bytes);
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
   });
 
   it('falls back on a matching refusal without looping, and clears refusals on dart replacement', () => {
@@ -340,6 +338,95 @@ describe('which scorer is asked', () => {
     f.options.currentVisit = { ...f.options.currentVisit, darts: [{ ...f.options.currentVisit.darts[0], id: 'replacement' }] };
     f.run();
     expect(asked(f, 'left')).toBe(2);
+  });
+
+  describe('after a refusal', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    /** The scorer refuses the last request it was sent, and the hook renders again. */
+    function refuseLatest(f: ReturnType<typeof setup>, peerId: string) {
+      const calls = f.wires.get(peerId)!.sendControl.mock.calls;
+      const request = calls[calls.length - 1][0] as { id: string };
+      f.run().handleControl(peerId, { kind: 'still_refused', id: request.id, reason: 'not_located' });
+      f.run();
+    }
+
+    it('asks the same scorer again once its back-off is over, and not after three refusals', () => {
+      const f = setup(true);
+      refuseLatest(f, 'camera');
+      expect(asked(f, 'camera')).toBe(1); // left alone while it backs off
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+      refuseLatest(f, 'camera');
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(3);
+      refuseLatest(f, 'camera');
+      vi.advanceTimersByTime(60_000);
+      f.run();
+      expect(asked(f, 'camera')).toBe(3);
+    });
+
+    it('asks again when the back-off timer fires, whatever the wall clock says', () => {
+      const f = setup(true);
+      refuseLatest(f, 'camera');
+      vi.setSystemTime(Date.now() - 60_000); // the clock is stepped back meanwhile
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+    });
+
+    it('does not hold a camera back for a refusal it sent while stopping', () => {
+      const f = setup(true);
+      const camera = f.peers.find((peer) => peer.peerId === 'camera')!;
+      camera.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      // The phone's answer to the request its stop dropped arrives after the roster said so.
+      refuseLatest(f, 'camera');
+      camera.cameraOn = true;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+    });
+
+    it('gives a camera that stopped and came back a clean record', () => {
+      const f = setup(true);
+      for (let refusal = 0; refusal < 3; refusal++) {
+        refuseLatest(f, 'camera');
+        vi.advanceTimersByTime(1500);
+        f.run();
+      }
+      expect(asked(f, 'camera')).toBe(3);
+      const camera = f.peers.find((peer) => peer.peerId === 'camera')!;
+      camera.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      camera.cameraOn = true;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'camera')).toBe(4);
+    });
+  });
+
+  it('times the round trip from the request that was answered, not the latest', () => {
+    e2e.enabled = true;
+    try {
+      const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+      const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+      now.mockReturnValue(1100);
+      f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'left')).toBe(1);
+      now.mockReturnValue(1150);
+      f.run().handleControl('camera', f.response, bytes);
+      expect(f.run().timings.current).toEqual([{ dart: 0, roundTripMs: 150, bytes: bytes.byteLength }]);
+    } finally {
+      e2e.enabled = false;
+    }
   });
 
   it('takes the answer only from the scorer it asked', () => {
@@ -398,11 +485,51 @@ describe('asynchronous still capture', () => {
     expect(f.wires.get('owner')!.sendControl).not.toHaveBeenCalled();
   });
 
-  it.each(['mesh', 'source', 'owner', 'link'])('drops active and queued work when its %s changes', async (change) => {
+  it.each([['restarted', {}], ['no_frame', null]] as const)('tells the owner %s when the stream changes under its work', async (reason, next) => {
     const f = meshFixture();
     let resolve!: (value: Capture) => void;
     const pending = new Promise<Capture>((done) => { resolve = done; });
-    let sourceIdentity = {};
+    let sourceIdentity: object | null = {};
+    const source = { capture: vi.fn(() => pending), located: () => true, identity: () => sourceIdentity };
+    const responder = render(() => useStillResponder({ current: f.mesh }, { current: source }));
+    responder.handleControl('owner', { kind: 'still_request', id: 'one', to: ['owner'] });
+    responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
+    // A camera restart is a new stream; a camera switched off is none.
+    sourceIdentity = next;
+    resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });
+    const send = f.wires.get('owner')!.sendControl;
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls.map(([message]) => message)).toEqual(['one', 'two'].map((id) =>
+      ({ kind: 'still_refused', id, reason })));
+    expect(source.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a capture that failed outright, and goes on with the queue', async () => {
+    const f = meshFixture();
+    const identity = {};
+    const source = {
+      capture: vi.fn()
+        .mockRejectedValueOnce(new Error('EncodingError'))
+        .mockResolvedValueOnce({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } }),
+      located: () => true,
+      identity: () => identity,
+    };
+    const responder = render(() => useStillResponder({ current: f.mesh }, { current: source }));
+    responder.handleControl('owner', { kind: 'still_request', id: 'one', to: ['owner'] });
+    responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
+    const send = f.wires.get('owner')!.sendControl;
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls.map(([message]) => message)).toEqual([
+      { kind: 'still_refused', id: 'one', reason: 'no_frame' },
+      expect.objectContaining({ kind: 'still', id: 'two' }),
+    ]);
+  });
+
+  it.each(['mesh', 'owner', 'link'])('drops active and queued work in silence when its %s changes', async (change) => {
+    const f = meshFixture();
+    let resolve!: (value: Capture) => void;
+    const pending = new Promise<Capture>((done) => { resolve = done; });
+    const sourceIdentity = {};
     const source = { capture: vi.fn(() => pending), located: () => true, identity: () => sourceIdentity };
     const sourceRef = { current: source };
     const meshRef = { current: f.mesh };
@@ -411,7 +538,6 @@ describe('asynchronous still capture', () => {
     responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
     const originalLink = f.wires.get('owner')!;
     if (change === 'mesh') meshRef.current = meshFixture().mesh;
-    if (change === 'source') sourceIdentity = {};
     if (change === 'owner') f.peers.find((p) => p.peerId === 'owner')!.own = false;
     if (change === 'link') f.wires.set('owner', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });

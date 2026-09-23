@@ -488,7 +488,7 @@ describe('topology and source intent', () => {
     // Only the owner learns which of its scorers this is. Everyone else gets the player association
     // needed for remote presentation and nothing about the device.
     expect(entryFor(host, camera!)).toMatchObject({ scorer: 'Alice board', live: true });
-    for (const field of ['scorer', 'live', 'cameraOn']) {
+    for (const field of ['scorer', 'scorerId', 'live', 'cameraOn']) {
       expect(entryFor(guest, camera!)).not.toHaveProperty(field);
       expect(entryFor(camera!, host)).not.toHaveProperty(field);
     }
@@ -542,6 +542,7 @@ describe('topology and source intent', () => {
     const { host, camera, match } = startOnline();
     const first = camera!.last('media_source_state');
     expect(first?.active).toBe(true);
+    const scorerId = entryFor(host, camera!)?.scorerId;
 
     const replacement = connect();
     replacement.send({ type: 'media_ready', tier: 'video' });
@@ -549,6 +550,9 @@ describe('topology and source intent', () => {
     const second = replacement.last('media_source_state');
     expect(second?.active).toBe(true);
     if (first?.active && second?.active) expect(second.sourceEpoch).not.toBe(first.sourceEpoch);
+    // A new incarnation of the same phone is a new peer but the same scorer.
+    expect(entryFor(host, replacement)?.peerId).not.toBe(camera!.peerId());
+    expect(entryFor(host, replacement)?.scorerId).toBe(scorerId);
 
     host.send({ type: 'media_join', matchId: match.id, tier: 'disabled', boardCamera: null });
     expect(replacement.last('media_source_state')).toMatchObject({ active: false });
@@ -577,6 +581,8 @@ describe('topology and source intent', () => {
   it('keeps the source epoch when only the participant frontend is replaced', () => {
     const { host, camera, match } = startOnline();
     const active = camera!.last('media_source_state');
+    const scorerId = entryFor(host, camera!)?.scorerId;
+    expect(scorerId).toEqual(expect.any(String));
     const oldPeer = host.peerId();
     const replacement = connect();
     replacement.send({ type: 'reconnect', matchId: match.id, token: host.resumeToken() });
@@ -592,6 +598,8 @@ describe('topology and source intent', () => {
     expect(replacement.peerId()).not.toBe(oldPeer);
     const repeated = camera!.last('media_source_state');
     if (active?.active && repeated?.active) expect(repeated.sourceEpoch).toBe(active.sourceEpoch);
+    // And the reloaded frontend knows its scorer by the same identity the darts already carry.
+    expect(entryFor(replacement, camera!)?.scorerId).toBe(scorerId);
   });
 });
 

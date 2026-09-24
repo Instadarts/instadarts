@@ -101,9 +101,9 @@ export async function renameScorerDevice(page: Page, value: string): Promise<voi
   await closeScorerSettings(page);
 }
 
-/** Frontend controls for one named scoring device in the camera menu. */
+/** Frontend controls for one named scoring device in the camera menu. Exact, since "Phone" is in "Phone (2)". */
 export function scoringDeviceControls(page: Page, name: string): Locator {
-  return page.getByRole('group', { name: `Scoring device: ${name}` });
+  return page.getByRole('group', { name: `Scoring device: ${name}`, exact: true });
 }
 
 /** Put either a native or ARIA `role="switch"` control into a given state. */

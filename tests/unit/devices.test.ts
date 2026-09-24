@@ -128,7 +128,7 @@ describe('pairing', () => {
     const { scorer, deviceId } = pair(frontend);
 
     expect(frontend.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: true, cameraActive: false, media: 'disabled' },
+      { deviceId, name: '', label: 'Scorer', online: true, cameraActive: false, media: 'disabled' },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
 
@@ -145,6 +145,47 @@ describe('pairing', () => {
 
     scorer.send({ type: 'scorer_name', name: '  Left mount  ' });
     expect(frontend.last('devices_state')!.devices[0].name).toBe('Left mount');
+  });
+
+  it('labels devices uniquely per browser, in claim order and regardless of case', () => {
+    const frontend = connect();
+    const first = pair(frontend);
+    const second = pair(frontend);
+    const third = pair(frontend);
+    first.scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_name', name: 'phone' });
+    third.scorer.send({ type: 'scorer_name', name: 'Phone' });
+
+    const labels = () => frontend.last('devices_state')!.devices.map((d) => [d.name, d.label]);
+    expect(labels()).toEqual([['Phone', 'Phone'], ['phone', 'phone (2)'], ['Phone', 'Phone (3)']]);
+
+    // Only a clash is renamed: a free name is its own label, and freeing one frees the other.
+    second.scorer.send({ type: 'scorer_name', name: 'Left' });
+    expect(labels()).toEqual([['Phone', 'Phone'], ['Left', 'Left'], ['Phone', 'Phone (2)']]);
+  });
+
+  it('never gives a clash a label another device already carries as its name', () => {
+    const frontend = connect();
+    const first = pair(frontend);
+    const second = pair(frontend);
+    const third = pair(frontend);
+    first.scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_name', name: 'Phone (2)' });
+    third.scorer.send({ type: 'scorer_name', name: 'Phone' });
+
+    const labels = frontend.last('devices_state')!.devices.map((d) => d.label);
+    expect(labels).toEqual(['Phone', 'Phone (2)', 'Phone (3)']);
+  });
+
+  it('labels an unnamed device, and keeps labels to one browser', () => {
+    const alice = connect();
+    const bob = connect();
+    pair(alice).scorer.send({ type: 'scorer_name', name: 'Phone' });
+    pair(bob).scorer.send({ type: 'scorer_name', name: 'Phone' });
+    pair(bob);
+
+    expect(alice.last('devices_state')!.devices.map((d) => d.label)).toEqual(['Phone']);
+    expect(bob.last('devices_state')!.devices.map((d) => d.label)).toEqual(['Phone', 'Scorer']);
   });
 
   it('carries the name through a server restart, since the device brings it along', () => {
@@ -203,7 +244,7 @@ describe('re-authentication', () => {
 
     expect(scorer.last('scorer_refused')).toBeUndefined();
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: true, cameraActive: false, media: 'disabled' },
+      { deviceId, name: '', label: 'Scorer', online: true, cameraActive: false, media: 'disabled' },
     ]);
     expect(scorer.last('scorer_state')!.status).toBe('active');
   });
@@ -218,7 +259,7 @@ describe('re-authentication', () => {
     frontend2.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 2 }] });
     // Nothing has proven the device yet, so the claim is parked and does not count as online.
     expect(frontend2.last('devices_state')!.devices).toEqual([
-      { deviceId, name: '', online: false, cameraActive: false, media: 'disabled' },
+      { deviceId, name: '', label: '', online: false, cameraActive: false, media: 'disabled' },
     ]);
 
     const scorer = connect();

@@ -11,6 +11,8 @@ import { sweepLifecycle, IDLE_TTL_MS, SUMMARY_TTL_MS, touch } from '../../src/se
 import { heldSeat } from '../../src/server/seats';
 import { findPersonalInvite } from '../../src/server/invite';
 import { releaseRateLimit } from '../../src/server/rateLimit';
+import { resetDeviceRegistry } from '../../src/server/devices';
+import { resetScoringSessions } from '../../src/server/scoring/store';
 import { MAX_VISITS_PER_LEG, standingsOf } from '../../src/shared/matchFormat';
 import type { ServerMessage } from '../../src/shared/protocol';
 import type { ModeDescriptor, ModeSettings } from '../../src/shared/settings';
@@ -421,6 +423,40 @@ describe('retained results', () => {
     expect(findPersonalInvite(waiting.players[0].inviteCode)).toBeUndefined();
     expect(() => createApiMatch('a', request())).toThrow('capacity');
     expect(() => getApiMatch('a', another.matchId)).toThrow('Match not found');
+  });
+});
+
+describe('detection records in the history', () => {
+  afterEach(() => {
+    resetScoringSessions();
+    resetDeviceRegistry();
+  });
+
+  it('carries a camera dart\'s record to the caller, and none on a dart added by hand', () => {
+    const { created, players } = running(['Alice', 'Bob']);
+    const frontend = players[0];
+    frontend.send({ type: 'create_pairing_code' });
+    const scorer = connect();
+    scorer.send({ type: 'scorer_pair', code: frontend.last('pairing_code').code });
+    const { deviceId, tokenHash } = frontend.last('device_paired');
+    frontend.send({ type: 'activate_devices', devices: [{ deviceId, tokenHash, grabbedAt: 1 }] });
+    scorer.send({ type: 'scorer_name', name: 'Board' });
+    scorer.send({ type: 'scorer_camera', active: true });
+
+    scorer.send({ type: 'scorer_tips', tips: [{ x: 500_000, y: 726_000, confidence: 0.9 }] });
+    frontend.send({ type: 'add_dart', dart: { x: 500_000, y: 726_000 } });
+
+    // Through JSON, as the HTTP handler sends it.
+    const result = JSON.parse(JSON.stringify(getApiMatch('a', created.matchId, true)));
+    const [camera, manual] = result.history.currentVisit.darts;
+    expect(camera.score.label).toBe('T20');
+    expect(camera.detection).toEqual({
+      expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Board', winningScorerId: expect.any(String), winningConfidence: 0.9,
+    });
+    expect(manual.score.label).toBe('T20');
+    expect(manual).not.toHaveProperty('detection');
+    // A label, never the device id it stands for.
+    expect(JSON.stringify(result)).not.toContain(deviceId);
   });
 });
 

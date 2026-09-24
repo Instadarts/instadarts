@@ -51,7 +51,8 @@ function harness(overrides: Parameters<typeof makeMatch>[0] = {}, owner: string[
       match = next;
       commits.push(next);
     },
-    scorerName: (deviceId) => SCORER_NAMES[deviceId] ?? '',
+    scorerLabel: (deviceId) => SCORER_NAMES[deviceId] ?? '',
+    scorerId: (deviceId) => `public-${deviceId}`,
   });
   session.setCameraActive('cam-a', true);
 
@@ -129,7 +130,7 @@ describe('ScoringSession — detection record', () => {
     const h = harness();
     h.see('cam-a', tip(T20));
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     ]);
   });
 
@@ -139,7 +140,7 @@ describe('ScoringSession — detection record', () => {
     h.see('cam-a', tip(T20, 0.8));
     h.see('cam-b', tip(T20, 0.95));
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Right', winningConfidence: 0.95 },
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Right', winningScorerId: 'public-cam-b', winningConfidence: 0.95 },
     ]);
   });
 
@@ -150,7 +151,7 @@ describe('ScoringSession — detection record', () => {
     h.see('cam-b', tip(T20));
     const s1 = h.match.currentVisit!.darts.find((d) => d.score.label === 'S1');
     expect(s1?.detection).toEqual(
-      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     );
   });
 
@@ -163,7 +164,7 @@ describe('ScoringSession — detection record', () => {
 
     vi.advanceTimersByTime(THROW_WINDOW_MAX_MS);
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     ]);
   });
 
@@ -173,7 +174,7 @@ describe('ScoringSession — detection record', () => {
     h.see('cam-a', tip(T20));
     h.session.setCameraActive('cam-b', false); // releases the window at once
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     ]);
   });
 
@@ -185,7 +186,7 @@ describe('ScoringSession — detection record', () => {
     h.see('cam-b', tip(T20));
     h.see('cam-c', tip(T20));
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 3, reportingScorers: 3, contributingScorers: 3, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 3, reportingScorers: 3, contributingScorers: 3, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     ]);
   });
 
@@ -199,7 +200,7 @@ describe('ScoringSession — detection record', () => {
     h.see('cam-a', tip(T20));
     h.see('cam-b', tip(T20, 0.99));
     expect(detections(h.match)).toEqual([
-      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningConfidence: 0.9 },
+      { expectedScorers: 2, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left', winningScorerId: 'public-cam-a', winningConfidence: 0.9 },
     ]);
   });
 

@@ -135,6 +135,11 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   let boardThreshold = DEFAULT_BOARD_THRESHOLD;
   let tipThreshold = DEFAULT_TIP_THRESHOLD;
   let busy = false;
+  /**
+   * The inference pass running now, and the camera session it is reading. A still waits for it when
+   * the board is not yet located — but only for one reading the camera the still is asked of.
+   */
+  let inferring: { session: number; done: Promise<BoardTip[]> } | null = null;
   let forceCpuPreprocessing = false;
   let forceCpuInference = false;
   let modelNeedsReload = false;
@@ -152,8 +157,9 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
    *
    * A mounted camera stands still, so yesterday's answer is almost always today's — and the cost of
    * insisting on a fresh one is losing the evidence for a dart because a hand was in the way. It is
-   * dropped in `stop()`, so it can never outlive the camera session that produced it. (A maximum age
-   * would be the next refinement, and is deliberately not here.)
+   * dropped whenever a camera session ends or another begins — `stop()`, and `start()` for a switch
+   * that never stopped — so it can never outlive the session that produced it. (A maximum age would
+   * be the next refinement, and is deliberately not here.)
    */
   let lastHomography: Matrix3x3 | null = null;
   let restingGeometry: BoardGeometry | null = null;
@@ -178,6 +184,23 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   function cancelVideoReset(): void {
     if (videoResetTimer) clearTimeout(videoResetTimer);
     videoResetTimer = null;
+  }
+
+  /**
+   * Forget where the board was. Everything here described *that* camera session's frames, and a
+   * phone picked up and re-aimed between sessions — or switched to another lens — would otherwise
+   * frame a still, mask a picture or aim a shot at where the board used to be.
+   */
+  function forgetBoard(): void {
+    lastHomography = null;
+    restingGeometry = null;
+    destinationCache.reset();
+    // The *region* survives, because that is the director's instruction and it is about the board
+    // rather than about any camera — but the timer that would release it must not, or it fires into
+    // a camera session that knows nothing about the command that set it.
+    virtualCamera.reset();
+    boardMask.reset();
+    cancelVideoReset();
   }
 
   /**
@@ -234,11 +257,25 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
   async function infer() {
     if (busy || !camera.active) return [];
     busy = true;
+    const running = { session: cameraSession, done: inferFrame(cameraSession) };
+    inferring = running;
+    try {
+      return await running.done;
+    } finally {
+      busy = false;
+      if (inferring === running) inferring = null;
+    }
+  }
+
+  async function inferFrame(session: number): Promise<BoardTip[]> {
     const startedAt = performance.now();
     try {
       const runner = await ensureModel();
       captureInputFrame();
       const { outputs, preprocessMode } = await runner.run(video, inputSize(), { forceCpuPreprocessing });
+      // The camera stopped or switched while this ran. The frame was the old session's, and so is
+      // everything read from it: where the board was, and which darts were in it.
+      if (session !== cameraSession) return [];
       if (!outputs || outputs.length < 2) return [];
 
       // outputs[0] = single [1, 10, N], outputs[1] = multi [1, 3, N]
@@ -269,8 +306,6 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     } catch (err) {
       onStatus({ stage: 'error', text: err instanceof Error ? err.message : String(err) });
       return [];
-    } finally {
-      busy = false;
     }
   }
 
@@ -294,6 +329,8 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
 
     async start(deviceId) {
       const session = ++cameraSession;
+      // A camera switch starts a new session without stopping the old one first.
+      forgetBoard();
       await ensureModel();
       if (session !== cameraSession) throw new Error('Camera startup cancelled.');
       const info = await camera.start(deviceId, inputSize());
@@ -323,22 +360,7 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
       camera.stop();
       motion.reset();
       cameraResolution = null;
-      // The homography described where a board was in *that* camera session's frames. Kept across
-      // one, it would frame a still from a picture that no longer exists.
-      lastHomography = null;
-      restingGeometry = null;
-      destinationCache.reset();
-      // Same reasoning for the shot: a phone that is picked up and re-aimed between sessions should
-      // open on its new view, not slide there from where the old one was pointing. The *region*
-      // survives, because that is the director's instruction and it is about the board rather than
-      // about any camera — but the timer that would release it must not, or it fires into a camera
-      // session that knows nothing about the command that set it.
-      virtualCamera.reset();
-      // And the outline, for the reason directly above: it described where a board was in *that*
-      // camera session's frames, and a phone re-aimed between sessions would be masked to where the
-      // board used to be.
-      boardMask.reset();
-      cancelVideoReset();
+      forgetBoard();
       releaseCanvas();
     },
 
@@ -347,6 +369,12 @@ export function createVisionRuntime({ video, onTips, onStatus = () => {}, onFram
     async captureStill(region: Region) {
       const session = cameraSession;
       const capture = stillWork.then(async () => {
+        if (session !== cameraSession) return null;
+        // A camera that has only just started has not located the board yet, but the inference that
+        // will is usually already running — a restarted camera primes one straight away, and is asked
+        // for a picture the moment it says it is on. Waiting for that one inference is the difference
+        // between a picture and a refusal; waiting for any more would be guessing.
+        if (!lastHomography && inferring?.session === session) await inferring.done;
         if (session !== cameraSession || !camera.active || !lastHomography) return null;
         if (!video.videoWidth || !video.videoHeight) return null;
         const { crop, frame } = frameGeometry(video);

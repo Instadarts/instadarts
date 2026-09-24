@@ -116,6 +116,65 @@ describe('camera still warm-up', () => {
     expect(h.runtime.cameraResolution).toBeNull();
   });
 
+  it('waits for an inference already running before giving up on a board it has not found', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((done) => { finish = done; });
+    mocks.loadModel.mockResolvedValue({
+      run: async () => { await gate; return { outputs: [[], []], preprocessMode: 'test' }; },
+    });
+    const h = harness();
+    await h.runtime.start('camera');
+    // The priming inference a restarted camera runs straight away, and a request that beats it.
+    const inference = h.runtime.infer();
+    const photo = h.runtime.captureStill({ cx: 0.5, cy: 0.5, size: 0.2 });
+    await Promise.resolve();
+    expect(capture).toHaveBeenCalledTimes(1); // the warm-up only
+    finish();
+    await inference;
+    expect(await photo).toBe(result);
+    expect(capture).toHaveBeenCalledTimes(2);
+    await h.runtime.stop();
+  });
+
+  it('neither waits for nor learns from an inference of the camera session before', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((done) => { finish = done; });
+    mocks.loadModel.mockResolvedValue({
+      run: async () => { await gate; return { outputs: [[], []], preprocessMode: 'test' }; },
+    });
+    const h = harness();
+    await h.runtime.start('old');
+    const inference = h.runtime.infer(); // still reading the old camera
+    await h.runtime.stop();
+    await h.runtime.start('new');
+    // Asked of the new camera, which has not looked yet: nothing of its own to wait for.
+    expect(await h.runtime.captureStill({ cx: 0.5, cy: 0.5, size: 0.2 })).toBeNull();
+    finish();
+    await inference;
+    // And the old frame's answer is not taken for the new camera's.
+    expect(h.runtime.located).toBe(false);
+    expect(h.onTips).not.toHaveBeenCalled();
+    await h.runtime.stop();
+  });
+
+  it('forgets where the board was when it switches camera without stopping', async () => {
+    const h = harness();
+    await h.runtime.start('old');
+    await h.runtime.infer();
+    expect(h.runtime.located).toBe(true);
+    await h.runtime.start('new');
+    expect(h.runtime.located).toBe(false);
+    await h.runtime.stop();
+  });
+
+  it('gives up at once on a board it has not found when nothing is looking for it', async () => {
+    const h = harness();
+    await h.runtime.start('camera');
+    expect(await h.runtime.captureStill({ cx: 0.5, cy: 0.5, size: 0.2 })).toBeNull();
+    expect(capture).toHaveBeenCalledTimes(1);
+    await h.runtime.stop();
+  });
+
   it('serializes warm-ups across a restart and arms only the new session', async () => {
     const first = deferred();
     const second = deferred();

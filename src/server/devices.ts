@@ -57,9 +57,9 @@ interface DeviceRecord {
    * How much of its view this phone is willing to share. Its own answer, kept here beside the name
    * and the camera state because it describes the device rather than the pairing.
    *
-   * Only the first of the two gates on a board camera — the other is its owner nominating it. See
-   * shared/media.ts. Defaults to `disabled`, so a device that never says otherwise is never
-   * offered to anybody.
+   * Only the phone's own gate — its owner still decides whether to share media and which camera
+   * goes live. See shared/media.ts. Defaults to `disabled`, so a device that never says otherwise
+   * is never offered to anybody.
    */
   mediaTier: MediaTier;
 }
@@ -215,14 +215,14 @@ export function setCameraActive(deviceId: string, active: boolean, error?: strin
   device.cameraError = active ? undefined : error;
 }
 
+/** Whether this device last reported a running camera. False for a device the registry forgot. */
+export function isCameraActive(deviceId: string): boolean {
+  return devices.get(deviceId)?.cameraActive ?? false;
+}
+
 export function setDeviceName(deviceId: string, name: string): void {
   const device = devices.get(deviceId);
   if (device) device.name = name;
-}
-
-/** What a device calls itself, or an empty string for one the registry has forgotten. */
-export function deviceName(deviceId: string): string {
-  return devices.get(deviceId)?.name ?? '';
 }
 
 /** A device saying how much of its view it is willing to share. */
@@ -357,6 +357,8 @@ export function ownerOf(deviceId: string): string | null {
 export interface DeviceView {
   deviceId: string;
   name: string;
+  /** Its name made unique among this session's devices — see `scorerLabels`. Empty until paired. */
+  label: string;
   cameraActive: boolean;
   online: boolean;
   cameraError?: string;
@@ -367,6 +369,7 @@ export interface DeviceView {
 /** Which devices this frontend currently has active, and how each is doing. */
 export function devicesForSession(sessionId: string): DeviceView[] {
   const owned: DeviceView[] = [];
+  const labels = scorerLabels(sessionId);
   for (const deviceId of claimsBySession.get(sessionId) ?? []) {
     const claim = claims.get(deviceId);
     // Still checked rather than assumed: the index says what this session asked for, the claim says
@@ -378,6 +381,7 @@ export function devicesForSession(sessionId: string): DeviceView[] {
     owned.push({
       deviceId,
       name: paired ? device!.name : '',
+      label: labels.get(deviceId) ?? '',
       cameraActive: online ? device!.cameraActive : false,
       online,
       media: online ? device!.mediaTier : 'disabled',
@@ -385,6 +389,39 @@ export function devicesForSession(sessionId: string): DeviceView[] {
     });
   }
   return owned;
+}
+
+/**
+ * A name for each of this session's devices that none of the others shares.
+ *
+ * A phone names itself and two may well pick the same name. A name keeps itself if it is free;
+ * a clash gets " (2)", " (3)" in claim order, compared regardless of case, and an unnamed phone
+ * is "Scorer". These are display labels; evidence routing uses `scorerId`.
+ */
+export function scorerLabels(sessionId: string): Map<string, string> {
+  const labels = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const deviceId of claimsBySession.get(sessionId) ?? []) {
+    if (ownerOf(deviceId) !== sessionId) continue;
+    const base = devices.get(deviceId)!.name.trim() || 'Scorer';
+    let label = base;
+    for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${base} (${n})`;
+    taken.add(label.toLowerCase());
+    labels.set(deviceId, label);
+  }
+  return labels;
+}
+
+/** One device's label, as its owner's session sees it. A device nobody holds has only its name. */
+export function scorerLabel(deviceId: string): string {
+  const owner = ownerOf(deviceId);
+  const label = owner ? scorerLabels(owner).get(deviceId) : undefined;
+  return label ?? (devices.get(deviceId)?.name.trim() || 'Scorer');
+}
+
+/** Stable within a match, without exposing the private device id or relying on mutable labels. */
+export function scorerId(matchId: string, deviceId: string): string {
+  return createHash('sha256').update(JSON.stringify(['scorer', matchId, deviceId])).digest('base64url');
 }
 
 // ============================================================

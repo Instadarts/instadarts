@@ -190,7 +190,7 @@ test('the setup overlay settles, bypasses local opt-out, times out, and never ga
 
   const optedOut = await onlineRoom(browser);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
-  await setSwitch(optedOut.host.getByRole('switch', { name: 'Live video' }), false);
+  await setSwitch(optedOut.host.getByRole('switch', { name: 'Share media' }), false);
   await optedOut.host.getByRole('button', { name: 'Cameras' }).first().click();
   await optedOut.host.getByRole('button', { name: /Start Match/i }).click();
   await optedOut.host.waitForURL('**/match/**');

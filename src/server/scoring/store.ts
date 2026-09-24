@@ -15,7 +15,7 @@
 import type { MatchState } from '../../shared/types';
 import { createHash } from 'crypto';
 import { getMatch } from '../store';
-import { deviceName } from '../devices';
+import { scorerId, scorerLabel } from '../devices';
 import { ScoringSession } from './session';
 
 const sessions = new Map<string, ScoringSession>();
@@ -56,7 +56,8 @@ export function getScoringSession(
       getMatch: () => getMatch(matchId) ?? null,
       ownerPlayerIds,
       commit,
-      scorerName: deviceName,
+      scorerLabel,
+      scorerId: (deviceId) => scorerId(matchId, deviceId),
     });
     sessions.set(key, session);
   }

@@ -363,8 +363,13 @@ Both sides re-present those credentials after a server restart. The pairing is s
 `localStorage`; the active claim is per tab in `sessionStorage`.
 
 **Grab** is the client-side name and **claim** the server-side name for the same active state. A
-camera also needs a media tier and board-camera nomination before another user can view it; see
-[Match-scoped media](./media.md).
+camera also needs a media tier before another user sees its stills, and board-camera nomination
+before they see its live video; see [Match-scoped media](./media.md).
+
+A scorer's **label** is its name made unique among the devices one frontend holds: a clash gets
+" (2)", " (3)" in claim order, and a phone with no name is "Scorer". Detection records and the owner's
+media roster carry that label; evidence routing uses a stable public scorer ID scoped to the match,
+without exposing the private device ID.
 
 ### Camera off, standby, and power off
 
@@ -398,7 +403,8 @@ removes the relationship but preserves the hardware settings and presentation zo
 - **Throw window:** the interval in which observations of the same throw are fused.
 - **Tracked dart:** a dart the server believes remains in the board.
 - **Detection record:** the `detection` a camera-scored dart keeps of the throw window it came from:
-  scorers expected, reporting and contributing, and the winning scorer's name and confidence.
+  scorers expected, reporting and contributing, and the winning scorer's label, public ID and
+  confidence.
 - **Takeout:** an empty observation from every active camera, meaning the darts were removed.
 - **Scoring session:** the per-match, per-board object that owns fusion and tracking state.
 
@@ -416,7 +422,8 @@ The complete design is in [media.md](./media.md).
 | **Media ban** | A game mode declining `boardVideo`, `dartEvidence`, or both; it does not disable the mesh |
 | **Peer / peer id** | One live frontend or scoring-device socket in one match media session, identified by an opaque id |
 | **Media tier** | What a scoring device offers: `disabled`, `stills`, or `video` |
-| **Board camera** | The one claimed scoring device a user nominates to publish their board; none is valid |
+| **Board camera** | The one claimed scoring device at `video` a user nominates to publish their board as live video; none is valid |
+| **Member** | A scorer in its owner's media mesh: the board camera, or any other with a tier of at least `stills` and its camera on, while its owner shares media |
 | **Publisher / viewer** | The sending and receiving ends of a link; a scorer only publishes and a spectator only views |
 | **Roster** | The server's authoritative list of peers a peer may connect to; absence from it closes and deauthorizes a link |
 | **Media session** | The server-side coordinator for one running match, identified by a fresh `meshId` |

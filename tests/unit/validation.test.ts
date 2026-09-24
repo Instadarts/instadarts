@@ -237,7 +237,7 @@ describe('validateDartThrow', () => {
     const result = validateDartThrow({
       x: 500_000,
       y: 500_000,
-      detection: { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left', winningConfidence: 1 },
+      detection: { expectedScorers: 2, reportingScorers: 2, contributingScorers: 2, winningScorer: 'Left', winningScorerId: 'forged', winningConfidence: 1 },
     });
     expect(result).not.toBeNull();
     expect(result!.detection).toBeUndefined();

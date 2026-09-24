@@ -15,7 +15,10 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { installFakeCamera, scan, showScene } from './fakeCamera';
 import { CONFIG_DEFAULTS } from '../../src/shared/config';
-import { pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding, startScorerCamera } from './appHelpers';
+import {
+  clickT20, closeScorerSettings, pairingCode, renameScorerDevice, scoringDeviceControls, setSwitch, skipOnboarding,
+  startScorerCamera,
+} from './appHelpers';
 
 const SCENES = {
   // Camera startup now performs a real cold inference. Begin where the test's prose always said it
@@ -37,8 +40,8 @@ async function openScorer(browser: Browser) {
   return { context, page };
 }
 
-/** Pair this phone to that frontend and nominate it as the board camera. */
-async function pairAndNominate(player: Page, scorer: Page, name: string) {
+/** Pair this phone to that frontend, leaving the camera menu open on it. */
+async function pair(player: Page, scorer: Page, name: string) {
   await player.getByRole('button', { name: 'Cameras' }).first().click();
   await player.getByRole('button', { name: 'Pair scoring device' }).click();
   const code = (await pairingCode(player).textContent())!.trim();
@@ -46,9 +49,46 @@ async function pairAndNominate(player: Page, scorer: Page, name: string) {
   await scorer.getByPlaceholder('CODE').fill(code);
   await scorer.getByRole('button', { name: 'Pair' }).click();
   await renameScorerDevice(scorer, name);
+}
 
+/** Pair this phone to that frontend and nominate it as the board camera. */
+async function pairAndNominate(player: Page, scorer: Page, name: string) {
+  await pair(player, scorer, name);
   await setSwitch(scoringDeviceControls(player, name).getByRole('switch', { name: 'Board camera' }), true);
   await player.getByRole('button', { name: 'Cameras' }).first().click();
+}
+
+/**
+ * How much this phone shares, set through its own settings — the phone's answer, which its owner
+ * cannot give for it.
+ */
+async function shareFromScorer(scorer: Page, tier: 'disabled' | 'stills' | 'video') {
+  await scorer.getByRole('button', { name: 'Settings' }).click();
+  await scorer.getByRole('combobox', { name: 'Share this view' }).selectOption(tier);
+  await closeScorerSettings(scorer);
+}
+
+/** The owner's roster entry for one of its own scorers, by label; undefined while it is no member. */
+function ownScorer(page: Page, label: string) {
+  return page.evaluate((name) => (window as any).__media.links()
+    .find((link: any) => link.kind === 'device' && link.own && link.scorer === name), label);
+}
+
+/** How many scorers this page has a ready link to — its own, or the thrower's if it is watching. */
+function linkedScorers(page: Page): Promise<number> {
+  return page.evaluate(() => (window as any).__media.links()
+    .filter((link: any) => link.kind === 'device' && link.ready).length);
+}
+
+/** How many stills this scorer has taken: which phone photographed a dart, asked of the phone. */
+function captured(scorer: Page): Promise<number> {
+  return scorer.evaluate(() => (window as any).__media.stills().captured.length);
+}
+
+/** How many director commands this scorer has been sent. */
+function directed(scorer: Page): Promise<number> {
+  return scorer.evaluate(() => (window as any).__media.inbox().control
+    .filter((message: any) => message.data?.kind === 'video_region').length);
 }
 
 /** The evidence thumbnails, as `<img>` elements — only the slots that actually hold a picture. */
@@ -74,9 +114,7 @@ async function controlRoundTrip(page: Page, peerId: string, seq: number): Promis
 }
 
 async function linkedToCamera(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => (window as any).__media.links()
-    .filter((link: any) => link.kind === 'device' && link.ready).length), { timeout: 30_000 })
-    .toBeGreaterThan(0);
+  await expect.poll(() => linkedScorers(page), { timeout: 30_000 }).toBeGreaterThan(0);
 }
 
 /** An online match with Alice hosting, both taking part in media. */
@@ -232,7 +270,7 @@ test.describe('dart evidence', () => {
     await scorer.context.close();
   });
 
-  test('undo takes the evidence with it', async ({ browser }) => {
+  test('keeps evidence when the camera stops, and removes it on undo', async ({ browser }) => {
     const { alice, bob, host, guest } = await onlineMatch(browser);
     const scorer = await openScorer(browser);
     await pairAndNominate(host, scorer.page, 'Alice board');
@@ -246,6 +284,16 @@ test.describe('dart evidence', () => {
     await scan(scorer.page);
     await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+
+    // Stopping the last camera must not hide pictures that have already arrived.
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 10_000 }).toBe(3);
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+    const controls = scoringDeviceControls(host, 'Alice board');
+    await controls.getByRole('button', { name: 'Camera off' }).click();
+    await expect(controls.getByRole('button', { name: 'Camera on' })).toBeVisible();
+    await expect(evidenceImages(host)).toHaveCount(3);
+    await expect(evidenceImages(guest)).toHaveCount(3);
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
 
     await host.getByRole('button', { name: 'Undo' }).click();
 
@@ -340,6 +388,200 @@ test.describe('dart evidence', () => {
     const answers = await guest.evaluate(() => (window as any).__media.inbox().control
       .filter((m: any) => m.data?.id === 'from-the-opponent'));
     expect(answers).toEqual([]);
+
+    await alice.close();
+    await bob.close();
+    await scorer.context.close();
+  });
+});
+
+test.describe('several scorers at one board', () => {
+  // Two phones and a model each, so these are the slowest tests in the file.
+  test.setTimeout(180_000);
+
+  test('the scorer that placed the dart photographs it, and the live camera is only directed', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    // Two phones at Alice's board with the same name. The first is the live camera and will see an
+    // empty board; the second only sends stills, and will be the one that sees the darts.
+    const live = await openScorer(browser);
+    await pairAndNominate(host, live.page, 'Phone');
+    const side = await openScorer(browser);
+    await pair(host, side.page, 'Phone');
+    await shareFromScorer(side.page, 'stills');
+    // The owner tells them apart by the same label the detection record will use.
+    await expect(scoringDeviceControls(host, 'Phone')).toBeVisible();
+    await expect(scoringDeviceControls(host, 'Phone (2)')).toBeVisible();
+    // The nomination is live video's alone, and the stills phone offers none.
+    await expect(scoringDeviceControls(host, 'Phone (2)').getByRole('switch', { name: 'Board camera' })).toBeDisabled();
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    const lobbyId = host.url().split('/lobby/')[1].split('?')[0].split('#')[0];
+    const watching = await browser.newContext();
+    const watcher = await watching.newPage();
+    await watcher.goto(`/spectate/${lobbyId}?e2e=1`);
+    await expect(watcher.getByText('Online Match').first()).toBeVisible();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await Promise.all([startScorerCamera(live.page), startScorerCamera(side.page)]);
+
+    // Both phones are members for every viewer. Only the owner is told which is which.
+    for (const page of [host, guest, watcher]) {
+      await expect.poll(() => linkedScorers(page), { timeout: 30_000 }).toBe(2);
+    }
+    expect(await ownScorer(host, 'Phone')).toMatchObject({ tier: 'video', live: true });
+    expect(await ownScorer(host, 'Phone (2)')).toMatchObject({ tier: 'stills', live: false, cameraOn: true });
+    const guestLinks = await guest.evaluate(() => (window as any).__media.links());
+    expect(guestLinks.every((link: any) => link.scorer === undefined && link.live === undefined)).toBe(true);
+
+    // One throw, two cameras reporting it: only the second phone can see the darts.
+    await showScene(side.page, 'darts');
+    await Promise.all([scan(live.page), scan(side.page)]);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+
+    // Placed by the phone that saw them, of two active phones. Whether the live camera's empty report
+    // made the same throw window depends on how long two inferences take side by side, so it may or
+    // may not count as reporting.
+    const tiles = host.getByTestId('dart-evidence');
+    for (let index = 0; index < 3; index++) {
+      await expect(tiles.nth(index)).toHaveAttribute('title', /^Detected by Phone \(2\) \(1\/[12]\/2\)$/);
+    }
+
+    // And photographed by it, for the thrower, the opponent and the spectator alike.
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(watcher).count(), { timeout: 20_000 }).toBe(3);
+    expect(await captured(side.page)).toBe(3);
+    expect(await captured(live.page)).toBe(0);
+    // The camera move that goes with each picture is the live camera's, since only it has a feed.
+    await expect.poll(() => directed(live.page), { timeout: 10_000 }).toBe(3);
+    expect(await directed(side.page)).toBe(0);
+
+    // Membership follows the camera: off takes the stills phone out of every roster, on brings it back.
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+    await scoringDeviceControls(host, 'Phone (2)').getByRole('button', { name: 'Camera off' }).click();
+    await expect.poll(() => ownScorer(host, 'Phone (2)'), { timeout: 20_000 }).toBeUndefined();
+    await expect.poll(() => linkedScorers(guest), { timeout: 20_000 }).toBe(1);
+    await scoringDeviceControls(host, 'Phone (2)').getByRole('button', { name: 'Camera on' }).click();
+    await expect.poll(() => ownScorer(host, 'Phone (2)'), { timeout: 30_000 }).toMatchObject({ cameraOn: true });
+    await expect.poll(() => linkedScorers(guest), { timeout: 30_000 }).toBe(2);
+
+    await alice.close();
+    await bob.close();
+    await watching.close();
+    await live.context.close();
+    await side.context.close();
+  });
+
+  test('falls back to the live camera for a dart whose scorer shares nothing, and for one added by hand', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const live = await openScorer(browser);
+    await pairAndNominate(host, live.page, 'Alice board');
+    const hidden = await openScorer(browser);
+    await pair(host, hidden.page, 'Alice side');
+    await shareFromScorer(hidden.page, 'disabled');
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await Promise.all([startScorerCamera(live.page), startScorerCamera(hidden.page)]);
+
+    // A phone that shares nothing scores, but is in nobody's roster.
+    await expect.poll(() => linkedScorers(host), { timeout: 30_000 }).toBe(1);
+    await expect.poll(() => linkedScorers(guest), { timeout: 30_000 }).toBe(1);
+    expect(await ownScorer(host, 'Alice board')).toMatchObject({ live: true });
+    expect(await ownScorer(host, 'Alice side')).toBeUndefined();
+
+    // By hand first. No scorer placed it, so the first in line — the live camera — is asked.
+    await clickT20(host);
+    await expect(host.getByTestId('dart-evidence').first()).toHaveAttribute('title', 'Manually added');
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(1);
+    expect(await captured(live.page)).toBe(1);
+    await host.getByRole('button', { name: 'Undo' }).click();
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 10_000 }).toBe(0);
+
+    // Then a throw only the phone that shares nothing can see. It places the darts; the live camera,
+    // the one scorer that can take a picture, photographs them.
+    await showScene(hidden.page, 'darts');
+    await Promise.all([scan(live.page), scan(hidden.page)]);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+    const tiles = host.getByTestId('dart-evidence');
+    for (let index = 0; index < 3; index++) {
+      await expect(tiles.nth(index)).toHaveAttribute('title', /^Detected by Alice side \(1\/[12]\/2\)$/);
+    }
+    await expect.poll(() => evidenceImages(host).count(), { timeout: 20_000 }).toBe(3);
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    expect(await captured(live.page)).toBe(4);
+    expect(await captured(hidden.page)).toBe(0);
+
+    await alice.close();
+    await bob.close();
+    await live.context.close();
+    await hidden.context.close();
+  });
+
+  test('records a camera that stayed silent as expected but not reporting', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const live = await openScorer(browser);
+    await pairAndNominate(host, live.page, 'Alice board');
+    const quiet = await openScorer(browser);
+    await pair(host, quiet.page, 'Alice side');
+    await shareFromScorer(quiet.page, 'stills');
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await Promise.all([startScorerCamera(live.page), startScorerCamera(quiet.page)]);
+    // Every viewer linked before the throw: a still goes out once, to whoever is linked by then.
+    for (const page of [host, guest]) {
+      await expect.poll(() => linkedScorers(page), { timeout: 30_000 }).toBe(2);
+    }
+
+    // Only the live camera looks. The other phone's camera is on, so the throw window waits for its
+    // report, and closes on its timeout when none comes — a count that no longer depends on timing.
+    await showScene(live.page, 'darts');
+    await scan(live.page);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+    const tiles = host.getByTestId('dart-evidence');
+    for (let index = 0; index < 3; index++) {
+      await expect(tiles.nth(index)).toHaveAttribute('title', 'Detected by Alice board (1/1/2)');
+    }
+    await expect.poll(() => evidenceImages(guest).count(), { timeout: 20_000 }).toBe(3);
+    expect(await captured(live.page)).toBe(3);
+    expect(await captured(quiet.page)).toBe(0);
+
+    await alice.close();
+    await bob.close();
+    await live.context.close();
+    await quiet.context.close();
+  });
+
+  test('has no evidence while its owner does not share media, and still says who placed each dart', async ({ browser }) => {
+    const { alice, bob, host, guest } = await onlineMatch(browser);
+    const scorer = await openScorer(browser);
+    await pair(host, scorer.page, 'Alice board');
+    await setSwitch(host.getByRole('switch', { name: 'Share media' }), false);
+    await host.getByRole('button', { name: 'Cameras' }).first().click();
+
+    await host.click('text=Start Match');
+    await host.waitForURL('**/match/**');
+    await guest.waitForURL('**/match/**');
+    await startScorerCamera(scorer.page);
+
+    await showScene(scorer.page, 'darts');
+    await scan(scorer.page);
+    await expect(host.getByText('Visit: 140')).toBeVisible({ timeout: 20_000 });
+
+    // Nothing to wait for, on either screen, and no picture was ever asked for.
+    await expect(host.getByRole('img', { name: /evidence unavailable/ })).toHaveCount(3);
+    await expect(guest.getByRole('img', { name: /evidence unavailable/ })).toHaveCount(3);
+    expect(await linkedScorers(guest)).toBe(0);
+    expect(await captured(scorer.page)).toBe(0);
+    // Scoring does not need media, and neither does the record of it.
+    await expect(host.getByTestId('dart-evidence').first()).toHaveAttribute('title', 'Detected by Alice board (1/1/1)');
 
     await alice.close();
     await bob.close();

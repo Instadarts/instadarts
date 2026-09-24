@@ -13,6 +13,12 @@ import {
 } from '../lib/deviceStorage';
 
 export interface DeviceView extends PairedDevice {
+  /**
+   * Its name made unique among this tab's devices by the server — "Phone (2)" beside "Phone" — and
+   * what a dart's detection record and the media roster call it. The plain name until the server
+   * has said, which it does only for a device active here, and while the phone has no name.
+   */
+  label: string;
   /** Grabbed by this tab. A device active in another tab is paired but not active here. */
   active: boolean;
   online: boolean;
@@ -21,7 +27,7 @@ export interface DeviceView extends PairedDevice {
   cameraError?: string;
   /**
    * How much of its view this device is willing to share, as the phone itself decided. Only a device
-   * offering something may be nominated as the board camera — and this is the phone's answer, which
+   * offering live video may be nominated as the board camera — and this is the phone's answer, which
    * no frontend can overrule.
    */
   media: MediaTier;
@@ -136,7 +142,12 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
         setClaimsReady(true);
         const next: Record<string, DeviceStatus> = {};
         for (const d of msg.devices) {
-          next[d.deviceId] = { online: d.online, cameraActive: d.cameraActive, cameraError: d.cameraError, media: d.media };
+          // An unnamed phone keeps the placeholder assigned at pairing rather than the server's generic
+          // label: the label only earns its place once it can tell two named phones apart.
+          next[d.deviceId] = {
+            label: d.name ? d.label : '',
+            online: d.online, cameraActive: d.cameraActive, cameraError: d.cameraError, media: d.media,
+          };
         }
         setStatus(next);
 
@@ -146,18 +157,23 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
         // Cleared on the way back in and never on the way out: a device sent to standby reports its
         // camera stopping while it is still connected, and treating that as "it's back" would erase
         // the flag a second before it was needed.
-        setPoweredOff((current) => {
-          const remaining = { ...current };
-          let changed = false;
-          for (const d of msg.devices) {
-            if (d.online && wasOnline.current[d.deviceId] === false && remaining[d.deviceId]) {
-              delete remaining[d.deviceId];
-              changed = true;
-            }
-          }
-          return changed ? remaining : current;
-        });
+        //
+        // Decided here, against this message, rather than inside the state updater: React runs the
+        // updater later, and two messages in one batch — "camera off" then "offline", which is
+        // exactly how a power-off arrives — would have the first one read the second's `wasOnline`
+        // and see a device coming back that is in fact leaving.
+        const cameBack = msg.devices
+          .filter((d) => d.online && wasOnline.current[d.deviceId] === false)
+          .map((d) => d.deviceId);
         wasOnline.current = Object.fromEntries(msg.devices.map((d) => [d.deviceId, d.online]));
+        if (cameBack.length > 0) {
+          setPoweredOff((current) => {
+            if (!cameBack.some((deviceId) => current[deviceId])) return current;
+            const remaining = { ...current };
+            for (const deviceId of cameBack) delete remaining[deviceId];
+            return remaining;
+          });
+        }
 
         // The device has spoken, so nothing is outstanding for it any more — whether it did what it
         // was asked or explained why it could not.
@@ -283,6 +299,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
     const online = live?.online ?? false;
     return {
       ...device,
+      label: live?.label || device.name,
       active: grabs.some((g) => g.deviceId === device.deviceId),
       online,
       cameraActive: live?.cameraActive ?? false,
@@ -313,6 +330,7 @@ export function useScoringDevices(send: (msg: object) => void, connected: boolea
 }
 
 interface DeviceStatus {
+  label: string;
   online: boolean;
   cameraActive: boolean;
   cameraError?: string;

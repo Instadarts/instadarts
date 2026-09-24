@@ -75,7 +75,8 @@ export function App() {
   // Purely how a received board is drawn, so it is held beside the media switches but reaches only
   // the board itself — nothing about it is declared, sent, or asked of a camera.
   const [straightenVideo, setStraightenVideo] = useState(() => loadStraightenVideo());
-  // Which of this tab's claimed devices is shared as this player's board.
+  // Which of this tab's claimed devices publishes this player's board as live video. Stills need no
+  // nomination: every scorer of ours with a camera on may be asked for one.
   const [boardCamera, setBoardCamera] = useState(() => loadBoardCamera());
   // Nominating a board is asking to be watched, and the media switch is what decides whether this
   // browser takes part at all. Doing the first with the second off would be a control that did

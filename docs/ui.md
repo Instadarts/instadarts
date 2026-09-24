@@ -192,10 +192,12 @@ becomes the limit, and remains centred under that slot. If the box is shorter th
 content, its body scrolls with both the slots and footer reachable.
 
 Once a dart is thrown, its evidence square's tooltip says where the dart came from, and so does a
-caption in the enlarged picture: "Manually added", or "Detected by <scorer> (c/r/e)". Here c is the
-scorers that saw the dart, r the scorers that reported in its throw window, and e the most scorers
-active at once while that window was open (see
-[Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to right.
+caption in the enlarged picture: "Manually added", or "Detected by <scorer> (c/r/e)", naming the
+scorer by its label when the dart was scored. Here c is the scorers that saw the dart, r the scorers
+that reported in its throw window, and e the most scorers active at once while that window was open
+(see [Server fusion](./vision.md#server-fusion-and-visit-tracking)). They never decrease left to
+right. The picture may come from a fallback camera, and an unnamed scorer may have a different
+placeholder name in the camera menu.
 
 A match grid can drop a box too — the summary omits its re-match box for a spectator, an API-managed
 match, and a match somebody has left — and because nothing compacts, every remaining box keeps the position it was
@@ -272,7 +274,7 @@ the fullscreen control, and two menus:
 
 | Menu | Holds |
 | --- | --- |
-| **Cameras** | Pair scoring device, the live-video switch, and a card per paired device — claim/release, camera on/off, board camera, forget, power off. The video controls are absent entirely where the deployment carries no media |
+| **Cameras** | Pair scoring device, the Share media switch, and a card per paired device — claim/release, camera on/off, board camera (live video devices only), forget, power off. The media controls are absent entirely where the deployment carries no media |
 | **Settings** | `Layout` → the appearance toggle, presentation zoom, **Straighten board video**, **Edit Match Layout** with the active breakpoint badge, breakpoint-local optional-card switches while editing, **Reset layout**; `Links` → source code and, in production, third-party notices |
 
 The camera menu sets `closeOnItemClick={false}`: every control in it is a setting rather than a

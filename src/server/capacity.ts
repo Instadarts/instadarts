@@ -104,13 +104,15 @@ export const MAX_DEVICE_RECORDS = DEVICES_PER_USER * MAX_USERS;
  * Most peer links one media peer is ever offered at once.
  *
  * Not derived from MAX_MATCHES, because it is not about the server: it bounds what one phone is
- * asked to do. Two users with five cameras each would otherwise put eleven peers in a frontend's
- * roster, and every one of them is a decoder.
+ * asked to do. Every scorer with its camera on joins the mesh for stills, so a frontend's roster is
+ * its own scorers, the other frontend, the other board's scorers and the spectators — nine with
+ * three cameras a side, more at the per-user maximum. Only one scorer per board is ever a decoder;
+ * the rest carry a still now and then.
  *
  * **Refused** — the pair is simply not made. Which pairs survive is decided by the priority order in
  * media.ts, so what a peer loses is always the least valuable link rather than an arbitrary one.
  */
-export const MEDIA_PEERS_PER_PEER = 6;
+export const MEDIA_PEERS_PER_PEER = 10;
 
 /**
  * Spectators admitted to media per room. An audience is uncapped per match by design, and every

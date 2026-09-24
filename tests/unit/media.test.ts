@@ -12,6 +12,7 @@ import '../../src/server/modes/count-up';
 import { handleMessage, registerClient, removeClient } from '../../src/server/wsHandler';
 import { finishMediaForMatch } from '../../src/server/media';
 import { resetDeviceRegistry } from '../../src/server/devices';
+import { MEDIA_PEERS_PER_PEER } from '../../src/server/capacity';
 import { checkRateLimit, releaseRateLimit } from '../../src/server/rateLimit';
 import { deleteLobby, deleteMatch, getAllLobbies, getAllMatches, getMatch } from '../../src/server/store';
 import * as store from '../../src/server/store';
@@ -353,6 +354,129 @@ describe('match-scoped lifetime and setup', () => {
   });
 });
 
+describe('stills scorers', () => {
+  /** A second scorer of the host's, only willing to send stills. */
+  function withStillsScorer(name = 'Alice left') {
+    const online = startOnline();
+    const extra = pairDevice(online.host, name, 'stills');
+    return { ...online, extra };
+  }
+
+  it('joins a sharing owner\'s mesh for stills while its camera is on', () => {
+    const { host, guest, extra } = withStillsScorer();
+    expect(entryFor(host, extra)).toBeUndefined();
+
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(host, extra)).toMatchObject({
+      kind: 'device', own: true, tier: 'stills', scorer: 'Alice left', live: false, cameraOn: true,
+    });
+    // Every viewer, since the picture it takes goes to all of them.
+    expect(entryFor(guest, extra)).toMatchObject({ kind: 'device', own: false, role: 'opponent' });
+    // Never a live source: it has no directive to publish anything.
+    expect(extra.last('media_source_state')).toBeUndefined();
+
+    extra.send({ type: 'scorer_camera', active: false });
+    expect(entryFor(host, extra)).toBeUndefined();
+    expect(entryFor(guest, extra)).toBeUndefined();
+  });
+
+  it('keeps the nominated camera, and its source epoch, through a camera restart', () => {
+    const { host, camera } = startOnline();
+    const epoch = camera!.last('media_source_state');
+    expect(entryFor(host, camera!)).toMatchObject({ live: true, cameraOn: false });
+
+    camera!.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(host, camera!)).toMatchObject({ live: true, cameraOn: true });
+    camera!.send({ type: 'scorer_camera', active: false });
+    expect(entryFor(host, camera!)).toMatchObject({ live: true, cameraOn: false });
+    expect(camera!.last('media_source_state')).toEqual(epoch);
+  });
+
+  it('never makes a stills scorer live, even when it is the nominee', () => {
+    const { host, match, extra } = withStillsScorer();
+    host.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: extra.deviceId });
+    expect(entryFor(host, extra)).toMatchObject({ tier: 'stills', live: false });
+    expect(extra.last('media_source_state')).toBeUndefined();
+  });
+
+  it('leaves with its owner when the owner stops sharing media, and returns with them', () => {
+    const { host, guest, match, extra } = withStillsScorer();
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(guest, extra)).toBeDefined();
+
+    host.send({ type: 'media_join', matchId: match.id, tier: 'disabled', boardCamera: null });
+    expect(guest.roster().some((peer) => peer.kind === 'device')).toBe(false);
+
+    host.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: null });
+    expect(entryFor(guest, extra)).toBeDefined();
+  });
+
+  it('carries labels that stay unique through a clash and a rename', () => {
+    const { host, extra } = withStillsScorer('Alice board');
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(host, extra)?.scorer).toBe('Alice board (2)');
+    const identity = entryFor(host, extra)?.scorerId;
+    expect(identity).toEqual(expect.any(String));
+    expect(identity).not.toBe(extra.deviceId);
+
+    extra.send({ type: 'scorer_name', name: 'Left' });
+    expect(entryFor(host, extra)?.scorer).toBe('Left');
+    extra.send({ type: 'scorer_camera', active: false });
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(host, extra)?.scorerId).toBe(identity);
+  });
+
+  it('stays within the link budget, giving up an extra stills camera before a live one or a player', () => {
+    expect(MEDIA_PEERS_PER_PEER).toBe(10);
+    const { host, guest, match, camera } = startOnline();
+    // The five scorers a user may hold, on each side, with one live camera each and every camera on.
+    const aliceStills = ['A1', 'A2', 'A3', 'A4'].map((name) => pairDevice(host, name, 'stills'));
+    const bobLive = pairDevice(guest, 'Bob board');
+    const bobStills = ['B1', 'B2', 'B3', 'B4'].map((name) => pairDevice(guest, name, 'stills'));
+    guest.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: bobLive.deviceId });
+    for (const scorer of [camera!, ...aliceStills, bobLive, ...bobStills]) {
+      scorer.send({ type: 'scorer_camera', active: true });
+    }
+    const watchers = [connect(), connect()];
+    for (const watcher of watchers) {
+      watcher.send({ type: 'spectate', id: match.id });
+      watcher.send({ type: 'media_join', matchId: match.id, tier: 'video', boardCamera: null });
+    }
+
+    // Alice's frontend would need thirteen: her five, Bob, his five and two spectators. What it keeps
+    // is decided by priority — her own scorers, then the other player, then the other board's live
+    // camera, then its stills cameras by label for as long as there is room.
+    expect(host.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+    for (const own of [camera!, ...aliceStills]) expect(entryFor(host, own)).toMatchObject({ own: true });
+    expect(entryFor(host, guest)).toBeDefined();
+    expect(entryFor(host, bobLive)).toBeDefined();
+    expect(bobStills.map((scorer) => entryFor(host, scorer) !== undefined)).toEqual([true, true, true, false]);
+    for (const watcher of watchers) expect(entryFor(host, watcher)).toBeUndefined();
+
+    // Bob's side is the mirror image.
+    expect(guest.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+    expect(entryFor(guest, camera!)).toBeDefined();
+    expect(aliceStills.map((scorer) => entryFor(guest, scorer) !== undefined)).toEqual([true, true, true, false]);
+
+    // The audience is last, but it is not left without a board: it reaches every scorer, both live
+    // cameras included.
+    for (const watcher of watchers) {
+      expect(watcher.roster()).toHaveLength(MEDIA_PEERS_PER_PEER);
+      expect(entryFor(watcher, camera!)).toBeDefined();
+      expect(entryFor(watcher, bobLive)).toBeDefined();
+    }
+  });
+
+  it('leaves the mesh when its owner releases it', () => {
+    const { host, guest, extra } = withStillsScorer();
+    extra.send({ type: 'scorer_camera', active: true });
+    expect(entryFor(guest, extra)).toBeDefined();
+    host.send({ type: 'deactivate_device', deviceId: extra.deviceId });
+    expect(entryFor(host, extra)).toBeUndefined();
+    expect(entryFor(guest, extra)).toBeUndefined();
+  });
+});
+
 describe('topology and source intent', () => {
   it('builds the online topology from stable player slots', () => {
     const { host, guest, camera } = startOnline();
@@ -361,10 +485,13 @@ describe('topology and source intent', () => {
     expect(entryFor(guest, camera!)).toMatchObject({ kind: 'device', own: false, role: 'opponent' });
     expect(entryFor(camera!, host)).toMatchObject({ own: true, role: 'owner' });
     expect(entryFor(camera!, guest)).toMatchObject({ own: false, role: 'opponent' });
-    // Device names belong to the owner's camera panel. The roster carries only the stable player
-    // association needed for remote presentation, never that private label.
-    expect(entryFor(host, camera!)).not.toHaveProperty('label');
-    expect(entryFor(guest, camera!)).not.toHaveProperty('label');
+    // Only the owner learns which of its scorers this is. Everyone else gets the player association
+    // needed for remote presentation and nothing about the device.
+    expect(entryFor(host, camera!)).toMatchObject({ scorer: 'Alice board', live: true });
+    for (const field of ['scorer', 'scorerId', 'live', 'cameraOn']) {
+      expect(entryFor(guest, camera!)).not.toHaveProperty(field);
+      expect(entryFor(camera!, host)).not.toHaveProperty(field);
+    }
   });
 
   it('offers a local shared source to spectators without making it self-video', () => {
@@ -383,6 +510,9 @@ describe('topology and source intent', () => {
 
     expect(entryFor(user, camera)).toMatchObject({ own: true }); // control/stills edge
     expect(entryFor(watcher, camera)).toBeDefined();
+    for (const field of ['scorer', 'scorerId', 'live', 'cameraOn']) {
+      expect(entryFor(watcher, camera)).not.toHaveProperty(field);
+    }
     expect(camera.last('media_source_state')).toMatchObject({ active: true, audience: ['spectator'] });
     // One board, so one slot — and one declaration completes setup however many players stand at it.
     // Slots keyed per player instead would wait here for a declaration nothing can send.
@@ -415,6 +545,7 @@ describe('topology and source intent', () => {
     const { host, camera, match } = startOnline();
     const first = camera!.last('media_source_state');
     expect(first?.active).toBe(true);
+    const scorerId = entryFor(host, camera!)?.scorerId;
 
     const replacement = connect();
     replacement.send({ type: 'media_ready', tier: 'video' });
@@ -422,6 +553,9 @@ describe('topology and source intent', () => {
     const second = replacement.last('media_source_state');
     expect(second?.active).toBe(true);
     if (first?.active && second?.active) expect(second.sourceEpoch).not.toBe(first.sourceEpoch);
+    // A new incarnation of the same phone is a new peer but the same scorer.
+    expect(entryFor(host, replacement)?.peerId).not.toBe(camera!.peerId());
+    expect(entryFor(host, replacement)?.scorerId).toBe(scorerId);
 
     host.send({ type: 'media_join', matchId: match.id, tier: 'disabled', boardCamera: null });
     expect(replacement.last('media_source_state')).toMatchObject({ active: false });
@@ -450,6 +584,8 @@ describe('topology and source intent', () => {
   it('keeps the source epoch when only the participant frontend is replaced', () => {
     const { host, camera, match } = startOnline();
     const active = camera!.last('media_source_state');
+    const scorerId = entryFor(host, camera!)?.scorerId;
+    expect(scorerId).toEqual(expect.any(String));
     const oldPeer = host.peerId();
     const replacement = connect();
     replacement.send({ type: 'reconnect', matchId: match.id, token: host.resumeToken() });
@@ -465,6 +601,8 @@ describe('topology and source intent', () => {
     expect(replacement.peerId()).not.toBe(oldPeer);
     const repeated = camera!.last('media_source_state');
     if (active?.active && repeated?.active) expect(repeated.sourceEpoch).toBe(active.sourceEpoch);
+    // And the reloaded frontend knows its scorer by the same identity the darts already carry.
+    expect(entryFor(replacement, camera!)?.scorerId).toBe(scorerId);
   });
 });
 
@@ -480,6 +618,7 @@ describe('match boundaries and signaling', () => {
     const original = host.last('match_started')!.match;
     host.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: camera.deviceId });
     guest.send({ type: 'media_join', matchId: original.id, tier: 'video', boardCamera: null });
+    const oldScorerId = entryFor(host, camera)?.scorerId;
     const oldMesh = host.last('media_peers')!.meshId;
     const oldPeer = host.peerId();
 
@@ -495,6 +634,7 @@ describe('match boundaries and signaling', () => {
     guest.send({ type: 'media_join', matchId: rematch.id, tier: 'video', boardCamera: null });
     expect(host.last('media_peers')!.meshId).not.toBe(oldMesh);
     expect(host.peerId()).not.toBe(oldPeer);
+    expect(entryFor(host, camera)?.scorerId).not.toBe(oldScorerId);
   });
 
   it('relays only between the exact pair in the current match roster', () => {

@@ -199,10 +199,14 @@ describe('camera darts', () => {
     frontend.send({ type: 'add_dart', dart: { x: polar(150_000, 0)[0], y: polar(150_000, 0)[1] } });
     tips(scorer, T20);
 
+    scorer.send({ type: 'media_ready', tier: 'stills' });
+    frontend.send({ type: 'media_join', matchId: match().id, tier: 'video', boardCamera: null });
     const [manual, camera] = match().currentVisit!.darts;
+    expect(frontend.last('media_peers')!.peers.find((peer) => peer.kind === 'device')?.scorerId)
+      .toBe(camera.detection?.winningScorerId);
     expect(manual.detection).toBeUndefined();
     expect(camera.detection).toEqual(
-      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left phone', winningConfidence: 0.9 },
+      { expectedScorers: 1, reportingScorers: 1, contributingScorers: 1, winningScorer: 'Left phone', winningScorerId: expect.any(String), winningConfidence: 0.9 },
     );
   });
 
@@ -216,6 +220,21 @@ describe('camera darts', () => {
     tips(scorer, ...T20_GROUP);
     expect(match().currentVisit?.playerId).toBe(match().players[1].id);
     expect(visitLabels(match())).toEqual(['T20', 'T20', 'T20']);
+  });
+
+  it('names the winning scorer by its label, so two phones called the same are told apart', () => {
+    const { frontend, scorer, match } = setup();
+    const second = pairTo(frontend);
+    scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_name', name: 'Phone' });
+    second.scorer.send({ type: 'scorer_camera', active: true });
+
+    tips(scorer); // one window, both cameras: only the second one sees the dart
+    tips(second.scorer, T20);
+
+    expect(match().currentVisit!.darts[0].detection).toEqual(
+      { expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer: 'Phone (2)', winningScorerId: expect.any(String), winningConfidence: 0.9 },
+    );
   });
 
   it('a dart corrected by hand is not re-added by the camera that misread it', () => {

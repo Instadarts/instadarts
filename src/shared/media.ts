@@ -12,20 +12,23 @@
 //   · **link**  — one RTCPeerConnection between two peers. It carries **no media tracks**; see
 //     below.
 //
-// ## The two gates
+// ## The gates
 //
-// A scoring device is in a roster only when **both** of these are true, and they belong to different
-// people:
+// Every gate belongs to one of two people, and neither can open the other's:
 //
 //   1. **The phone is willing** — its own `MediaTier`, set in its settings. This says what the
 //      hardware offers. It never says the device is in use, and neither its owner nor the opponent
 //      can change it: a camera pointed somewhere its owner would rather not broadcast stays that way.
-//   2. **The owner has nominated it** — exactly one of the devices a frontend has claimed may be
-//      the **board camera**, or none at all. This is the owner's board offered to remote viewers;
-//      nominate nothing and they see nothing.
+//   2. **The owner shares media** — the frontend's media switch. Off, and none of its scorers is in
+//      any roster.
+//
+// With both open, a scorer is in the rosters for **stills** whenever its camera is on: any of them
+// may be the one that saw a dart, and it is the one asked to photograph it. **Live video** has one
+// more gate, also the owner's: exactly one claimed device at `video` may be nominated the **board
+// camera**, or none at all. Nominate nothing and remote viewers see no board.
 //
 // So a device that has opted in is not thereby watchable, and a device that has been nominated is
-// not thereby willing. Both gates are enforced where every other rule is — in the plan the server
+// not thereby willing. Every gate is enforced where every other rule is — in the plan the server
 // builds — which is what stops an opponent from reaching a camera nobody offered them.
 //
 // ## Why there is no video track
@@ -60,12 +63,12 @@ export type MediaPeerKind = 'user' | 'device';
  *
  * A scoring device's own answer, set on the phone. It says what that hardware is *able and willing*
  * to offer and nothing else — in particular it does **not** say the device is in use. Whether a
- * board camera is actually watched is its owner's separate decision; see
- * [the two gates](#the-two-gates) below.
+ * board camera is actually watched is its owner's separate decision; see [the gates](#the-gates)
+ * above.
  *
- * `stills` and `video` do not differ in what the server allows: both open the same link with the
- * same two channels, and the distinction is what a viewer should expect and ask for. Only
- * `disabled` is a rule, and it is a rule about not appearing at all.
+ * Both `stills` and `video` open the same link with the same two channels, and either answers still
+ * requests. They differ in one rule: only a `video` device can be the live board camera. `disabled`
+ * is a rule about not appearing at all.
  */
 export type MediaTier = 'disabled' | 'stills' | 'video';
 
@@ -133,8 +136,9 @@ export interface MediaPeer {
    *
    *   · a **device** honours a command only from the peer marked `own`, which is what stops an
    *     opponent deciding what somebody else's camera photographs;
-   *   · a **frontend** finds its own board camera by it, since a roster addresses peers by opaque id
-   *     and nothing else in it says which camera is yours.
+   *   · a **frontend** finds its own scorers by it, since a roster addresses peers by opaque id and
+   *     nothing else in it says which cameras are yours. Which of them is the board camera is then
+   *     `live`, below.
    *
    * This is "the roster is the authorization" widened from who may *connect* to who may *command*.
    */
@@ -156,6 +160,20 @@ export interface MediaPeer {
    */
   role: MediaRole;
   /**
+   * Set only on a frontend's edge to one of its own scoring devices — nobody else is told anything
+   * about somebody's cameras.
+   *
+   *   · `scorer` — its display label, unique among the owner's devices.
+   *   · `scorerId` — its stable identity within the match, matching detection.winningScorerId.
+   *   · `live` — it is the nominated board camera, publishing live video. Director commands go here.
+   *   · `cameraOn` — it can take a picture now. Always true for a scorer that is only here for
+   *     stills; the live camera stays in the roster through a camera restart and may be false.
+   */
+  scorer?: string;
+  scorerId?: string;
+  live?: boolean;
+  cameraOn?: boolean;
+  /**
    * Which side takes the polite role in perfect negotiation. Decided by the server rather than by a
    * rule each client applies, so there is no rule for a client to get wrong.
    *
@@ -165,7 +183,7 @@ export interface MediaPeer {
   polite: boolean;
   /**
    * Whether this peer may send media to you. False for a spectator, who only ever watches — and
-   * false in a **scoring device's** roster, because a board camera has nothing to do with anybody
+   * false in a **scoring device's** roster, because a scorer has nothing to do with anybody
    * else's picture and should never decode one.
    */
   send: boolean;
@@ -349,7 +367,9 @@ export type StillRefusal =
   /** Nothing to place the region against — the board has not been located since the camera started. */
   | 'not_located'
   /** Too many already in hand. */
-  | 'busy';
+  | 'busy'
+  /** The camera restarted while this was waiting, so the frame it was asked of is gone. */
+  | 'restarted';
 
 // ============================================================
 // Regions of a board

@@ -41,13 +41,19 @@ The declaration is idempotent and is repeated after match start, rematch, page r
 entry, WebSocket replacement, and an explicit media/camera change. `tier: 'disabled'` with a null
 camera is a complete declaration: it counts toward setup but creates no peer identity.
 
-`MediaTier` is the scoring device's offer: `disabled`, `stills`, or `video`. The frontend separately
-nominates at most one claimed device as its `boardCamera`; none is valid. A device becomes a media
-source only when its own tier and the frontend's nomination both allow it. The frontend's media
-switch controls whether that browser participates at all, while the board-camera choice controls
-only whether it publishes its board. The tier says how much of its view a phone is willing to send;
-the **board mask** below says how much of that picture is board rather than room. Both belong to the
-phone, and neither can be changed from the other end.
+`MediaTier` is the scoring device's offer: `disabled`, `stills`, or `video`. The frontend's media
+switch, **Share media**, controls whether that browser takes part at all, and every scorer it holds
+with it. While it shares, each of its scorers at `stills` or `video` with its camera on is a
+**member** of the mesh for stills: any of them may be the scorer that placed a dart, and that is the
+one asked to photograph it.
+
+Live video takes one more choice. The frontend nominates at most one claimed device as its
+`boardCamera`, and none is valid; the nominee publishes only at tier `video`. A nomination survives
+the phone dropping to `stills` and goes live again when it returns. The nominee is a member whatever
+its camera is doing, so a camera restart keeps its source epoch and every viewer's consent. The tier
+says how much of its view a phone is willing to send; the **board mask** below says how much of that
+picture is board rather than room. Both belong to the phone, and neither can be changed from the
+other end.
 
 Lobbies have no peer IDs, rosters, signaling permissions, or peer connections. A scoring phone may
 announce its capability in a lobby so its owner can see it in the camera picker, but the announcement
@@ -56,10 +62,13 @@ does not create mesh state.
 `media_ready` is retained on the connection even before pairing, then applied when the scorer
 proves its identity. Unpaired connections cause no topology planning, and repeating the same
 normalized tier causes no owner publication or planning. A changed tier updates the owner's
-camera picker and replans only matches that nominated that device. Source nominations are checked
-even when the device has no current peer binding, so readiness can reactivate a disabled source.
-Device leave and identity synchronization likewise refresh selected matches rather than every
-session. The dispatcher does not repeat the refresh already performed by a media handler.
+camera picker and replans only the matches the device can be a member of: those that nominated it
+and, while its camera is on, those its owner shares media in. Source nominations are checked even
+when the device has no current peer binding, so readiness can reactivate a disabled source. Device
+leave and identity synchronization likewise refresh those matches rather than every session. A
+camera turning on or off, a rename — which can change labels — and a claim or release replan the
+owner's sharing matches. The dispatcher does not repeat the refresh already performed by a media
+handler.
 
 On every finish path — victory, cancellation, permanent leave, or idle expiry — the server sends
 inactive source directives, publishes empty rosters, and destroys the media session immediately. A
@@ -104,10 +113,14 @@ used again.
 The normal online topology is:
 
 - participant frontend ↔ participant frontend;
-- selected board device ↔ its owner;
-- selected board device ↔ every frontend at another board;
-- spectator ↔ participant frontends and selected devices;
+- member scorer ↔ its owner;
+- member scorer ↔ every frontend at another board;
+- spectator ↔ participant frontends and member scorers;
 - never device ↔ device or spectator ↔ spectator.
+
+Pairs are made in that priority order until a peer reaches `MEDIA_PEERS_PER_PEER` (10), with each
+board's live camera ahead of its stills-only scorers, so a full budget costs an extra stills camera
+rather than somebody's board video.
 
 A match with one board has one source, and `audienceFor` derives its audience from that: there is
 nobody at another board, so it is addressed to spectators alone and the playing screen never shows
@@ -116,6 +129,12 @@ self-video. Its owner/device link remains useful for stills and director command
 Device IDs never enter a roster. The server resolves them through the private stable source slot and
 current device claim. A participant frontend replacement preserves that source intent; transferring
 the device to another slot or explicitly unclaiming it withdraws it.
+
+Only a frontend's edge to one of its own scorers describes the device: `scorer` is its **label** —
+its name, made unique among that owner's devices with " (2)", " (3)" in claim order, and the name a
+dart's `detection.winningScorer` carries — `live` marks the nominated board camera, and `cameraOn`
+says whether it can take a picture now. `scorerId` is its stable public identity within this match,
+matching `detection.winningScorerId` even after a rename or reconnect. No other edge names a device.
 
 ## Source coordination and feeds
 
@@ -166,12 +185,19 @@ camera pixels, so the same request works from every camera angle. `clampRegion` 
 centre inward until the square fits instead of rejecting or shrinking the request.
 
 A still is one square JPEG of a region, captured on request and returned on the reliable control
-channel. Only the selected camera's owner may request one, and the request names the audience for
+channel. Only a scorer's owner may request one from it, and the request names the audience for
 the response. Output size comes from `media.still.size`; mime type and quality are fixed in
 [`shared/media.ts`](../src/shared/media.ts).
 Queued captures retain the requesting owner link, mesh and camera-stream identity. The scorer
-rechecks all three and current ownership before capture and after each asynchronous step; a
-restart, roster removal or replacement owner link discards the old work.
+rechecks all three and current ownership before capture and after each asynchronous step. A roster
+removal or replacement owner link discards the old work in silence, since there is nobody left to
+answer. A camera restart discards it too, but the owner is still there and is answered with
+`still_refused` — `restarted`, or `no_frame` when the camera stopped — so it can ask again or ask
+another camera; so is a capture or encode that fails outright. A new camera session, whether after
+a stop or a switch of camera, forgets where the old one saw the board, and an inference still
+reading the old camera changes nothing. A request that arrives before the new session has located
+the board waits for that session's inference if one is running — usually the one that will locate
+it — rather than being refused `not_located` a moment too early.
 
 Camera startup performs one discarded centre-square capture with the real still size and JPEG
 settings, after applying stored optical zoom and before arming automatic scanning. It warms the
@@ -179,25 +205,41 @@ reused still canvas and encoding path without requiring a located board or sendi
 Warm-up and real captures share a serial barrier across camera restarts; failures do not prevent
 camera startup, and stale completion cannot arm a stopped or replaced camera.
 
-**Dart evidence** is the still associated with a slot in the visit in progress. The owner requests
-it when a dart appears, every eligible viewer receives the same image, undo removes it with the
-dart, and submitting clears it with the visit.
+**Dart evidence** is the still associated with a slot in the visit in progress. The thrower's
+frontend requests it when a dart appears. Each response sends identical image bytes to eligible
+viewers, and each viewer keeps its first valid response. When replies from different cameras
+race, screens can select different pictures. Undo removes evidence with its dart, and submitting
+clears it with the visit.
+
+It asks the scorer that placed the dart, matching `detection.winningScorerId` to the roster's
+`scorerId`, since that camera saw it. A manually added dart, or one whose scorer is not a member,
+goes to the live camera and then the other scorers by label. Only
+scorers with `cameraOn` are asked. Received pictures remain visible when all cameras stop; the strip
+shows the unavailable state only when it has neither pictures nor a source.
 
 Each accepted dart receives a server-assigned `id`; the first dart also establishes the current
 visit's `id`. Appending and undo preserve the remaining identities, while a replacement dart gets
 a new one even at identical coordinates. Evidence requests carry
 `{ kind: 'dart_evidence', matchId, boardId, visitId, dartId, dart }` in the opaque still `tag`, with
 `dart` the zero-based slot. The scorer echoes the tag without interpreting it. Receivers require
-the identities to match the current match state and the sender to be the roster's selected camera
-for that board. The requesting owner also checks the response `id` against its pending request;
-observers receive the fan-out without issuing their own requests. Duplicate replies cannot replace
-an accepted image. Missing or outdated identity tags are ignored, including index-only tags from
-older clients. A change of board, visit or camera link clears evidence; undo/replacement removes
-only affected dart images and requests fresh ones where needed.
+the identities to match the current match state and the sender to be a scorer the roster places at
+that board. The requesting owner also requires the response `id`, scorer and link of its pending
+request — any request it has sent for that dart, not only the latest, since the first picture to
+arrive is the dart's, as it is for everyone else. Observers cannot know which scorer was asked and
+receive the fan-out without issuing their own requests. Duplicate replies cannot replace an accepted image. Missing or outdated identity
+tags are ignored, including index-only tags from older clients. A change of board or visit clears
+evidence, and undo/replacement removes only the affected dart images and requests fresh ones. A
+request is retried with the best remaining scorer with a writable link if its original link
+disappears or becomes unwritable, or its camera stops. If none is ready, it waits for a link to recover.
+A refusal moves the dart on to another scorer at once; the one that refused is asked again after a
+1.5 s back-off, until it has refused that dart three times, and starts with a clean record once its
+camera has stopped and come back. A refusal sent by a camera that is already off is part of it
+stopping and is not held against it. A picture already received stays visible even if every camera
+stops.
 
 ### Director commands and the virtual camera
 
-`video_region` asks the selected camera to show a board region, optionally naming a transition time
+`video_region` asks the live board camera to show a board region, optionally naming a transition time
 and how long to hold the shot before returning to the full-board crop. It is an owner-only command.
 The dart-evidence path sends it beside each still request so remote video follows the photographed
 dart.
@@ -266,8 +308,8 @@ them needs to interrupt a match.
 
 Feed labels are derived from match participants, never from the device that publishes them: a board
 is labelled with everybody who throws at it, so one user who brought two players gets one board
-carrying both names. Feed identity remains an opaque source-generated UUID, and peer rosters
-deliberately carry no device names.
+carrying both names. Feed identity remains an opaque source-generated UUID, and only an owner's
+roster names a device, and only its own.
 
 ### Straightening it on the viewer
 

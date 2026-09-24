@@ -6,6 +6,7 @@ import { useDartEvidence } from '../../src/client/hooks/useDartEvidence';
 import { useStillResponder } from '../../src/client/hooks/useStillResponder';
 import type { Mesh } from '../../src/client/media/mesh';
 import type { ControlMessage, MediaPeer } from '../../src/shared/media';
+import type { DartDetection, DartThrow } from '../../src/shared/types';
 import type { Capture } from '../../src/client/vision/stillCapture';
 
 // A synchronous hook runner: state/refs and effect dependencies survive renders. No browser,
@@ -40,7 +41,8 @@ vi.mock('react', () => {
     },
   };
 });
-vi.mock('../../src/client/lib/e2e', () => ({ e2eEnabled: () => false }));
+const e2e = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../src/client/lib/e2e', () => ({ e2eEnabled: () => e2e.enabled }));
 
 function render<T>(hook: () => T): T {
   hooks.cursor = 0;
@@ -49,16 +51,24 @@ function render<T>(hook: () => T): T {
   return result;
 }
 
-function meshFixture() {
-  const camera: MediaPeer = { peerId: 'camera', kind: 'device', playerId: 'board', tier: 'stills',
-    own: true, role: 'owner', polite: false, send: true, recv: false };
-  const opponent: MediaPeer = { ...camera, peerId: 'opponent-camera', playerId: 'other-board', own: false, role: 'opponent' };
-  const owner: MediaPeer = { ...camera, peerId: 'owner', kind: 'user', recv: true };
-  const peers = [camera, opponent, owner];
+/** A scorer of the thrower's own, as the owner's roster describes it. */
+function ownScorer(peerId: string, scorer: string, fields: Partial<MediaPeer> = {}): MediaPeer {
+  return { peerId, kind: 'device', playerId: 'board', tier: 'stills', own: true, role: 'owner',
+    polite: false, send: true, recv: false, scorer, scorerId: `public-${peerId}`, live: false, cameraOn: true, ...fields };
+}
+
+function meshFixture(extra: MediaPeer[] = []) {
+  const camera = ownScorer('camera', 'Phone', { live: true });
+  const opponent: MediaPeer = { peerId: 'opponent-camera', kind: 'device', playerId: 'other-board', tier: 'stills',
+    own: false, role: 'opponent', polite: false, send: true, recv: false };
+  const owner: MediaPeer = { peerId: 'owner', kind: 'user', playerId: 'board', tier: 'stills',
+    own: true, role: 'owner', polite: false, send: true, recv: true };
+  const peers = [camera, opponent, owner, ...extra];
   const sendControl = () => vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true);
-  const wires = new Map(peers.map((peer) => [peer.peerId, { sendControl: sendControl() }]));
+  const wires = new Map(peers.map((peer) => [peer.peerId, { ready: true, sendControl: sendControl() }]));
   const mesh = {
-    links: () => peers.map((peer) => ({ peer, ready: true, state: 'connected' })),
+    links: () => peers.map((peer) => ({ peer, ready: wires.get(peer.peerId)?.ready ?? false,
+      state: wires.get(peer.peerId)?.ready ? 'connected' : 'failed' })),
     link: (id: string) => wires.get(id),
     ownPeers: () => peers.filter((peer) => peer.own),
     isOwn: (id: string) => peers.some((peer) => peer.peerId === id && peer.own),
@@ -109,21 +119,22 @@ describe('server evidence identities', () => {
   });
 });
 
+function setup(isThrower = false, { extra = [] as MediaPeer[], dart = {} as Partial<DartThrow> } = {}) {
+  const fixture = meshFixture(extra);
+  const options = { mesh: fixture.mesh, links: fixture.mesh.links(), matchId: 'match', boardId: 'board',
+    currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart', ...dart }] },
+    isThrower, enabled: true };
+  const run = () => render(() => useDartEvidence(options));
+  run();
+  const request = fixture.wires.get('camera')!.sendControl.mock.calls[0]?.[0] as unknown as { id: string; tag: unknown } | undefined;
+  const tag = { kind: 'dart_evidence', matchId: 'match', boardId: 'board', visitId: 'visit', dartId: 'dart', dart: 0 };
+  const response: ControlMessage = { kind: 'still', id: request?.id ?? 'observer-copy', tag,
+    width: 480, height: 480, mime: 'image/jpeg' };
+  return { ...fixture, options, run, response, request };
+}
+const bytes = new Uint8Array([1, 2, 3]);
+
 describe('dart evidence admission', () => {
-  function setup(isThrower = false) {
-    const fixture = meshFixture();
-    const options = { mesh: fixture.mesh, links: fixture.mesh.links(), matchId: 'match', boardId: 'board',
-      currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart' }] },
-      isThrower, enabled: true };
-    const run = () => render(() => useDartEvidence(options));
-    run();
-    const request = fixture.wires.get('camera')!.sendControl.mock.calls[0]?.[0] as unknown as { id: string; tag: unknown } | undefined;
-    const tag = { kind: 'dart_evidence', matchId: 'match', boardId: 'board', visitId: 'visit', dartId: 'dart', dart: 0 };
-    const response: ControlMessage = { kind: 'still', id: request?.id ?? 'observer-copy', tag,
-      width: 480, height: 480, mime: 'image/jpeg' };
-    return { ...fixture, options, run, response, request };
-  }
-  const bytes = new Uint8Array([1, 2, 3]);
 
   it.each(['matchId', 'boardId', 'visitId', 'dartId'])('rejects a picture tagged for a different %s', (field) => {
     const f = setup();
@@ -170,6 +181,23 @@ describe('dart evidence admission', () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     expect(f.wires.get('camera')!.sendControl).toHaveBeenCalledTimes(2);
   });
+  it.each([true, false])('keeps received evidence available after every source leaves (thrower=%s)', (isThrower) => {
+    const f = setup(isThrower);
+    f.run().handleControl('camera', f.response, bytes);
+    const image = f.run().images[0];
+    f.peers.splice(0);
+    f.wires.clear();
+    f.options.links = f.mesh.links();
+    const evidence = f.run();
+    expect(evidence.available).toBe(true);
+    expect(evidence.images[0]).toBe(image);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    f.options.enabled = false;
+    f.run();
+    expect(f.run().available).toBe(false);
+    expect(f.run().images).toEqual([]);
+  });
+
   it('rejects legacy index-only tags', () => {
     const f = setup();
     f.run().handleControl('camera', { ...f.response, tag: { dart: 0 } }, bytes);
@@ -178,9 +206,11 @@ describe('dart evidence admission', () => {
   it('rejects a response after its camera link is replaced, even before a render', () => {
     const f = setup(true);
     const evidence = f.run();
-    f.wires.set('camera', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
+    f.wires.set('camera', { ready: true, sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     evidence.handleControl('camera', f.response, bytes);
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+    // A replaced link is a mesh change, and the mesh reports every one of those as new links.
+    f.options.links = f.mesh.links();
     f.run();
     expect(f.wires.get('camera')!.sendControl).toHaveBeenCalledOnce();
   });
@@ -205,6 +235,273 @@ describe('dart evidence admission', () => {
     f.options.enabled = true;
     f.options.boardId = 'absent-board';
     expect(f.run().available).toBe(false);
+  });
+});
+
+describe('which scorer is asked', () => {
+  const placedBy = (winningScorer: string): Partial<DartThrow> => ({ detection: {
+    expectedScorers: 2, reportingScorers: 2, contributingScorers: 1, winningScorer, winningScorerId: `public-${winningScorer.toLowerCase()}`, winningConfidence: 0.9,
+  } satisfies DartDetection });
+  const asked = (f: ReturnType<typeof setup>, peerId: string) => f.wires.get(peerId)!.sendControl.mock.calls.length;
+
+  it('asks the scorer that placed the dart, not the live camera', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(0);
+  });
+
+  it('retries the same winning scorer after its old label moves to another camera', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    f.peers.find((peer) => peer.peerId === 'left')!.scorer = 'Renamed';
+    f.peers.find((peer) => peer.peerId === 'camera')!.scorer = 'Left';
+    f.wires.set('left', { ready: true, sendControl: vi.fn(() => true) });
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(0);
+    expect(f.options.currentVisit.darts[0].detection?.winningScorer).toBe('Left');
+  });
+
+  it('falls back to the live camera when the scorer that placed the dart is not sharing', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Gone') });
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(0);
+  });
+
+  it('asks a connected fallback when the winning scorer has an unusable link', () => {
+    const f = setup(false, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    f.wires.get('left')!.ready = false;
+    f.wires.get('left')!.sendControl.mockReturnValue(false);
+    f.options.isThrower = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(0);
+  });
+
+  it('falls back when a pending link fails, and still accepts its delayed picture', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const request = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.wires.get('left')!.ready = false;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(1);
+
+    // A recovering link can still deliver the original answer. Keep the first valid picture.
+    f.wires.get('left')!.ready = true;
+    f.options.links = f.mesh.links();
+    f.run().handleControl('left', { ...f.response, id: request.id }, bytes);
+    const image = f.run().images[0];
+    expect(image).toMatch(/^blob:/);
+    const fallback = f.wires.get('camera')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: fallback.id }, bytes);
+    expect(f.run().images[0]).toBe(image);
+    expect(asked(f, 'left')).toBe(1);
+  });
+
+  it.each([false, true])('retries a sole scorer when its same link recovers (pending=%s)', (pending) => {
+    const f = setup(pending);
+    f.wires.get('camera')!.ready = false;
+    f.options.isThrower = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(Number(pending));
+    expect(f.run().available).toBe(true); // reserve the strip through the outage
+
+    f.wires.get('camera')!.ready = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(Number(pending) + 1);
+    const request = f.wires.get('camera')!.sendControl.mock.calls.at(-1)![0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: request.id }, bytes);
+    const image = f.run().images[0];
+    expect(image).toMatch(/^blob:/);
+
+    // Later outages must neither discard a received picture nor request it again.
+    for (const ready of [false, true]) {
+      f.wires.get('camera')!.ready = ready;
+      f.options.links = f.mesh.links();
+      expect(f.run().images[0]).toBe(image);
+    }
+    expect(asked(f, 'camera')).toBe(Number(pending) + 1);
+  });
+
+  it('asks the live camera first about a manually added dart', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+    expect(asked(f, 'camera')).toBe(1);
+  });
+
+  it('passes over a live camera whose camera is off, then takes the rest by label', () => {
+    const f = setup(true, { extra: [ownScorer('zed', 'Zed'), ownScorer('left', 'Left')] });
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    f.options.links = f.mesh.links();
+    f.options.currentVisit = { ...f.options.currentVisit, darts: [{ ...f.options.currentVisit.darts[0], id: 'next' }] };
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'zed')).toBe(0);
+  });
+
+  it('has no evidence at all when no scorer of ours has a camera on', () => {
+    const f = meshFixture();
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    const evidence = render(() => useDartEvidence({ mesh: f.mesh, links: f.mesh.links(), matchId: 'match',
+      boardId: 'board', isThrower: true, enabled: true,
+      currentVisit: { id: 'visit', playerId: 'thrower', locked: false, darts: [{ ...makeDart('S20'), id: 'dart' }] } }));
+    expect(evidence.available).toBe(false);
+    expect(f.wires.get('camera')!.sendControl).not.toHaveBeenCalled();
+  });
+
+  it('asks again of the next scorer when the one asked leaves the roster', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    expect(asked(f, 'left')).toBe(1);
+    f.peers.splice(f.peers.findIndex((peer) => peer.peerId === 'left'), 1);
+    f.wires.delete('left');
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+  });
+
+  it('falls back when the live camera stops without losing its link, and takes a picture already on its way', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+    f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    // The stopped camera's picture was sent before it stopped. Everyone else takes it, so the
+    // thrower does too — and then the fallback's is a duplicate.
+    f.run().handleControl('camera', f.response, bytes);
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    const leftRequest = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('left', { ...f.response, id: leftRequest.id }, bytes);
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('falls back on a matching refusal without looping, and clears refusals on dart replacement', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const leftRequest = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    const refusal: ControlMessage = { kind: 'still_refused', id: leftRequest.id, reason: 'no_frame' };
+    f.run().handleControl('camera', refusal); // wrong sender
+    f.run().handleControl('left', { ...refusal, id: 'stale' });
+    f.run();
+    expect(asked(f, 'camera')).toBe(0);
+    f.run().handleControl('left', refusal);
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    const cameraRequest = f.wires.get('camera')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...refusal, id: cameraRequest.id });
+    f.run();
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'left')).toBe(1);
+    expect(asked(f, 'camera')).toBe(1);
+    f.options.currentVisit = { ...f.options.currentVisit, darts: [{ ...f.options.currentVisit.darts[0], id: 'replacement' }] };
+    f.run();
+    expect(asked(f, 'left')).toBe(2);
+  });
+
+  describe('after a refusal', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    /** The scorer refuses the last request it was sent, and the hook renders again. */
+    function refuseLatest(f: ReturnType<typeof setup>, peerId: string) {
+      const calls = f.wires.get(peerId)!.sendControl.mock.calls;
+      const request = calls[calls.length - 1][0] as { id: string };
+      f.run().handleControl(peerId, { kind: 'still_refused', id: request.id, reason: 'not_located' });
+      f.run();
+    }
+
+    it('asks the same scorer again once its back-off is over, and not after three refusals', () => {
+      const f = setup(true);
+      refuseLatest(f, 'camera');
+      expect(asked(f, 'camera')).toBe(1); // left alone while it backs off
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+      refuseLatest(f, 'camera');
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(3);
+      refuseLatest(f, 'camera');
+      vi.advanceTimersByTime(60_000);
+      f.run();
+      expect(asked(f, 'camera')).toBe(3);
+    });
+
+    it('asks again when the back-off timer fires, whatever the wall clock says', () => {
+      const f = setup(true);
+      refuseLatest(f, 'camera');
+      vi.setSystemTime(Date.now() - 60_000); // the clock is stepped back meanwhile
+      vi.advanceTimersByTime(1500);
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+    });
+
+    it('does not hold a camera back for a refusal it sent while stopping', () => {
+      const f = setup(true);
+      const camera = f.peers.find((peer) => peer.peerId === 'camera')!;
+      camera.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      // The phone's answer to the request its stop dropped arrives after the roster said so.
+      refuseLatest(f, 'camera');
+      camera.cameraOn = true;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'camera')).toBe(2);
+    });
+
+    it('gives a camera that stopped and came back a clean record', () => {
+      const f = setup(true);
+      for (let refusal = 0; refusal < 3; refusal++) {
+        refuseLatest(f, 'camera');
+        vi.advanceTimersByTime(1500);
+        f.run();
+      }
+      expect(asked(f, 'camera')).toBe(3);
+      const camera = f.peers.find((peer) => peer.peerId === 'camera')!;
+      camera.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      camera.cameraOn = true;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'camera')).toBe(4);
+    });
+  });
+
+  it('times the round trip from the request that was answered, not the latest', () => {
+    e2e.enabled = true;
+    try {
+      const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+      const f = setup(true, { extra: [ownScorer('left', 'Left')] });
+      now.mockReturnValue(1100);
+      f.peers.find((peer) => peer.peerId === 'camera')!.cameraOn = false;
+      f.options.links = f.mesh.links();
+      f.run();
+      expect(asked(f, 'left')).toBe(1);
+      now.mockReturnValue(1150);
+      f.run().handleControl('camera', f.response, bytes);
+      expect(f.run().timings.current).toEqual([{ dart: 0, roundTripMs: 150, bytes: bytes.byteLength }]);
+    } finally {
+      e2e.enabled = false;
+    }
+  });
+
+  it('takes the answer only from the scorer it asked', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const request = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: request.id }, bytes);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    f.run().handleControl('left', { ...f.response, id: request.id }, bytes);
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('lets an observer take the picture from any scorer at the thrower\'s board', () => {
+    const f = setup(false, { extra: [ownScorer('left', 'Left', { own: false, role: 'opponent' })] });
+    f.run().handleControl('left', f.response, bytes);
+    expect(f.run().images[0]).toMatch(/^blob:/);
   });
 });
 
@@ -248,11 +545,57 @@ describe('asynchronous still capture', () => {
     expect(f.wires.get('owner')!.sendControl).not.toHaveBeenCalled();
   });
 
-  it.each(['mesh', 'source', 'owner', 'link'])('drops active and queued work when its %s changes', async (change) => {
+  it.each([
+    { reason: 'restarted', next: {}, removeSource: false },
+    { reason: 'no_frame', next: null, removeSource: false },
+    { reason: 'no_frame', next: null, removeSource: true },
+  ] as const)('tells the owner $reason when the stream changes (missing source: $removeSource)', async ({ reason, next, removeSource }) => {
     const f = meshFixture();
     let resolve!: (value: Capture) => void;
     const pending = new Promise<Capture>((done) => { resolve = done; });
-    let sourceIdentity = {};
+    let sourceIdentity: object | null = {};
+    const source = { capture: vi.fn(() => pending), located: () => true, identity: () => sourceIdentity };
+    const sourceRef = { current: source as typeof source | null };
+    const responder = render(() => useStillResponder({ current: f.mesh }, sourceRef));
+    responder.handleControl('owner', { kind: 'still_request', id: 'one', to: ['owner'] });
+    responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
+    // A camera restart is a new stream; stopping may also remove the source wrapper entirely.
+    sourceIdentity = next;
+    if (removeSource) sourceRef.current = null;
+    resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });
+    const send = f.wires.get('owner')!.sendControl;
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls.map(([message]) => message)).toEqual(['one', 'two'].map((id) =>
+      ({ kind: 'still_refused', id, reason })));
+    expect(source.capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a capture that failed outright, and goes on with the queue', async () => {
+    const f = meshFixture();
+    const identity = {};
+    const source = {
+      capture: vi.fn()
+        .mockRejectedValueOnce(new Error('EncodingError'))
+        .mockResolvedValueOnce({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } }),
+      located: () => true,
+      identity: () => identity,
+    };
+    const responder = render(() => useStillResponder({ current: f.mesh }, { current: source }));
+    responder.handleControl('owner', { kind: 'still_request', id: 'one', to: ['owner'] });
+    responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
+    const send = f.wires.get('owner')!.sendControl;
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls.map(([message]) => message)).toEqual([
+      { kind: 'still_refused', id: 'one', reason: 'no_frame' },
+      expect.objectContaining({ kind: 'still', id: 'two' }),
+    ]);
+  });
+
+  it.each(['mesh', 'owner', 'link'])('drops active and queued work in silence when its %s changes', async (change) => {
+    const f = meshFixture();
+    let resolve!: (value: Capture) => void;
+    const pending = new Promise<Capture>((done) => { resolve = done; });
+    const sourceIdentity = {};
     const source = { capture: vi.fn(() => pending), located: () => true, identity: () => sourceIdentity };
     const sourceRef = { current: source };
     const meshRef = { current: f.mesh };
@@ -261,9 +604,8 @@ describe('asynchronous still capture', () => {
     responder.handleControl('owner', { kind: 'still_request', id: 'two', to: ['owner'] });
     const originalLink = f.wires.get('owner')!;
     if (change === 'mesh') meshRef.current = meshFixture().mesh;
-    if (change === 'source') sourceIdentity = {};
     if (change === 'owner') f.peers.find((p) => p.peerId === 'owner')!.own = false;
-    if (change === 'link') f.wires.set('owner', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
+    if (change === 'link') f.wires.set('owner', { ready: true, sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });
     await vi.waitFor(() => expect(source.capture).toHaveBeenCalledTimes(1));
     await new Promise((done) => setTimeout(done, 10));

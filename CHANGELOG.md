@@ -1,13 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.7
 - Camera-scored darts keep detection meta data in the match history.
 - Dart evidence says where each dart came from.
-- Dart evidence is photographed by the scoring device that detected the dart.
-- Every scoring device set to "Stills only" or "Live video" takes dart evidence; the board camera
+- Every scoring device set to "Stills only" or "Live video" can take  dart evidence; the board camera
   is now only the live video camera and must be set to "Live video".
 - Scoring devices with the same name are told apart as "Phone (2)".
-- The "Live video" switch in the camera menu is now "Share media".
+- The "Live video" switch in the camera menu is now "Share media", disable it to opt out of camera sharing.
 - Fixed a powered-off scoring device sometimes showing as "offline".
 
 ## 1.2.6

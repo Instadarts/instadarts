@@ -229,7 +229,8 @@ arrive is the dart's, as it is for everyone else. Observers cannot know which sc
 receive the fan-out without issuing their own requests. Duplicate replies cannot replace an accepted image. Missing or outdated identity
 tags are ignored, including index-only tags from older clients. A change of board or visit clears
 evidence, and undo/replacement removes only the affected dart images and requests fresh ones. A
-request whose link has gone or whose camera stopped is asked again of the best remaining scorer.
+request is retried with the best remaining scorer with a writable link if its original link
+disappears or becomes unwritable, or its camera stops. If none is ready, it waits for a link to recover.
 A refusal moves the dart on to another scorer at once; the one that refused is asked again after a
 1.5 s back-off, until it has refused that dart three times, and starts with a clean record once its
 camera has stopped and come back. A refusal sent by a camera that is already off is part of it

@@ -208,8 +208,9 @@ export function useDartEvidence({
       }
     }
     for (const [index, request] of asked.current) {
-      // Stop waiting, and ask again of whichever scorer is best now.
-      if (!sameDart(index) || !eligible.has(request.link)) asked.current.delete(index);
+      // A failed connection can keep the same link and roster entry. Stop waiting while it is
+      // unwritable, but keep the issued request so a delayed answer can still be accepted.
+      if (!sameDart(index) || !eligible.has(request.link) || !request.link.ready) asked.current.delete(index);
     }
     const forget = (refusals: Map<PeerLink, Refusal>, link: PeerLink) => {
       const backoff = refusals.get(link)?.backoff;
@@ -246,12 +247,12 @@ export function useDartEvidence({
       if (asked.current.has(index) || urls.current[index]) continue;
       const dartId = darts[index].id;
       if (!dartId) continue;
-      // Not a scorer that refused this dart and is still being left alone, or has refused too often.
+      // Only writable links, excluding a scorer still backing off or one that refused too often.
       const refusals = refused.current.get(index);
       const candidates = sources.filter((peer) => {
         const link = meshRef.current?.link(peer.peerId);
         const refusal = link ? refusals?.get(link) : undefined;
-        return link && (!refusal || (refusal.count < MAX_REFUSALS && !refusal.backoff));
+        return link?.ready && (!refusal || (refusal.count < MAX_REFUSALS && !refusal.backoff));
       });
       const source = scorerFor(darts[index], candidates);
       const link = source ? meshRef.current?.link(source.peerId) : undefined;

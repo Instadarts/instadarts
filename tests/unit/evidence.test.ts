@@ -65,9 +65,10 @@ function meshFixture(extra: MediaPeer[] = []) {
     own: true, role: 'owner', polite: false, send: true, recv: true };
   const peers = [camera, opponent, owner, ...extra];
   const sendControl = () => vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true);
-  const wires = new Map(peers.map((peer) => [peer.peerId, { sendControl: sendControl() }]));
+  const wires = new Map(peers.map((peer) => [peer.peerId, { ready: true, sendControl: sendControl() }]));
   const mesh = {
-    links: () => peers.map((peer) => ({ peer, ready: true, state: 'connected' })),
+    links: () => peers.map((peer) => ({ peer, ready: wires.get(peer.peerId)?.ready ?? false,
+      state: wires.get(peer.peerId)?.ready ? 'connected' : 'failed' })),
     link: (id: string) => wires.get(id),
     ownPeers: () => peers.filter((peer) => peer.own),
     isOwn: (id: string) => peers.some((peer) => peer.peerId === id && peer.own),
@@ -205,7 +206,7 @@ describe('dart evidence admission', () => {
   it('rejects a response after its camera link is replaced, even before a render', () => {
     const f = setup(true);
     const evidence = f.run();
-    f.wires.set('camera', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
+    f.wires.set('camera', { ready: true, sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     evidence.handleControl('camera', f.response, bytes);
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     // A replaced link is a mesh change, and the mesh reports every one of those as new links.
@@ -253,7 +254,7 @@ describe('which scorer is asked', () => {
     const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
     f.peers.find((peer) => peer.peerId === 'left')!.scorer = 'Renamed';
     f.peers.find((peer) => peer.peerId === 'camera')!.scorer = 'Left';
-    f.wires.set('left', { sendControl: vi.fn(() => true) });
+    f.wires.set('left', { ready: true, sendControl: vi.fn(() => true) });
     f.options.links = f.mesh.links();
     f.run();
     expect(asked(f, 'left')).toBe(1);
@@ -265,6 +266,65 @@ describe('which scorer is asked', () => {
     const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Gone') });
     expect(asked(f, 'camera')).toBe(1);
     expect(asked(f, 'left')).toBe(0);
+  });
+
+  it('asks a connected fallback when the winning scorer has an unusable link', () => {
+    const f = setup(false, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    f.wires.get('left')!.ready = false;
+    f.wires.get('left')!.sendControl.mockReturnValue(false);
+    f.options.isThrower = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(0);
+  });
+
+  it('falls back when a pending link fails, and still accepts its delayed picture', () => {
+    const f = setup(true, { extra: [ownScorer('left', 'Left')], dart: placedBy('Left') });
+    const request = f.wires.get('left')!.sendControl.mock.calls[0][0] as { id: string };
+    f.wires.get('left')!.ready = false;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(1);
+    expect(asked(f, 'left')).toBe(1);
+
+    // A recovering link can still deliver the original answer. Keep the first valid picture.
+    f.wires.get('left')!.ready = true;
+    f.options.links = f.mesh.links();
+    f.run().handleControl('left', { ...f.response, id: request.id }, bytes);
+    const image = f.run().images[0];
+    expect(image).toMatch(/^blob:/);
+    const fallback = f.wires.get('camera')!.sendControl.mock.calls[0][0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: fallback.id }, bytes);
+    expect(f.run().images[0]).toBe(image);
+    expect(asked(f, 'left')).toBe(1);
+  });
+
+  it.each([false, true])('retries a sole scorer when its same link recovers (pending=%s)', (pending) => {
+    const f = setup(pending);
+    f.wires.get('camera')!.ready = false;
+    f.options.isThrower = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(Number(pending));
+    expect(f.run().available).toBe(true); // reserve the strip through the outage
+
+    f.wires.get('camera')!.ready = true;
+    f.options.links = f.mesh.links();
+    f.run();
+    expect(asked(f, 'camera')).toBe(Number(pending) + 1);
+    const request = f.wires.get('camera')!.sendControl.mock.calls.at(-1)![0] as { id: string };
+    f.run().handleControl('camera', { ...f.response, id: request.id }, bytes);
+    const image = f.run().images[0];
+    expect(image).toMatch(/^blob:/);
+
+    // Later outages must neither discard a received picture nor request it again.
+    for (const ready of [false, true]) {
+      f.wires.get('camera')!.ready = ready;
+      f.options.links = f.mesh.links();
+      expect(f.run().images[0]).toBe(image);
+    }
+    expect(asked(f, 'camera')).toBe(Number(pending) + 1);
   });
 
   it('asks the live camera first about a manually added dart', () => {
@@ -545,7 +605,7 @@ describe('asynchronous still capture', () => {
     const originalLink = f.wires.get('owner')!;
     if (change === 'mesh') meshRef.current = meshFixture().mesh;
     if (change === 'owner') f.peers.find((p) => p.peerId === 'owner')!.own = false;
-    if (change === 'link') f.wires.set('owner', { sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
+    if (change === 'link') f.wires.set('owner', { ready: true, sendControl: vi.fn((_message: ControlMessage, _payload?: Uint8Array) => true) });
     resolve({ blob: new Blob(['jpeg']), timing: { drawMs: 0, encodeMs: 0 } });
     await vi.waitFor(() => expect(source.capture).toHaveBeenCalledTimes(1));
     await new Promise((done) => setTimeout(done, 10));

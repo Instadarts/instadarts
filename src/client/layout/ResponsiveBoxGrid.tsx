@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+  type RefAttributes,
+} from 'react';
 import {
   DEFAULT_BREAKPOINTS,
   DEFAULT_COLS,
@@ -10,6 +19,7 @@ import {
   type Compactor,
   type Layout,
   type LayoutItem,
+  type ResponsiveGridLayoutProps,
   type ResponsiveLayouts,
 } from 'react-grid-layout';
 import { useLayoutEditor } from './LayoutEditorContext';
@@ -28,6 +38,14 @@ const ROW_HEIGHT = 8;
 const GAP = 12;
 const DOCUMENT_COMPACTOR = getCompactor('vertical', false, true);
 const MATCH_COMPACTOR = getCompactor('vertical', true, false);
+
+// react-grid-layout 2.3 wraps Responsive in forwardRef, which fixes its breakpoint type to `string`.
+// The grid only reports breakpoints named by its `breakpoints` prop — the defaults here, whose keys
+// are exactly FrontendBreakpoint — so the narrower type is restored once rather than widening the
+// breakpoint state and commitLayouts to accept any string.
+const FrontendResponsive = Responsive as ComponentType<
+  ResponsiveGridLayoutProps<FrontendBreakpoint> & RefAttributes<HTMLDivElement>
+>;
 
 export interface ResponsiveBoxItem {
   id: string;
@@ -363,7 +381,7 @@ export function ResponsiveBoxGrid({
   return (
     <div ref={containerRef} className="frontend-grid-host">
       {mounted && (
-        <Responsive<FrontendBreakpoint>
+        <FrontendResponsive
           key={generation}
           width={width}
           layouts={layouts}
@@ -423,7 +441,7 @@ export function ResponsiveBoxGrid({
               </div>
             );
           })}
-        </Responsive>
+        </FrontendResponsive>
       )}
     </div>
   );

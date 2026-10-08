@@ -300,18 +300,16 @@ function fillCpuInputBuffer(sourceFrame: FrameSource, inputSize: number, framing
   return inputBuffer;
 }
 
-function outputNeedsWasmCopy(tensor: Tensor): boolean {
+/**
+ * Whether an output still has to be copied into WASM memory before it can be read.
+ *
+ * `accelerator` says where a tensor's memory is in the same terms `moveTo` takes as a destination,
+ * so `"wasm"` means it is already there. `getBufferType()` is LiteRT's numeric buffer-type enum and
+ * never equals that string.
+ */
+export function outputNeedsWasmCopy(tensor: Tensor): boolean {
   if (typeof tensor?.moveTo !== "function") return false;
-  // Both of these are read loosely on purpose: which one LiteRT provides has changed between
-  // versions, and the answer only decides whether a copy is needed before reading.
-  const loose = tensor as unknown as { getBufferType?: () => unknown; accelerator?: unknown };
-  if (typeof loose.getBufferType === "function") {
-    return String(loose.getBufferType()) !== "wasm";
-  }
-  if (loose.accelerator) {
-    return String(loose.accelerator) !== "wasm";
-  }
-  return true;
+  return tensor.accelerator !== "wasm";
 }
 
 function createWebGpuPreprocessor() {
@@ -496,35 +494,42 @@ function createWebGpuPreprocessor() {
   };
 }
 
-async function readOutputs(outputs: TensorList | null, needsWasmCopy: (tensor: Tensor) => boolean) {
-  const result: ArrayLike<number>[] = [];
-  if (outputs) {
-    for (const out of outputs) {
-      if (!out) continue;
-      let cpu: Tensor = out;
+/**
+ * Every output, read into a typed array in the model's order.
+ *
+ * All the copies into WASM memory start before any is awaited. On the GPU, LiteRT's `run` returns
+ * with the inference still queued, and each `moveTo` is a staging copy and a `mapAsync` round trip
+ * of its own: awaited one after the other, the first waits out the inference and the second then
+ * pays a whole round trip to an idle GPU. Started together, both copies queue behind the inference
+ * and come back together.
+ *
+ * Every tensor is released whatever happens, and a failed readback rejects with its own error.
+ */
+export async function readOutputs(outputs: TensorList | null, needsWasmCopy: (tensor: Tensor) => boolean) {
+  if (!outputs) return [];
+  const reads = Array.from(outputs)
+    .filter((out): out is Tensor => Boolean(out))
+    .map(async (out) => {
       let moved: Tensor | null = null;
-      if (needsWasmCopy(out)) {
-        try {
-          moved = await out.moveTo("wasm");
-          cpu = moved;
-        } catch {
-          // Already on CPU
-        }
+      try {
+        if (needsWasmCopy(out)) moved = await out.moveTo("wasm");
+        const cpu = moved ?? out;
+        return typeof cpu.toTypedArray === "function" ? cpu.toTypedArray() : null;
+      } finally {
+        deleteTensor(moved);
+        // A successful `moveTo` already deleted it; deleting twice does nothing.
+        deleteTensor(out);
       }
-      if (typeof cpu.toTypedArray === "function") {
-        result.push(cpu.toTypedArray());
-      }
-      if (moved && moved !== out && typeof moved.delete === "function") {
-        moved.delete();
-      }
-      if (typeof out.delete === "function") {
-        out.delete();
-      }
-    }
-    // Delete the outputs container itself
-    if (typeof outputs.delete === "function") {
-      outputs.delete();
-    }
+    });
+  // Settled rather than raced, so the container goes only once every read has released its tensors.
+  const settled = await Promise.allSettled(reads);
+  if (typeof outputs.delete === "function") {
+    outputs.delete();
+  }
+  const result: ArrayLike<number>[] = [];
+  for (const read of settled) {
+    if (read.status === "rejected") throw read.reason;
+    if (read.value) result.push(read.value);
   }
   return result;
 }
@@ -605,7 +610,8 @@ function createWasmRunner(model: any): ModelRunner {
       try {
         outputs = await model.run(inputTensor);
       } finally {
-        // Both, when the GPU path ran: `moveTo` hands back a second tensor and leaves the first.
+        // Both, when the GPU path ran. A successful `moveTo` already deleted `gpuTensor`, and deleting
+        // twice does nothing; a failed one left it for this.
         deleteTensor(gpuTensor);
         deleteTensor(inputTensor);
       }

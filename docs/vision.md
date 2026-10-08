@@ -81,6 +81,7 @@ The implementation is in [`server/scoring/`](../src/server/scoring/), principall
 
 | | where | what it pins |
 |---|---|---|
+| Output readback | `tests/unit/vision-readback.test.ts` | both outputs' copies started before either is awaited, the model's output order, every tensor released and the readback's own error reported when one fails, no copy of outputs already in WASM memory |
 | Tensor decoding | `tests/unit/vision-postprocess.test.ts` | the `[C, N]` stride, the confidence floor, the 32 cap, pixel-vs-normalized coordinates |
 | Motion arithmetic | `tests/unit/vision-motion.test.ts` | luma weights, the Gaussian kernel and its edge clamping, the pixel threshold, tile counting |
 | Frame geometry | `tests/unit/frame.test.ts` | landscape/portrait centre crops and whole-image validation framing |
@@ -207,6 +208,10 @@ asks LiteRT for that device; when none exists, it requests an adapter and regist
   video texture straight into the tensor buffer. In CI, WebGPU is unavailable and the CPU canvas
   path runs instead, so the shader is never compiled. A wrong swizzle or a wrong normalization here
   produces *plausible but wrong* keypoints, not an error.
+- **The output readback** (`readOutputs` in `model.ts`) — on the GPU, both outputs' copies into WASM
+  memory start before either is awaited, so a frame pays one readback round trip instead of two. In
+  CI only the CPU runner reaches it, whose outputs need no copy. The unit test pins the order with
+  fake tensors; only a phone shows the time saved.
 - **The two motion shaders** (`motion.ts`: horizontal blur, then vertical-blur-diff-and-aggregate)
   — the WGSL reimplementation of what `motionAnalysis.ts` does in TypeScript. The unit tests pin the
   TypeScript; nothing pins that the shaders still agree with it. The split is two dispatches rather
